@@ -10,6 +10,7 @@
  */
 import { isAddress, type Hex } from "viem";
 import { SITE_URL, isChainKey, type ChainKey, CHAIN_KEY_PATTERN } from "../chainPublic.ts";
+import { parseXHandle } from "./xHandle.ts";
 
 export type MetaInput = { chain: ChainKey; launcher: string; salt: Hex; meta_key: Hex; name: string; symbol: string; description?: string; image_url?: string; website?: string; x_handle?: string };
 export const LIMITS = { name: 32, symbol: 10, description: 280 } as const;
@@ -41,8 +42,9 @@ export function validateMeta(m: Partial<MetaInput> & { meta_key?: string }): { o
   const website = url(m.website);
   if (image_url === null) return { ok: false, error: "image: https URL only" };
   if (website === null) return { ok: false, error: "website: https URL only" };
-  const x_handle = (m.x_handle ?? "").trim().replace(/^@/, "").slice(0, 15) || undefined;
-  if (x_handle && !/^[A-Za-z0-9_]{1,15}$/.test(x_handle)) return { ok: false, error: "x: letters, digits, _" };
+  const x = parseXHandle(m.x_handle);
+  if (!x.ok) return { ok: false, error: x.error };
+  const x_handle = x.handle || undefined;
   return { ok: true, value: { chain: m.chain, launcher: m.launcher, salt: m.salt as Hex, meta_key: meta_key.toLowerCase() as Hex, name, symbol, description, image_url, website, x_handle } };
 }
 

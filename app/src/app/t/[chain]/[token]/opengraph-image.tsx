@@ -14,13 +14,19 @@ import sharp from "sharp";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GITLAWB_LOGO_BG, GITLAWB_LOGO_PATH } from "@/lib/launchpad/gitlawb";
+import { MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH } from "@/lib/launchpad/museworld";
 
-/** Gitlawb's logo from public/, inlined once per process (satori needs a data URL or absolute URL). */
-let gitlawbLogo: Promise<string | null> | null = null;
-function gitlawbLogoDataUrl(): Promise<string | null> {
-  return (gitlawbLogo ??= readFile(path.join(process.cwd(), "public", GITLAWB_LOGO_PATH))
-    .then((b) => `data:image/png;base64,${b.toString("base64")}`)
-    .catch(() => null));
+/** Brand logos from public/, inlined once per process each (satori needs a data URL or absolute URL). */
+const brandLogos = new Map<string, Promise<string | null>>();
+function logoDataUrl(publicPath: string): Promise<string | null> {
+  let p = brandLogos.get(publicPath);
+  if (!p) {
+    p = readFile(path.join(process.cwd(), "public", publicPath))
+      .then((b) => `data:image/png;base64,${b.toString("base64")}`)
+      .catch(() => null);
+    brandLogos.set(publicPath, p);
+  }
+  return p;
 }
 
 export const alt = "token on openlaunch.lol";
@@ -69,7 +75,9 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
   const [usd, fonts] = await Promise.all([ethUsd(), loadOgFonts()]);
   const l = isChainKey(chain) && isAddress(token) ? await memo(`og:${chain}:${token.toLowerCase()}`, 30_000, () => getLaunch(chain, token, usd)) : null;
   const card = l ? shapeCard(l, nowMs()) : null;
-  const glLogo = card?.quote?.kind === "gitlawb" ? await gitlawbLogoDataUrl() : null;
+  const glLogo = card?.quote?.kind === "gitlawb" ? await logoDataUrl(GITLAWB_LOGO_PATH) : null;
+  const mwLogo = card?.quote?.kind === "museworld" ? await logoDataUrl(MUSEWORLD_LOGO_PATH) : null;
+  const official = card?.quote?.kind === "museworld";
   const logo = l ? await memo(`og-logo:${chain}:${token.toLowerCase()}`, 60_000, () => ownLogo(l.image_url)) : null;
   const h = hueOf(token);
   return new ImageResponse(
@@ -112,13 +120,17 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 18, marginTop: 18 }}>
                 <span style={{ fontFamily: "Unbounded, Inter, sans-serif", fontWeight: 700, fontSize: 64, letterSpacing: -2 }}>{card.mcap}</span>
-                <span style={{ fontFamily: "Space Mono, monospace", fontSize: 32, fontWeight: 700, color: card.up ? UP : DOWN }}>{card.change}</span>
+                <span style={{ fontFamily: "Space Mono, monospace", fontSize: 32, fontWeight: 700, color: card.up === null ? MUTED : card.up ? UP : DOWN }}>{card.change}</span>
                 <span style={{ fontSize: 22, color: MUTED }}>market cap · since launch</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 26 }}>
                 {card.quote ? (
-                  <span style={{ display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 16px 0 7px", borderRadius: 999, border: `1px solid ${LINE}`, background: "#fff", color: BODY, fontSize: 19, fontWeight: 600, whiteSpace: "nowrap" }}>
-                    {card.quote.kind === "gitlawb" ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 16px 0 7px", borderRadius: 999, border: `1px solid ${official ? MUSEWORLD_BLUE : LINE}`, background: official ? MUSEWORLD_BLUE : "#fff", color: official ? "#fff" : BODY, fontSize: 19, fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {card.quote.kind === "museworld" ? (
+                      <span style={{ display: "flex", width: 30, height: 30, borderRadius: 8, overflow: "hidden" }}>
+                        {mwLogo ? <img src={mwLogo} width={30} height={30} alt="" /> : null}
+                      </span>
+                    ) : card.quote.kind === "gitlawb" ? (
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: GITLAWB_LOGO_BG, overflow: "hidden" }}>
                         {glLogo ? <img src={glLogo} width={30} height={30} alt="" /> : null}
                       </span>
@@ -127,7 +139,7 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
                         {card.quote.ticker}
                       </span>
                     )}
-                    priced in {card.quote.symbol}
+                    {official ? `official · priced in ${card.quote.symbol}` : `priced in ${card.quote.symbol}`}
                   </span>
                 ) : null}
                 {[card.fee, "liquidity locked forever", card.age].map((t, i) => (

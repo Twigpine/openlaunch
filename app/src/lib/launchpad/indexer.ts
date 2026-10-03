@@ -4,7 +4,8 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, errMessage, type Db } from "@/lib/db";
 import { LAUNCH_FACTORY_ABI, LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCHED_EVENT, POOL_SWAP_EVENT, LOCKER_EVENTS } from "./abi";
-import { CONFIGURED_CHAINS, launchpad } from "./config";
+import { CONFIGURED_CHAINS, launchpad, listedQuoteAddresses } from "./config";
+import { validDecimals } from "./unlisted-quote";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { fetchLogsSplit, isRangeTooLarge } from "./log-range";
@@ -475,6 +476,7 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
     CONFIGURED_CHAINS.map(async (c) => {
       out[c] = await pollLaunches(c).catch((e): LaunchSyncResult => ({ status: "skipped", reason: errMessage(e) }));
       await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, errMessage(e)));
+      await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
       await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));
       await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, errMessage(e)));
     }),
@@ -525,6 +527,45 @@ export async function healLaunchReads(chain: ChainKey): Promise<number> {
   }
   if (healed) console.log(`[launch-sync] healed ${healed} launch row(s) on ${chain}`);
   return healed;
+}
+
+/**
+ * Read symbol / name / decimals of quotes no list knows (unlisted pairs, lib/launchpad/unlisted-quote.ts) into
+ * bb_quote_tokens. New quotes first; a quote whose decimals did not answer is retried every 10 minutes. The raw
+ * symbol is stored: what may be shown is decided at read time, so a change to the reserved list applies to old rows.
+ */
+export async function healQuoteTokens(chain: ChainKey): Promise<number> {
+  const db = maybeDb();
+  if (!db || skipReason(chain)) return 0;
+  const cid = chainIdOf(chain);
+  const rows = await db<{ quote: string }[]>`
+    SELECT l.quote FROM bb_launches l
+      LEFT JOIN bb_quote_tokens q ON q.chain_id = l.chain_id AND q.address = l.quote
+     WHERE l.chain_id = ${cid} AND l.quote <> ALL(${listedQuoteAddresses(chain)})
+       AND (q.address IS NULL OR (q.decimals IS NULL AND q.checked_at < now() - interval '10 minutes'))
+     GROUP BY l.quote, q.address ORDER BY (q.address IS NULL) DESC, max(l.block_number) DESC LIMIT 10`;
+  if (rows.length === 0) return 0;
+  const client = publicClient(chain);
+  let resolved = 0;
+  for (const r of rows) {
+    const address = r.quote as Address;
+    const read = <T,>(functionName: "symbol" | "name" | "decimals") => client.readContract({ address, abi: ERC20_MIN_ABI, functionName }).then((v) => v as T).catch(() => null);
+    const [symbol, name, decimals] = await Promise.all([read<string>("symbol"), read<string>("name"), read<number>("decimals")]);
+    const d = decimals !== null && validDecimals(Number(decimals)) ? Number(decimals) : null;
+    // Postgres text refuses NUL, and a token picks its own strings: keep printable characters only
+    const text = (v: string | null) => (v === null ? null : v.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 64));
+    await db`
+      INSERT INTO bb_quote_tokens (chain_id, address, symbol, name, decimals, checked_at)
+      VALUES (${cid}, ${r.quote}, ${text(symbol)}, ${text(name)}, ${d}, now())
+      ON CONFLICT (chain_id, address) DO UPDATE SET
+        symbol = COALESCE(EXCLUDED.symbol, bb_quote_tokens.symbol),
+        name = COALESCE(EXCLUDED.name, bb_quote_tokens.name),
+        decimals = COALESCE(EXCLUDED.decimals, bb_quote_tokens.decimals),
+        checked_at = now()`;
+    if (d !== null) resolved++;
+  }
+  if (resolved) console.log(`[launch-sync] read ${resolved} unlisted quote token(s) on ${chain}`);
+  return resolved;
 }
 
 /**

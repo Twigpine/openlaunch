@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import LaunchForm from "@/components/launchpad/LaunchForm";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
 import { DEFAULT_CHAIN, chainKeyOr, type ChainKey } from "@/lib/chainPublic";
 import { CONFIGURED_CHAINS, launchpad } from "@/lib/launchpad/config";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/launch",
   title: "Launch a token for free",
   description: "Deploy a token on Base, Robinhood Chain or Arc with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
-};
+});
 
 export const dynamic = "force-dynamic";
 

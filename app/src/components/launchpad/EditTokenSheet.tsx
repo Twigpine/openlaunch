@@ -68,7 +68,7 @@ export default function EditTokenSheet({ chain, token, symbol, initial, onClose,
           </div>
           <div>
             <label className={label} htmlFor="e-x">X</label>
-            <input id="e-x" className={input} value={f.x_handle} onChange={(e) => setF({ ...f, x_handle: e.target.value })} placeholder="@handle" />
+            <input id="e-x" className={input} value={f.x_handle} onChange={(e) => setF({ ...f, x_handle: e.target.value })} onBlur={() => { if (v.ok && v.value.x_handle) setF((p) => ({ ...p, x_handle: `@${v.value.x_handle}` })); }} placeholder="@handle or x.com link" autoCapitalize="none" spellCheck={false} />
           </div>
         </div>
         {!v.ok ? <p className="text-xs text-warm-ink">{v.error}</p> : null}

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, ChartNoAxesCombined } from "lucide-react";
 import TokenAvatar from "./TokenAvatar";
-import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
+import { isGitlawbQuote } from "./GitlawbBadge";
+import { QuoteBrandBadge, isMuseworldQuote } from "./MuseworldBadge";
 import ChangeChip from "./ChangeChip";
 import { useLive } from "./LiveProvider";
 import type { LaunchRow } from "@/lib/launchpad/queries";
@@ -83,7 +84,7 @@ export default function TrendingStrip({ initial }: { initial: Snap }) {
                 <Link href={`/t/${row.chain}/${row.token}`} className={`group block h-full rounded-xl border bg-card p-3.5 transition-colors hover:border-muted motion-reduce:transition-none ${index === 0 ? "border-line-strong" : "border-line"}`}>
                   <div className="mb-3 flex items-center justify-between text-[11px] text-muted">
                     <span className="font-mono tnum">0{index + 1}<span className="sr-only"> ranked</span></span>
-                    {isGitlawbQuote(row.quote_key) ? <span className="flex items-center gap-1">{CHAIN_SHORT[row.chain]} · <GitlawbBadge /></span> : <span>{CHAIN_SHORT[row.chain]} · {row.quote_symbol}</span>}
+                    {isGitlawbQuote(row.quote_key) || isMuseworldQuote(row.quote_key) ? <span className="flex items-center gap-1">{CHAIN_SHORT[row.chain]} · <QuoteBrandBadge quoteKey={row.quote_key} /></span> : <span>{CHAIN_SHORT[row.chain]} · {row.quote_symbol}</span>}
                     <ArrowUpRight size={13} aria-hidden="true" className="text-muted group-hover:text-ink" />
                   </div>
                   <div className="flex min-w-0 items-center gap-2">

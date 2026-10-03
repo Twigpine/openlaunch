@@ -21,7 +21,8 @@ export default function LaunchHero({ configured }: { ethUsd?: number | null; con
             <span className="text-brand">Free.</span> On Base, Robinhood or Arc.
           </h1>
           <p className="mt-6 text-base sm:text-lg text-body max-w-[32rem] leading-relaxed text-pretty">
-            One transaction. Your token, a Uniswap v4 pool, and a liquidity position locked forever. 100% of the supply goes into the pool at launch. We take nothing. You only pay gas.
+            {/* the brand as a plain word, once, above the fold: the title and footer alone read as a domain */}
+            <Link href="/about" className="font-semibold text-ink hover:text-brand underline decoration-line-strong underline-offset-4">openlaunch</Link> is the free, open-source launchpad. One transaction: your token, a Uniswap v4 pool, and a liquidity position locked forever. 100% of the supply goes into the pool at launch. We take nothing. You only pay gas.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
             {/* the header watches this id: while it is on screen the header CTA stays quiet (one filled blue per screen) */}

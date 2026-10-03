@@ -31,7 +31,7 @@ test("USD per unit: ETH's live price on ETH chains, one dollar for Arc's native 
   assert.equal(quoteUsdOf(quoteInfo("arc", NATIVE), ethUsd), 1, "never the ETH price on Arc");
   assert.equal(quoteUsdOf(quoteInfo("arc", "0x3600000000000000000000000000000000000000"), ethUsd), 1, "the ERC-20 face of the same USDC");
   const stray = quoteInfo("arc", "0x000000000000000000000000000000000000dEaD");
-  assert.equal(stray.key, "stock");
+  assert.equal(stray.key, "other", "an unlisted pair, never a stock and never ETH");
   assert.equal(quoteUsdOf(stray, ethUsd), null, "an unknown ERC-20 is never priced");
 });
 

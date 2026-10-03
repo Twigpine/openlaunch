@@ -2,11 +2,12 @@
 import { CHAIN_LABELS, type ChainKey } from "../chainKeys.ts";
 
 export type CardInput = { name: string; symbol: string; chain: ChainKey; fdv_usd: number | null; fdv_quote: number; quote_key: string; quote_symbol: string; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
-export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" } | null };
+export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean | null; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" | "museworld" } | null };
 
 const DEAD = "0x000000000000000000000000000000000000dead";
 
 function compact(n: number): string {
+  if (!Number.isFinite(n)) return "—";
   const a = Math.abs(n);
   if (a >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (a >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
@@ -22,30 +23,36 @@ export function feeLabel(lpFee: number, recipients: { payout: string; bps: numbe
 }
 
 export function ageLabel(iso: string, now: number): string {
-  const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
-  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m old`;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t) || !Number.isFinite(now)) return "—";
+  const s = Math.max(0, Math.floor((now - t) / 1000));
+  if (s < 60) return `${s}s old`;
+  if (s < 3600) return `${Math.floor(s / 60)}m old`;
   if (s < 86400) return `${Math.floor(s / 3600)}h old`;
   return `${Math.floor(s / 86400)}d old`;
 }
 
 export function shapeCard(l: CardInput, now: number): Card {
   const pct = l.change_from_launch * 100;
+  const finitePct = Number.isFinite(pct);
   return {
     title: l.name.slice(0, 28),
     symbol: l.symbol.slice(0, 12),
     chainLabel: CHAIN_LABELS[l.chain],
-    mcap: l.fdv_usd !== null ? `$${compact(l.fdv_usd)}` : `${compact(l.fdv_quote)} ${l.quote_symbol}`,
-    change: `${pct >= 0 ? "+" : ""}${Math.abs(pct) >= 1000 ? compact(pct) : pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%`,
-    up: pct >= 0,
+    // an unknown cap is one dash, not "$—" or "— ETH"
+    mcap: l.fdv_usd !== null ? (Number.isFinite(l.fdv_usd) ? `$${compact(l.fdv_usd)}` : "—") : Number.isFinite(l.fdv_quote) ? `${compact(l.fdv_quote)} ${l.quote_symbol}` : "—",
+    change: finitePct ? `${pct >= 0 ? "+" : ""}${Math.abs(pct) >= 1000 ? compact(pct) : pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%` : "—",
+    up: finitePct ? pct >= 0 : null,
     fee: feeLabel(l.lp_fee, l.recipients),
     age: ageLabel(l.block_time, now),
     quote: quotePillOf(l.quote_key, l.quote_symbol),
   };
 }
 
-/** "priced in" pill: registry stocks get a ticker tile, GITLAWB the Gitlawb tile; ETH / USDG / unknown ("?") get none. */
+/** "priced in" pill: registry stocks get a ticker tile, GITLAWB the Gitlawb tile, MUSEWORLD the blue Museworld pill; ETH / USDG / unlisted get none. */
 export function quotePillOf(quoteKey: string, quoteSymbol: string): Card["quote"] {
   if (quoteKey === "gitlawb") return { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" };
+  if (quoteKey === "museworld") return { symbol: "MUSEWORLD", ticker: "MW", kind: "museworld" };
   const sym = quoteSymbol.trim();
   if (quoteKey !== "stock" || !sym || sym === "?") return null;
   return { symbol: sym.slice(0, 12), ticker: sym.replace(/c$/, "").toUpperCase().slice(0, 5), kind: "stock" };

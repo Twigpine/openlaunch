@@ -2,13 +2,15 @@ import Link from "next/link";
 import { ArrowRight, ArrowUp, ArrowUpRight, FileCode2 } from "lucide-react";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X } from "@/lib/brand";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, explorerAddress } from "@/lib/chainPublic";
-import { launchpad } from "@/lib/launchpad/config";
+import { hasChainPage, launchpad } from "@/lib/launchpad/config";
+import { chainLandingPath } from "@/lib/chainLanding";
 import Mark from "./launchpad/Mark";
 import styles from "./Footer.module.css";
 
 const EXPLORE = [
   { href: "/", label: "Launchpad" },
   { href: "/rules", label: "How it works" },
+  { href: "/about", label: "About openlaunch" },
   { href: "/feed", label: "Community posts" },
   { href: "/me", label: "Your dashboard" },
 ];
@@ -55,7 +57,7 @@ export default function Footer() {
             const { factory, locker } = launchpad(chain);
             return (
               <div className={styles.chain} key={chain}>
-                <div className={styles.chainName}>{CHAIN_LABELS[chain]}<span className={styles.chainId}>{CHAINS[chain].id}</span></div>
+                <div className={styles.chainName}>{hasChainPage(chain) ? <Link href={chainLandingPath(chain)} className="hover:underline underline-offset-4">{CHAIN_LABELS[chain]}</Link> : CHAIN_LABELS[chain]}<span className={styles.chainId}>{CHAINS[chain].id}</span></div>
                 <div className={styles.contracts}>
                   {factory ? <a href={explorerAddress(chain, factory)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} factory on explorer`} title={factory}>Factory <ArrowUpRight size={12} aria-hidden="true" /></a> : <span className={styles.unconfigured}>Factory not configured</span>}
                   {locker ? <a href={explorerAddress(chain, locker)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} locker on explorer`} title={locker}>Locker <ArrowUpRight size={12} aria-hidden="true" /></a> : <span className={styles.unconfigured}>Locker not configured</span>}

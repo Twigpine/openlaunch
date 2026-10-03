@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { CHAIN_IDS, CHAIN_KEYS, SITE_URL, chainKeyOf } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
+import { CONFIGURED_CHAINS } from "@/lib/launchpad/config";
 import { staticSitemapEntries, tokenSitemapEntries, type TokenRow } from "@/lib/seo";
 
 // Rendered per request like the rest of the app: the token list must not be
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
  * crawlers always get a valid sitemap instead of a 500.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const statics = staticSitemapEntries(SITE_URL);
+  const statics = staticSitemapEntries(SITE_URL, undefined, CONFIGURED_CHAINS);
   let tokens: TokenRow[] = [];
   try {
     const sql = maybeDb();

@@ -30,7 +30,7 @@ test("trade locks synchronously during preflight and a rejection allows retry", 
   let rejectWallet!: (error: Error) => void;
   const walletPending = new Promise<never>((_, reject) => { rejectWallet = reject; });
   const trade = handler("./TradePanel.tsx", "trade", {
-    address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+    tradable: true, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
     busy: false, insufficient: false, transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
     getPublicClient: () => ({}),
     getWalletClient: () => { walletLookups++; return walletPending; },
@@ -55,7 +55,7 @@ test("trade releases the lock when synchronous preflight fails", async () => {
   const transactionLock = { current: false };
   const phases: { k: string }[] = [];
   const trade = handler("./TradePanel.tsx", "trade", {
-    address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+    tradable: true, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
     busy: false, insufficient: false, transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
     getPublicClient: () => { throw new Error("No RPC client"); },
     setPhase: (phase: { k: string }) => phases.push(phase), friendlyError: (error: Error) => error.message,
@@ -63,6 +63,20 @@ test("trade releases the lock when synchronous preflight fails", async () => {
   await trade();
   assert.equal(transactionLock.current, false);
   assert.deepEqual(phases.map((phase) => phase.k), ["preparing", "error"]);
+});
+
+test("trade never starts while an unlisted pair token's decimals are unknown", async () => {
+  const transactionLock = { current: false };
+  const phases: { k: string }[] = [];
+  const trade = handler("./TradePanel.tsx", "trade", {
+    tradable: false, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+    busy: false, insufficient: false, transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
+    getPublicClient: () => { throw new Error("must not be reached"); },
+    setPhase: (phase: { k: string }) => phases.push(phase), friendlyError: (error: Error) => error.message,
+  });
+  await trade();
+  assert.deepEqual(phases, [], "an amount parsed with placeholder decimals is never sent");
+  assert.equal(transactionLock.current, false);
 });
 
 for (const status of ["reverted", "success"]) {

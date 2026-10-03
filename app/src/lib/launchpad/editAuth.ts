@@ -6,6 +6,8 @@
  *   3. client POSTs the edit + nonce + signature                      → server verifies signature, nonce, expiry,
  *                                                                        and that the signer is the on-chain launcher
  */
+import { parseXHandle } from "./xHandle.ts";
+
 export const EDIT_TTL_MS = 5 * 60_000;
 export const EDIT_DOMAIN = "openlaunch.lol";
 
@@ -56,8 +58,9 @@ export function validateEdit(f: Partial<Record<keyof EditFields, unknown>>): { o
   const website = url(f.website);
   if (image_url === null) return { ok: false, error: "image: https URL only" };
   if (website === null) return { ok: false, error: "website: https URL only" };
-  const x_handle = str(f.x_handle, 16).replace(/^@/, "");
-  if (x_handle && !/^[A-Za-z0-9_]{1,15}$/.test(x_handle)) return { ok: false, error: "x: letters, digits, _" };
+  const x = parseXHandle(f.x_handle);
+  if (!x.ok) return { ok: false, error: x.error };
+  const x_handle = x.handle;
   if (/<[a-z!/]/i.test(description)) return { ok: false, error: "description: no HTML" };
   return { ok: true, value: { description, image_url, website, x_handle } };
 }

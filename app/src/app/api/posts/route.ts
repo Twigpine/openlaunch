@@ -4,7 +4,7 @@ import { isChainKey } from "@/lib/chainPublic";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { createPost, listFeed, listTokenPosts } from "@/lib/launchpad/postsServer";
 import { memo } from "@/lib/launchpad/memo";
-import { parseTokenPostsPaging, postsCursorKey } from "@/lib/launchpad/posts-paging";
+import { FEED_POSTS_LIMIT, feedPostsKey, parseFeedPaging, parseTokenPostsPaging, postsCursorKey } from "@/lib/launchpad/posts-paging";
 
 export const dynamic = "force-dynamic";
 
@@ -12,14 +12,24 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const u = new URL(req.url);
   if (u.searchParams.get("feed")) {
-    const offset = Number(u.searchParams.get("offset") ?? 0) || 0;
-    return NextResponse.json({ posts: await memo(`feed-posts:${offset}`, 2_000, () => listFeed(30, offset)) }, { headers: { "cache-control": "no-store" } });
+    const { offset } = parseFeedPaging({ offset: u.searchParams.get("offset") });
+    try {
+      return NextResponse.json({ posts: await memo(feedPostsKey(offset), 2_000, () => listFeed(FEED_POSTS_LIMIT, offset)) }, { headers: { "cache-control": "no-store" } });
+    } catch (err) {
+      console.error("[posts] feed failed:", err instanceof Error ? err.message : err);
+      return NextResponse.json({ error: "could not load feed" }, { status: 502 });
+    }
   }
   const chain = u.searchParams.get("chain");
   const token = (u.searchParams.get("token") ?? "").toLowerCase();
   if (!isChainKey(chain) || !isAddress(token)) return NextResponse.json({ error: "bad params" }, { status: 400 });
   const { limit, beforeId } = parseTokenPostsPaging({ limit: u.searchParams.get("limit"), before: u.searchParams.get("before") });
-  return NextResponse.json(await memo(postsCursorKey(chain, token, limit, beforeId), 2_000, () => listTokenPosts(chain, token, limit, beforeId)), { headers: { "cache-control": "no-store" } });
+  try {
+    return NextResponse.json(await memo(postsCursorKey(chain, token, limit, beforeId), 2_000, () => listTokenPosts(chain, token, limit, beforeId)), { headers: { "cache-control": "no-store" } });
+  } catch (err) {
+    console.error("[posts] token posts failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "could not load comments" }, { status: 502 });
+  }
 }
 
 /** POST {chain, token, wallet, parentId?, body, nonce, ts, signature} → new post. */

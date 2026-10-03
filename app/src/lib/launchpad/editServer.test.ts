@@ -122,6 +122,36 @@ test("applySignedEdit: valid signature consumes the nonce and writes metadata", 
   assert.equal(m.metaInserted, true, "metadata should be written on success");
 });
 
+test("applySignedEdit: an X profile link in the fields is accepted and written", async () => {
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.verifyShouldThrow = false;
+  m.verifyResult = true;
+
+  const r = await ed.applySignedEdit(editRequest({ fields: { description: "hello", x_handle: "https://x.com/openlaunch_lol?s=21" } }));
+
+  assert.equal(r.ok, true, "should succeed");
+  assert.equal(m.metaInserted, true, "metadata should be written");
+});
+
+test("applySignedEdit: a link to another site in the X field is a 400 and leaves the nonce alone", async () => {
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.verifyShouldThrow = false;
+  m.verifyResult = true;
+
+  const r = await ed.applySignedEdit(editRequest({ fields: { x_handle: "https://evil.com/openlaunch_lol" } }));
+
+  assert.equal(r.ok, false, "should fail");
+  assert.equal(r.status, 400);
+  assert.equal(m.nonceRows[NONCE].used_at, null, "nonce must not be consumed");
+  assert.equal(m.metaInserted, false, "metadata must not be written");
+});
+
 test("applySignedEdit: metadata write failure rolls back the nonce consume (transaction)", async () => {
   resetMock();
   seedNonce();

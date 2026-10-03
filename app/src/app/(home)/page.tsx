@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import LaunchHero from "@/components/launchpad/LaunchHero";
 import LaunchList from "@/components/launchpad/LaunchList";
@@ -13,6 +14,8 @@ import { isFilter } from "@/lib/launchpad/search";
 import TrendingStrip from "@/components/launchpad/TrendingStrip";
 
 export const dynamic = "force-dynamic";
+// Title and description come from the root layout; ?sort= / ?chain= / ?window= views are all this one page.
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ sort?: string; window?: string; chain?: string; filter?: string }> }) {
   const sp = await searchParams;

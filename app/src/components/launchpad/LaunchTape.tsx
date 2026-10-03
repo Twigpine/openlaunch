@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import { useLive } from "./LiveProvider";
 import TokenAvatar from "./TokenAvatar";
-import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
+import { QuoteBrandBadge } from "./MuseworldBadge";
 import type { FeedItem } from "@/lib/launchpad/queries";
 import { fmtQuote } from "@/lib/launchpad/math";
 import { CHAIN_SHORT, shortAddr } from "@/lib/chainPublic";
@@ -61,7 +61,7 @@ export default function LaunchTape({ initial }: { initial: FeedItem[] }) {
                   <Icon size={12} aria-hidden="true" className={tone} />
                   <span className={tone}>{item.kind === "launch" ? "Launched" : buy ? "Buy" : "Sell"}</span>
                   {item.kind === "swap" ? <span className="min-w-0 truncate font-mono text-body tnum">{fmtQuote(item.quote_wei, item.quote_decimals, item.quote_symbol)}</span> : null}
-                  {isGitlawbQuote(item.quote_key) ? <GitlawbBadge /> : null}
+                  <QuoteBrandBadge quoteKey={item.quote_key} />
                   {item.kind === "swap" && item.is_dev ? <span className="text-warm-ink">· creator</span> : null}
                   <span className="ml-auto shrink-0 text-[10px] text-muted">{CHAIN_SHORT[item.chain]}</span>
                 </div>
