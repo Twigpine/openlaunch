@@ -1,6 +1,6 @@
 .page { color: var(--color-body); }
 .page a:focus-visible, .page button:focus-visible, .code:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 4px; border-radius: 6px; }
-.entry { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 32px 0 40px; padding: 22px 24px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); }
+.entry { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 0 0 40px; padding-block: 22px; border-block: 1px solid var(--color-line); }
 .entryHeading { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .entryHeading > svg { flex-shrink: 0; color: var(--color-brand); }
 .entryHeading p { margin: 0; color: var(--color-ink); font-size: 15px; font-weight: 600; line-height: 1.5; }
@@ -9,12 +9,6 @@
 .entry > a:hover { text-decoration-color: var(--color-ink); }
 .layout { display: grid; grid-template-columns: 176px minmax(0, 1fr); align-items: start; gap: 48px; }
 .sidebar { position: sticky; top: 100px; min-width: 0; }
-.indexLabel { margin: 0 0 12px; color: var(--color-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
-.sidebar nav > a { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 12px; color: var(--color-body); }
-.sidebar nav > a span { color: var(--color-muted); font-family: var(--font-mono); font-size: 10px; }
-.sidebar nav > a svg { margin-left: auto; color: var(--color-muted); }
-.sidebar nav > a:hover, .sidebar nav > a:focus-visible { color: var(--color-ink); }
-.sidebar nav > a:hover svg, .sidebar nav > a:focus-visible svg { color: var(--color-brand); }
 .sidebarNote { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 11px; line-height: 1.8; text-wrap: pretty; }
 .content { display: grid; gap: 48px; min-width: 0; }
 .section { display: grid; gap: 20px; min-width: 0; }
@@ -23,14 +17,14 @@
 .sectionNumber { padding-top: 4px; color: var(--color-brand); font-family: var(--font-mono); font-size: 12px; }
 .sectionHeading h2 { margin: 0; color: var(--color-ink); font-size: 24px; font-weight: 600; line-height: 1.2; letter-spacing: -.035em; }
 .sectionHeading p { margin: 6px 0 0; color: var(--color-muted); font-size: 13px; text-wrap: pretty; }
-.networks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--color-line); border-radius: 12px; }
-.network { min-width: 0; padding: 16px; }
-.network + .network { border-left: 1px solid var(--color-line); }
-.networkHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.networks { display: grid; border-block: 1px solid var(--color-line); }
+.network { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 20px; min-width: 0; padding-block: 20px; }
+.network + .network { border-top: 1px solid var(--color-line); }
+.networkHeading { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .networkHeading h3 { margin: 0; color: var(--color-ink); font-size: 13px; font-weight: 600; }
 .networkHeading > span { font-size: 10px; color: var(--color-muted); }
 .networkHeading b { font-family: var(--font-mono); font-weight: 400; }
-.network dl { display: grid; gap: 8px; margin-top: 16px; }
+.network dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
 .network dt { font-size: 10px; color: var(--color-muted); text-transform: capitalize; }
 .network dd { min-width: 0; margin: 0; font-size: 11px; }
 .network dd a { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--color-body); }
@@ -39,74 +33,78 @@
 .network dd svg { flex-shrink: 0; color: var(--color-muted); }
 .prose { margin: 0; font-size: 13px; line-height: 1.9; text-wrap: pretty; }
 .prose code, .parameters code { color: var(--color-ink); font-family: var(--font-mono); font-size: .92em; overflow-wrap: anywhere; }
-.codePanel { min-width: 0; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-card); }
+.codePanel { min-width: 0; border-radius: 12px; background: var(--color-card); }
 .codeHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--color-line); }
 .codeHeader > div { min-width: 0; }
 .codeTitle { display: block; color: var(--color-ink); font-size: 12px; font-weight: 500; }
 .language { display: block; margin-top: 2px; font-size: 10px; color: var(--color-muted); }
-.copyButton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 76px; min-height: 44px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; color: var(--color-body); font-size: 11px; cursor: pointer; flex-shrink: 0; }
+.copyButton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 88px; min-height: 44px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; color: var(--color-body); font-size: 12px; cursor: pointer; flex-shrink: 0; transition: color 160ms, border-color 160ms, background-color 160ms, transform 160ms; }
 .copyButton:hover { border-color: var(--color-line-strong); color: var(--color-ink); }
-.code { max-width: 100%; min-width: 0; margin: 0; padding: 20px 16px; overflow-x: auto; border-radius: 0 0 12px 12px; background: var(--color-paper); color: var(--color-body); font-family: var(--font-mono); font-size: 13px; line-height: 1.9; scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+.copyButton:active:not(:disabled) { transform: scale(.97); }
+.copyButton:disabled { cursor: wait; opacity: .65; }
+.copyButton[data-copied] { color: var(--color-up); }
+.example { display: grid; gap: 12px; min-width: 0; }
+.exampleChain { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--color-muted); font-size: 12px; }
+.exampleChain select { min-height: 44px; max-width: 100%; padding: 0 30px 0 12px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; cursor: pointer; transition: border-color 160ms; }
+.exampleChain select:hover { border-color: var(--color-line-strong); }
+.exampleChain select:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+.exampleChain > span { margin-left: auto; font-size: 11px; }
+.code { max-width: 100%; min-width: 0; margin: 0; padding: 20px 16px; overflow-x: auto; color: var(--color-body); font-family: var(--font-mono); font-size: 13px; line-height: 1.9; scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
 .code code { font-family: inherit; }
 .copyError { margin: 0; padding: 12px 16px; border-top: 1px solid var(--color-line); color: var(--color-body); font-size: 12px; line-height: 1.6; }
 .exampleNote { margin: -8px 0 0; color: var(--color-muted); font-size: 11px; line-height: 1.8; text-wrap: pretty; }
-.reference { border: 1px solid var(--color-line); border-radius: 12px; }
-.referenceHeading { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid var(--color-line); }
+.reference { min-width: 0; margin-block: 8px; }
+.referenceHeading { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--color-line); }
 .referenceHeading svg { color: var(--color-muted); flex-shrink: 0; }
 .referenceHeading h3 { margin: 0; color: var(--color-ink); font-size: 13px; font-weight: 500; }
 .parameters { margin: 0; }
-.parameters > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; padding: 14px 16px; }
+.parameters > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; padding-block: 18px; }
 .parameters > div + div { border-top: 1px solid var(--color-line); }
 .parameters dt { font-size: 12px; }
 .parameters dd { margin: 0; font-size: 12px; line-height: 1.8; text-wrap: pretty; }
 .metadata { display: grid; min-width: 0; gap: 14px; padding-top: 8px; }
 .subheading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .subheading h3 { margin: 0; color: var(--color-ink); font-size: 14px; font-weight: 600; }
-.method { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; height: 24px; border: 1px solid var(--color-line-strong); border-radius: 6px; color: var(--color-ink); font-family: var(--font-mono); font-size: 10px; }
+.method { display: inline-flex; align-items: center; min-width: 42px; height: 24px; color: var(--color-muted); font-family: var(--font-mono); font-size: 10px; }
 .optional { margin-left: auto; color: var(--color-muted); font-size: 11px; }
-.endpoints { border: 1px solid var(--color-line); border-radius: 12px; }
-.endpointHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; color: var(--color-muted); font-size: 11px; background: var(--color-card); border-radius: 12px 12px 0 0; }
-.endpoint { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; gap: 14px; padding: 18px 16px; border-top: 1px solid var(--color-line); }
+.endpoints { min-width: 0; }
+.endpointHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 14px; color: var(--color-muted); font-size: 11px; }
+.endpoint { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; gap: 14px; padding-block: 20px; border-top: 1px solid var(--color-line); }
 .endpointPath { font-family: var(--font-mono); font-size: 12px; color: var(--color-ink); overflow-wrap: anywhere; }
 .endpoint p { margin: 4px 0 0; color: var(--color-muted); font-size: 12px; }
 .query { display: block; margin-top: 12px; color: var(--color-muted); font-family: var(--font-mono); font-size: 10px; line-height: 1.8; overflow-wrap: anywhere; }
-.dataNote { margin: 0; padding-left: 14px; border-left: 2px solid var(--color-line-strong); color: var(--color-muted); font-size: 12px; line-height: 1.8; text-wrap: pretty; }
+.dataNote { margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.8; text-wrap: pretty; }
 .dataNote p { margin: 0; }
 .dataNote p + p { margin-top: 12px; }
 .dataNote code { color: var(--color-body); font-family: var(--font-mono); font-size: .92em; overflow-wrap: anywhere; }
-.tradeReference { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--color-line); border-radius: 12px; }
-.tradeReference > div { min-width: 0; padding: 20px; }
-.tradeReference > div + div { border-left: 1px solid var(--color-line); }
+.tradeReference { display: grid; }
+.tradeReference > div { min-width: 0; padding-block: 24px; border-top: 1px solid var(--color-line); }
 .tradeLabel { color: var(--color-muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
 .tradeReference h3 { margin: 10px 0; color: var(--color-ink); font-size: 15px; font-weight: 600; }
 @media (max-width: 1023px) {
   .layout { grid-template-columns: 148px minmax(0, 1fr); gap: 28px; }
   .networks { grid-template-columns: minmax(0, 1fr); }
-  .network + .network { border-left: 0; border-top: 1px solid var(--color-line); }
-  .network dl { grid-template-columns: 1fr 1fr; gap: 20px; }
-  .tradeReference { grid-template-columns: minmax(0, 1fr); }
-  .tradeReference > div + div { border-left: 0; border-top: 1px solid var(--color-line); }
+  .network { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .networkHeading { flex-direction: row; flex-wrap: wrap; gap: 8px 16px; }
 }
 @media (max-width: 767px) {
-  .entry { flex-wrap: wrap; gap: 12px; padding: 18px; margin: 24px 0; }
+  .entry { flex-wrap: wrap; gap: 12px; padding-block: 18px; margin: 24px 0; }
   .entry > a { margin-left: 35px; }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .sidebar { position: static; }
-  .sidebar nav { display: flex; flex-wrap: wrap; column-gap: 18px; border-bottom: 1px solid var(--color-line); }
-  .indexLabel { width: 100%; margin-bottom: 4px; }
-  .sidebar nav > a { gap: 8px; }
-  .sidebar nav > a svg, .sidebarNote { display: none; }
+  .sidebarNote { display: none; }
   .sectionHeading h2 { font-size: 22px; }
   .content { gap: 36px; }
   .section + .section { padding-top: 28px; }
   .parameters > div { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
+@media (prefers-reduced-motion: reduce) { .copyButton, .exampleChain select { transition: none; } .copyButton:active:not(:disabled) { transform: none; } }
 @media (max-width: 479px) {
   .network dl { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .entryHeading { gap: 12px; }
   .entry > a { margin-left: 31px; }
   .codeHeader { padding-left: 12px; gap: 8px; }
   .code { padding: 16px 12px; font-size: 12px; }
-  .endpoint { gap: 10px; padding: 16px 12px; }
+  .endpoint { gap: 10px; padding-block: 16px; }
   .endpointPath { font-size: 11px; }
 }

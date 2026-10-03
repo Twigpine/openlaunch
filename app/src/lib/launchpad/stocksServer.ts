@@ -160,11 +160,8 @@ export async function stockQuotesInUse(): Promise<Record<ChainKey, string[]>> {
   return out;
 }
 
-/** Warm every stock price in use on every chain; returns an address-keyed USD map (addresses never collide across chains). */
-export async function stockUsdInUse(): Promise<Map<string, number | null>> {
+/** Warm stock prices in use, retaining their chain: the same address can represent different assets elsewhere. */
+export async function stockUsdInUse(): Promise<Map<ChainKey, Map<string, number | null>>> {
   const inUse = await stockQuotesInUse();
-  const maps = await Promise.all((Object.keys(inUse) as ChainKey[]).map((c) => stockPrices(c, inUse[c])));
-  const out = new Map<string, number | null>();
-  for (const m of maps) for (const [a, v] of m) out.set(a, v);
-  return out;
+  return new Map(await Promise.all(CHAIN_KEYS.map(async (chain) => [chain, await stockPrices(chain, inUse[chain])] as const)));
 }

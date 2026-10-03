@@ -4,16 +4,12 @@
 .layout { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 56px; margin-top: 48px; }
 .contents { position: sticky; top: 112px; align-self: start; }
 .eyebrow { color: var(--color-muted); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
-.contents ol { margin-top: 14px; }
-.contents li a { display: flex; align-items: center; gap: 12px; min-height: 44px; color: var(--color-body); font-size: 12px; border-radius: 6px; }
-.contents li a span { color: var(--color-muted); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
-.contents li a:hover { color: var(--color-ink); }
-.contents li a:hover span { color: var(--color-brand); }
 .sourceLink { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 12px; }
 .sourceLink:hover { color: var(--color-ink); }
 .article { min-width: 0; display: grid; gap: 64px; }
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
-.sectionHeading h2, .closing h2 { margin-top: 10px; color: var(--color-ink); font-size: 30px; font-weight: 600; line-height: 1.18; letter-spacing: -.035em; text-wrap: balance; }
+.sectionHeading h2, .closing h2 { color: var(--color-ink); font-size: 30px; font-weight: 600; line-height: 1.18; letter-spacing: -.035em; text-wrap: balance; }
+.sectionHeading .eyebrow, .closing .eyebrow { margin-top: 12px; font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; }
 .sectionHeading > p { padding-bottom: 2px; color: var(--color-muted); font-size: 12px; line-height: 1.7; }
 .steps { border-block: 1px solid var(--color-line-strong); }
 .step { display: grid; grid-template-columns: 44px minmax(0, 1fr) 124px; gap: 20px; align-items: start; position: relative; padding: 26px 0; }
@@ -29,12 +25,12 @@
 .mechanismNote > svg { flex-shrink: 0; color: var(--color-brand); }
 .mechanismNote a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-left: auto; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
 .mechanismNote a:hover, .platformFee a:hover, .verifiers a:hover, .contractNote a:hover { color: var(--color-ink); }
-.feePanel { display: grid; grid-template-columns: 200px minmax(0, 1fr); border: 1px solid var(--color-line); border-radius: 16px; overflow: hidden; }
-.platformFee { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; background: var(--color-card); }
+.feePanel { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; border-top: 1px solid var(--color-line); padding-top: 24px; }
+.platformFee { display: flex; flex-direction: column; align-items: flex-start; }
 .platformFee > strong { color: var(--color-up); font: 700 58px var(--font-mono); font-variant-numeric: tabular-nums; line-height: 1.2; letter-spacing: -.06em; margin-top: 20px; }
 .platformFee p { margin-top: 12px; font-size: 12px; line-height: 1.7; }
 .platformFee a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: auto; padding-top: 12px; font-size: 11px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
-.tradingFees { padding: 24px; border-left: 1px solid var(--color-line); }
+.tradingFees { min-width: 0; }
 .tradingFees dl { margin-top: 12px; }
 .tradingFees dl > div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 16px; padding: 16px 0; }
 .tradingFees dt { color: var(--color-ink); font: 700 13px/1.7 var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -45,11 +41,11 @@
 .collectNote p { margin-top: 8px; font-size: 12px; line-height: 1.8; }
 .collectNote > p { margin-top: 0; color: var(--color-muted); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.fixedList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--color-line); }
-.fixedList li { display: flex; gap: 14px; padding: 22px 24px 22px 0; border-bottom: 1px solid var(--color-line); }
-.fixedList li:nth-child(even) { padding-right: 0; padding-left: 24px; border-left: 1px solid var(--color-line); }
+.fixedList { display: grid; border-top: 1px solid var(--color-line); }
+.fixedList li { display: flex; gap: 16px; padding-block: 22px; border-bottom: 1px solid var(--color-line); }
+.fixedList li > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; flex: 1; min-width: 0; }
 .fixedMark { color: var(--color-muted); font-size: 20px; line-height: 1.1; }
-.fixedList p { margin-top: 8px; font-size: 12px; line-height: 1.8; }
+.fixedList p { font-size: 12px; line-height: 1.8; }
 .riskIntro { max-width: 660px; padding-bottom: 24px; font-size: 14px; line-height: 1.8; }
 .questions { border-top: 1px solid var(--color-line-strong); }
 .questions details { border-bottom: 1px solid var(--color-line); }
@@ -61,10 +57,9 @@
 .questions details p + p { margin-top: 12px; }
 .contractIcon { color: var(--color-muted); flex-shrink: 0; }
 .contractIntro { margin-top: -10px; margin-bottom: 24px; color: var(--color-muted); font-size: 13px; line-height: 1.7; }
-.registry { border: 1px solid var(--color-line); border-radius: 16px; overflow: hidden; }
-.network { padding: 24px; }
-.network + .network { border-top: 1px solid var(--color-line-strong); }
-.network > header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 16px; }
+.registry { display: grid; gap: 32px; }
+.network { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 0 24px; padding-top: 24px; border-top: 1px solid var(--color-line); }
+.network > header { display: flex; align-items: flex-start; align-content: flex-start; flex-wrap: wrap; gap: 8px 20px; }
 .network h3 { color: var(--color-ink); font-size: 16px; font-weight: 600; }
 .network > header > span { color: var(--color-muted); font-size: 10px; }
 .network > header strong { margin-left: 4px; color: var(--color-body); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -76,7 +71,7 @@
 .addresses a:hover { color: var(--color-brand); }
 .addresses a > svg { flex-shrink: 0; color: var(--color-muted); }
 .notDeployed { display: inline-block; padding-block: 12px; font-size: 12px; color: var(--color-muted); }
-.verifiers { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-line); }
+.verifiers { grid-column: 2; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-line); }
 .verifiers > p { margin-bottom: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-muted); }
 .verifiers > div { display: grid; grid-template-columns: minmax(0, 1fr) 86px 78px; align-items: center; gap: 8px; font-size: 12px; }
 .verifiers a { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; color: var(--color-muted); font-size: 11px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
@@ -110,26 +105,28 @@
   .mechanismNote > span { flex: 1; }
   .mechanismNote a { margin: -4px 0 0 23px; }
   .feePanel { grid-template-columns: minmax(0, 1fr); }
-  .platformFee { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 20px; align-items: center; padding: 20px; }
+  .platformFee { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 20px; align-items: center; }
   .platformFee > .eyebrow { grid-column: 1 / -1; }
   .platformFee > strong { font-size: 48px; margin: 0; grid-row: span 2; }
   .platformFee p { margin: 0; }
   .platformFee a { margin: 0; padding: 0; }
-  .tradingFees { padding: 20px; border-left: none; border-top: 1px solid var(--color-line); }
+  .tradingFees { padding-top: 20px; border-top: 1px solid var(--color-line); }
   .tradingFees h3 { font-size: 14px; }
   .tradingFees dl > div { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
   .tradingFees dt { font-size: 11px; }
   .fixedList { grid-template-columns: minmax(0, 1fr); }
-  .fixedList li, .fixedList li:nth-child(even) { padding: 20px 0; border-left: none; }
+  .fixedList li { padding-block: 20px; }
+  .fixedList li > div { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .fixedList h3 { font-size: 14px; }
   .questions summary { font-size: 13px; }
   .questions details > div { padding-right: 0; font-size: 12px; }
   .riskIntro { font-size: 13px; }
   .contractIcon { display: none; }
-  .network { padding: 20px; }
+  .network { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .network > header { flex-direction: column; align-items: flex-start; }
   .addresses > div { grid-template-columns: minmax(0, 1fr); padding-top: 12px; }
   .addresses a { font-size: 11px; padding-block: 8px; }
+  .verifiers { grid-column: 1; margin-top: 0; }
   .verifiers > div { grid-template-columns: minmax(0, 1fr) 68px 61px; gap: 4px; font-size: 11px; }
   .verifiers a { font-size: 10px; }
   .closing { flex-direction: column; align-items: flex-start; }

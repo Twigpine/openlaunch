@@ -1,0 +1,15 @@
+.contents { min-width: 0; }
+.title { margin-bottom: 12px; color: var(--color-muted); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.contents ol { margin: 0; padding: 0; list-style: none; }
+.contents li a { position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; padding-left: 12px; border-left: 1px solid var(--color-line); color: var(--color-muted); font-size: 12px; transition: color 160ms, border-color 160ms; }
+.contents li a span { color: var(--color-muted); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
+.contents li a:hover, .contents li a[aria-current="location"] { color: var(--color-ink); }
+.contents li a[aria-current="location"] { border-left-color: var(--color-brand); }
+.contents li a[aria-current="location"] span { color: var(--color-brand); }
+.contents a:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+@media (max-width: 767px) {
+  .contents ol { display: flex; flex-wrap: wrap; gap: 0 20px; }
+  .contents li a { gap: 8px; padding-left: 0; border-left: 0; border-bottom: 2px solid transparent; }
+  .contents li a[aria-current="location"] { border-bottom-color: var(--color-brand); }
+}
+@media (prefers-reduced-motion: reduce) { .contents li a { transition: none; } }

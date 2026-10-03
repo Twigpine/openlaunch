@@ -8,8 +8,8 @@ const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 test("the home row shows the quote detail on every width", () => {
   const row = read("./LaunchRow.tsx");
   assert.match(row, /const cap = capDisplay\(l\.fdv_quote, l\.quote_usd/);
-  assert.equal((row.match(/>\{cap\.detail\}</g) ?? []).length, 2, "one rendered detail line for desktop, one for mobile");
-  assert.match(row, /md:hidden"><span className="block truncate[^"]*" title=\{capDetail\}>\{cap\.detail\}<\/span>/, "the mobile block carries the detail");
+  assert.equal((row.match(/>\{cap\.detail\}</g) ?? []).length, 1, "one responsive detail line serves every width");
+  assert.match(row, /className=\{styles\.capDetail\} title=\{capDetail\}>\{cap\.detail\}<\/span>/, "the shared market cell carries the quote detail");
 });
 
 test("one-string sites use the compact form, which carries the mark for an unpriced quote", () => {

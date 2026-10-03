@@ -5,14 +5,26 @@
 .crosshair::before, .crosshair::after { content: ""; position: absolute; background: var(--color-muted); }
 .crosshair::before { width: 9px; height: 1px; top: 4px; }
 .crosshair::after { width: 1px; height: 9px; left: 4px; }
-.playback { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px; border-radius: 6px; font-size: 11px; color: var(--color-muted); cursor: pointer; }
+.playback { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px; border-radius: 6px; font-size: 11px; color: var(--color-muted); cursor: pointer; transition: color 150ms ease, background-color 150ms ease, transform 150ms ease; }
 .playback:hover { color: var(--color-ink); background: var(--color-card); }
+.playback:active:not(:disabled) { transform: scale(.97); }
+.playback:focus-visible, .stageButton:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
 .machine[data-playing="true"] { --motion-state: running; }
 .playback { min-width: 68px; justify-content: flex-end; }
 .playback:disabled { cursor: default; }
 .viewport { width: 100%; perspective: 1000px; }
 .scene { width: 100%; transition: transform 280ms ease-out; transform-origin: 50% 60%; }
 .drawing { display: block; width: 100%; aspect-ratio: 560 / 398; overflow: hidden; stroke-linejoin: round; stroke-linecap: round; }
+.sequence { pointer-events: none; }
+.sequenceTrack { stroke: var(--color-line); stroke-width: 1; }
+.sequenceSegment { stroke: var(--color-brand); stroke-width: 1.5; opacity: 0; }
+.sequenceLabel { fill: var(--color-muted); font-family: var(--font-sans); font-size: 15px; font-weight: 600; letter-spacing: .8px; }
+.sequenceStep[data-active="true"] .sequenceLabel { fill: var(--color-brand); }
+.sequenceStep[data-active="true"] .sequenceSegment { opacity: 1; }
+/* One finite reveal per stage, never a separate autoplay clock or moving marquee.
+   The same pause variable freezes the caption and the assembly together. */
+.machine[data-loop="true"] .sequenceStep[data-active="true"] .sequenceLabel { animation: sequence-reveal 240ms cubic-bezier(.2, .7, .2, 1) both; animation-play-state: var(--motion-state); }
+@keyframes sequence-reveal { from { opacity: .55; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .grid { stroke: var(--color-line); stroke-width: .7; }
 .plateTop { fill: var(--color-line); stroke: var(--color-faint); stroke-width: 1; }
 .faceLeft { fill: var(--color-card); stroke: var(--color-faint); stroke-width: .8; }
@@ -120,9 +132,10 @@
 @keyframes guide-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -54; } }
 
 .controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--color-line); }
-.stageButton { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; color: var(--color-muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.stageButton { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; color: var(--color-muted); font-size: 12px; cursor: pointer; white-space: nowrap; transition: color 150ms ease, background-color 150ms ease; }
 .stageButton::after { position: absolute; content: ""; bottom: -1px; left: 8px; right: 8px; height: 1px; background: transparent; }
-.stageButton:hover { color: var(--color-ink); }
+.stageButton:hover { color: var(--color-ink); background: var(--color-card); }
+.stageButton:active { background: var(--color-line); }
 .stageButton[aria-pressed="true"] { color: var(--color-ink); }
 .stageButton[aria-pressed="true"]::after { background: var(--color-ink); }
 .stageNumber { font-family: var(--font-mono); font-size: 10px; color: var(--color-muted); }
@@ -166,8 +179,10 @@
   .scene { transition: none; transform: none !important; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .scene, .token, .pool, .clampLeft, .clampRight { transition: none; }
+  .scene, .token, .pool, .clampLeft, .clampRight, .playback, .stageButton { transition: none; }
   .scene { transform: none !important; }
+  .playback:active:not(:disabled) { transform: none; }
+  .machine[data-loop="true"] .sequenceStep[data-active="true"] .sequenceLabel { animation: none; }
   .machine[data-loop="true"] :is(.assembly, .token, .pool, .poolCurrent, .ripple, .rippleAfter, .clampLeft, .clampRight, .lockTrace, .guides) { animation: none; }
   .machine[data-loop="true"] :is(.stageProgress[data-phase], .detailContent[aria-hidden]) { animation: none; }
 }

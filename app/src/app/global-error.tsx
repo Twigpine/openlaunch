@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import "./globals.css";
-import { inter, spaceMono, unbounded } from "./fonts";
+import { inter, geistMono, unbounded } from "./fonts";
 import { errorBody, errorRegionLabel, sanitizeDigest } from "@/lib/error-copy";
 
 /**
@@ -24,7 +24,7 @@ export default function GlobalError({
   }, [error]);
   const digest = sanitizeDigest(error.digest);
   return (
-    <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`}>
+    <html lang="en" className={`${inter.variable} ${geistMono.variable} ${unbounded.variable}`}>
       <body className="min-h-screen flex flex-col">
         <main aria-label={errorRegionLabel("global")} className="mx-auto max-w-3xl px-4 py-24 text-center space-y-5">
           <h1 className="font-display font-bold text-7xl">500</h1>

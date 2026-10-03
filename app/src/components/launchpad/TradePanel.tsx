@@ -12,6 +12,7 @@ import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BUY_PRESETS, NATIVE, SWAP_GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
+import { requiredTradeNativeBalance, tradeGasStatus } from "@/lib/launchpad/trade-gas";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { sanitizeDecimalInput } from "@/lib/launchpad/decimal-input";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
@@ -76,7 +77,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const seq = useRef(0);
   const transactionLock = useRef(false);
 
-  const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && isNative, refetchInterval: 15_000 } });
+  const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
   const qbal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && !isNative, refetchInterval: 15_000 } });
   const tok = useReadContract({ address: token, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
 
@@ -93,6 +94,10 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const busy = phase.k === "preparing" || phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
   const balance = side === "buy" ? (isNative ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
   const insufficient = amountIn !== null && balance !== undefined && amountIn + (side === "buy" ? buyReserve : 0n) > balance;
+  const requiredNativeBalance = requiredTradeNativeBalance({ amountIn, spendsNativeBalance: side === "buy" && (isNative || sharesGasBalance(chain, quote)), quoteDecimals: quote.decimals, reserveWei: SWAP_GAS_RESERVE_WEI[chain] });
+  const gasStatus = tradeGasStatus(eth.data?.value, eth.isError, requiredNativeBalance);
+  const gasBalanceError = `Could not check your ${NATIVE_SYMBOL} balance for gas. Please retry.`;
+  const gasInsufficientMessage = `Keep at least ${formatEther(SWAP_GAS_RESERVE_WEI[chain])} ${NATIVE_SYMBOL} for gas after paying the trade amount.`;
 
   const quoteKey = tradeQuoteKey(chain, token, side, amount);
   // A response can only be used for the exact chain/token/side/amount requested.
@@ -121,7 +126,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   }, [amountIn, side, poolKey, config, amount, V4.quoter, CHAIN.id, quoteKey]);
 
   async function trade() {
-    if (!tradable || !address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
+    if (!tradable || !address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || gasStatus !== "ready" || transactionLock.current) return;
     // Lock before the first await, including wallet lookup and RPC preflight.
     transactionLock.current = true;
     setPhase({ k: "preparing" });
@@ -134,6 +139,10 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
+      // The polled balance can be stale by the time a trade is submitted. Check the
+      // native gas currency before any approval or swap, even when paying an ERC-20.
+      const freshNativeBalance = await pub.getBalance({ address }).catch(() => { throw new Error(gasBalanceError); });
+      if (freshNativeBalance < requiredNativeBalance) throw new Error(gasInsufficientMessage);
       // The closure value is fixed per render, so mid-flight preset picks in a
       // newer render cannot change this transaction's tolerance either way.
       tradeSlippageBps = slippageBps;
@@ -201,11 +210,11 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const inUsd = amountIn !== null && side === "buy" && quoteUsd ? fmtUsd(units(amountIn, quote.decimals) * quoteUsd) : null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-line-strong bg-paper scroll-mt-24" id="trade" tabIndex={-1} aria-label={`Trade ${symbol}`}>
+    <section className="overflow-hidden rounded-xl bg-card scroll-mt-24" id="trade" tabIndex={-1} aria-label={`Trade ${symbol}`}>
       <div className="flex min-h-12 items-center justify-between gap-3 border-b border-line px-5"><h2 className="min-w-0 truncate text-sm font-semibold text-ink">Trade {symbol}</h2><span className="shrink-0 text-[11px] text-muted">{CHAIN_LABEL}</span></div>
       <div className="space-y-4 p-4 sm:p-5">
       <ToggleGroup aria-label="Trade side" value={[side]} onValueChange={(v) => { if (!v[0] || busy) return; setSide(v[0] as Side); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid w-full grid-cols-2">
-        {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} className={`min-h-10 text-sm ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? "Buy" : "Sell"}</ToggleGroupItem>)}
+        {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} className={`min-h-11 text-sm data-pressed:bg-paper ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? "Buy" : "Sell"}</ToggleGroupItem>)}
       </ToggleGroup>
 
       {unlisted ? (
@@ -215,20 +224,20 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       ) : null}
 
       <div className="relative">
-        <div className="rounded-xl border border-line bg-card px-4 pt-3 pb-4">
+        <div className="border-b border-line pb-5">
           <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? "You pay" : "You sell"}</label>
-            {balance !== undefined ? <button type="button" disabled={busy} className="max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, quote.decimals) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
+            {balance !== undefined ? <button type="button" disabled={busy} className="min-h-11 max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, quote.decimals) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
           </div>
           <div className="mt-2 flex items-center gap-3">
-            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-faint tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />
-            <span className="max-w-24 shrink-0 truncate rounded-lg border border-line-strong bg-paper px-2.5 py-1.5 text-xs font-medium text-ink">{side === "buy" ? quote.symbol : symbol}</span>
+            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-muted tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />
+            <span className="max-w-24 shrink-0 truncate py-1.5 text-xs font-medium text-ink">{side === "buy" ? quote.symbol : symbol}</span>
           </div>
           <div className="mt-3 grid grid-cols-4 gap-1.5">
-            {side === "buy" ? BUY_PRESETS[quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${quote.symbol}`} className={`min-h-8 rounded-md border font-mono text-[11px] tnum hover:border-line-strong disabled:opacity-40 ${amount === p ? "border-line-strong bg-paper text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), quote.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-8 rounded-md border border-line font-mono text-[11px] text-muted tnum hover:border-line-strong disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
+            {side === "buy" ? BUY_PRESETS[quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${quote.symbol}`} className={`min-h-11 rounded-lg font-mono text-[11px] tnum hover:bg-paper disabled:opacity-40 ${amount === p ? "bg-paper text-ink" : "text-muted"}`}>{fmtQuoteUnits(Number(p), quote.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-11 rounded-lg font-mono text-[11px] text-muted tnum hover:bg-paper disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
           </div>
         </div>
-        <div className="relative z-10 mx-auto -my-3 flex size-7 items-center justify-center rounded-lg border border-line bg-paper text-muted" aria-hidden><ArrowDown size={13} /></div>
-        <div className="rounded-xl border border-line bg-card px-4 pt-4 pb-3">
+        <div className="relative z-10 mx-auto -my-3 flex size-6 items-center justify-center bg-card text-muted" aria-hidden><ArrowDown size={13} /></div>
+        <div className="pt-5 pb-1">
           <div className="text-[11px] text-muted">You receive <span className="text-[10px]">· estimated</span></div>
           <div className="mt-2 flex min-h-7 items-center justify-between gap-3">
             <span className="min-w-0 break-words font-mono text-base font-bold text-ink tnum">{outLabel ?? "—"}</span>{quoting && amountIn !== null ? <Spinner size={13} className="shrink-0 text-muted" /> : null}
@@ -297,7 +306,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         <button
           type="button"
           onClick={() => void trade()}
-          disabled={busy || amountIn === null || !quote_ || quote_.forKey !== quoteKey || insufficient}
+          disabled={busy || amountIn === null || !quote_ || quote_.forKey !== quoteKey || insufficient || gasStatus !== "ready"}
           className={`${side === "buy" ? btn.up : `${btn.primary} !bg-down hover:brightness-110`} w-full min-h-12 text-[15px]`}
         >
           {phase.k === "preparing" ? (
@@ -316,6 +325,12 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
             </>
           ) : insufficient ? (
             `Not enough ${side === "buy" ? quote.symbol : symbol}`
+          ) : gasStatus === "loading" ? (
+            `Checking ${NATIVE_SYMBOL} for gas…`
+          ) : gasStatus === "error" ? (
+            "Gas balance unavailable"
+          ) : gasStatus === "insufficient" ? (
+            `Not enough ${NATIVE_SYMBOL} for gas`
           ) : side === "buy" ? (
             `Buy ${symbol}`
           ) : (
@@ -324,8 +339,15 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         </button>
       )}
 
+      {isConnected && onChain && !busy && (gasStatus === "error" || gasStatus === "insufficient") ? (
+        <p role="status" className="text-xs leading-relaxed text-muted">
+          {gasStatus === "error" ? gasBalanceError : gasInsufficientMessage}{" "}
+          <button type="button" onClick={() => void eth.refetch()} disabled={eth.isFetching} className="min-h-9 underline underline-offset-2 disabled:opacity-50">{eth.isFetching ? "Checking…" : "Refresh balance"}</button>
+        </p>
+      ) : null}
+
       {phase.k === "error" ? (
-        <p className="rounded-xl bg-down-soft border border-down/20 text-down-ink text-sm px-3 py-2" role="alert">
+        <p className="rounded-lg bg-down-soft text-down-ink text-sm px-3 py-2" role="alert">
           {phase.message}
         </p>
       ) : null}

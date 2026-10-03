@@ -149,7 +149,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   const replies = (id: number) => posts.filter((p) => p.parent_id === id).slice().reverse();
 
   return (
-    <section className={embedded ? "overflow-hidden bg-paper" : "rounded-2xl bg-card border border-line overflow-hidden"} id="comments">
+    <section className={embedded ? "min-w-0" : "min-w-0 border-t border-line"} id="comments">
       <div className="px-4 h-11 flex items-center justify-between border-b border-line">
         <h2 className="text-sm font-semibold text-ink">
           Comments <span className="ml-1 text-xs font-normal text-muted font-mono tnum">{posts.length}</span>
@@ -306,7 +306,7 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
   };
   const shown = compact ? posts.slice(0, COMPACT_LIMIT) : posts;
   return (
-    <section className={`rounded-2xl border border-line overflow-hidden ${compact ? "bg-paper" : "bg-card"}`}>
+    <section className="min-w-0">
       <div className={`px-4 ${compact ? "min-h-14" : "h-11"} flex items-center justify-between gap-2 ${compact && collapsed ? "" : "border-b border-line"}`}>
         <h2 className="text-sm font-semibold text-ink flex items-center gap-2">
           {compact ? <MessageSquare size={14} aria-hidden="true" className="text-muted" /> : null}

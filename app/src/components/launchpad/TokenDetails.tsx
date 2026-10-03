@@ -14,8 +14,8 @@ export default function TokenDetails({ trades, holders, conversation, about }: {
     return () => { clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener("hashchange", selectHash); };
   }, []);
   return (
-    <Tabs id="token-details" value={tab} onValueChange={(v) => setTab(String(v))} className="scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-paper">
-      <TabsList aria-label="Token details">
+    <Tabs id="token-details" value={tab} onValueChange={(v) => setTab(String(v))} className="min-w-0 scroll-mt-24">
+      <TabsList aria-label="Token details" className="gap-5 px-0">
         <TabsTab value="trades">Trades</TabsTab>
         <TabsTab value="holders">Holders</TabsTab>
         <TabsTab value="conversation">Conversation</TabsTab>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import LaunchHero from "@/components/launchpad/LaunchHero";
 import LaunchList from "@/components/launchpad/LaunchList";
+import LaunchBrowser from "@/components/launchpad/LaunchBrowser";
 import LaunchTape from "@/components/launchpad/LaunchTape";
 import { PostsFeed } from "@/components/launchpad/Posts";
 import { listFeed } from "@/lib/launchpad/postsServer";
@@ -30,28 +31,30 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
 
   return (
     <>
-      <main className="relative mx-auto max-w-6xl px-4 pb-16 space-y-8">
-        <LaunchHero configured={LAUNCHPAD_CONFIGURED} />
+      <main className="relative pb-16 space-y-8">
+        <div className="mx-auto max-w-6xl px-4"><LaunchHero configured={LAUNCHPAD_CONFIGURED} /></div>
+        <div className="workspace-shell space-y-6">
         <TrendingStrip initial={trending} />
         <div className="grid xl:grid-cols-[minmax(0,1fr)_17rem] gap-6 items-start">
-          <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} hasDb={dbConfigured()} />
-          <aside aria-label="Launchpad activity and information" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
+          <LaunchBrowser><LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} hasDb={dbConfigured()} /></LaunchBrowser>
+          <aside aria-label="Launchpad activity and information" className="grid min-w-0 gap-6 border-t border-line pt-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1 xl:border-t-0 xl:border-l xl:pt-0">
             <LaunchTape initial={feed} />
-            <div className="min-w-0 space-y-4">
+            <div className="min-w-0 space-y-6">
               <PostsFeed initial={posts} compact />
-              <section aria-labelledby="free-heading" className="rounded-2xl border border-line bg-paper p-4">
+              <section aria-labelledby="free-heading" className="border-t border-line px-4 pt-6">
                 <h2 id="free-heading" className="text-sm font-semibold text-ink">Why it&apos;s free</h2>
                 <p className="mt-2 text-pretty text-xs leading-relaxed text-muted">No fee address in the factory. No platform cut in the locker. On every chain.</p>
-                <dl className="mt-4 divide-y divide-line border-y border-line text-xs">
+                <dl className="mt-3 divide-y divide-line text-xs">
                   <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Platform fee</dt><dd className="font-mono font-bold text-up tnum">$0</dd></div>
                   <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Trading fee</dt><dd className="font-mono text-ink tnum">0 / 1 / 3%</dd></div>
                 </dl>
                 <p className="mt-3 text-pretty text-[11px] leading-relaxed text-muted">Creators choose the trading fee. It goes in full to their beneficiaries, or is burned.</p>
                 <a href="https://github.com/Gitlawb/openlaunch/tree/main/contracts/src" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-8 items-center text-xs font-medium text-body underline decoration-line-strong underline-offset-4 hover:text-ink">Read the contracts ↗</a>
-                <div className="mt-3 border-t border-line pt-3"><Link href="/agents" className="inline-flex min-h-8 items-center text-xs font-medium text-brand hover:underline underline-offset-4">Agents can launch too →</Link></div>
+                <div className="mt-2"><Link href="/agents" className="inline-flex min-h-8 items-center text-xs font-medium text-brand hover:underline underline-offset-4">Agents can launch too →</Link></div>
               </section>
             </div>
           </aside>
+        </div>
         </div>
       </main>
     </>

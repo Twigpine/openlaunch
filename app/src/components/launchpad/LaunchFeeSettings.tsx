@@ -6,7 +6,6 @@ import { isAddress } from "viem";
 import { FEE_PRESETS, MAX_RECIPIENTS } from "@/lib/launchpad/config";
 import { bpsToPct, isBurnAddress, type SplitResult } from "@/lib/launchpad/recipients";
 import { shortAddr } from "@/lib/chainPublic";
-import { card } from "@/components/ui";
 import styles from "./LaunchFeeSettings.module.css";
 
 export type FeeBeneficiary = "burn" | "me" | "custom";
@@ -34,7 +33,7 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
   ] as const;
 
   return (
-    <section className={`${card} ${styles.section}`} aria-labelledby={`${id}-heading`}>
+    <section className={styles.section} aria-labelledby={`${id}-heading`}>
       <div className={styles.heading}>
         <h2 id={`${id}-heading`}>Trading fee</h2>
         <span className={styles.platform}>0% platform fee</span>

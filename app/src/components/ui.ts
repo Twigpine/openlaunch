@@ -1,13 +1,13 @@
 /** Shared class strings for the "Clear Sky" design system. Presentation only. */
 
 const btnBase =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold text-sm whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none";
+  "ui-pressable inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-sm whitespace-nowrap motion-reduce:transition-none disabled:opacity-40 disabled:cursor-not-allowed select-none";
 
 export const btn = {
   primary: `${btnBase} min-h-11 px-5 bg-brand text-inverse hover:bg-brand-strong`,
   primarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand text-inverse hover:bg-brand-strong`,
-  secondary: `${btnBase} min-h-11 px-5 bg-card text-ink border border-line-strong hover:border-ink/40 hover:bg-paper`,
-  secondarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-card text-ink border border-line-strong hover:border-ink/40`,
+  secondary: `${btnBase} min-h-11 px-5 bg-line text-ink hover:bg-line-strong`,
+  secondarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-line text-ink hover:bg-line-strong`,
   soft: `${btnBase} min-h-11 px-5 bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
   softSm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
   up: `${btnBase} min-h-11 px-5 bg-up text-inverse hover:brightness-110`,

@@ -62,7 +62,7 @@ test("light is the original Clear Sky palette, unchanged, and the unclassed base
 
 test("typography is unchanged", () => {
   assert.match(themeBlock, /--font-sans:\s*var\(--font-inter\)/);
-  assert.match(themeBlock, /--font-mono:\s*var\(--font-space-mono\)/);
+  assert.match(themeBlock, /--font-mono:\s*var\(--font-geist-mono\)/);
   assert.match(themeBlock, /--font-display:\s*var\(--font-unbounded\)/);
 });
 

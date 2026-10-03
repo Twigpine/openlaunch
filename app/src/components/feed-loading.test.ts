@@ -24,12 +24,12 @@ test("the /feed skeleton mirrors every layout region of FeedPage + CommunityFeed
   for (const cls of ["shell.page", "shell.intro", "shell.introRow", "shell.introCopy", "shell.panel"]) {
     assert.match(loading, new RegExp(`className=\\{[^}]*\\b${cls.replace(".", "\\.")}\\b`), `loader uses ${cls}`);
   }
-  for (const cls of ["layout", "toolbar", "filters", "resultLine", "feedFoot", "aside", "guide", "steps", "note", "caution"]) {
+  for (const cls of ["layout", "controls", "toolbar", "filters", "resultLine", "feedFoot", "aside", "guide", "steps", "note", "caution"]) {
     assert.match(loading, new RegExp(`\\bstyles\\.${cls}\\b`), `loader uses styles.${cls}`);
     assert.match(feed, new RegExp(`\\bstyles\\.${cls}\\b`), `CommunityFeed still defines the region styles.${cls}`);
   }
   // Regions appear in the same order as the real markup.
-  const order = ["shell.intro", "styles.layout", "shell.panel", "styles.toolbar", "styles.filters", "styles.resultLine", "<SkFeedPost", "styles.feedFoot", "styles.aside", "styles.guide", "styles.note"];
+  const order = ["shell.intro", "styles.layout", "shell.panel", "styles.controls", "styles.toolbar", "styles.filters", "styles.resultLine", "<SkFeedPost", "styles.feedFoot", "styles.aside", "styles.guide", "styles.note"];
   const positions = order.map((token) => loading.indexOf(token));
   assert.ok(positions.every((p) => p >= 0));
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b), "loader regions are in page order");
@@ -47,7 +47,8 @@ test("SkFeedPost matches the real post anatomy: 40px round avatar, body, 20px to
   assert.ok(block.length > 0);
   assert.match(block, /h-10 w-10 shrink-0 rounded-full/, "40px wallet avatar");
   assert.match(block, /h-5 w-5 shrink-0 rounded-md/, "20px token tile");
-  assert.match(block, /px-4 py-5 sm:p-6/, "24px padding, 20px 16px on phones, like .postLink");
+  assert.match(block, /py-6 sm:py-7/, "open rows match the feed spacing");
+  assert.doesNotMatch(block, /px-[1-9]|sm:p-[1-9]/, "post loading has no horizontal card inset");
   assert.match(feed, /<WalletAvatar address=\{post\.wallet\} size=\{40\}/);
   assert.match(feed, /<TokenAvatar[^>]*size=\{20\}/);
   assert.match(block, /mt-\[18px\]/, "body and meta keep the 18px rhythm of .postBody / .postMeta");

@@ -26,23 +26,21 @@ const NAV = [
 type Pulse = { visits: number; online: number };
 
 /**
- * Site header: a floating instrument strip. Full-width hairline row at rest;
- * past 100px of scroll the navigation shell contracts it into a
- * centred pill that rides over the content, keeping the launch CTA and wallet
- * one reach away. `Navbar` injects `visible` into its direct children, which
- * is how the strip knows to drop the wordmark and shorten the CTA when it is
- * floating and has ~800px to work with.
+ * Market pages keep a docked, edge-aligned instrument strip. Reading and
+ * account pages retain the floating navigation. `Navbar` injects `visible`
+ * into its direct children to signal the compact floating state.
  */
 export default function HeaderNav({ pulse }: { pulse: Pulse }) {
   const pathname = usePathname();
+  const workspace = pathname === "/" || pathname.startsWith("/t/");
   const isActive = (href: string) => (href === "/" ? pathname === "/" || pathname.startsWith("/t/") : pathname.startsWith(href));
   const heroCtaOnScreen = useHeroCtaOnScreen(pathname);
 
   return (
     <BridgeProvider><MotionConfig reducedMotion="user">
-      <Navbar className="top-0">
-        <Desktop pulse={pulse} isActive={isActive} quietCta={heroCtaOnScreen} />
-        <Mobile key={pathname} pulse={pulse} isActive={isActive} />
+      <Navbar className="top-0" docked={workspace}>
+        <Desktop workspace={workspace} pulse={pulse} isActive={isActive} quietCta={heroCtaOnScreen} />
+        <Mobile key={pathname} workspace={workspace} pulse={pulse} isActive={isActive} />
       </Navbar>
     </MotionConfig></BridgeProvider>
   );
@@ -72,16 +70,17 @@ function useHeroCtaOnScreen(pathname: string) {
 
 // ── desktop ──────────────────────────────────────────────────────────────────
 
-function Desktop({ visible = false, pulse, isActive, quietCta }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; quietCta: boolean }) {
+function Desktop({ visible = false, workspace, pulse, isActive, quietCta }: { visible?: boolean; workspace: boolean; pulse: Pulse; isActive: (href: string) => boolean; quietCta: boolean }) {
   return (
     <NavBody
       visible={visible}
       className={cn(
         "border border-line transition-colors",
-        // At rest: a full-width hairline ROW, content padded to the page column
-        // (max-w-6xl minus its px-4). Floating: a bordered card pill over the
-        // content. The shell animates the width and corner radius together.
-        visible
+        // Workspaces share the market gutters; other routes retain their
+        // readable page-column alignment and floating pill.
+        workspace
+          ? "workspace-shell max-w-none border-x-0 border-t-0 bg-paper dark:bg-paper"
+          : visible
           ? "max-w-6xl px-3 bg-card/90 dark:bg-card/90"
           : "max-w-none border-x-0 border-t-0 px-[max(16px,calc((100vw-1120px)/2))] bg-paper dark:bg-paper",
       )}
@@ -99,7 +98,7 @@ function Desktop({ visible = false, pulse, isActive, quietCta }: { visible?: boo
 
       <NavLinks isActive={isActive} compact={visible} />
 
-      <div className="relative z-20 ml-auto flex items-center gap-2">
+      <div className={cn("relative z-20 flex items-center gap-2", !workspace && "ml-auto")}>
         <BridgeButton />
         <NotificationSettings />
         <ThemeToggle />
@@ -206,7 +205,7 @@ function XLink({ block = false }: { block?: boolean }) {
 
 // ── mobile ───────────────────────────────────────────────────────────────────
 
-function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean }) {
+function Mobile({ visible = false, workspace, pulse, isActive }: { visible?: boolean; workspace: boolean; pulse: Pulse; isActive: (href: string) => boolean }) {
   const [open, setOpen] = useState(false);
   const menuToggle = useRef<HTMLButtonElement>(null);
   const dismissMenu = useCallback(() => {
@@ -216,10 +215,11 @@ function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse
   return (
     <MobileNav
       visible={visible}
+      docked={workspace}
       className={cn(
         "border border-line transition-colors",
         // same story as desktop: full-bleed hairline row at rest, pill while floating
-        visible ? "max-w-[calc(100vw-2rem)] bg-card/90 dark:bg-card/90" : "max-w-none border-x-0 border-t-0 bg-paper dark:bg-paper",
+        workspace ? "workspace-shell max-w-none border-x-0 border-t-0 bg-paper dark:bg-paper" : visible ? "max-w-[calc(100vw-2rem)] bg-card/90 dark:bg-card/90" : "max-w-none border-x-0 border-t-0 bg-paper dark:bg-paper",
       )}
     >
       <MobileNavHeader>

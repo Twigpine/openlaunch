@@ -11,7 +11,7 @@ import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
 import { canonicalImageUrl } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
-import { SNIPER_BLOCKS } from "./holders";
+import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
 import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
@@ -100,7 +100,7 @@ type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decim
 const TIERS: LiveTier[] = ["live", "new", "quiet"]; // index = the live_tier CASE in the live sort
 
 /** Stock USD prices for this request (filled by `withStocks`). */
-let stockUsdNow = new Map<string, number | null>();
+let stockUsdNow = new Map<ChainKey, Map<string, number | null>>();
 /** Unlisted quotes' on-chain symbol / decimals (bb_quote_tokens, keyed `${chain_id}:${address}`), and each chain's stock tickers they may not borrow. */
 let quoteTokensNow = new Map<string, QuoteTokenMeta>();
 let stockSymbolsNow = new Map<ChainKey, string[]>();
@@ -116,7 +116,7 @@ function quoteInfo(chain: ChainKey, address: string): Quote {
   if (q.key === "museworld") return { ...q, usd: museworldUsdNow };
   if (q.key !== "other") return q;
   const st = stockByAddress(chain, address);
-  if (st) return { key: "stock", address: st.address as Quote["address"], symbol: st.symbol, decimals: st.decimals, usd: stockUsdNow.get(st.address) ?? null, name: st.name, logo: st.logo };
+  if (st) return { key: "stock", address: st.address as Quote["address"], symbol: st.symbol, decimals: st.decimals, usd: stockUsdNow.get(chain)?.get(st.address) ?? null, name: st.name, logo: st.logo };
   return unlistedQuote(address, quoteTokensNow.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, stockSymbolsNow.get(chain) ?? []);
 }
 
@@ -295,13 +295,14 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const win = opts.window ?? "all";
   const ethUsd = opts.ethUsd ?? null;
   const ethFactor = ethUsd ?? 1; // no ETH price → rank ETH pools in ETH units (still monotonic within the chain)
-  // stock quotes: per-address USD factors known this request (empty → treated like unknown = 0 weight in USD sorts)
-  const stockEntries = [...stockUsdNow.entries()].filter(([, v]) => v !== null && v > 0) as [string, number][];
+  // stock quotes: chain-specific USD factors known this request (unknown = 0 weight in USD sorts)
+  const stockEntries = [...stockUsdNow.entries()].flatMap(([chain, prices]) =>
+    [...prices.entries()].flatMap(([address, usd]) => usd !== null && usd > 0 ? [{ chain, address, usd }] : []));
   const conds = [] as ReturnType<typeof db>[];
   if (opts.chain) conds.push(db`l.chain_id = ${chainIdOf(opts.chain)}`);
   if (opts.launcher) conds.push(db`l.launcher = ${opts.launcher.toLowerCase()}`);
   if (opts.filter === "fee0") conds.push(db`l.lp_fee = 0`);
-  if (opts.filter === "burn") conds.push(db`l.lp_fee > 0 AND jsonb_array_length(l.recipients) = 1 AND lower(l.recipients->0->>'payout') = ${DEAD_ADDR}`);
+  if (opts.filter === "burn") conds.push(db`l.lp_fee > 0 AND jsonb_array_length(CASE WHEN jsonb_typeof(l.recipients) = 'array' THEN l.recipients ELSE '[]'::jsonb END) = 1 AND lower(l.recipients->0->>'payout') = ${DEAD_ADDR}`);
   // a fixed quote (USDG, USDC) is matched per chain: the same address elsewhere is some other token
   const quoteArms = (key: Quote["key"]) => {
     const arms = quotesWithKey(key).map(({ chain, address }) => db`(l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address})`);
@@ -315,8 +316,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
   // a registry stock is matched per (chain, address) like every other arm: the address is only a stock on the chain whose registry lists it
-  const stockChains = (a: string) => CHAIN_KEYS.filter((k) => stockByAddress(k, a) !== null);
-  const stockArms = stockEntries.flatMap(([a, v]) => stockChains(a).map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${v}::double precision`));
+  const stockArms = stockEntries.map(({ chain, address, usd }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${usd}::double precision`);
   const stockCase = stockArms.length ? stockArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
   const museworldFactor = museworldUsdNow !== null && museworldUsdNow > 0 ? museworldUsdNow : 0;
@@ -326,7 +326,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
   const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
-  const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
+  const stockDecArms = stockEntries.flatMap(({ chain, address }) => { const d = stockByAddress(chain, address)?.decimals; return d !== undefined && d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${d}`] : []; });
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
@@ -380,6 +380,22 @@ export async function getLaunch(chain: ChainKey, token: string, ethUsd: number |
   await withStocks();
   const rows = await db<Raw[]>`${db.unsafe(SELECT)} WHERE l.chain_id = ${chainIdOf(chain)} AND l.token = ${token.toLowerCase()}`;
   return rows[0] ? shape(rows[0], ethUsd) : null;
+}
+
+/** A bounded watchlist lookup shares the market read model without one query per token. */
+export async function getLaunchesByRefs(refs: readonly { chain: ChainKey; token: string }[], ethUsd: number | null = null): Promise<{ launch: LaunchRow; holders: number | null }[]> {
+  if (refs.length > 50) throw new Error("too many launch references");
+  const db = maybeDb();
+  if (!db || refs.length === 0) return [];
+  await withStocks();
+  const matches = refs.map((ref) => db`(l.chain_id = ${chainIdOf(ref.chain)} AND l.token = ${ref.token.toLowerCase()})`);
+  const rows = await db<(Raw & { holders_synced_block: bigint | null })[]>`
+    ${db.unsafe(SELECT)} WHERE ${matches.reduce((a, b) => db`${a} OR ${b}`)}`;
+  return rows.map((r) => ({
+    launch: shape(r, ethUsd),
+    // Same completed-backfill sentinel as getHolderPanel. An unfinished index is not zero holders.
+    holders: r.holders_synced_block !== null && BigInt(r.holders_synced_block) === SYNCED_FOREVER ? Number(r.holders) : null,
+  }));
 }
 
 /** Find which chain a token lives on (for the legacy /t/<token> redirect). */

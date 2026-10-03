@@ -1,0 +1,114 @@
+.market {
+  position: relative;
+  isolation: isolate;
+}
+
+.market::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 -1rem auto;
+  height: 13rem;
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-brand) 9%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-card) 55%, transparent), transparent 88%);
+  pointer-events: none;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.5rem 0 1.25rem;
+  border-top: 1px solid var(--color-line);
+}
+
+.kicker {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  margin-bottom: .45rem;
+  color: var(--color-muted);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.liveDot {
+  position: relative;
+  width: .42rem;
+  height: .42rem;
+  border-radius: 999px;
+  background: var(--color-up);
+}
+
+.title {
+  color: var(--color-ink);
+  font-size: clamp(1.45rem, 2.1vw, 2rem);
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -.035em;
+  text-wrap: balance;
+}
+
+.subtitle {
+  max-width: 34rem;
+  margin-top: .55rem;
+  color: var(--color-muted);
+  font-size: .82rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.viewTabs {
+  flex: 0 0 auto;
+  background: transparent;
+}
+
+.viewTabs :global(.ui-tab-indicator) {
+  z-index: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-brand);
+}
+
+.viewTab {
+  position: relative;
+  z-index: 1;
+  min-height: 2.75rem;
+  border-radius: 0;
+  color: var(--color-muted);
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+.savedCount {
+  min-width: .8rem;
+  color: var(--color-muted);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: .68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 639px) {
+  .market::before { inset-inline: -.25rem; }
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: .65rem;
+    padding-block: 1rem .75rem;
+  }
+  .kicker,
+  .subtitle { display: none; }
+  .title { font-size: 1.35rem; }
+  .viewTabs { align-self: stretch; }
+  .viewTabs :global(.ui-tab-indicator) { bottom: -1px; }
+  .viewTab { min-height: 2.75rem; flex: 1 1 50%; justify-content: center; border-bottom: 1px solid var(--color-line); border-radius: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot::after { animation: none; }
+}

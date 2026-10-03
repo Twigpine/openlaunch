@@ -25,7 +25,7 @@ export default async function LaunchPage({ searchParams }: { searchParams: Promi
   const [usd, gitlawb] = await Promise.all([ethUsd(), gitlawbUsd()]);
   return (
     <>
-      <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-10 pb-16 space-y-5 sm:space-y-6">
+      <main className="workspace-shell relative pt-6 sm:pt-10 pb-16 space-y-8 sm:space-y-10">
         <header className="max-w-2xl">
           <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">Launch a token</h1>
           <p className="mt-2 text-base text-body">Pick a chain, fill this in, sign once, done. No platform fee. You only pay gas.</p>

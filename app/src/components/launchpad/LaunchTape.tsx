@@ -37,7 +37,7 @@ export default function LaunchTape({ initial }: { initial: FeedItem[] }) {
   }, [subscribe]);
 
   return (
-    <section aria-labelledby="activity-heading" className="overflow-hidden rounded-2xl border border-line bg-paper">
+    <section aria-labelledby="activity-heading" className="min-w-0">
       <div className="flex min-h-14 items-center justify-between border-b border-line px-4">
         <h2 id="activity-heading" className="flex items-center gap-2 text-sm font-semibold text-ink"><Activity size={14} aria-hidden="true" className="text-muted" />Activity</h2>
         <span className="text-[11px] text-muted">Launches & trades</span>

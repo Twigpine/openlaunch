@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Layers3, LockKeyhole, RefreshCw, Wallet } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Check, CircleAlert, Coins, Layers3, LockKeyhole, RefreshCw, Wallet } from "lucide-react";
 import { useAccount, useConfig } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
@@ -24,13 +24,17 @@ import type { EditFields } from "@/lib/launchpad/editAuth";
 import { ago } from "@/lib/launchpad/time";
 import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
-import { SkRow, SkStat } from "@/components/Skeleton";
+import { Sk, SkRow } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
+import WalletAvatar from "@/components/WalletAvatar";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
 type Pending = Record<string, FeeSides | null>; // key chain:token → uncollected fees on both sides (raw), null = unknown
 type Balances = Record<string, bigint | null>;
+type CollectStage = "checking" | "signing" | "confirming" | "syncing" | "confirmed" | "failed";
+type Collection = { symbol: string; stage: CollectStage; message?: string };
+const COLLECT_LABELS: Record<CollectStage, string> = { checking: "Checking fees", signing: "Confirm in wallet", confirming: "Awaiting confirmation", syncing: "Refreshing indexed data", confirmed: "Confirmed on-chain", failed: "Collection stopped" };
 
 const key = (l: { chain: ChainKey; token: string }) => `${l.chain}:${l.token}`;
 
@@ -55,21 +59,47 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   const [editing, setEditing] = useState<LaunchRow | null>(null);
   const [now, setNow] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshed, setRefreshed] = useState(false);
+  const [collection, setCollection] = useState<Collection | null>(null);
+  const [batch, setBatch] = useState<{ completed: number; total: number } | null>(null);
+  const mounted = useRef(true);
+  const collecting = useRef(false);
+  const collectingBatch = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!refreshed) return;
+    const timer = setTimeout(() => setRefreshed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [refreshed]);
+
+  useEffect(() => {
+    if (collection?.stage !== "confirmed" || batch) return;
+    const timer = setTimeout(() => setCollection(null), 6000);
+    return () => clearTimeout(timer);
+  }, [collection, batch]);
 
   const load = useCallback(async () => {
     if (!address) return;
     setRefreshing(true);
+    setRefreshed(false);
     try {
       const res = await fetch(`/api/me?wallet=${address}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`me ${res.status}`);
       const m = (await res.json()) as Me;
+      if (!mounted.current) return;
       setMe(m);
       setErr(null);
       setNow(Date.now());
+      setRefreshed(true);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "failed to load");
+      if (mounted.current) setErr(e instanceof Error ? e.message : "failed to load");
     } finally {
-      setRefreshing(false);
+      if (mounted.current) setRefreshing(false);
     }
   }, [address]);
 
@@ -125,29 +155,58 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
 
   async function collect(l: LaunchRow) {
     const cfg = launchpad(l.chain);
-    if (!cfg.locker || !address) return;
+    if (!cfg.locker || !address || !mounted.current || collecting.current) return false;
+    collecting.current = true;
     setBusy(key(l));
+    setCollection({ symbol: l.symbol, stage: "checking" });
     try {
       const pub = getPublicClient(config, { chainId: CHAINS[l.chain].id })!;
       const wallet = await getWalletClient(config, { chainId: CHAINS[l.chain].id });
+      if (!mounted.current) return false;
       const { request } = await pub.simulateContract({ address: cfg.locker, abi: LAUNCH_LOCKER_ABI, functionName: "collect", args: [BigInt(l.token_id)], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
+      if (!mounted.current) return false;
+      setCollection({ symbol: l.symbol, stage: "signing" });
       const hash = await wallet.writeContract(request);
+      if (mounted.current) setCollection({ symbol: l.symbol, stage: "confirming" });
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
+      if (!mounted.current) return false;
+      setCollection({ symbol: l.symbol, stage: "syncing" });
       await fetch(`/api/launch/sync?chain=${l.chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
+      if (!mounted.current) return false;
       toast({ kind: "collect", title: `Fees collected for ${l.symbol}`, sub: isBurnOnly(l.recipients) ? "Burned on the spot" : "Paid to the beneficiaries", chain: l.chain, token: l.token, symbol: l.symbol });
       await load();
+      if (!mounted.current) return false;
+      setCollection({ symbol: l.symbol, stage: "confirmed", message: "The transaction succeeded. Indexed totals may take a moment to update." });
+      return true;
     } catch (e) {
-      toast({ kind: "info", title: `Collect failed for ${l.symbol}`, sub: friendlyError(e) });
+      if (mounted.current) {
+        const message = friendlyError(e);
+        setCollection({ symbol: l.symbol, stage: "failed", message });
+        toast({ kind: "info", title: `Collect failed for ${l.symbol}`, sub: message });
+      }
+      return false;
     } finally {
-      setBusy(null);
+      collecting.current = false;
+      if (mounted.current) setBusy(null);
     }
   }
 
   async function collectAll() {
-    if (!me) return;
-    for (const l of me.launches) {
-      if (hasFees(pending[key(l)])) await collect(l);
+    if (!me || collecting.current || collectingBatch.current) return;
+    const targets = me.launches.filter((l) => hasFees(pending[key(l)]));
+    if (!targets.length) return;
+    collectingBatch.current = true;
+    setBatch({ completed: 0, total: targets.length });
+    try {
+      for (const [index, l] of targets.entries()) {
+        if (!mounted.current || !await collect(l)) break;
+        if (!mounted.current) break;
+        setBatch({ completed: index + 1, total: targets.length });
+      }
+    } finally {
+      collectingBatch.current = false;
+      if (mounted.current) setBatch(null);
     }
   }
 
@@ -157,8 +216,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         <section className={styles.welcome} aria-labelledby="wallet-welcome">
           <div className={styles.welcomeMain}>
             <span className={styles.walletMark} aria-hidden="true"><Wallet size={28} strokeWidth={1.5} /></span>
-            <p className={styles.eyebrow}>Start with your wallet</p>
             <h2 id="wallet-welcome">Your wallet.<br /><span>Your workspace.</span></h2>
+            <p className={styles.eyebrow}>Start with your wallet</p>
             <p className={styles.welcomeCopy}>Bring your launches, fees and trading activity into one view. No new account to create.</p>
             <ConnectWallet className={styles.connectButton}>
               Connect wallet<ArrowRight size={16} aria-hidden="true" />
@@ -189,15 +248,15 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
   const walletBar = <div className={styles.walletBar}>
-    <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><Wallet size={19} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
-    <div className={styles.walletUtilities}><span className={styles.updateNote}>{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
+    <div className={styles.identity}><WalletAvatar address={address} size={40} /><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
+    <div className={styles.walletUtilities}><span className={styles.updateNote} role="status">{refreshing ? "Loading indexed activity" : err ? "Refresh unavailable" : refreshed ? "Snapshot updated" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null || batch !== null} aria-busy={refreshing} data-refreshed={refreshed || undefined}>{refreshed && !refreshing ? <Check size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}{refreshing ? "Refreshing…" : refreshed ? "Updated" : "Refresh"}</button></div>
   </div>;
 
   if (!me) {
     return (
       <div className={styles.dashboard}>
         {walletBar}
-        {err ? <div className={styles.error} role="alert"><h2>We couldn’t load your dashboard.</h2><p>{err}. Your wallet and tokens are unchanged.</p><button type="button" className={styles.outlineButton} onClick={() => void load()} disabled={refreshing}>Try again<RefreshCw size={14} aria-hidden="true" /></button></div> : <div className={styles.loading} aria-busy="true" aria-label="Loading your dashboard"><dl className={styles.loadingStats}>{Array.from({ length: 4 }, (_, k) => <SkStat key={k} />)}</dl><ul className={styles.loadingRows}>{Array.from({ length: 3 }, (_, k) => <SkRow key={k} i={k} />)}</ul></div>}
+        {err ? <div className={styles.error} role="alert"><h2>We couldn’t load your dashboard.</h2><p>{err}. Your wallet and tokens are unchanged.</p><button type="button" className={styles.outlineButton} onClick={() => void load()} disabled={refreshing}>Try again<RefreshCw size={14} aria-hidden="true" /></button></div> : <div className={styles.loading} aria-busy="true" aria-label="Loading your dashboard"><div className={styles.loadingStats}>{Array.from({ length: 4 }, (_, k) => <div key={k} className={styles.stat}><Sk className="h-3 w-24 max-w-full" /><Sk className="mt-3 h-7 w-20 max-w-full" /><Sk className="mt-3 h-2 w-28 max-w-full" /></div>)}</div><ul className={styles.loadingRows}>{Array.from({ length: 3 }, (_, k) => <SkRow key={k} i={k} />)}</ul></div>}
       </div>
     );
   }
@@ -205,6 +264,10 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
     <div className={styles.dashboard}>
       {walletBar}
       {err ? <p className={styles.error} role="alert">Refresh failed: {err}. Showing the last loaded data. Try Refresh again.</p> : null}
+      {collection ? <div className={styles.collectionProgress} data-stage={collection.stage} role="status" aria-live="polite" aria-atomic="true">
+        <div><span className={styles.progressMarker} aria-hidden="true">{collection.stage === "confirmed" ? <Check size={16} /> : collection.stage === "failed" ? <CircleAlert size={16} /> : <Coins size={16} />}</span><p><strong>{collection.symbol}: {COLLECT_LABELS[collection.stage]}</strong><span>{batch ? `${batch.completed} of ${batch.total} confirmed. Each collection needs your approval.` : collection.message ?? "Your wallet stays in control at every step."}</span></p></div>
+        {collection.stage !== "failed" && collection.stage !== "confirmed" ? <ol aria-label="Collection progress">{(["checking", "signing", "confirming"] as const).map((stage, index) => <li key={stage} data-active={stage === collection.stage || (stage === "confirming" && collection.stage === "syncing") || undefined}><span>{index + 1}</span>{stage === "checking" ? "Check" : stage === "signing" ? "Sign" : "Confirm"}</li>)}</ol> : null}
+      </div> : null}
       <dl className={styles.stats}>
         <Stat k="Your launches" v={String(me.launches.length)} hint="Across all chains" />
         <Stat k="Fees earned" v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
@@ -223,8 +286,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         <div className={styles.panelHeading}>
           <div><h2>Your launches</h2><p>Manage details and collect trading fees.</p></div>
           {collectable.length > 1 ? (
-            <button type="button" onClick={() => void collectAll()} disabled={busy !== null} className={styles.outlineButton}>
-              {busy ? "Collecting…" : `Collect all (${collectable.length})`}
+            <button type="button" onClick={() => void collectAll()} disabled={busy !== null || batch !== null} className={styles.outlineButton}>
+              {batch ? `Collecting ${Math.min(batch.completed + 1, batch.total)} of ${batch.total}` : busy ? "Collecting…" : `Collect all (${collectable.length})`}
             </button>
           ) : null}
         </div>
@@ -269,8 +332,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <div className="text-[11px] text-muted">uncollected</div>
                   </div>
                   <div className={styles.rowActions}>
-                    <button type="button" onClick={() => void collect(l)} disabled={busy !== null || !hasFees(p)} className={styles.outlineButton} aria-label={`Collect fees for ${l.symbol}`}>
-                      {busy === k ? "Collecting…" : "Collect"}
+                    <button type="button" onClick={() => { if (!collectingBatch.current) void collect(l); }} disabled={busy !== null || batch !== null || !hasFees(p)} className={styles.outlineButton} aria-label={`Collect fees for ${l.symbol}`}>
+                      {busy === k && collection ? COLLECT_LABELS[collection.stage] : "Collect"}
                     </button>
                     <button type="button" onClick={() => setEditing(l)} className={styles.quietButton} aria-label={`Edit ${l.symbol} details`}>
                       Edit

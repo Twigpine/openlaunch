@@ -1,5 +1,5 @@
-.terminal { min-width: 0; overflow: hidden; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); color: var(--color-ink); }
-.header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px; }
+.terminal { min-width: 0; background: var(--color-paper); color: var(--color-ink); }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 4px 0 20px; }
 .marketIdentity { min-width: 0; }
 .kicker { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; }
 .kicker > svg { flex-shrink: 0; color: var(--color-muted); }
@@ -8,7 +8,7 @@
 .chain { border-left: 1px solid var(--color-line-strong); padding-left: 8px; margin-left: 2px; color: var(--color-muted); font-size: 10px; }
 .metric { margin-top: 18px; color: var(--color-muted); font-size: 11px; font-weight: 400; }
 .priceLine { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-top: 3px; }
-.priceLine strong { font: 700 36px/1.2 var(--font-mono); letter-spacing: -.06em; overflow-wrap: anywhere; }
+.priceLine strong { font: 700 36px/1.2 var(--font-mono); letter-spacing: -.04em; overflow-wrap: anywhere; }
 .denom { color: var(--color-muted); font-size: 11px; }
 .change { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 7px; color: var(--color-muted); font-size: 10px; }
 .headerControls { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; gap: 10px; }
@@ -16,7 +16,7 @@
 .currencySelect { position: relative; display: flex; align-items: center; }
 .currencySelect select { height: 32px; max-width: 125px; appearance: none; padding: 0 28px 0 10px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font-size: 11px; cursor: pointer; }
 .currencySelect svg { position: absolute; right: 9px; pointer-events: none; color: var(--color-muted); }
-.toolbar { display: flex; align-items: stretch; gap: 4px; border-block: 1px solid var(--color-line); background: var(--color-card); padding: 0 8px; }
+.toolbar { display: flex; align-items: stretch; gap: 4px; border-block: 1px solid var(--color-line); padding: 0; }
 .scrollTools { display: flex; align-items: center; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
 .intervals, .ranges { flex-shrink: 0; border: 0; border-radius: 0; background: transparent; padding: 0; gap: 0; }
 .intervals .interval { height: 44px; padding-inline: 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--color-muted); font: 11px var(--font-mono); box-shadow: none; }
@@ -28,7 +28,7 @@
 .iconButton { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 44px; color: var(--color-muted); cursor: pointer; }
 .iconButton:hover, .tool:hover, .scaleButton:hover { background: var(--color-line); color: var(--color-ink); }
 .terminal button:disabled { opacity: .4; cursor: not-allowed; }
-.legend { padding: 13px 16px 10px; min-height: 74px; }
+.legend { padding: 13px 0 10px; min-height: 74px; }
 .legendContext { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; }
 .legendContext > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .legendContext > span > span { color: var(--color-muted); }
@@ -49,15 +49,15 @@
 .baselineNote { position: absolute; z-index: 3; top: 18%; left: 16px; right: 112px; display: flex; flex-direction: column; gap: 8px; text-align: center; pointer-events: none; }
 .baselineNote span { font-size: 13px; }
 .baselineNote small { color: var(--color-muted); font-size: 11px; line-height: 1.6; }
-.bottomToolbar { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--color-line); padding: 4px 8px; }
+.bottomToolbar { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--color-line); padding: 4px 0; }
 .ranges .range { height: 44px; padding-inline: 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--color-muted); font: 11px var(--font-mono); box-shadow: none; }
 .ranges .range[data-pressed] { border-bottom-color: var(--color-ink); background: transparent; color: var(--color-ink); }
 .scaleTools { display: flex; align-items: center; gap: 2px; }
 .scaleButton { min-width: 34px; min-height: 44px; padding-inline: 5px; border-bottom: 2px solid transparent; color: var(--color-muted); font: 11px var(--font-mono); cursor: pointer; }
 .scaleButton[aria-pressed="true"] { border-bottom-color: var(--color-ink); color: var(--color-ink); }
-.footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 11px 16px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 10px; }
+.footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 0; color: var(--color-muted); font-size: 10px; }
 .footer a:hover { color: var(--color-ink); }
-.dataNote { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 12px; color: var(--color-muted); font-size: 10px; line-height: 1.6; }
+.dataNote { display: flex; flex-direction: column; gap: 4px; padding: 0 0 12px; color: var(--color-muted); font-size: 10px; line-height: 1.6; }
 .terminal :is(button, select, a, [tabindex]):focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
 .terminal:fullscreen { display: flex; flex-direction: column; border: 0; border-radius: 0; padding-inline: max(12px, env(safe-area-inset-left)); overflow-y: auto; }
 .terminal:fullscreen .header { padding: 12px; }
@@ -65,27 +65,27 @@
 .terminal:fullscreen .priceLine strong { font-size: 28px; }
 .terminal:fullscreen .plotWrap { flex: 1; min-height: 200px; }
 .terminal:fullscreen .plot { position: absolute; inset: 0; height: 100%; }
-@media (min-width: 1280px) { .plot { height: 430px; } }
+@media (min-width: 1280px) { .plot { height: clamp(430px, 50dvh, 620px); } }
 @media (max-width: 639px) {
-  .header { padding: 16px 12px; gap: 8px; }
+  .header { padding: 4px 0 16px; gap: 8px; }
   .priceLine strong { font-size: 28px; }
   .headerControls button { padding-inline: 9px; }
   .kicker { font-size: 11px; }
   .chain { display: none; }
-  .legend { padding: 12px; min-height: 95px; }
+  .legend { padding: 12px 0; min-height: 95px; }
   .legendContext { flex-wrap: wrap; gap: 6px; }
   .ohlc { font-size: 10px; gap: 5px 9px; }
   .plot { height: 340px; }
   .fixedTools .iconButton { width: 34px; }
-  .bottomToolbar { padding-inline: 4px; }
+  .bottomToolbar { padding-inline: 0; }
   .ranges .range { padding-inline: 9px; }
   .scaleTools { margin-left: auto; }
-  .footer, .dataNote { padding-inline: 12px; }
+  .footer, .dataNote { padding-inline: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .terminal * { scroll-behavior: auto; transition: none; } }
 @media (max-width: 399px) {
   .header { flex-wrap: wrap; gap: 14px; }
   .marketIdentity { flex: 1 0 100%; }
   .headerControls { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
-  .priceLine strong { letter-spacing: -.045em; }
+  .priceLine strong { letter-spacing: -.04em; }
 }

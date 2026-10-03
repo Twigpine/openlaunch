@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { isAddress, type Address } from "viem";
 import { ArrowLeft, ArrowUpRight, Globe, Share2 } from "lucide-react";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
+import WatchButton from "@/components/launchpad/WatchButton";
 import { feeModeOf } from "@/components/launchpad/FeeChip";
 import TradePanel from "@/components/launchpad/TradePanel";
 import CollectPanel from "@/components/launchpad/CollectPanel";
@@ -112,7 +113,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
-      <main className="mx-auto max-w-6xl px-4 pt-5 pb-28 sm:pt-7 lg:pb-16">
+      <main className="workspace-shell pt-5 pb-28 sm:pt-7 lg:pb-16">
         <nav aria-label="Breadcrumb" className="mb-5 flex min-h-8 items-center justify-between gap-3 text-xs text-muted">
           <Link href="/#launches" className="inline-flex items-center gap-2 hover:text-ink"><ArrowLeft size={13} /> All launches</Link>
           <span className="flex items-center gap-2"><span>{chainLabel}</span><span aria-hidden>·</span><span>Uniswap v4</span></span>
@@ -127,16 +128,17 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             </div>
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
+            <WatchButton token={l} labelled />
             <CopyChip value={l.token} className="!min-h-9 !rounded-lg" />
             <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={utility}>{explorerName(chain)}<ArrowUpRight size={12} /></a>
             <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={utility} aria-label="Share token on X"><Share2 size={13} /> Share</a>
           </div>
         </header>
 
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:gap-6 lg:grid-rows-[min-content_1fr]">
+        <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_21rem] lg:gap-x-8 lg:gap-y-7 lg:grid-rows-[min-content_1fr]">
           <div className="min-w-0 lg:col-start-1 lg:row-start-1">
             <PriceChart key={`${chain}:${l.token}`} chain={chain} token={l.token} symbol={l.symbol} launchedAt={l.block_time} />
-            <dl className="mt-4 grid grid-cols-2 divide-x divide-line overflow-hidden rounded-xl border border-line bg-card sm:grid-cols-4">
+            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-line py-4 sm:grid-cols-4">
               <Stat k={priceUsd !== null ? "Price / USD" : `Price / ${quote.symbol}`} v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
               <Stat k="Volume / all time" v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />
               <Stat k="Buys / sells" v={<><span className="text-up">{count(l.buys)}</span><span className="px-1 text-muted">/</span><span className="text-down-ink">{count(l.sells)}</span></>} sub={`${count(l.buys + l.sells)} total trades`} />
@@ -144,7 +146,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             </dl>
           </div>
 
-          <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <aside className="min-w-0 space-y-6 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <TradePanel chain={chain} token={l.token as Address} symbol={l.symbol} poolKey={poolKey} quote={quote} ethUsd={usd} />
             <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} />
             <CollectPanel chain={chain} quote={quote} token={l.token as Address} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} collectedToken={l.fees_token_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} priceQuote={l.price_quote} ethUsd={usd} />
@@ -155,7 +157,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
               trades={<TokenTrades chain={chain} symbol={l.symbol} quote={quote} swaps={swaps} now={now} />}
               holders={<HoldersPanel chain={chain} symbol={l.symbol} p={holders} embedded />}
               conversation={<TokenComments chain={chain} token={l.token} symbol={l.symbol} launcher={l.launcher} embedded />}
-              about={<section className="p-5">
+              about={<section className="py-6">
                 <h2 className="text-base font-semibold text-ink">Behind {l.symbol}</h2>
                 <p className="mt-2 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed text-body text-pretty">{l.description || "The creator has not added a description yet. The contract details below are recorded on-chain."}</p>
                 {l.website || l.x_handle || swapSite ? <div className="mt-4 flex flex-wrap gap-2">
@@ -189,7 +191,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
 }
 
 function Stat({ k, v, sub }: { k: string; v: React.ReactNode; sub: string }) {
-  return <div className="min-w-0 px-4 py-3"><dt className="text-[10px] text-muted">{k}</dt><dd className="mt-1 truncate font-mono text-sm font-bold text-ink tnum">{v}</dd><dd className="mt-1 truncate font-mono text-[10px] text-muted tnum" title={sub}>{sub}</dd></div>;
+  return <div className="min-w-0"><dt className="text-[11px] text-muted">{k}</dt><dd className="mt-1.5 truncate font-mono text-sm font-bold text-ink tnum">{v}</dd><dd className="mt-1 truncate font-mono text-[10px] text-muted tnum" title={sub}>{sub}</dd></div>;
 }
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3"><dt className="text-muted">{k}</dt><dd className="min-w-0 break-words text-right font-mono text-body tnum">{v}</dd></div>;

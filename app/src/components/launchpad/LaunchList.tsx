@@ -3,20 +3,22 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ArrowDownWideNarrow, ArrowRight, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowRight, Check, Search, SlidersHorizontal, X } from "lucide-react";
 import LaunchRow, { LaunchListHeader, type RowHighlight } from "./LaunchRow";
 import { useLive } from "./LiveProvider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
+import { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from "@/components/vendor/popover";
+import ChainSelector from "./ChainSelector";
 import { btn } from "@/components/ui";
 import type { LaunchRow as L, LaunchSort, VolumeWindow } from "@/lib/launchpad/queries";
 import { CHAIN_SHORT, type ChainKey } from "@/lib/chainPublic";
-import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import { FILTERS, filterOnChain, isAddressQuery, matchesFilter, matchesQuery, normalizeQuery, rankHit, type LaunchFilter } from "@/lib/launchpad/search";
 import { launchKey, mergeLaunches, refreshInPlace } from "@/lib/launchpad/list-state";
 import { liveChip, liveTier } from "@/lib/launchpad/ranking";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
+import styles from "./LaunchList.module.css";
 
 const SORTS: { key: LaunchSort; label: string }[] = [
   { key: "live", label: "Live" },
@@ -27,10 +29,6 @@ const SORTS: { key: LaunchSort; label: string }[] = [
   { key: "holders", label: "Holders" },
 ];
 const WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
-const CHAIN_FILTERS: { key: ChainKey | null; label: string }[] = [
-  { key: null, label: "All chains" },
-  ...VISIBLE_CHAINS.map((key) => ({ key, label: CHAIN_SHORT[key] })),
-];
 const HL_NEW_MS = 60_000;
 const HL_TRADE_MS = 2_500;
 const REORDER_QUIET_MS = 3_000;
@@ -63,6 +61,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const pendingOrder = useRef<L[] | null>(null);
   const interaction = useRef({ pointer: false, focus: false, at: 0 });
   const listRef = useRef<HTMLUListElement>(null);
+  const filtersTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setListParams({ ...selection, limit });
@@ -217,57 +216,49 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const firstQuiet = ranked ? shown.findIndex((row) => liveTier(row, now) === "quiet") : -1; // one divider, where the database's order enters the quiet tier
 
   return (
-    <section id="launches" aria-labelledby="launches-heading" className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-paper">
-      <div className="space-y-4 px-4 pt-5">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h2 id="launches-heading" className="text-base font-semibold tracking-tight text-ink">Launches</h2>
-              <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-muted tnum" title="Total launches across all chains">{live.totals.launches}</span>
-            </div>
-            <p className="mt-1 text-xs text-muted">{sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
-          </div>
-          <div className="relative w-full sm:w-64">
+    <section aria-labelledby="launches-heading" className="min-w-0 scroll-mt-24">
+      <h2 id="launches-heading" className="sr-only">Launches</h2>
+      <div className={`${styles.toolbar} market-toolbar`}>
+          <div className={styles.searchWrap}>
             <label htmlFor="launch-search" className="sr-only">Search launches</label>
-            <Search aria-hidden="true" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input id="launch-search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} placeholder="Name, symbol or address" className="h-11 w-full rounded-xl border border-line-strong bg-card pl-9 pr-11 text-[13px] text-ink placeholder:text-muted focus:border-brand" autoComplete="off" spellCheck={false} />
-            {q ? <button type="button" onClick={() => { setQ(""); document.getElementById("launch-search")?.focus(); }} aria-label="Clear search" className="absolute right-0 top-0 grid h-11 w-11 place-items-center rounded-xl text-muted hover:text-ink"><X size={15} aria-hidden="true" /></button> : null}
+            <Search aria-hidden="true" size={16} className={styles.searchIcon} />
+            <input id="launch-search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} placeholder="Search token, symbol or address" className={styles.searchInput} autoComplete="off" spellCheck={false} />
+            {q ? <button type="button" onClick={() => { setQ(""); document.getElementById("launch-search")?.focus(); }} aria-label="Clear search" className={styles.clearSearch}><X size={15} aria-hidden="true" /></button> : null}
           </div>
-        </div>
-        <div className="-mx-4 overflow-x-auto px-4 bb-scroll">
-          <div role="group" aria-label="Sort launches" className="flex min-w-max gap-5">
-            {SORTS.map((s) => <button key={s.key} type="button" onClick={() => pick(s.key)} aria-pressed={s.key === sort} className={`relative flex min-h-11 items-center gap-1.5 border-b-2 text-xs font-medium transition-colors motion-reduce:transition-none ${s.key === sort ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"}`}>{s.key === "new" ? <ArrowDownWideNarrow size={13} aria-hidden="true" /> : null}{s.label}</button>)}
-          </div>
-        </div>
+          <ChainSelector value={chain} onChange={(c) => { const keep = !filter || FILTERS.some((f) => f.key === filter && filterOnChain(f, c)); pick(sort, window_, c, keep ? filter : null); }} />
+          <Popover>
+            <PopoverTrigger ref={filtersTriggerRef} className={`${styles.filterButton} ui-pressable ${filter ? styles.filterActive : ""}`}><SlidersHorizontal size={14} aria-hidden="true" />Filters{filter ? <span className={styles.filterCount}>1</span> : null}</PopoverTrigger>
+            <PopoverContent>
+              <div className="flex items-center justify-between gap-3 px-2"><PopoverTitle className="text-sm font-semibold">Filter launches</PopoverTitle><PopoverClose aria-label="Close filters" className="grid h-11 w-11 place-items-center rounded-lg text-muted hover:bg-line hover:text-ink"><X size={15} aria-hidden="true" /></PopoverClose></div>
+              <PopoverDescription className="px-2 pb-3 text-xs text-muted">Choose a filter. Select it again to clear.</PopoverDescription>
+              <ToggleGroup aria-label="Quick filter" orientation="vertical" value={filter ? [filter] : []} onValueChange={(values) => pick(sort, window_, chain, (values[0] as LaunchFilter | undefined) ?? null)} className="flex w-full flex-col items-stretch gap-1">
+                {FILTERS.filter((f) => filterOnChain(f, chain)).map((f) => <ToggleGroupItem key={f.key} value={f.key} title={f.title} className="min-h-11 w-full justify-between px-3 text-sm">{f.label}{filter === f.key ? <Check size={14} aria-hidden="true" /> : null}</ToggleGroupItem>)}
+              </ToggleGroup>
+            </PopoverContent>
+          </Popover>
       </div>
-      <div className="space-y-3 border-t border-line px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <ToggleGroup aria-label="Chain" value={[chain ?? "all"]} onValueChange={(values) => { const value = values[0]; if (!value) return; const c = value === "all" ? null : (value as ChainKey); const keep = !filter || FILTERS.some((f) => f.key === filter && filterOnChain(f, c)); pick(sort, window_, c, keep ? filter : null); }}>
-            {CHAIN_FILTERS.map((c) => <ToggleGroupItem key={c.key ?? "all"} value={c.key ?? "all"}>{c.label}</ToggleGroupItem>)}
-          </ToggleGroup>
+      <div className={styles.sortRail}>
+        <div className={`${styles.sortScroller} bb-scroll`}>
+          <div role="group" aria-label="Sort launches" className={styles.sortGroup}>
+            {SORTS.map((s) => <button key={s.key} type="button" onClick={() => pick(s.key)} aria-pressed={s.key === sort} className={`${styles.sortButton} ui-pressable`}>{s.key === "new" ? <ArrowDownWideNarrow size={13} aria-hidden="true" /> : null}{s.label}</button>)}
+          </div>
+        </div>
+        <div className={styles.sortMeta}>
           {showWindow ? <ToggleGroup aria-label="Volume window" value={[window_]} onValueChange={(values) => { if (values[0]) pick(sort, values[0] as VolumeWindow); }}>
-            {WINDOWS.map((w) => <ToggleGroupItem key={w} value={w} className="px-2.5 font-mono tnum">{w === "all" ? "All time" : w}</ToggleGroupItem>)}
+            {WINDOWS.map((w) => <ToggleGroupItem key={w} value={w} className="min-h-9 px-2.5 font-mono tnum">{w === "all" ? "All time" : w}</ToggleGroupItem>)}
           </ToggleGroup> : null}
-        </div>
-        <div className="flex items-start gap-2">
-          <SlidersHorizontal aria-hidden="true" size={13} className="mt-3.5 shrink-0 text-muted" />
-          <ToggleGroup aria-label="Quick filter" value={filter ? [filter] : []} onValueChange={(values) => pick(sort, window_, chain, (values[0] as LaunchFilter | undefined) ?? null)} className="min-w-0 gap-1 overflow-x-auto rounded-none border-0 bg-transparent p-0 bb-scroll">
-            {FILTERS.filter((f) => filterOnChain(f, chain)).map((f) => <ToggleGroupItem key={f.key} value={f.key} title={f.title} className="min-h-10 px-2.5 text-[11px] data-pressed:bg-card">{f.label}</ToggleGroupItem>)}
-          </ToggleGroup>
+          <div role="status" className={styles.status}><span className={styles.countText}>{updating || searching ? <><Spinner size={11} />{searching ? "Searching…" : "Updating…"}</> : nq ? <><strong>{shown.length}</strong> matches</> : <><strong>{shown.length}</strong> of <span className="tnum">{live.totals.launches}</span> · {chain ? CHAIN_SHORT[chain] : "all chains"}</>}</span>{filter ? <button type="button" onClick={() => { pick(sort, window_, chain, null); filtersTriggerRef.current?.focus(); }} className={styles.activeFilter} aria-label="Clear active filter">{FILTERS.find((f) => f.key === filter)?.label}<X size={12} aria-hidden="true" /></button> : null}<span className={styles.updateState}><span className={styles.updateDot} aria-hidden="true" />{holding ? "Order paused" : "Live · 5s"}</span></div>
         </div>
       </div>
-      <div role="status" className="flex min-h-9 items-center justify-between gap-2 border-t border-line px-4 text-[11px] text-muted">
-        <span className="inline-flex items-center gap-2">{updating || searching ? <><Spinner size={11} />{searching ? "Searching all launches…" : "Updating view…"}</> : nq ? <><span className="font-mono tnum">{shown.length}</span> matches</> : <><span className="font-mono tnum">{shown.length}</span> shown · {chain ? CHAIN_SHORT[chain] : "all chains"}</>}</span>
-        <span className="shrink-0">{holding ? "Order held while browsing" : "Updates every 5s"}</span>
-      </div>
+      <p className="sr-only">{sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
       <LaunchListHeader window={showWindow ? window_ : "all"} />
-      <ul ref={listRef} aria-label="Token launches" aria-busy={updating} onPointerEnter={(e) => { if (e.pointerType === "mouse") interaction.current.pointer = true; }} onPointerLeave={() => { interaction.current.pointer = false; interaction.current.at = Date.now(); }} onPointerDown={() => { interaction.current.at = Date.now(); }} onFocusCapture={() => { interaction.current.focus = true; }} onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { interaction.current.focus = false; interaction.current.at = Date.now(); } }}>
+      <ul className={styles.list} ref={listRef} aria-label="Token launches" aria-busy={updating} onPointerEnter={(e) => { if (e.pointerType === "mouse") interaction.current.pointer = true; }} onPointerLeave={() => { interaction.current.pointer = false; interaction.current.at = Date.now(); }} onPointerDown={() => { interaction.current.at = Date.now(); }} onFocusCapture={() => { interaction.current.focus = true; }} onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { interaction.current.focus = false; interaction.current.at = Date.now(); } }}>
         {shown.map((l, i) => {
           const key = launchKey(l);
           const chip = ranked ? liveChip(l, now) : null;
           const rank = !nq && sort !== "new" && (!chip || chip.tier === "live") ? i + 1 : undefined;
           return <Fragment key={key}>
-            {i === firstQuiet ? <li className="border-b border-line bg-card px-4 py-2 text-[11px] text-muted"><span className="font-medium text-body">Quiet launches</span> · no buyers yet. One row per wallet; every launch stays in New.</li> : null}
+            {i === firstQuiet ? <li className={styles.quietDivider} title="No buyer activity yet. One visible launch per wallet; every launch remains discoverable in New."><span aria-hidden="true" className={styles.quietVisual}><span className={styles.quietDot} /><strong>First-trade queue</strong><span>One market per wallet · always visible in New</span></span><span className="sr-only">Quiet launches. No buyer activity yet. One visible launch per wallet; every launch remains discoverable in New.</span></li> : null}
             <li data-token={key}><LaunchRow l={l} rank={rank} window={showWindow ? window_ : "all"} hl={hl.get(key) ?? null} now={now} pop={Boolean(hl.get(key) && hl.get(key)?.kind !== "new")} chip={chip} /></li>
           </Fragment>;
         })}

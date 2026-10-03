@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 
 /** Deterministic hue from an address — same identity trick as the tape dots. */
 export function hueOf(addr: string): number {
@@ -30,7 +31,7 @@ export default function TokenAvatar({ token, symbol, image, size = 40, className
         height={size}
         referrerPolicy="no-referrer"
         onError={() => setFailedSrc(src)}
-        className={`shrink-0 rounded-xl object-cover bg-paper border border-line ${className}`}
+        className={cn("shrink-0 rounded-xl object-cover bg-paper border border-line", className)}
         style={style}
       />
     );
@@ -38,7 +39,7 @@ export default function TokenAvatar({ token, symbol, image, size = 40, className
   return (
     <div
       aria-hidden
-      className={`shrink-0 rounded-xl grid place-items-center font-display font-bold text-white select-none ${className}`}
+      className={cn("shrink-0 rounded-xl grid place-items-center font-display font-bold text-white select-none", className)}
       style={{ ...style, background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 75% 45%))` }}
     >
       {symbol.slice(0, 1).toUpperCase()}

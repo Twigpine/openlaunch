@@ -10,9 +10,11 @@ import test from "node:test";
  */
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 const machine = read("./LaunchMachine.tsx");
-const css = read("./LaunchMachine.module.css").replaceAll("\r\n", "\n");
+// Git may check CSS out with CRLF on Windows; the animation contract is identical.
+const css = read("./LaunchMachine.module.css").replace(/\r\n/g, "\n");
 const metrics = read("./LaunchMechanism.tsx");
 const hero = read("./LaunchHero.tsx");
+const sequence = read("./LaunchSequence.tsx");
 
 test("hero separates the permanent position lock from circulating token supply", () => {
   assert.match(hero, /liquidity position locked forever/i);
@@ -80,6 +82,7 @@ test("hero autoplay loops on CSS clocks with a user pause and cleaned-up observe
 test("autoplay includes mobile while reduced motion and manual inspection remain still", () => {
   assert.match(machine, /const MOTION_QUERY = "\(prefers-reduced-motion: no-preference\)"/);
   assert.match(machine, /event\.pointerType !== "mouse"/);
+  assert.match(machine, /if \(!playing \|\| event\.pointerType/);
   assert.match(machine, /setInspecting\(true\)/);
   assert.match(machine, /disabled=\{!motionAllowed\}/);
   const fallback = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
@@ -87,6 +90,19 @@ test("autoplay includes mobile while reduced motion and manual inspection remain
   assert.match(fallback, /transform:\s*none\s*!important/);
   assert.match(fallback, /animation:\s*none/);
   assert.doesNotMatch(fallback, /\.playback\s*\{\s*display:\s*none/);
+});
+
+test("curved hero caption shares the existing stage and pausable motion contract", () => {
+  assert.match(machine, /<LaunchSequence stage=\{stage\} \/>/);
+  assert.match(sequence, /useId\(\)/);
+  assert.match(sequence, /data-active=\{stage === index\}/);
+  assert.match(sequence, /<textPath href=\{`#\$\{pathId\}`\}/);
+  for (const label of ["Create", "Pool", "Lock"]) assert.ok(sequence.includes(`label: "${label}"`));
+  assert.doesNotMatch(sequence, /\buseEffect\b|\buseState\b|\bsetInterval\b|\bsetTimeout\b|\brequestAnimationFrame\b|gsap|motion\/react/);
+  assert.match(css, /\.sequenceLabel \{ animation: sequence-reveal[^}]+animation-play-state: var\(--motion-state\)/);
+  assert.match(css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)")), /\.sequenceLabel \{ animation: none; \}/);
+  assert.match(css, /aspect-ratio: 560 \/ 398/, "the new caption stays inside the reserved illustration footprint");
+  assert.doesNotMatch(hero, /["']use client["']/, "the promise and CTA stay server rendered");
 });
 
 test("step selection and copy follow CSS phase events, including the loop seam", () => {

@@ -4,6 +4,8 @@ import test from "node:test";
 
 const page = readFileSync(new URL("../../app/rules/page.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("./RulesGuide.module.css", import.meta.url), "utf8");
+const contents = readFileSync(new URL("./DocumentationContents.tsx", import.meta.url), "utf8");
+const contentsCss = readFileSync(new URL("./DocumentationContents.module.css", import.meta.url), "utf8");
 
 // Source contracts supplement the page's responsive and keyboard browser review.
 test("the rules guide retains native navigation and visible risk disclosures", () => {
@@ -25,6 +27,18 @@ test("the rules guide retains native navigation and visible risk disclosures", (
   assert.match(page, /UK, Canada, Australia, Singapore and Switzerland/);
   assert.match(page, /pause transfers or freeze wallets/);
   assert.doesNotMatch(page, /use client|useEffect|setInterval|onClick=/);
+});
+
+test("the active documentation marker enhances native anchors without scrolling or stealing focus", () => {
+  assert.match(page, /<DocumentationContents sections=\{CONTENT_LINKS\}/);
+  assert.match(contents, /href=\{`#\$\{id\}`\}/);
+  assert.match(contents, /aria-current=\{active === id \? "location" : undefined\}/);
+  assert.match(contents, /addEventListener\("scroll", queue, \{ passive: true \}\)/);
+  assert.match(contents, /removeEventListener\("scroll", queue\)/);
+  assert.match(contents, /cancelAnimationFrame\(frame\)/);
+  assert.doesNotMatch(contents, /\.focus\(|scrollIntoView|preventDefault|setInterval/);
+  assert.match(contentsCss, /prefers-reduced-motion/);
+  assert.match(contentsCss, /min-height: 44px/);
 });
 
 test("the launch explanation distinguishes deposited supply, tradable tokens and fee routing", () => {

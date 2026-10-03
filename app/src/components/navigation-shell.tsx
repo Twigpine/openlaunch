@@ -8,7 +8,7 @@ import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type SlotProps = { children: ReactNode; className?: string };
-type SurfaceProps = SlotProps & { visible?: boolean };
+type SurfaceProps = SlotProps & { visible?: boolean; docked?: boolean };
 
 // React only re-renders when the threshold changes, not on every scroll pixel.
 function subscribeToScroll(notify: () => void) {
@@ -18,8 +18,9 @@ function subscribeToScroll(notify: () => void) {
 const isFloating = () => window.scrollY > 100;
 const serverIsFloating = () => false;
 
-export function Navbar({ children, className }: SlotProps) {
-  const visible = useSyncExternalStore(subscribeToScroll, isFloating, serverIsFloating);
+export function Navbar({ children, className, docked = false }: SlotProps & { docked?: boolean }) {
+  const scrolled = useSyncExternalStore(subscribeToScroll, isFloating, serverIsFloating);
+  const visible = scrolled && !docked;
   return (
     <header className={cn("sticky top-0 z-40 w-full", className)}>
       {Children.map(children, (child) => isValidElement(child)
@@ -29,7 +30,7 @@ export function Navbar({ children, className }: SlotProps) {
   );
 }
 
-function NavigationSurface({ children, className, visible = false, mobile = false }: SurfaceProps & { mobile?: boolean }) {
+function NavigationSurface({ children, className, visible = false, mobile = false, docked = false }: SurfaceProps & { mobile?: boolean }) {
   const reduced = useReducedMotion();
   const width = visible ? (mobile ? "90%" : "40%") : "100%";
   return (
@@ -40,7 +41,7 @@ function NavigationSurface({ children, className, visible = false, mobile = fals
         y: visible ? 20 : 0,
         borderRadius: visible ? 28 : 0,
         backdropFilter: visible ? "blur(10px)" : "blur(0px)",
-        ...(mobile ? { paddingLeft: visible ? 12 : 16, paddingRight: visible ? 12 : 16 } : {}),
+        ...(mobile && !docked ? { paddingLeft: visible ? 12 : 16, paddingRight: visible ? 12 : 16 } : {}),
       }}
       transition={{ duration: reduced ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
       style={mobile ? undefined : { minWidth: 800 }}

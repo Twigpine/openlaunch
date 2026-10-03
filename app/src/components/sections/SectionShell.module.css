@@ -1,18 +1,17 @@
 .page { max-width: 1152px; margin-inline: auto; padding: 40px 16px 32px; min-width: 0; }
-.intro { padding-bottom: 32px; border-bottom: 1px solid var(--color-line); margin-bottom: 32px; }
-.eyebrow { display: flex; align-items: center; gap: 9px; color: var(--color-muted); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
-.eyebrow > span { width: 6px; height: 6px; background: var(--color-brand); border-radius: 1px; }
-.introRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-top: 18px; }
+.intro { margin-bottom: 48px; }
+.eyebrow { margin-top: 14px; color: var(--color-muted); font-size: 12px; line-height: 1.5; }
+.introRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .introCopy { min-width: 0; max-width: 740px; }
 .title { color: var(--color-ink); font-size: 32px; line-height: 1.14; font-weight: 700; letter-spacing: -.04em; text-wrap: balance; overflow-wrap: anywhere; }
-.description { max-width: 620px; margin-top: 16px; color: var(--color-body); font-size: 15px; line-height: 1.7; text-wrap: pretty; }
+.description { max-width: 620px; margin-top: 10px; color: var(--color-body); font-size: 15px; line-height: 1.7; text-wrap: pretty; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; flex-shrink: 0; }
-.action { display: inline-flex; justify-content: center; align-items: center; gap: 12px; min-height: 44px; padding: 10px 17px; border: 1px solid var(--color-line-strong); border-radius: 999px; color: var(--color-ink); font-size: 13px; font-weight: 600; transition: background-color 160ms, border-color 160ms; }
-.action:hover { background: var(--color-card); border-color: var(--color-ink); }
+.action { display: inline-flex; justify-content: center; align-items: center; gap: 12px; min-height: 44px; padding: 10px 17px; border-radius: 8px; background: var(--color-line); color: var(--color-ink); font-size: 13px; font-weight: 600; transition: background-color 160ms; }
+.action:hover { background: var(--color-line-strong); }
 .textLink { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-size: 13px; color: var(--color-body); }
 .textLink:hover { color: var(--color-ink); }
-.panel { min-width: 0; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); overflow: hidden; }
-.panelHeading { min-height: 64px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--color-line); color: var(--color-ink); font-size: 14px; font-weight: 600; }
+.panel { min-width: 0; }
+.panelHeading { min-height: 64px; padding-block: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--color-line); color: var(--color-ink); font-size: 14px; font-weight: 600; }
 .anchorSection { scroll-margin-top: 104px; }
 .page :is(a, button, summary, input, textarea):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
 @media (min-width: 640px) { .page { padding-top: 56px; } .title { font-size: 44px; } .description { font-size: 16px; } }

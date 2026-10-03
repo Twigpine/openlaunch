@@ -10,12 +10,15 @@ export function Sk({ className = "", style }: { className?: string; style?: Reac
 /** One launch row, matching LaunchRow's grid. */
 export function SkRow({ i, ledger = false }: { i: number; ledger?: boolean }) {
   if (ledger) return (
-    <li className="border-t border-line px-4 py-3.5">
-      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-3 md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]">
-        <div className="flex min-w-0 items-center gap-2.5"><Sk className="h-9 w-9 shrink-0 rounded-lg" /><div className="min-w-0 flex-1 space-y-2"><Sk className="h-3.5 w-3/4" /><Sk className="h-2.5 w-full max-w-32" /><Sk className="h-2.5 w-2/3" /></div></div>
-        <div className="space-y-2"><Sk className="ml-auto h-3.5 w-16" /><Sk className="ml-auto h-2.5 w-14" /></div>
-        {[0, 1, 2, 3].map((n) => <Sk key={n} className="ml-auto hidden h-3 w-full max-w-12 md:block" />)}
-        <div className="col-span-2 grid grid-cols-4 gap-4 border-t border-line pt-3 md:hidden">{[0, 1, 2, 3].map((n) => <div key={n} className="space-y-2"><Sk className="h-2 w-full" /><Sk className="h-3 w-3/4" /></div>)}</div>
+    <li className="relative min-h-[5.25rem] border-b border-line py-3 pl-12 pr-3 sm:min-h-[5.5rem]">
+      <Sk className="absolute left-3 top-6 h-4 w-4" />
+      <div className="launch-ledger grid grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-x-3 gap-y-2">
+        <div className="flex min-w-0 items-center gap-3"><Sk className="h-11 w-11 shrink-0 rounded-xl" /><div className="min-w-0 flex-1 space-y-1.5"><Sk className="h-3.5 w-3/4" /><Sk className="h-2.5 w-full max-w-36" /><Sk className="hidden h-2.5 w-4/5 sm:block" /></div></div>
+        <div className="space-y-1.5"><div className="flex justify-end gap-2"><Sk className="h-4 w-16" /><Sk className="h-3 w-8" /></div><Sk className="ml-auto h-2.5 w-14" /></div>
+        <div className="hidden space-y-1.5 lg:block"><Sk className="ml-auto h-3.5 w-14" /><Sk className="ml-auto h-2.5 w-10" /></div>
+        <div className="ml-auto hidden space-y-1.5 sm:block"><Sk className="ml-auto h-3 w-24" /><Sk className="ml-auto h-2.5 w-28" /></div>
+        <Sk className="col-span-2 h-2.5 w-4/5 sm:hidden" />
+        <div className="col-span-2 grid grid-cols-2 items-end gap-3 sm:hidden"><div className="space-y-1.5"><Sk className="h-2 w-16" /><Sk className="h-3 w-12" /></div><div className="space-y-1.5"><Sk className="ml-auto h-3 w-24" /><Sk className="ml-auto h-2.5 w-16" /></div></div>
       </div>
     </li>
   );
@@ -67,13 +70,13 @@ export function SkPost({ i = 0, avatar = "round" }: { i?: number; avatar?: "roun
 
 /**
  * One community-feed post (CommunityFeed.tsx `.post`): 40px wallet avatar + author heading, a 15px body
- * (26px line pitch), the 20px token tile line and the "Open conversation" line. Same 24px padding
- * (20px 16px on phones) so the real post lands exactly where its placeholder was.
+ * (26px line pitch), the 20px token tile line and the "Open conversation" line.
+ * Open rows use 28px vertical padding, 24px on phones, with no inset container.
  */
 export function SkFeedPost({ i }: { i: number }) {
   const lines = 1 + (i % 2);
   return (
-    <li className="border-t border-line first:border-t-0 px-4 py-5 sm:p-6">
+    <li className="border-t border-line first:border-t-0 py-6 sm:py-7">
       <div className="flex items-center gap-3">
         <Sk className="h-10 w-10 shrink-0 rounded-full" />
         <div className="min-w-0 flex-1">

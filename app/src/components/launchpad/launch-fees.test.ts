@@ -19,7 +19,7 @@ const { outputText } = ts.transpileModule(`(${declaration.getText(ast).replace(/
 // Native arrow-key navigation and layout are verified in the browser separately.
 const render = runInNewContext(outputText, {
   React: { createElement: (type: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ type, props: props ?? {}, children }), Fragment: "fragment" },
-  useId: () => "fees", FEE_PRESETS, MAX_RECIPIENTS, isAddress, shortAddr, bpsToPct, isBurnAddress, card: "card",
+  useId: () => "fees", FEE_PRESETS, MAX_RECIPIENTS, isAddress, shortAddr, bpsToPct, isBurnAddress,
   styles: new Proxy({}, { get: (_target, key) => key }),
   ArrowUpRight: "ArrowUpRight", Flame: "Flame", LockKeyhole: "LockKeyhole", Wallet: "Wallet",
 }) as (props: Record<string, unknown>) => Element;
@@ -40,6 +40,16 @@ function text(node: unknown): string {
 function change(node: Element, value?: string) {
   (node.props.onChange as (event: { target: { value?: string } }) => void)({ target: { value } });
 }
+
+test("fee controls retain the flat launch form section without adding an enclosing card", () => {
+  const output = render(defaults);
+  assert.equal(output.type, "section");
+  assert.equal(output.props.className, "section");
+  assert.ok(elements(output).some((node) => node.type === "h2" && node.props.id === output.props["aria-labelledby"]));
+  const css = readFileSync(new URL("./LaunchFeeSettings.module.css", import.meta.url), "utf8");
+  assert.match(css, /\.section\s*\{\s*padding: 32px 0;/);
+  assert.match(css, /\.heading h2\s*\{[^}]*font-size: 16px;/);
+});
 
 test("fee choices use the configured pips in one native radio group, with zero preserving its burn reset", () => {
   let pips = -1;

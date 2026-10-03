@@ -1,7 +1,7 @@
 import "server-only";
 import { maybeDb } from "@/lib/db";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
-import { DEAD_ADDR, TOP_HOLDERS, ZERO_ADDR, creatorActivity, holderTags, shareBps, sniperSummary, trustNotes, type HolderTag } from "./holders";
+import { DEAD_ADDR, TOP_HOLDERS, ZERO_ADDR, SYNCED_FOREVER, creatorActivity, holderTags, shareBps, sniperSummary, trustNotes, type HolderTag } from "./holders";
 import { systemAddresses } from "./indexer";
 
 export type HolderRow = { address: string; balance: string; bps: number; tags: HolderTag[] };
@@ -48,7 +48,7 @@ export async function getHolderPanel(chain: ChainKey, token: string): Promise<Ho
   const creatorBps = shareBps(BigInt(creatorRow?.balance ?? "0"), supply);
   const top10Bps = top.reduce((a, r) => a + r.bps, 0);
   const poolBps = shareBps(BigInt(pool[0]?.balance ?? "0"), supply);
-  const synced = l.holders_synced_block !== null && BigInt(l.holders_synced_block) > BigInt(l.block_number) + 1_000_000n; // SYNCED_FOREVER sentinel
+  const synced = l.holders_synced_block !== null && BigInt(l.holders_synced_block) === SYNCED_FOREVER;
   return {
     synced,
     holders: l.holders,

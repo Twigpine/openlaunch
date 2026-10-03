@@ -11,7 +11,7 @@
 /* Chart code reads tokens at runtime; retain even tokens with no utility class. */
 @theme static {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: var(--font-unbounded), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
   /* surfaces */
@@ -60,6 +60,67 @@
 
 :root {
   color-scheme: light;
+  --workspace-gutter: 16px;
+  --ui-control-duration: 160ms;
+  --ui-panel-duration: 220ms;
+  --ui-ease-out: cubic-bezier(.22, 1, .36, 1);
+}
+
+/* Shared, finite interaction feedback. Only opted-in controls move. */
+.ui-pressable {
+  transition-property: color, background-color, border-color, transform;
+  transition-duration: var(--ui-control-duration);
+  transition-timing-function: var(--ui-ease-out);
+}
+.ui-pressable:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.97); }
+.ui-tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: var(--active-tab-width);
+  transform: translateX(var(--active-tab-left));
+  background: var(--color-brand);
+  pointer-events: none;
+  transition: transform var(--ui-panel-duration) var(--ui-ease-out);
+}
+.ui-sort-tab { position: relative; transition: color var(--ui-control-duration) ease; }
+.ui-sort-tab::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -2px;
+  height: 2px;
+  background: var(--color-brand);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--ui-control-duration) var(--ui-ease-out);
+}
+.ui-sort-tab[aria-pressed="true"]::after { transform: scaleX(1); }
+@media (prefers-reduced-motion: reduce) {
+  .ui-pressable:active:not(:disabled):not([aria-disabled="true"]) { transform: none; }
+}
+
+/* Operating surfaces use the screen; prose and the home introduction keep
+   their own readable measure. Header and footer share these edge gutters. */
+.workspace-shell {
+  width: 100%;
+  min-width: 0;
+  padding-inline: var(--workspace-gutter);
+}
+@media (min-width: 640px) { :root { --workspace-gutter: 24px; } }
+@media (min-width: 1280px) { :root { --workspace-gutter: 32px; } }
+
+/* One track definition for the ledger header, rows and loading state.
+   Wider screens distribute space across the figures, not just the name. */
+@media (min-width: 640px) {
+  .launch-ledger {
+    grid-template-columns: minmax(0, 1.65fr) minmax(7rem, .72fr) minmax(9.5rem, .9fr);
+  }
+}
+@media (min-width: 1024px) {
+  .launch-ledger {
+    grid-template-columns: minmax(20rem, 36rem) minmax(8.5rem, 1fr) minmax(7.5rem, .8fr) minmax(10rem, 1fr);
+  }
 }
 
 /* ── Dark: black ground, alpha ramp of white, near-zero chroma greys. The blue

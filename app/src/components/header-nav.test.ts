@@ -9,6 +9,21 @@ const notices = readFileSync(new URL("./vendor/LICENSES.md", import.meta.url), "
 
 // Source contracts complement keyboard/viewport browser checks. They do not
 // simulate Next navigation, native focus, or CSS layout.
+test("workspace navigation preserves notification controls in both header layouts", () => {
+  assert.match(header, /const workspace = pathname === "\/" \|\| pathname\.startsWith\("\/t\/"\)/);
+  assert.match(header, /<Navbar className="top-0" docked=\{workspace\}/);
+  assert.match(header, /<Desktop workspace=\{workspace\}/);
+  assert.match(header, /<Mobile key=\{pathname\} workspace=\{workspace\}/);
+  const desktop = header.slice(header.indexOf("function Desktop"), header.indexOf("function NavLinks"));
+  const mobile = header.slice(header.indexOf("function Mobile"));
+  assert.match(desktop, /<NotificationSettings \/>/);
+  assert.match(mobile, /<NotificationSettings block \/>/);
+  assert.match(header, /<BridgeProvider><MotionConfig/);
+  assert.match(desktop, /<BridgeButton \/>/);
+  assert.match(mobile, /<BridgeButton block onOpen=\{\(\) => setOpen\(false\)\} \/>/);
+  assert.match(mobile, /<MobileNav\s+visible=\{visible\}\s+docked=\{workspace\}/);
+});
+
 test("mobile Launch closes its menu and route changes reset persistent header state", () => {
   assert.match(header, /<LaunchCta block onNavigate=\{\(\) => setOpen\(false\)\} \/>/);
   const launchCta = header.slice(header.indexOf("function LaunchCta"), header.indexOf("function Mobile"));

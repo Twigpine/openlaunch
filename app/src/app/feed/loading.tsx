@@ -10,11 +10,11 @@ export default function Loading() {
   return (
     <main className={shell.page} aria-busy="true" aria-label="Loading posts">
       <header className={shell.intro}>
-        <div className="flex h-4 items-center"><Sk className="h-3 w-36" /></div>
         <div className={shell.introRow}>
           <div className={`${shell.introCopy} w-full`}>
             <Sk className="h-9 w-72 max-w-full sm:h-[50px]" />
-            <div className="mt-4">
+            <div className={shell.eyebrow}><Sk className="h-[18px] w-36" /></div>
+            <div className="mt-2.5">
               <div className="flex h-[26px] items-center sm:h-[27px]"><Sk className="h-4 w-full max-w-[620px]" /></div>
               <div className="flex h-[26px] items-center sm:h-[27px]"><Sk className="h-4 w-3/4 max-w-[460px]" /></div>
             </div>
@@ -24,9 +24,11 @@ export default function Loading() {
       </header>
       <div className={styles.layout}>
         <section className={shell.panel} aria-label="Loading recent community posts">
-          <div className={styles.toolbar}><Sk className="h-4 w-44 max-w-full" /><Sk className="h-11 w-11 rounded-full" /></div>
-          <div className={styles.filters}><Sk className="h-[54px] w-60 max-w-full rounded-xl" /><Sk className="h-11 min-w-[180px] flex-1" /></div>
-          <div className={styles.resultLine}><p className="flex h-4 items-center"><Sk className="h-3 w-24" /></p><span className="flex h-4 items-center"><Sk className="h-3 w-36" /></span></div>
+          <header className={styles.controls}>
+            <div className={styles.toolbar}><Sk className="h-4 w-36 max-w-full" /></div>
+            <div className={styles.filters}><Sk className="h-11 w-32 rounded-lg" /><div className={styles.search}><Sk className="h-3 w-36 max-w-full" /></div><Sk className="h-11 w-11 rounded-lg" /></div>
+            <div className={styles.resultLine}><p className="flex h-4 items-center"><Sk className="h-3 w-20" /></p><span className="flex h-4 items-center"><Sk className="h-3 w-36" /></span></div>
+          </header>
           <ul>
             {Array.from({ length: 6 }, (_, i) => (
               <SkFeedPost key={i} i={i} />
@@ -36,8 +38,8 @@ export default function Loading() {
         </section>
         <aside className={styles.aside} aria-hidden="true">
           <section className={styles.guide}>
-            <Sk className="h-3 w-44" />
-            <div className="mt-3.5 flex h-[30px] items-center"><Sk className="h-6 w-48 max-w-full" /></div>
+            <div className="flex h-[28px] items-center"><Sk className="h-6 w-48 max-w-full" /></div>
+            <div className={styles.asideEyebrow}><Sk className="h-[18px] w-44 max-w-full" /></div>
             <div className="mt-3">
               <div className="flex h-[23px] items-center"><Sk className="h-3.5 w-full" /></div>
               <div className="flex h-[23px] items-center"><Sk className="h-3.5 w-5/6" /></div>

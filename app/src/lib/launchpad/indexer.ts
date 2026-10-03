@@ -6,7 +6,7 @@ import { maybeDb, errMessage, type Db } from "@/lib/db";
 import { LAUNCH_FACTORY_ABI, LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCHED_EVENT, POOL_SWAP_EVENT, LOCKER_EVENTS } from "./abi";
 import { CONFIGURED_CHAINS, launchpad, listedQuoteAddresses } from "./config";
 import { validDecimals } from "./unlisted-quote";
-import { DEAD_ADDR, ZERO_ADDR } from "./holders";
+import { DEAD_ADDR, ZERO_ADDR, SYNCED_FOREVER } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
@@ -297,7 +297,6 @@ async function transfersFromBlockReceipts(chain: ChainKey, token: string, block:
     return null;
   }
 }
-const SYNCED_FOREVER = 9223372036854775807n; // bigint max = "history fully scanned; the live loop keeps it current"
 
 /** System addresses that hold launched tokens on the protocol's behalf (never counted as holders): pool, position manager, locker, factory, plus router/Permit2 which keep swap dust. */
 export function systemAddresses(chain: ChainKey): string[] {

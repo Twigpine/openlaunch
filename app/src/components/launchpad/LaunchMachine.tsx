@@ -5,6 +5,7 @@ import { Pause, Play, ArrowUpRight, LockKeyhole } from "lucide-react";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_SHORT, explorerAddress } from "@/lib/chainPublic";
 import { shouldAnimateLaunch } from "@/lib/launchpad/hero-animation";
+import LaunchSequence from "./LaunchSequence";
 import styles from "./LaunchMachine.module.css";
 
 const stages = [
@@ -63,7 +64,7 @@ export default function LaunchMachine() {
   }
 
   function tilt(event: PointerEvent<HTMLDivElement>) {
-    if (paused || event.pointerType !== "mouse" || !window.matchMedia(TILT_QUERY).matches) return;
+    if (!playing || event.pointerType !== "mouse" || !window.matchMedia(TILT_QUERY).matches) return;
     const box = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - box.left) / box.width - 0.5;
     const y = (event.clientY - box.top) / box.height - 0.5;
@@ -82,6 +83,7 @@ export default function LaunchMachine() {
     <div className={styles.viewport} onPointerMove={tilt} onPointerLeave={() => scene.current?.style.removeProperty("transform")}>
       <div ref={scene} className={styles.scene}>
         <svg viewBox="0 0 560 398" fill="none" className={styles.drawing} aria-hidden="true" focusable="false">
+          <LaunchSequence stage={stage} />
           <g className={styles.grid}>
             {[-100, -50, 0, 50, 100].map((n) => <g key={n}><line x1={280 + n * .86 - 111.8} y1={308 + n * .38 + 49.4} x2={280 + n * .86 + 111.8} y2={308 + n * .38 - 49.4} /><line x1={280 - n * .86 - 111.8} y1={308 + n * .38 - 49.4} x2={280 - n * .86 + 111.8} y2={308 + n * .38 + 49.4} /></g>)}
           </g>
