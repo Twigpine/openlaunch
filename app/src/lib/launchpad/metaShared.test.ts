@@ -38,3 +38,19 @@ test("metaWriteDecision: insert when new, same on an identical resend, conflict 
   assert.equal(metaWriteDecision({ ...row, launcher: "0x" + "1".repeat(40) }, inc), "conflict", "different launcher");
   assert.equal(metaWriteDecision({ ...row, image_url: "https://evil/x.png" }, inc), "conflict", "attacker image");
 });
+
+test("validateMeta: x_handle takes a handle or an x.com link and stores the bare handle", () => {
+  const link = validateMeta({ ...base, x_handle: "https://twitter.com/clear_sky/status/1" });
+  const bare = validateMeta({ ...base, x_handle: "@clear_sky" });
+  assert.ok(link.ok && bare.ok);
+  assert.equal(link.ok && link.value.x_handle, "clear_sky");
+  assert.equal(validateMeta(base).ok && (validateMeta(base) as { value: { x_handle?: string } }).value.x_handle, undefined, "empty stays unset");
+  assert.equal(validateMeta({ ...base, x_handle: "https://evil.com/clear_sky" }).ok, false, "other hosts rejected");
+  assert.equal(validateMeta({ ...base, x_handle: "a".repeat(16) }).ok, false, "too long is an error, not a truncation");
+  // a retry that sends the link again matches the row saved from it (and from the bare handle)
+  const row = { launcher: L.toLowerCase(), name: "Clear Sky", symbol: "SKY", description: null, image_url: null, website: null, x_handle: "clear_sky" };
+  if (link.ok && bare.ok) {
+    assert.equal(metaWriteDecision(row, link.value), "same");
+    assert.equal(metaWriteDecision(row, bare.value), "same");
+  }
+});

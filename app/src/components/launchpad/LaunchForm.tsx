@@ -17,11 +17,13 @@ import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, GAS_RESERVE_WEI, MAX_RECIPIENTS, STO
 import { bpsToPct, buildRecipients, describeShares, emptyRow, isBurnAddress, type Recipient, type RecipientRow } from "@/lib/launchpad/recipients";
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { uppercaseInPlace } from "@/lib/launchpad/symbol-input";
+import { resolveCustomMcapInput, resolveFirstBuyInput } from "@/lib/launchpad/decimal-input";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, gasReserveInQuote, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
+import { parseXHandle } from "@/lib/launchpad/xHandle";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, DEFAULT_CHAIN, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
@@ -274,6 +276,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim() && startTick === null) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or reload.");
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
+  const xParsed = parseXHandle(x);
+  if (!xParsed.ok) errors.push("X: enter a handle or an x.com link.");
   const split = useMemo(() => buildRecipients(rows), [rows]);
   if (feePips > 0 && beneficiary === "custom") errors.push(...split.errors);
   if (initialBuyRaw === undefined) errors.push(`First buy: enter an amount in ${quote.symbol}, or leave it empty.`);
@@ -647,7 +651,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <label className={label} htmlFor="x">
                 X <span className="text-muted font-normal">· optional</span>
               </label>
-              <input id="x" className={input} value={x} onChange={(e) => setX(e.target.value)} placeholder="@handle" />
+              <input id="x" className={input} value={x} onChange={(e) => setX(e.target.value)} onBlur={() => { if (xParsed.ok && xParsed.handle) setX(`@${xParsed.handle}`); }} placeholder="@handle or x.com link" autoCapitalize="none" spellCheck={false} />
             </div>
           </div>
         </section>
@@ -679,7 +683,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <input
                 className={`${input} h-11 w-36 font-mono pr-12`}
                 value={customMcap}
-                onChange={(e) => setCustomMcap(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) => {
+                  const next = resolveCustomMcapInput(e.target.value);
+                  if (next.clearPick) setMcapPick(null);
+                  setCustomMcap(next.value);
+                }}
                 placeholder="custom"
                 inputMode="decimal"
                 aria-label={`custom starting market cap in ${entry.unit === "usd" ? "USD" : quote.symbol}`}
@@ -774,7 +782,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <input
                 className={`${input} h-11 w-40 font-mono pr-16`}
                 value={initialBuy}
-                onChange={(e) => { const v = e.target.value.replace(/[^0-9.]/g, ""); if (v) chooseFirstBuy(v); else declineFirstBuy(); }}
+                onChange={(e) => { const next = resolveFirstBuyInput(e.target.value); if (next.kind === "choose") chooseFirstBuy(next.value); else if (next.kind === "decline") declineFirstBuy(); }}
                 placeholder="none"
                 inputMode="decimal"
                 aria-label={`first buy amount in ${quote.symbol}`}

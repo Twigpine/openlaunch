@@ -12,7 +12,8 @@ export const TAGLINE = "launch a token. Free. Open source. On Base, Robinhood Ch
  *   SITE_DESCRIPTION ≤ 155 chars (Google snippet);
  *   SOCIAL_DESCRIPTION ≤ 125 chars (OpenGraph / X previews, mobile-safe).
  */
-export const SITE_TITLE = `${BRAND_DOMAIN}: free token launchpad on Base`;
+/** Leads with the bare brand word: "openlaunch" is the query to win, and Google tokenises the domain as two words. */
+export const SITE_TITLE = `${BRAND}: free token launchpad on Base, Robinhood & Arc`;
 export const SITE_DESCRIPTION = "Launch a token in one transaction on Base, Robinhood Chain or Arc. Zero platform fee, open source, 100% of supply locked as Uniswap v4 liquidity forever.";
 export const SOCIAL_DESCRIPTION = "Zero-fee, open-source token launchpad. One transaction, liquidity locked forever. Base + Robinhood Chain + Arc.";
 /** Old domain: kept alive as a redirect (on-chain metadata URIs of early launches point at it). */

@@ -73,6 +73,19 @@ test("validateEdit: https only, no private hosts, no HTML, handle format", () =>
   assert.equal(validateEdit({}).ok, true, "all fields optional");
 });
 
+test("validateEdit: an X link normalizes to the handle, so the signed message is the same either way", () => {
+  const link = validateEdit({ x_handle: "https://x.com/abc_1?s=21" });
+  const bare = validateEdit({ x_handle: "@abc_1" });
+  assert.ok(link.ok && bare.ok);
+  if (!link.ok || !bare.ok) return;
+  assert.equal(link.value.x_handle, "abc_1");
+  const p = { chain: "base", token: "0xab", wallet: "0xcd", nonce: "n", expiresAt: 0 };
+  assert.equal(buildEditMessage({ ...p, fields: link.value }), buildEditMessage({ ...p, fields: bare.value }));
+  assert.match(buildEditMessage({ ...p, fields: link.value }), /^x: abc_1$/m);
+  assert.equal(validateEdit({ x_handle: "https://evil.com/abc_1" }).ok, false, "other hosts rejected");
+  assert.equal(validateEdit({ x_handle: "a".repeat(16) }).ok, false, "too long is an error, not a truncation");
+});
+
 test("isNonce accepts 32 hex chars only", () => {
   assert.equal(isNonce("0123456789abcdef0123456789abcdef"), true);
   assert.equal(isNonce("0123456789ABCDEF0123456789abcdef"), false);
@@ -88,7 +101,7 @@ test("share card shaping", () => {
   assert.equal(feeLabel(0, []), "0% fee");
   assert.equal(feeLabel(30000, [{ payout: "0x1", bps: 10000 }]), "3% fee → beneficiary");
   assert.equal(feeLabel(10000, [{ payout: "0x1", bps: 6000 }, { payout: "0x2", bps: 4000 }]), "1% fee → beneficiaries");
-  assert.equal(ageLabel("2026-09-06T11:59:30Z", now), "1m old");
+  assert.equal(ageLabel("2026-09-06T11:59:30Z", now), "30s old");
   assert.equal(shapeCard({ name: "X", symbol: "X", chain: "base", fdv_usd: null, fdv_quote: 2.5, quote_key: "eth", quote_symbol: "ETH", change_from_launch: -0.5, lp_fee: 0, recipients: [], block_time: "2026-09-01T00:00:00Z" }, now).mcap, "2.50 ETH");
 });
 

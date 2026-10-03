@@ -304,3 +304,17 @@ ALTER TABLE bb_launches ALTER COLUMN chain_id DROP DEFAULT;
 ALTER TABLE bb_launch_swaps ALTER COLUMN chain_id DROP DEFAULT;
 ALTER TABLE bb_launch_fee_events ALTER COLUMN chain_id DROP DEFAULT;
 ALTER TABLE bb_launch_meta ALTER COLUMN chain_id DROP DEFAULT;
+
+-- ── unlisted quote tokens (2026-09-25) ─────────────────────────────────────
+-- The factory takes any ERC-20 as the quote. For a quote no list knows, the indexer reads the token's own
+-- symbol / name / decimals once and keeps them here (lib/launchpad/unlisted-quote.ts decides what is shown).
+-- A NULL field is one the contract did not answer; checked_at spaces out the retries. Addresses LOWERCASE hex.
+CREATE TABLE IF NOT EXISTS bb_quote_tokens (
+  chain_id    integer NOT NULL,
+  address     text NOT NULL,
+  symbol      text,
+  name        text,
+  decimals    integer,
+  checked_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain_id, address)
+);

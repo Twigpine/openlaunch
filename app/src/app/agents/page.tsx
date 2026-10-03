@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { ArrowDown, ArrowUpRight, Braces, FileCode2, Terminal } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import DocumentationContents from "@/components/sections/DocumentationContents";
@@ -10,7 +11,7 @@ import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, SITE_URL, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
 
-export const metadata: Metadata = { title: "Agents", description: "Launch and trade tokens from an agent: one contract call, plus a JSON API for the list, trades and metadata." };
+export const metadata: Metadata = pageMetadata({ path: "/agents", title: "Agents", description: "Launch and trade tokens from an agent: one contract call, plus a JSON API for the list, trades and metadata." });
 
 const sections = [
   { id: "launch", number: "01", label: "Launch a token" },

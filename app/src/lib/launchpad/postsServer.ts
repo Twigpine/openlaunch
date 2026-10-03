@@ -5,6 +5,7 @@ import { CHAIN_KEY_PATTERN, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey 
 import { maybeDb } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
 import { AUTO_HIDE_REPORTS, POST_DAILY_MAX, POST_MIN_GAP_MS, buildModMessage, buildPostMessage, buildReportMessage, canPostNow, holderTag, isReportReason, tsFresh, validateBody, type ModAction, type Tag } from "./posts";
+import { clampFeedOffset } from "./posts-paging";
 
 /** Mute targets: `token:<chain>:<address>`. */
 const TOKEN_TARGET_RE = new RegExp(`^token:(${CHAIN_KEY_PATTERN}):(0x[0-9a-f]{40})$`);
@@ -86,7 +87,7 @@ export async function listFeed(limit = 30, offset = 0): Promise<PostRow[]> {
   const rows = await db<RawPost[]>`
     SELECT p.id, p.chain_id, p.token, p.wallet, p.parent_id, p.body, p.tag, p.created_at, p.reports, p.hidden, l.symbol, l.name
       FROM bb_posts p JOIN bb_launches l ON l.chain_id = p.chain_id AND l.token = p.token
-     WHERE NOT p.hidden AND p.parent_id IS NULL ORDER BY p.created_at DESC LIMIT ${Math.min(100, limit)} OFFSET ${Math.max(0, offset)}`;
+     WHERE NOT p.hidden AND p.parent_id IS NULL ORDER BY p.created_at DESC LIMIT ${Math.min(100, Math.max(1, Math.trunc(limit) || 30))} OFFSET ${clampFeedOffset(offset)}`;
   return rows.map(shape);
 }
 
@@ -218,7 +219,8 @@ export async function moderate(p: { action: unknown; target: unknown; wallet: st
              ON CONFLICT (chain_id, token) DO UPDATE SET comments_muted = EXCLUDED.comments_muted, updated_at = now()`;
   } else {
     const id = Number(p.target.slice(5));
-    await db`UPDATE bb_posts SET hidden = ${action === "hide"}, hidden_by = ${action === "hide" ? wallet : null} WHERE id = ${id}`;
+    const rows = await db<{ id: number }[]>`UPDATE bb_posts SET hidden = ${action === "hide"}, hidden_by = ${action === "hide" ? wallet : null} WHERE id = ${id} RETURNING id`;
+    if (rows.length === 0) return fail("post not found", 404);
   }
   return { ok: true };
 }

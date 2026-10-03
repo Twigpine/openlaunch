@@ -12,7 +12,12 @@ export async function GET(req: Request) {
   const chain = u.searchParams.get("chain");
   const token = u.searchParams.get("token");
   if (!isChainKey(chain) || !token || !isAddress(token)) return NextResponse.json({ error: "bad params" }, { status: 400 });
-  const panel = await memo(`holders:${chain}:${token.toLowerCase()}`, 5_000, () => getHolderPanel(chain, token));
-  if (!panel) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json(panel, { headers: { "cache-control": "no-store" } });
+  try {
+    const panel = await memo(`holders:${chain}:${token.toLowerCase()}`, 5_000, () => getHolderPanel(chain, token));
+    if (!panel) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json(panel, { headers: { "cache-control": "no-store" } });
+  } catch (err) {
+    console.error("[launch] holders failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "could not load holders" }, { status: 502 });
+  }
 }

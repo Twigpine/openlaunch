@@ -10,10 +10,15 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const w = (new URL(req.url).searchParams.get("wallet") ?? "").toLowerCase();
   if (!isAddress(w)) return NextResponse.json({ error: "bad wallet" }, { status: 400 });
-  const usd = await ethUsd();
-  const data = await memo(`me:${w}`, 3_000, async () => {
-    const [launches, tokens, trades] = await Promise.all([listLaunches({ launcher: w, limit: 200, ethUsd: usd }), getWalletTokens(w, usd), getWalletTrades(w, usd, 50)]);
-    return { wallet: w, ethUsd: usd, launches, tokens, trades };
-  });
-  return NextResponse.json(data, { headers: { "cache-control": "no-store" } });
+  try {
+    const usd = await ethUsd();
+    const data = await memo(`me:${w}`, 3_000, async () => {
+      const [launches, tokens, trades] = await Promise.all([listLaunches({ launcher: w, limit: 200, ethUsd: usd }), getWalletTokens(w, usd), getWalletTrades(w, usd, 50)]);
+      return { wallet: w, ethUsd: usd, launches, tokens, trades };
+    });
+    return NextResponse.json(data, { headers: { "cache-control": "no-store" } });
+  } catch (err) {
+    console.error("[me] wallet failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "could not load wallet" }, { status: 502 });
+  }
 }

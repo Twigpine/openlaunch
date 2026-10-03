@@ -233,7 +233,8 @@ test("launch lookup reuses shaping in one bounded query and gates holder counts 
   const raw = [
     { chain_id: 8453, token: TOKEN, block_number: 10n, holders_synced_block: null, holders: 6 },
     { chain_id: 4663, token: TOKEN, block_number: 10n, holders_synced_block: 1_000_010n, holders: 5 },
-    { chain_id: 8453, token: OTHER, block_number: 10n, holders_synced_block: 1_000_011n, holders: 0 },
+    { chain_id: 8453, token: OTHER, block_number: 10n, holders_synced_block: 2_000_011n, holders: 8 },
+    { chain_id: 8453, token: OTHER, block_number: 10n, holders_synced_block: 9223372036854775807n, holders: 0 },
   ];
   const db = Object.assign((parts: TemplateStringsArray, ...values: unknown[]) => {
     calls.push({ parts: parts.join("?"), values });
@@ -241,14 +242,14 @@ test("launch lookup reuses shaping in one bounded query and gates holder counts 
   }, { unsafe: (value: string) => value });
   const output = ts.transpileModule(helper, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const exported = {} as { getLaunchesByRefs: (refs: { chain: string; token: string }[], usd?: number | null) => Promise<{ holders: number | null; launch: unknown }[]> };
-  new Function("exports", "maybeDb", "withStocks", "chainIdOf", "shape", "SELECT", output)(exported, () => db, async () => { warmed++; }, (chain: string) => chain === "base" ? 8453 : 4663, (row: unknown) => row, "SELECT l.* FROM bb_launches l");
+  new Function("exports", "maybeDb", "withStocks", "chainIdOf", "shape", "SELECT", "SYNCED_FOREVER", output)(exported, () => db, async () => { warmed++; }, (chain: string) => chain === "base" ? 8453 : 4663, (row: unknown) => row, "SELECT l.* FROM bb_launches l", 9223372036854775807n);
   const ref = { chain: "base", token: TOKEN.toUpperCase() };
   assert.deepEqual(await exported.getLaunchesByRefs([]), []);
   await assert.rejects(exported.getLaunchesByRefs(Array(51).fill(ref)));
   assert.equal(warmed, 0);
   const result = await exported.getLaunchesByRefs([ref, { chain: "robinhood", token: TOKEN }]);
   assert.equal(warmed, 1);
-  assert.deepEqual(result.map((item) => item.holders), [null, null, 0]);
+  assert.deepEqual(result.map((item) => item.holders), [null, null, null, 0]);
   assert.equal(calls.filter((call) => call.parts.includes("WHERE")).length, 1);
   assert.deepEqual(calls[0].values, [8453, TOKEN]);
   assert.deepEqual(calls[1].values, [4663, TOKEN]);

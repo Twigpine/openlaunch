@@ -4,6 +4,10 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { hasFees } from "@/lib/launchpad/creator";
+import { NATIVE, SWAP_GAS_RESERVE_WEI, quoteInfo, sharesGasBalance } from "@/lib/launchpad/config";
+import { requiredTradeNativeBalance } from "@/lib/launchpad/trade-gas";
+import { parseUnits } from "viem";
+import { CHAINS } from "@/lib/chainPublic";
 
 /**
  * Execute the actual component handlers with inert dependencies. This avoids a
@@ -31,8 +35,8 @@ test("trade locks synchronously during preflight and a rejection allows retry", 
   let rejectWallet!: (error: Error) => void;
   const walletPending = new Promise<never>((_, reject) => { rejectWallet = reject; });
   const trade = handler("./TradePanel.tsx", "trade", {
-    address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
-    busy: false, insufficient: false, transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
+    tradable: true, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+    busy: false, insufficient: false, gasStatus: "ready", transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
     getPublicClient: () => ({}),
     getWalletClient: () => { walletLookups++; return walletPending; },
     setPhase: (phase: { k: string; message?: string }) => phases.push(phase),
@@ -56,8 +60,8 @@ test("trade releases the lock when synchronous preflight fails", async () => {
   const transactionLock = { current: false };
   const phases: { k: string }[] = [];
   const trade = handler("./TradePanel.tsx", "trade", {
-    address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
-    busy: false, insufficient: false, transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
+    tradable: true, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+    busy: false, insufficient: false, gasStatus: "ready", transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
     getPublicClient: () => { throw new Error("No RPC client"); },
     setPhase: (phase: { k: string }) => phases.push(phase), friendlyError: (error: Error) => error.message,
   });
@@ -65,6 +69,110 @@ test("trade releases the lock when synchronous preflight fails", async () => {
   assert.equal(transactionLock.current, false);
   assert.deepEqual(phases.map((phase) => phase.k), ["preparing", "error"]);
 });
+
+test("trade never starts while an unlisted pair token's decimals are unknown", async () => {
+  const transactionLock = { current: false };
+  const phases: { k: string }[] = [];
+  const trade = handler("./TradePanel.tsx", "trade", {
+    tradable: false, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+    busy: false, insufficient: false, gasStatus: "ready", transactionLock, onChain: true, CHAIN: { id: 8453 }, config: {},
+    getPublicClient: () => { throw new Error("must not be reached"); },
+    setPhase: (phase: { k: string }) => phases.push(phase), friendlyError: (error: Error) => error.message,
+  });
+  await trade();
+  assert.deepEqual(phases, [], "an amount parsed with placeholder decimals is never sent");
+  assert.equal(transactionLock.current, false);
+});
+
+for (const side of ["buy", "sell"] as const) {
+  for (const chain of ["base", "robinhood", "arc"] as const) {
+    for (const gasRead of ["insufficient", "failed"] as const) {
+      test(`${chain} ERC-20 ${side} never requests approval when the fresh gas balance is ${gasRead}`, async () => {
+        const effects: string[] = [];
+        const phases: { k: string; message?: string }[] = [];
+        const transactionLock = { current: false };
+        const trade = handler("./TradePanel.tsx", "trade", {
+          tradable: true, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+          busy: false, insufficient: false, gasStatus: "ready", transactionLock, onChain: true, CHAIN: CHAINS[chain], config: {},
+          side, chain, isNative: false, quote: { address: "quote" }, token: "token", V4: { permit2: "permit2" },
+          requiredNativeBalance: 10n, NATIVE_SYMBOL: chain === "arc" ? "USDC" : "ETH",
+          gasBalanceError: "Could not check the gas balance. Retry.", gasInsufficientMessage: "Not enough native currency for gas.",
+          slippageBps: 100, minOut: () => 1n, ERC20_MIN_ABI: [], maxUint256: 100n, BUILDER_DATA_SUFFIX: "0x",
+          getPublicClient: (_config: unknown, { chainId }: { chainId: number }) => {
+            assert.equal(chainId, CHAINS[chain].id);
+            return {
+              getBalance: async ({ address }: { address: string }) => { assert.equal(address, "wallet"); effects.push("gas"); if (gasRead === "failed") throw new Error("RPC offline"); return 0n; },
+              readContract: async () => { effects.push("allowance"); return 0n; },
+            };
+          },
+          getWalletClient: async (_config: unknown, { chainId }: { chainId: number }) => {
+            assert.equal(chainId, CHAINS[chain].id);
+            return { writeContract: async () => { effects.push("sign"); throw new Error("unexpected approval"); } };
+          },
+          setPhase: (phase: { k: string; message?: string }) => phases.push(phase), friendlyError: (error: Error) => error.message,
+        });
+        await trade();
+        assert.deepEqual(effects, ["gas"], "cached token funds and a prior ready state cannot bypass fresh gas preflight");
+        assert.equal(phases.at(-1)?.k, "error");
+        assert.equal(phases.at(-1)?.message, gasRead === "failed" ? "Could not check the gas balance. Retry." : "Not enough native currency for gas.");
+        assert.equal(transactionLock.current, false);
+      });
+    }
+  }
+}
+
+for (const gasStatus of ["loading", "error", "insufficient"] as const) {
+  test(`trade blocks a ${gasStatus} gas balance before wallet lookup`, async () => {
+    const phases: unknown[] = [];
+    const transactionLock = { current: false };
+    const trade = handler("./TradePanel.tsx", "trade", {
+      tradable: true, address: "wallet", amountIn: 1n, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+      busy: false, insufficient: false, gasStatus, transactionLock,
+      setPhase: (phase: unknown) => phases.push(phase),
+      getWalletClient: () => { throw new Error("No wallet lookup should occur"); },
+    });
+    await trade();
+    assert.deepEqual(phases, []);
+    assert.equal(transactionLock.current, false);
+  });
+}
+
+for (const side of ["buy", "sell"] as const) {
+  for (const chain of ["base", "robinhood", "arc"] as const) {
+    test(`funded ${chain} ${side} reaches the router only after a fresh native gas check`, async () => {
+      const quote = quoteInfo(chain, chain === "arc" ? "0x3600000000000000000000000000000000000000" : NATIVE);
+      const isNative = quote.address === NATIVE;
+      const amountIn = parseUnits("1", side === "buy" ? quote.decimals : 18);
+      const requiredNativeBalance = requiredTradeNativeBalance({ amountIn, spendsNativeBalance: side === "buy" && (isNative || sharesGasBalance(chain, quote)), quoteDecimals: quote.decimals, reserveWei: SWAP_GAS_RESERVE_WEI[chain] });
+      for (const sufficient of [false, true]) {
+        const effects: string[] = [];
+        const trade = handler("./TradePanel.tsx", "trade", {
+          tradable: true, address: "wallet", amountIn, quote_: { out: 2n, forKey: "quote" }, quoteKey: "quote",
+          busy: false, insufficient: false, gasStatus: "ready", transactionLock: { current: false }, onChain: true, CHAIN: CHAINS[chain], config: {},
+          side, chain, isNative, quote, token: "token", V4: { permit2: "permit2", universalRouter: "router" }, poolKey: {},
+          requiredNativeBalance, gasBalanceError: "Cannot read gas", gasInsufficientMessage: "Not enough gas",
+          slippageBps: 100, minOut: () => 1n, ERC20_MIN_ABI: [], PERMIT2_ABI: [], UNIVERSAL_ROUTER_ABI: [], BUILDER_DATA_SUFFIX: "0x",
+          encodeV4ExactInSingle: () => ({ commands: "0x", inputs: [] }),
+          getPublicClient: (_config: unknown, { chainId }: { chainId: number }) => {
+            assert.equal(chainId, CHAINS[chain].id);
+            return {
+              getBalance: async ({ address }: { address: string }) => { assert.equal(address, "wallet"); effects.push("gas"); return sufficient ? requiredNativeBalance : requiredNativeBalance - 1n; },
+              readContract: async ({ address }: { address: string }) => address === "permit2" ? [amountIn, Math.floor(Date.now() / 1000) + 3600] : amountIn,
+              simulateContract: async ({ value }: { value: bigint }) => { effects.push("simulate"); assert.equal(value, side === "buy" && isNative ? amountIn : 0n); return { request: {} }; },
+            };
+          },
+          getWalletClient: async (_config: unknown, { chainId }: { chainId: number }) => {
+            assert.equal(chainId, CHAINS[chain].id);
+            return { writeContract: async () => { effects.push("sign"); throw new Error("Stop before a real transaction"); } };
+          },
+          setPhase: () => {}, friendlyError: (error: Error) => error.message,
+        });
+        await trade();
+        assert.deepEqual(effects, sufficient ? ["gas", "simulate", "sign"] : ["gas"]);
+      }
+    });
+  }
+}
 
 for (const status of ["reverted", "success"]) {
   test(`fee-panel collect and claim handle a ${status} receipt honestly`, async () => {
@@ -217,4 +325,12 @@ test("preparing a trade disables the same controls as signing and confirming", (
   assert.match(source, /Preparing trade…/);
   assert.match(source, /<input[^>]*disabled=\{busy\}/);
   assert.match(source, /if \(!v\[0\] \|\| busy\) return/);
+});
+
+test("every connected trade fetches gas and exposes a blocked-balance recovery action", () => {
+  const source = readFileSync(new URL("./TradePanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /useBalance\(\{ address, chainId: CHAIN\.id, query: \{ enabled: Boolean\(address\),/);
+  assert.match(source, /disabled=\{busy \|\| amountIn === null[^}]+gasStatus !== "ready"\}/);
+  assert.match(source, /onClick=\{\(\) => void eth\.refetch\(\)\} disabled=\{eth\.isFetching\}/);
+  assert.match(source, /Checking \$\{NATIVE_SYMBOL\} for gas/);
 });

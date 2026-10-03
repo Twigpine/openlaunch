@@ -12,9 +12,11 @@ import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BUY_PRESETS, NATIVE, SWAP_GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
+import { requiredTradeNativeBalance, tradeGasStatus } from "@/lib/launchpad/trade-gas";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
+import { sanitizeDecimalInput } from "@/lib/launchpad/decimal-input";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
-import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { tradeQuoteKey } from "@/lib/launchpad/token-market";
 import { SLIPPAGE_PRESETS_BPS, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageField, setSlippageBps, subscribeSlippage } from "@/lib/launchpad/trade-slippage";
 import { friendlyError } from "@/lib/errors";
@@ -46,6 +48,10 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const CHAIN_LABEL = CHAIN_LABELS[chain];
   const V4 = launchpad(chain).v4;
   const configured = launchpad(chain).configured;
+  // An unlisted quote (any ERC-20 the factory was handed) trades like any ERC-20 quote, once its decimals are known:
+  // until then every amount would be scaled wrong, so the panel shows but does not send.
+  const unlisted = quote.key === "other";
+  const tradable = quote.decimalsKnown !== false;
   const isNative = quote.address.toLowerCase() === NATIVE; // the native asset, whatever the chain calls it (ETH, or USDC on Arc)
   // A buy paid from the gas balance (the native asset, or on Arc the USDC quote that is its ERC-20 face) keeps the swap's gas back,
   // in the quote's own units; a buy paid in any other ERC-20 does not touch the gas balance
@@ -71,7 +77,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const seq = useRef(0);
   const transactionLock = useRef(false);
 
-  const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && isNative, refetchInterval: 15_000 } });
+  const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
   const qbal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && !isNative, refetchInterval: 15_000 } });
   const tok = useReadContract({ address: token, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
 
@@ -88,6 +94,10 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const busy = phase.k === "preparing" || phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
   const balance = side === "buy" ? (isNative ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
   const insufficient = amountIn !== null && balance !== undefined && amountIn + (side === "buy" ? buyReserve : 0n) > balance;
+  const requiredNativeBalance = requiredTradeNativeBalance({ amountIn, spendsNativeBalance: side === "buy" && (isNative || sharesGasBalance(chain, quote)), quoteDecimals: quote.decimals, reserveWei: SWAP_GAS_RESERVE_WEI[chain] });
+  const gasStatus = tradeGasStatus(eth.data?.value, eth.isError, requiredNativeBalance);
+  const gasBalanceError = `Could not check your ${NATIVE_SYMBOL} balance for gas. Please retry.`;
+  const gasInsufficientMessage = `Keep at least ${formatEther(SWAP_GAS_RESERVE_WEI[chain])} ${NATIVE_SYMBOL} for gas after paying the trade amount.`;
 
   const quoteKey = tradeQuoteKey(chain, token, side, amount);
   // A response can only be used for the exact chain/token/side/amount requested.
@@ -116,7 +126,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   }, [amountIn, side, poolKey, config, amount, V4.quoter, CHAIN.id, quoteKey]);
 
   async function trade() {
-    if (!address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
+    if (!tradable || !address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || gasStatus !== "ready" || transactionLock.current) return;
     // Lock before the first await, including wallet lookup and RPC preflight.
     transactionLock.current = true;
     setPhase({ k: "preparing" });
@@ -129,6 +139,10 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
+      // The polled balance can be stale by the time a trade is submitted. Check the
+      // native gas currency before any approval or swap, even when paying an ERC-20.
+      const freshNativeBalance = await pub.getBalance({ address }).catch(() => { throw new Error(gasBalanceError); });
+      if (freshNativeBalance < requiredNativeBalance) throw new Error(gasInsufficientMessage);
       // The closure value is fixed per render, so mid-flight preset picks in a
       // newer render cannot change this transaction's tolerance either way.
       tradeSlippageBps = slippageBps;
@@ -203,13 +217,19 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} className={`min-h-11 text-sm data-pressed:bg-paper ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? "Buy" : "Sell"}</ToggleGroupItem>)}
       </ToggleGroup>
 
+      {unlisted ? (
+        <p role="note" className="rounded-xl border border-warm/30 bg-warm-soft px-3 py-2 text-[11px] leading-relaxed text-warm-ink text-pretty">
+          <b>Unlisted pair.</b> Priced in {quote.symbol} (<a href={explorerAddress(chain, quote.address)} target="_blank" rel="noreferrer" className="font-mono underline underline-offset-2">{shortAddr(quote.address)} ↗</a>), a token openlaunch does not list. Anyone can deploy a token with any name, so check that address before you trade. No USD price is shown.
+        </p>
+      ) : null}
+
       <div className="relative">
         <div className="border-b border-line pb-5">
           <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? "You pay" : "You sell"}</label>
             {balance !== undefined ? <button type="button" disabled={busy} className="min-h-11 max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, quote.decimals) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
           </div>
           <div className="mt-2 flex items-center gap-3">
-            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-muted tnum" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />
+            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-muted tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />
             <span className="max-w-24 shrink-0 truncate py-1.5 text-xs font-medium text-ink">{side === "buy" ? quote.symbol : symbol}</span>
           </div>
           <div className="mt-3 grid grid-cols-4 gap-1.5">
@@ -270,9 +290,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         {slippageError ? <p id={`slippage-err-${chain}`} role="alert" className="text-right text-[10px] text-down-ink">Use 0.1–20%.</p> : null}
       </dl>
 
-      {!configured ? (
+      {!configured || !tradable ? (
         <button type="button" disabled className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}>
-          Trading unavailable
+          {configured ? "Checking the pair token…" : "Trading unavailable"}
         </button>
       ) : !isConnected ? (
         <ConnectWallet className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}>
@@ -286,7 +306,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         <button
           type="button"
           onClick={() => void trade()}
-          disabled={busy || amountIn === null || !quote_ || quote_.forKey !== quoteKey || insufficient}
+          disabled={busy || amountIn === null || !quote_ || quote_.forKey !== quoteKey || insufficient || gasStatus !== "ready"}
           className={`${side === "buy" ? btn.up : `${btn.primary} !bg-down hover:brightness-110`} w-full min-h-12 text-[15px]`}
         >
           {phase.k === "preparing" ? (
@@ -305,6 +325,12 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
             </>
           ) : insufficient ? (
             `Not enough ${side === "buy" ? quote.symbol : symbol}`
+          ) : gasStatus === "loading" ? (
+            `Checking ${NATIVE_SYMBOL} for gas…`
+          ) : gasStatus === "error" ? (
+            "Gas balance unavailable"
+          ) : gasStatus === "insufficient" ? (
+            `Not enough ${NATIVE_SYMBOL} for gas`
           ) : side === "buy" ? (
             `Buy ${symbol}`
           ) : (
@@ -312,6 +338,13 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
           )}
         </button>
       )}
+
+      {isConnected && onChain && !busy && (gasStatus === "error" || gasStatus === "insufficient") ? (
+        <p role="status" className="text-xs leading-relaxed text-muted">
+          {gasStatus === "error" ? gasBalanceError : gasInsufficientMessage}{" "}
+          <button type="button" onClick={() => void eth.refetch()} disabled={eth.isFetching} className="min-h-9 underline underline-offset-2 disabled:opacity-50">{eth.isFetching ? "Checking…" : "Refresh balance"}</button>
+        </p>
+      ) : null}
 
       {phase.k === "error" ? (
         <p className="rounded-lg bg-down-soft text-down-ink text-sm px-3 py-2" role="alert">

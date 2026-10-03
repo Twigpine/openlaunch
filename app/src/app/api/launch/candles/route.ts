@@ -20,34 +20,39 @@ export async function GET(req: Request) {
   const token = (u.searchParams.get("token") ?? "").toLowerCase();
   const interval = u.searchParams.get("interval") ?? "5m";
   if (!isChainKey(chain) || !isAddress(token) || !isInterval(interval)) return NextResponse.json({ error: "bad params" }, { status: 400 });
-  const usd = await ethUsd();
-  const l = await memo(`launch:${chain}:${token}`, 3_000, () => getLaunch(chain, token, usd));
-  if (!l) return NextResponse.json({ error: "not found" }, { status: 404 });
-  // getLaunch resolves issuer-registry stock quotes too; the static quote list
-  // would relabel them "?" and could aggregate with the wrong decimals.
-  const q = { symbol: l.quote_symbol, decimals: l.quote_decimals };
-  const intervalS = INTERVALS[interval];
-  const launchT = Math.floor(new Date(l.block_time).getTime() / 1000);
-  const requestedAt = Math.floor(Date.now() / 1000);
-  const fromRaw = Number(u.searchParams.get("from"));
-  const from = boundedCandleFrom(fromRaw, launchT, requestedAt, intervalS);
-  const wallet = u.searchParams.get("wallet");
-  const snapshot = await memo(`candles:${chain}:${token}:${interval}:${from}`, 3_000, async () => {
-    const asOf = requestedAt;
-    const [candles, priorPrice] = await Promise.all([
-      getCandles(chain, token, intervalS, from, q.decimals, asOf),
-      getCandleBaseline(chain, token, from, q.decimals),
-    ]);
-    return { candles, priorPrice, asOf };
-  });
-  // A cache hit can predate this request. Markers must share its cutoff so a
-  // new wallet trade cannot appear ahead of the corresponding OHLCV update.
-  const mine = wallet && isAddress(wallet) ? await getWalletSwaps(chain, token, wallet, snapshot.asOf) : null;
-  // launch price in quote per token, from the start tick
-  const launchPrice = 1 / (Math.pow(1.0001, l.start_tick) * Math.pow(10, q.decimals - 18));
-  const baseline = { price: snapshot.priorPrice ?? launchPrice, hasPriorTrades: snapshot.priorPrice !== null };
-  return NextResponse.json(
-    { interval, from, asOf: snapshot.asOf, baseline, launch: { t: launchT, price: launchPrice }, quote: { symbol: q.symbol, decimals: q.decimals, usd: l.quote_usd }, supply: Number(BigInt(l.supply)) / 1e18, candles: snapshot.candles, mine },
-    { headers: { "cache-control": "no-store" } },
-  );
+  try {
+    const usd = await ethUsd();
+    const l = await memo(`launch:${chain}:${token}`, 3_000, () => getLaunch(chain, token, usd));
+    if (!l) return NextResponse.json({ error: "not found" }, { status: 404 });
+    // getLaunch resolves issuer-registry stock quotes too; the static quote list
+    // would relabel them "?" and could aggregate with the wrong decimals.
+    const q = { symbol: l.quote_symbol, decimals: l.quote_decimals };
+    const intervalS = INTERVALS[interval];
+    const launchT = Math.floor(new Date(l.block_time).getTime() / 1000);
+    const requestedAt = Math.floor(Date.now() / 1000);
+    const fromRaw = Number(u.searchParams.get("from"));
+    const from = boundedCandleFrom(fromRaw, launchT, requestedAt, intervalS);
+    const wallet = u.searchParams.get("wallet");
+    const snapshot = await memo(`candles:${chain}:${token}:${interval}:${from}`, 3_000, async () => {
+      const asOf = requestedAt;
+      const [candles, priorPrice] = await Promise.all([
+        getCandles(chain, token, intervalS, from, q.decimals, asOf),
+        getCandleBaseline(chain, token, from, q.decimals),
+      ]);
+      return { candles, priorPrice, asOf };
+    });
+    // A cache hit can predate this request. Markers must share its cutoff so a
+    // new wallet trade cannot appear ahead of the corresponding OHLCV update.
+    const mine = wallet && isAddress(wallet) ? await getWalletSwaps(chain, token, wallet, snapshot.asOf) : null;
+    // launch price in quote per token, from the start tick
+    const launchPrice = 1 / (Math.pow(1.0001, l.start_tick) * Math.pow(10, q.decimals - 18));
+    const baseline = { price: snapshot.priorPrice ?? launchPrice, hasPriorTrades: snapshot.priorPrice !== null };
+    return NextResponse.json(
+      { interval, from, asOf: snapshot.asOf, baseline, launch: { t: launchT, price: launchPrice }, quote: { symbol: q.symbol, decimals: q.decimals, usd: l.quote_usd }, supply: Number(BigInt(l.supply)) / 1e18, candles: snapshot.candles, mine },
+      { headers: { "cache-control": "no-store" } },
+    );
+  } catch (err) {
+    console.error("[launch] candles failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "could not load candles" }, { status: 502 });
+  }
 }

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, ChartNoAxesCombined } from "lucide-react";
 import TokenAvatar from "./TokenAvatar";
-import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
+import { isGitlawbQuote } from "./GitlawbBadge";
+import { QuoteBrandBadge, isMuseworldQuote } from "./MuseworldBadge";
 import ChangeChip from "./ChangeChip";
 import { useLive } from "./LiveProvider";
 import type { LaunchRow } from "@/lib/launchpad/queries";
@@ -87,8 +88,8 @@ export default function TrendingStrip({ initial }: { initial: Snap }) {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-ink">{row.name}</p>
                       <div className="flex min-w-0 items-center gap-1 text-[10px] text-muted">
-                        <span className="truncate"><span className="font-mono">{row.symbol}</span> · {CHAIN_SHORT[row.chain]} · {isGitlawbQuote(row.quote_key) ? null : row.quote_symbol}</span>
-                        {isGitlawbQuote(row.quote_key) ? <GitlawbBadge /> : null}
+                        <span className="truncate"><span className="font-mono">{row.symbol}</span> · {CHAIN_SHORT[row.chain]} · {isGitlawbQuote(row.quote_key) || isMuseworldQuote(row.quote_key) ? null : row.quote_symbol}</span>
+                        <QuoteBrandBadge quoteKey={row.quote_key} />
                       </div>
                     </div>
                     <ArrowUpRight size={13} aria-hidden="true" className="shrink-0 text-muted group-hover:text-ink" />
