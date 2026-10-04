@@ -30,10 +30,16 @@ export function BridgeProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function BridgeButton({ block = false, onOpen }: { block?: boolean; onOpen?: () => void }) {
+/** Opens the bridge panel from anywhere inside the provider (the ⌘K search uses it). Null outside it. */
+export function useOpenBridge(): (() => void) | null {
+  return useContext(BridgeContext);
+}
+
+/** `compact` drops the label (icon only) where the header has no room, as in the floating pill. */
+export function BridgeButton({ block = false, compact = false, onOpen }: { block?: boolean; compact?: boolean; onOpen?: () => void }) {
   const show = useContext(BridgeContext);
   return (
-    <button type="button" className={`${styles.trigger} ${block ? styles.blockTrigger : ""}`} aria-label="Bridge funds" aria-haspopup="dialog" title="Bridge between Base, Robinhood and Arc" onClick={() => { show?.(); onOpen?.(); }}>
+    <button type="button" className={`${styles.trigger} ${block ? styles.blockTrigger : ""} ${compact && !block ? styles.compactTrigger : ""}`} aria-label="Bridge funds" aria-haspopup="dialog" title="Bridge between Base, Robinhood and Arc" onClick={() => { show?.(); onOpen?.(); }}>
       <ArrowLeftRight size={17} strokeWidth={1.8} aria-hidden />
       <span className={styles.triggerLabel}>Bridge</span>
       {block ? <span className={styles.triggerHint}>Base · Robinhood · Arc</span> : null}

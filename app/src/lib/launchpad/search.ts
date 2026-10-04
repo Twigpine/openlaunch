@@ -81,3 +81,12 @@ export type RankedHit = Matchable & { chain_id: number; block_number: number };
 export function compareSearchHit(a: RankedHit, b: RankedHit, q: string): number {
   return rankHit(a, q) - rankHit(b, q) || newestFirst(a, b);
 }
+
+/**
+ * Ordering for quick jumps (the ⌘K search): relevance rank first, then the token held by more
+ * wallets, then the same cross-chain newest-first. A token people actually hold outranks this
+ * week's copies of its name, which newest-first would put on top. Holders is an indexed fact.
+ */
+export function compareSearchHitByHolders(a: RankedHit & { holders: number }, b: RankedHit & { holders: number }, q: string): number {
+  return rankHit(a, q) - rankHit(b, q) || (b.holders || 0) - (a.holders || 0) || newestFirst(a, b);
+}

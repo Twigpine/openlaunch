@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
-import { ArrowRight, Menu, X } from "lucide-react";
+import { Menu, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isTypingTarget } from "@/lib/command-palette";
+import CommandPalette from "./CommandPalette";
 import { Navbar, NavBody, MobileNav, MobileNavHeader, MobileNavMenu } from "./navigation-shell";
 import Mark, { Wordmark } from "./launchpad/Mark";
 import { BRAND_X } from "@/lib/brand";
@@ -37,14 +39,56 @@ export default function HeaderNav({ pulse }: { pulse: Pulse }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" || pathname.startsWith("/t/") : pathname.startsWith(href));
   const heroCtaOnScreen = useHeroCtaOnScreen(pathname);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  useSearchShortcut(setSearchOpen);
 
   return (
     <BridgeProvider><MotionConfig reducedMotion="user">
       <Navbar className="top-0">
-        <Desktop pulse={pulse} isActive={isActive} quietCta={heroCtaOnScreen} />
-        <Mobile key={pathname} pulse={pulse} isActive={isActive} />
+        <Desktop pulse={pulse} isActive={isActive} quietCta={heroCtaOnScreen} onSearch={openSearch} />
+        <Mobile key={pathname} pulse={pulse} isActive={isActive} onSearch={openSearch} />
       </Navbar>
+      {/* outside Navbar: it injects `visible` into its direct children */}
+      <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
     </MotionConfig></BridgeProvider>
+  );
+}
+
+/** ⌘K or Ctrl+K toggles search from anywhere; "/" opens it unless the visitor is typing in a field. */
+function useSearchShortcut(setOpen: React.Dispatch<React.SetStateAction<boolean>>) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpen((v) => !v);
+      } else if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target as HTMLElement | null)) {
+        e.preventDefault();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setOpen]);
+}
+
+const noSubscribe = () => () => {};
+/** "⌘K" on Apple devices, "Ctrl K" elsewhere; the server renders the Apple form and the client corrects it after hydration. */
+function useShortcutLabel(): string {
+  return useSyncExternalStore(noSubscribe, () => (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? "⌘K" : "Ctrl K"), () => "⌘K");
+}
+
+/**
+ * The header's way into search: one icon button that names its shortcut. The strip is already full at
+ * rest (pulse, four links, five controls), so a labelled field would push it past the page column;
+ * the home redesign gives search a proper field.
+ */
+function SearchTrigger({ onClick }: { onClick: () => void }) {
+  const shortcut = useShortcutLabel();
+  return (
+    <button type="button" onClick={onClick} aria-label={`Search tokens and pages (${shortcut})`} title={`Search (${shortcut})`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-card text-body transition-colors hover:border-line-strong hover:text-ink">
+      <Search size={16} aria-hidden />
+    </button>
   );
 }
 
@@ -72,7 +116,7 @@ function useHeroCtaOnScreen(pathname: string) {
 
 // ── desktop ──────────────────────────────────────────────────────────────────
 
-function Desktop({ visible = false, pulse, isActive, quietCta }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; quietCta: boolean }) {
+function Desktop({ visible = false, pulse, isActive, quietCta, onSearch }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; quietCta: boolean; onSearch: () => void }) {
   return (
     <NavBody
       visible={visible}
@@ -100,7 +144,9 @@ function Desktop({ visible = false, pulse, isActive, quietCta }: { visible?: boo
       <NavLinks isActive={isActive} compact={visible} />
 
       <div className="relative z-20 ml-auto flex items-center gap-2">
-        <BridgeButton />
+        <SearchTrigger onClick={onSearch} />
+        {/* the floating pill is 800px wide: search costs a button, so the bridge gives up its label */}
+        <BridgeButton compact={visible} />
         <NotificationSettings />
         <ThemeToggle />
         <ConnectButton />
@@ -176,7 +222,6 @@ function LaunchCta({ compact = false, block = false, quiet = false, onNavigate }
           Launch<span className="hidden xl:inline"> a token</span>
         </>
       )}
-      <ArrowRight size={14} strokeWidth={2.4} aria-hidden />
     </Link>
   );
 }
@@ -192,7 +237,7 @@ function XLink({ block = false }: { block?: boolean }) {
   if (block) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className="min-h-12 px-3 flex items-center justify-between gap-3 rounded-xl text-base font-medium text-ink hover:bg-line">
-        <span>@{BRAND_X} <span className="text-muted">· on X</span></span>
+        <span>@{BRAND_X} <span className="text-muted">on X</span></span>
         {icon}
       </a>
     );
@@ -206,7 +251,7 @@ function XLink({ block = false }: { block?: boolean }) {
 
 // ── mobile ───────────────────────────────────────────────────────────────────
 
-function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean }) {
+function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; onSearch: () => void }) {
   const [open, setOpen] = useState(false);
   const menuToggle = useRef<HTMLButtonElement>(null);
   const dismissMenu = useCallback(() => {
@@ -231,6 +276,18 @@ function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse
           {/* self-hides below sm; on tablets it rides beside the wordmark as on desktop */}
           <LivePulse initial={pulse} />
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            onSearch();
+          }}
+          aria-label="Search tokens and pages"
+          className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-line bg-card text-ink hover:border-line-strong"
+        >
+          <Search size={18} aria-hidden />
+        </button>
         <button
           type="button"
           ref={menuToggle}
@@ -242,6 +299,7 @@ function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse
         >
           {open ? <X size={18} aria-hidden /> : <Menu size={18} aria-hidden />}
         </button>
+        </div>
       </MobileNavHeader>
 
       <MobileNavMenu isOpen={open} onClose={dismissMenu} className="-inset-x-px top-14 gap-1 rounded-t-none rounded-b-2xl border border-t-0 border-line bg-card px-2 py-2 shadow-none">

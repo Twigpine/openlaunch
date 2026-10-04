@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compareSearchHit, escapeLike, isAddressQuery, matchesFilter, matchesQuery, normalizeQuery, rankHit, type RankedHit } from "./search.ts";
+import { compareSearchHit, compareSearchHitByHolders, escapeLike, isAddressQuery, matchesFilter, matchesQuery, normalizeQuery, rankHit, type RankedHit } from "./search.ts";
 
 const row = (o: Partial<Parameters<typeof matchesQuery>[0]> = {}) => ({
   name: "Clear Sky",
@@ -90,4 +90,17 @@ test("compareSearchHit: rank dominates time; ties break deterministically", () =
   const a = hit({ symbol: "FOO", block_time: "2026-09-12T00:00:00.000Z", chain_id: 8453, block_number: 7 });
   const b = hit({ symbol: "FOO", block_time: "2026-09-12T00:00:00.000Z", chain_id: 8453, block_number: 7 });
   assert.equal(compareSearchHit(a, b, "foo"), 0);
+});
+
+test("compareSearchHitByHolders: relevance first, then the token more wallets hold, then newest-first", () => {
+  const popularOld = { ...hit({ symbol: "WAIFU", name: "WAIFU", block_time: "2026-09-06T10:56:57.000Z" }), holders: 196 };
+  const copyNew = { ...hit({ symbol: "WAIFU", name: "wifu", block_time: "2026-10-04T16:00:00.000Z" }), holders: 0 };
+  const prefixBusy = { ...hit({ symbol: "WAIFUX", name: "Waifu X", block_time: "2026-10-01T00:00:00.000Z" }), holders: 5_000 };
+  // newest-first (the list's search order) would put this week's copy on top
+  assert.ok(compareSearchHit(copyNew, popularOld, "waifu") < 0);
+  assert.ok(compareSearchHitByHolders(popularOld, copyNew, "waifu") < 0, "the held token outranks its new copy");
+  assert.ok(compareSearchHitByHolders(copyNew, prefixBusy, "waifu") < 0, "relevance still comes before holders");
+  const tieA = { ...hit({ symbol: "FOO", block_time: "2026-09-12T00:00:00.000Z" }), holders: 3 };
+  const tieB = { ...hit({ symbol: "FOO", block_time: "2026-09-11T00:00:00.000Z" }), holders: 3 };
+  assert.ok(compareSearchHitByHolders(tieA, tieB, "foo") < 0, "equal holders fall back to newest-first");
 });

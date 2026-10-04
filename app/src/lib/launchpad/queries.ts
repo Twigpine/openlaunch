@@ -16,7 +16,7 @@ import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
-import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, type LaunchFilter } from "./search";
+import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSearchHitByHolders, type LaunchFilter } from "./search";
 
 /**
  * Read model for the UI. Every money field comes in two flavours: raw quote
@@ -548,7 +548,7 @@ export async function launchSyncCursors(): Promise<SyncCursor[]> {
 }
 
 /** Search by name / symbol (substring) or exact address, across chains. Ranked: symbol exact, symbol prefix, name prefix, substring. */
-export async function searchLaunches(q: string, opts: { chain?: ChainKey | null; limit?: number; ethUsd?: number | null } = {}): Promise<LaunchRow[]> {
+export async function searchLaunches(q: string, opts: { chain?: ChainKey | null; limit?: number; ethUsd?: number | null; order?: "newest" | "holders" } = {}): Promise<LaunchRow[]> {
   const db = maybeDb();
   const n = normalizeQuery(q);
   if (!db || !n) return [];
@@ -563,7 +563,7 @@ export async function searchLaunches(q: string, opts: { chain?: ChainKey | null;
     // Robinhood's, so the old ORDER BY hid exact matches on the low chain).
     : await db<Raw[]>`${db.unsafe(SELECT)} WHERE (l.name ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\\' OR l.symbol ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\\') ${chainCond} ORDER BY l.block_time DESC, l.chain_id DESC, l.block_number DESC LIMIT 200`;
   const shaped = rows.map((r) => shape(r, opts.ethUsd ?? null));
-  shaped.sort((a, b) => compareSearchHit(a, b, n));
+  shaped.sort((a, b) => (opts.order === "holders" ? compareSearchHitByHolders(a, b, n) : compareSearchHit(a, b, n)));
   return shaped.slice(0, limit);
 }
 

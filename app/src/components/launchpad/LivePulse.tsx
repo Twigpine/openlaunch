@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LiveNumber from "../LiveNumber";
 
 type Pulse = { visits: number; online: number };
 
-function compact(n: number): string {
-  if (n < 10_000) return n.toLocaleString("en-US");
-  if (n < 1_000_000) return `${(n / 1_000).toFixed(n < 100_000 ? 1 : 0).replace(/\.0$/, "")}k`;
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
-}
+/** "56.9K" in the narrow pill; the full count from md up. */
+const COMPACT = { notation: "compact", maximumFractionDigits: 1 } as const;
 
 /**
  * "12,480 visits · 3 online". Sends a cookie-free beacon on mount and every 30s
@@ -17,7 +15,6 @@ function compact(n: number): string {
  */
 export default function LivePulse({ initial, block = false }: { initial: Pulse; block?: boolean }) {
   const [p, setP] = useState<Pulse>(initial);
-  const [armed, setArmed] = useState(false); // no pop on first paint, only on later changes
 
   useEffect(() => {
     let alive = true;
@@ -31,13 +28,11 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
       }
     };
     void beat();
-    const arm = setTimeout(() => setArmed(true), 1_000);
     const t = setInterval(() => void beat(), 30_000);
     const onVis = () => void beat();
     document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
-      clearTimeout(arm);
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVis);
     };
@@ -48,11 +43,8 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
     <span className="inline-flex items-center gap-1.5">
       {/* beacon: solid dot + an expanding, fading ring (only while someone is here; static under reduced motion) */}
       <span className={`relative inline-flex h-2 w-2 rounded-full ${live ? "bg-up bb-beacon" : "bg-line-strong"}`} aria-hidden />
-      {/* remount on change → one short scale pop, like the market caps in the list */}
-      <span key={p.online} className={`font-mono tnum text-ink inline-block ${armed ? "bb-pop" : ""}`}>
-        {p.online.toLocaleString("en-US")}
-      </span>{" "}
-      online
+      {/* the count rolls to its new value when people arrive or leave */}
+      <LiveNumber value={p.online} className="font-mono tnum text-ink" /> online
     </span>
   );
 
@@ -60,7 +52,7 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
     return (
       <div className="flex items-center justify-between min-h-12 px-3 rounded-xl text-base font-medium text-ink" title="cookie-free: all-time visits · people here right now">
         <span>
-          <span className="font-mono tnum">{p.visits.toLocaleString("en-US")}</span> visits
+          <LiveNumber value={p.visits} className="font-mono tnum" /> visits
         </span>
         <span className="text-sm text-muted">{online}</span>
       </div>
@@ -73,8 +65,8 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
     >
       <span>
         <span className="font-mono tnum text-ink">
-          <span className="md:hidden">{compact(p.visits)}</span>
-          <span className="hidden md:inline">{p.visits.toLocaleString("en-US")}</span>
+          <span className="md:hidden"><LiveNumber value={p.visits} format={COMPACT} /></span>
+          <span className="hidden md:inline"><LiveNumber value={p.visits} /></span>
         </span>{" "}
         visits
       </span>
