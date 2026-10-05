@@ -102,8 +102,13 @@ export function riverUsd(v: number): string {
   if (v < 0.01) return "<$0.01";
   if (v < 9.995) return `$${v.toFixed(2)}`;
   if (v < 999.5) return `$${Math.round(v)}`;
-  // 999.5 to 999.99 rounds up to a thousand, which compact notation would otherwise print as "$999.6"
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(Math.max(v, 1_000));
+  // compact by hand: Intl's compact notation prints "$1.0K" or "$1K" depending on the runtime's ICU version
+  for (const [size, suffix] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]] as const) {
+    if (v < size * 0.9995 && size !== 1e3) continue;
+    const x = Math.round((v / size) * 10) / 10;
+    return `$${Number.isInteger(x) ? x.toFixed(0) : x.toFixed(1)}${suffix}`;
+  }
+  return `$${Math.round(v)}`;
 }
 
 /**

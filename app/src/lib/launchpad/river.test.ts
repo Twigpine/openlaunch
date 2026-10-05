@@ -89,7 +89,10 @@ test("dollar labels stay short", () => {
   assert.equal(riverUsd(999.4), "$999");
   assert.equal(riverUsd(999.6), "$1K");
   assert.equal(riverUsd(1_240), "$1.2K");
+  assert.equal(riverUsd(999_400), "$999.4K");
+  assert.equal(riverUsd(999_960), "$1M", "rounds up into the next unit, never $1000K");
   assert.equal(riverUsd(2_500_000), "$2.5M");
+  assert.equal(riverUsd(3e9), "$3B");
   assert.equal(riverUsd(Number.NaN), "$0");
 });
 
