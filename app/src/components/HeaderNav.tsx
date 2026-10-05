@@ -7,6 +7,7 @@ import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { Menu, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isTypingTarget } from "@/lib/command-palette";
+import { heroCtaOnScreen, subscribeHeroCta } from "@/lib/hero-cta";
 import CommandPalette from "./CommandPalette";
 import { Navbar, NavBody, MobileNav, MobileNavHeader, MobileNavMenu } from "./navigation-shell";
 import Mark, { Wordmark } from "./launchpad/Mark";
@@ -94,24 +95,14 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
 
 /**
  * One filled blue per screen: while the home hero's own "Launch a token" is in
- * view, the header's copy of it stays a hairline utility. Watches `#hero-cta`;
- * on any other route (or before the hero mounts) the header CTA is the filled one.
+ * view, the header's copy of it stays a hairline utility. The hero reports its
+ * visibility itself (HeroCtaLink, `#hero-cta`); on any other route the header
+ * CTA is the filled one.
  */
 function useHeroCtaOnScreen(pathname: string) {
-  // Assume it is on screen on the home page's first paint, so the header CTA
-  // does not flash filled before the observer's first callback.
-  const [onScreen, setOnScreen] = useState(() => pathname === "/");
-  useEffect(() => {
-    const el = document.getElementById("hero-cta");
-    if (!el) return;
-    // any visible sliver counts (occlusion by the floating pill is ignored on purpose):
-    // the header fills only once the hero CTA has fully left the viewport
-    const io = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting), { threshold: 0 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [pathname]);
-  // the observer only runs where the hero exists; elsewhere the stale value must not leak
-  return pathname === "/" && onScreen;
+  const onScreen = useSyncExternalStore(subscribeHeroCta, heroCtaOnScreen, () => null);
+  // before the hero's first report, assume it is on screen on the home page so the header CTA does not flash filled
+  return pathname === "/" && (onScreen ?? true);
 }
 
 // ── desktop ──────────────────────────────────────────────────────────────────

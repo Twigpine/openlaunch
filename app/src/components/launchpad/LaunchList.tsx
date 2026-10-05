@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ArrowDownWideNarrow, ArrowRight, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowRight, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import LaunchRow, { LaunchListHeader, type RowHighlight } from "./LaunchRow";
 import { useLive } from "./LiveProvider";
+import WatchButton from "./WatchButton";
+import WatchlistPanel from "./WatchlistPanel";
+import { useWatchlist } from "./useWatchlist";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { btn } from "@/components/ui";
 import type { LaunchRow as L, LaunchSort, VolumeWindow } from "@/lib/launchpad/queries";
@@ -19,7 +22,7 @@ import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
 
 const SORTS: { key: LaunchSort; label: string }[] = [
-  { key: "live", label: "Live" },
+  { key: "live", label: "Active" },
   { key: "new", label: "New" },
   { key: "mcap", label: "Market cap" },
   { key: "volume", label: "Volume" },
@@ -37,13 +40,16 @@ const REORDER_QUIET_MS = 3_000;
 
 type Selection = { sort: LaunchSort; window: VolumeWindow; chain: ChainKey | null; filter: LaunchFilter | null };
 type SearchResult = { query: string; chain: ChainKey | null; rows: L[]; error?: boolean };
+export type ListView = "market" | "watchlist";
 
 /** Shared live data, stable pointer targets, URL-backed filters and scoped async results. */
-export default function LaunchList({ initial, initialHasMore = false, initialSort, initialWindow, initialChain, initialFilter = null, hasDb }: { initial: L[]; initialHasMore?: boolean; initialSort: LaunchSort; initialWindow: VolumeWindow; initialChain: ChainKey | null; initialFilter?: LaunchFilter | null; ethUsd?: number | null; hasDb: boolean }) {
+export default function LaunchList({ initial, initialHasMore = false, initialSort, initialWindow, initialChain, initialFilter = null, initialView = "market", hasDb }: { initial: L[]; initialHasMore?: boolean; initialSort: LaunchSort; initialWindow: VolumeWindow; initialChain: ChainKey | null; initialFilter?: LaunchFilter | null; initialView?: ListView; ethUsd?: number | null; hasDb: boolean }) {
   const router = useRouter();
   const { live, setListParams, subscribe } = useLive();
   const [selection, setSelection] = useState<Selection>({ sort: initialSort, window: initialWindow, chain: initialChain, filter: initialFilter });
   const { sort, window: window_, chain, filter } = selection;
+  const [view, setView] = useState<ListView>(initialView);
+  const watchlist = useWatchlist();
   const selectionRef = useRef(selection);
   const generation = useRef(0);
   const selectionRequest = useRef<AbortController | null>(null);
@@ -65,9 +71,10 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
-    setListParams({ ...selection, limit });
+    // the watchlist reads its own endpoint; the shared poll only carries the market list while it is on screen
+    setListParams(view === "market" ? { ...selection, limit } : null);
     return () => setListParams(null);
-  }, [selection, limit, setListParams]);
+  }, [selection, limit, view, setListParams]);
 
   useEffect(() => {
     const clock = setInterval(() => {
@@ -116,9 +123,25 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     }
   }), [subscribe]);
 
-  function pick(s: LaunchSort, w: VolumeWindow = window_, c: ChainKey | null = chain, f: LaunchFilter | null = filter) {
+  /** The URL carries the view as well as the selection, so going back to the page reopens the same tab. */
+  function syncUrl(next: Selection, v: ListView): URLSearchParams {
+    const p = new URLSearchParams();
+    if (next.sort !== "live") p.set("sort", next.sort);
+    if (next.window !== "all") p.set("window", next.window);
+    if (next.chain) p.set("chain", next.chain);
+    if (next.filter) p.set("filter", next.filter);
+    if (v === "watchlist") p.set("view", "watchlist");
+    router.replace(p.size ? `/?${p}` : "/", { scroll: false });
+    return p;
+  }
+
+  function pick(s: LaunchSort, w: VolumeWindow = window_, c: ChainKey | null = chain, f: LaunchFilter | null = filter, v: ListView = view) {
     const next = { sort: s, window: w, chain: c, filter: f };
-    if (JSON.stringify(next) === JSON.stringify(selectionRef.current)) return;
+    if (JSON.stringify(next) === JSON.stringify(selectionRef.current)) {
+      if (v !== view) { setView(v); syncUrl(next, v); }
+      return;
+    }
+    setView(v);
     selectionRef.current = next;
     const version = ++generation.current;
     selectionRequest.current?.abort();
@@ -132,13 +155,8 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     setLoadingMore(false);
     setUpdating(true);
     setLoadError(null);
-    const p = new URLSearchParams();
-    if (s !== "live") p.set("sort", s);
-    if (w !== "all") p.set("window", w);
-    if (c) p.set("chain", c);
-    if (f) p.set("filter", f);
-    router.replace(p.size ? `/?${p}` : "/", { scroll: false });
-    const request = new URLSearchParams(p);
+    const request = syncUrl(next, v);
+    request.delete("view");
     request.set("sort", s); // the URL omits the default sort, but the API defaults to "new": the request must always carry it
     request.set("limit", String(PAGE_SIZE));
     void fetch(`/api/launch/list?${request}`, { cache: "no-store", signal: controller.signal })
@@ -225,9 +243,9 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
               <h2 id="launches-heading" className="text-base font-semibold tracking-tight text-ink">Launches</h2>
               <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-muted tnum" title="Total launches across all chains">{live.totals.launches}</span>
             </div>
-            <p className="mt-1 text-xs text-muted">{sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
+            <p className="mt-1 text-xs text-muted">{view === "watchlist" ? "The tokens you starred, and what changed since you last looked." : sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
           </div>
-          <div className="relative w-full sm:w-64">
+          <div className={`relative w-full sm:w-64 ${view === "watchlist" ? "hidden" : ""}`}>
             <label htmlFor="launch-search" className="sr-only">Search launches</label>
             <Search aria-hidden="true" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input id="launch-search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} placeholder="Name, symbol or address" className="h-11 w-full rounded-xl border border-line-strong bg-card pl-9 pr-11 text-[13px] text-ink placeholder:text-muted focus:border-brand" autoComplete="off" spellCheck={false} />
@@ -236,7 +254,11 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         </div>
         <div className="-mx-4 overflow-x-auto px-4 bb-scroll">
           <div role="group" aria-label="Sort launches" className="flex min-w-max gap-5">
-            {SORTS.map((s) => <button key={s.key} type="button" onClick={() => pick(s.key)} aria-pressed={s.key === sort} className={`relative flex min-h-11 items-center gap-1.5 border-b-2 text-xs font-medium transition-colors motion-reduce:transition-none ${s.key === sort ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"}`}>{s.key === "new" ? <ArrowDownWideNarrow size={13} aria-hidden="true" /> : null}{s.label}</button>)}
+            {SORTS.map((s) => { const on = view === "market" && s.key === sort; return <button key={s.key} type="button" onClick={() => pick(s.key, window_, chain, filter, "market")} aria-pressed={on} className={`relative flex min-h-11 items-center gap-1.5 border-b-2 text-xs font-medium transition-colors motion-reduce:transition-none ${on ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"}`}>{s.key === "new" ? <ArrowDownWideNarrow size={13} aria-hidden="true" /> : null}{s.label}</button>; })}
+            <button type="button" onClick={() => pick(sort, window_, chain, filter, "watchlist")} aria-pressed={view === "watchlist"} className={`relative flex min-h-11 items-center gap-1.5 border-b-2 text-xs font-medium transition-colors motion-reduce:transition-none ${view === "watchlist" ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"}`}>
+              <Star size={13} aria-hidden="true" fill={view === "watchlist" ? "currentColor" : "none"} />Watchlist
+              {watchlist.ready && watchlist.entries.length ? <span className="font-mono text-[11px] text-muted tnum"><span className="sr-only">, </span>{watchlist.entries.length}<span className="sr-only"> saved</span></span> : null}
+            </button>
           </div>
         </div>
       </div>
@@ -245,17 +267,18 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
           <ToggleGroup aria-label="Chain" value={[chain ?? "all"]} onValueChange={(values) => { const value = values[0]; if (!value) return; const c = value === "all" ? null : (value as ChainKey); const keep = !filter || FILTERS.some((f) => f.key === filter && filterOnChain(f, c)); pick(sort, window_, c, keep ? filter : null); }}>
             {CHAIN_FILTERS.map((c) => <ToggleGroupItem key={c.key ?? "all"} value={c.key ?? "all"}>{c.label}</ToggleGroupItem>)}
           </ToggleGroup>
-          {showWindow ? <ToggleGroup aria-label="Volume window" value={[window_]} onValueChange={(values) => { if (values[0]) pick(sort, values[0] as VolumeWindow); }}>
+          {showWindow && view === "market" ? <ToggleGroup aria-label="Volume window" value={[window_]} onValueChange={(values) => { if (values[0]) pick(sort, values[0] as VolumeWindow); }}>
             {WINDOWS.map((w) => <ToggleGroupItem key={w} value={w} className="px-2.5 font-mono tnum">{w === "all" ? "All time" : w}</ToggleGroupItem>)}
           </ToggleGroup> : null}
         </div>
-        <div className="flex items-start gap-2">
+        <div className={`flex items-start gap-2 ${view === "watchlist" ? "hidden" : ""}`}>
           <SlidersHorizontal aria-hidden="true" size={13} className="mt-3.5 shrink-0 text-muted" />
           <ToggleGroup aria-label="Quick filter" value={filter ? [filter] : []} onValueChange={(values) => pick(sort, window_, chain, (values[0] as LaunchFilter | undefined) ?? null)} className="min-w-0 gap-1 overflow-x-auto rounded-none border-0 bg-transparent p-0 bb-scroll">
             {FILTERS.filter((f) => filterOnChain(f, chain)).map((f) => <ToggleGroupItem key={f.key} value={f.key} title={f.title} className="min-h-10 px-2.5 text-[11px] data-pressed:bg-card">{f.label}</ToggleGroupItem>)}
           </ToggleGroup>
         </div>
       </div>
+      {view === "watchlist" ? <WatchlistPanel chain={chain} onBrowse={() => pick(sort, window_, chain, filter, "market")} /> : <>
       <div role="status" className="flex min-h-9 items-center justify-between gap-2 border-t border-line px-4 text-[11px] text-muted">
         <span className="inline-flex items-center gap-2">{updating || searching ? <><Spinner size={11} />{searching ? "Searching all launches…" : "Updating view…"}</> : nq ? <><span className="font-mono tnum">{shown.length}</span> matches</> : <><span className="font-mono tnum">{shown.length}</span> shown · {chain ? CHAIN_SHORT[chain] : "all chains"}</>}</span>
         <span className="shrink-0">{holding ? "Order held while browsing" : "Updates every 5s"}</span>
@@ -268,7 +291,11 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
           const rank = !nq && sort !== "new" && (!chip || chip.tier === "live") ? i + 1 : undefined;
           return <Fragment key={key}>
             {i === firstQuiet ? <li className="border-b border-line bg-card px-4 py-2 text-[11px] text-muted"><span className="font-medium text-body">Quiet launches</span> · no buyers yet. One row per wallet; every launch stays in New.</li> : null}
-            <li data-token={key}><LaunchRow l={l} rank={rank} window={showWindow ? window_ : "all"} hl={hl.get(key) ?? null} now={now} pop={Boolean(hl.get(key) && hl.get(key)?.kind !== "new")} chip={chip} /></li>
+            <li data-token={key} className="relative">
+              <LaunchRow l={l} rank={rank} window={showWindow ? window_ : "all"} hl={hl.get(key) ?? null} now={now} pop={Boolean(hl.get(key) && hl.get(key)?.kind !== "new")} chip={chip} />
+              {/* outside the row's link: saving never navigates */}
+              <div className="absolute right-1 top-2 md:top-1/2 md:-translate-y-1/2"><WatchButton token={{ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol }} /></div>
+            </li>
           </Fragment>;
         })}
         {shown.length === 0 ? <li className="space-y-3 border-t border-line px-5 py-12 text-center">
@@ -282,6 +309,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
       <div className="flex min-h-14 items-center justify-center px-4 py-3">
         {!nq && hasMore && rows.length < 200 ? <button type="button" onClick={() => void loadMore()} disabled={loadingMore || updating} className={btn.secondarySm}>{loadingMore ? <><Spinner size={13} /> Loading…</> : <>Load more <ArrowRight size={13} aria-hidden="true" /></>}</button> : <p className="text-center text-[11px] text-muted">{nq ? "Search includes older launches." : rows.length >= 200 && hasMore ? "Showing the first 200. Search or filter to narrow the list." : shown.length ? "You're all caught up." : "One transaction. Zero platform fee."}</p>}
       </div>
+      </>}
     </section>
   );
 }
