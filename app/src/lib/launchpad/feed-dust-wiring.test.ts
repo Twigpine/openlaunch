@@ -41,7 +41,11 @@ test("the trade table's symbol-less cell reads \"<0.01\", not \"0\", for a dust 
 
 test("the tape and the toast tracker identify a swap by its log, so two equal swaps in one tx stay two rows", () => {
   const queue = readFileSync(new URL("./toast-queue.ts", import.meta.url), "utf8");
-  for (const src of [tape, queue]) {
+  // the tape and the home river share one identity, feedKey in river.ts
+  const river = readFileSync(new URL("./river.ts", import.meta.url), "utf8");
+  assert.match(tape, /import \{ feedKey \} from "@\/lib\/launchpad\/river";/);
+  assert.match(tape, /const k = feedKey\(item\);/);
+  for (const src of [river, queue]) {
     assert.match(src, /\$\{item\.kind === "swap" \? `:\$\{item\.log_index\}` : ""\}/);
     assert.doesNotMatch(src, /:\$\{item\.quote_wei\}/);
   }

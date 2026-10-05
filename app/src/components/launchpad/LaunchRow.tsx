@@ -20,7 +20,7 @@ const columns = "md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]";
 
 export function LaunchListHeader({ window }: { window: VolumeWindow }) {
   return (
-    <div aria-hidden="true" className={`hidden md:grid ${columns} items-center gap-3 border-y border-line bg-card px-4 py-3 text-[11px] font-medium text-muted`}>
+    <div aria-hidden="true" className={`hidden md:grid ${columns} items-center gap-3 border-y border-line bg-card py-3 pl-4 pr-13 text-[11px] font-medium text-muted`}>
       <span>Token / paired with</span>
       <span className="text-right">Market cap</span>
       <span className="text-right">Since launch</span>
@@ -53,10 +53,10 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
       href={`/t/${l.chain}/${l.token}`}
       // leaves a note for the token page's loading header, so the mark and name morph on the very first frame
       onClick={() => setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url })}
-      className={`bb-market-row group block border-b border-line bg-paper px-4 py-3.5 transition-colors hover:bg-card focus-visible:relative focus-visible:z-10 motion-reduce:transition-none ${flash}`}
+      className={`bb-market-row group block border-b border-line bg-paper px-4 py-3.5 md:pr-13 transition-colors hover:bg-card focus-visible:relative focus-visible:z-10 motion-reduce:transition-none ${flash}`}
       title={l.description || `${l.name} (${l.symbol})`}
     >
-      <div className={`grid ${columns} grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-3 gap-y-3`}>
+      <div className={`grid ${columns} grid-cols-[minmax(0,1fr)_9.25rem] items-center gap-x-3 gap-y-3`}>
         <div className="flex min-w-0 items-center gap-2.5">
           {rank !== undefined ? <span className="hidden w-4 shrink-0 text-right font-mono text-[11px] text-muted tnum xl:block">{rank}</span> : null}
           <MorphAvatar chain={l.chain} token={l.token}>
@@ -78,7 +78,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
             {chip ? <div className={`mt-0.5 truncate text-[11px] ${chip.tier === "live" ? "text-up" : chip.tier === "new" ? "text-brand" : "text-muted"}`} suppressHydrationWarning>{chip.text}</div> : null}
           </div>
         </div>
-        <div className="min-w-0 text-right">
+        <div className="min-w-0 pr-9 text-right md:pr-0">
           <span className="mb-0.5 block text-[10px] text-muted md:sr-only">Market cap</span>
           <span key={hl?.at ?? "rest"} className={`block truncate font-mono text-sm font-bold text-ink tnum ${pop ? "bb-pop" : ""}`} title={capDetail}>{capLabel}</span>
           <span className="hidden truncate font-mono text-[10px] text-muted tnum md:block" title={capDetail}>{cap.detail}</span>
