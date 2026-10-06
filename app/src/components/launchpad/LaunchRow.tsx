@@ -13,6 +13,8 @@ import UnlistedPairBadge from "./UnlistedPairBadge";
 import { marketUsd } from "@/lib/launchpad/market-format";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LiveTier } from "@/lib/launchpad/ranking";
+import { MorphAvatar, MorphName } from "./TokenMorph";
+import { setPendingToken } from "@/lib/launchpad/token-transition";
 
 const columns = "md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]";
 
@@ -47,14 +49,24 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
   const age = <time dateTime={l.block_time} title={new Date(l.block_time).toUTCString()} suppressHydrationWarning>{ago(l.block_time, now)}</time>;
 
   return (
-    <Link href={`/t/${l.chain}/${l.token}`} className={`bb-market-row group block border-b border-line bg-paper px-4 py-3.5 transition-colors hover:bg-card focus-visible:relative focus-visible:z-10 motion-reduce:transition-none ${flash}`} title={l.description || `${l.name} (${l.symbol})`}>
+    <Link
+      href={`/t/${l.chain}/${l.token}`}
+      // leaves a note for the token page's loading header, so the mark and name morph on the very first frame
+      onClick={() => setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url })}
+      className={`bb-market-row group block border-b border-line bg-paper px-4 py-3.5 transition-colors hover:bg-card focus-visible:relative focus-visible:z-10 motion-reduce:transition-none ${flash}`}
+      title={l.description || `${l.name} (${l.symbol})`}
+    >
       <div className={`grid ${columns} grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-3 gap-y-3`}>
         <div className="flex min-w-0 items-center gap-2.5">
           {rank !== undefined ? <span className="hidden w-4 shrink-0 text-right font-mono text-[11px] text-muted tnum xl:block">{rank}</span> : null}
-          <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={36} className="shrink-0 rounded-lg" />
+          <MorphAvatar chain={l.chain} token={l.token}>
+            <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={36} className="shrink-0 rounded-lg" />
+          </MorphAvatar>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
+              <MorphName chain={l.chain} token={l.token}>
+                <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
+              </MorphName>
               <QuoteBrandBadge quoteKey={l.quote_key} />
               {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} className="shrink-0" /> : null}
               {hl?.kind === "new" ? <span className="shrink-0 text-[10px] font-medium text-brand">New</span> : null}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { marketChange, marketUsd } from "./market-format.ts";
+import { launchMultiple, marketChange, marketUsd } from "./market-format.ts";
 
 test("ledger money fits its column without rounding dust to zero", () => {
   assert.equal(marketUsd(0), "$0");
@@ -25,6 +25,18 @@ test("non-finite changes and finite values that overflow percentages are neutral
   }
   assert.deepEqual(marketChange(0), { label: "0.0%", direction: "flat" });
   assert.deepEqual(marketChange(-0), { label: "0.0%", direction: "flat" });
-  assert.deepEqual(marketChange(1e300), { label: "+1.0e+302%", direction: "up" });
+  assert.deepEqual(marketChange(1e300), { label: "1.0e+300×", direction: "up" });
   assert.deepEqual(marketChange(-1e300), { label: "-1.0e+302%", direction: "down" });
+});
+
+test("rises of 100% or more read as a multiple of the launch price; smaller moves and falls stay percentages", () => {
+  assert.deepEqual(marketChange(0.99), { label: "+99%", direction: "up" });
+  assert.deepEqual(marketChange(1), { label: "2.0×", direction: "up" });
+  assert.deepEqual(marketChange(18.7), { label: "19.7×", direction: "up" });
+  assert.deepEqual(marketChange(244), { label: "245×", direction: "up" });
+  assert.deepEqual(marketChange(1233), { label: "1.2K×", direction: "up" });
+  assert.deepEqual(marketChange(-0.5), { label: "-50%", direction: "down" });
+  assert.equal(launchMultiple(0.5), null);
+  assert.equal(launchMultiple(-0.9), null);
+  assert.equal(launchMultiple(Number.NaN), null);
 });

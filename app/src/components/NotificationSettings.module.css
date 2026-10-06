@@ -29,7 +29,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px 20px 0;
-  background: var(--color-card);
+  background: var(--color-raised);
   color: var(--color-ink);
   border: 1px solid var(--color-line-strong);
   border-radius: 18px;
@@ -45,7 +45,7 @@
 .close:hover { background: var(--color-line); color: var(--color-ink); }
 .description { color: var(--color-body); font-size: 12px; line-height: 1.6; padding-bottom: 20px; }
 .preference { display: flex; width: calc(100% + 16px); margin: 0 -8px; padding: 16px 8px; align-items: center; gap: 16px; border-top: 1px solid var(--color-line); text-align: left; cursor: pointer; border-radius: 8px; transition: background 160ms ease; }
-.preference:hover { background: var(--color-paper); }
+.preference:hover { background: var(--color-line); }
 .preferenceCopy { min-width: 0; flex: 1; }
 .label { display: block; color: var(--color-ink); font-size: 13px; font-weight: 500; line-height: 1.5; }
 .help { display: block; margin-top: 4px; font-size: 12px; line-height: 1.65; color: var(--color-body); text-wrap: pretty; }

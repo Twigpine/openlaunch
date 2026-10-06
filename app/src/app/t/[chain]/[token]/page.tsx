@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { isAddress, type Address } from "viem";
 import { ArrowLeft, ArrowUpRight, Globe, Share2 } from "lucide-react";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
+import { MorphAvatar, MorphName } from "@/components/launchpad/TokenMorph";
 import { feeModeOf } from "@/components/launchpad/FeeChip";
 import TradePanel from "@/components/launchpad/TradePanel";
 import CollectPanel from "@/components/launchpad/CollectPanel";
@@ -122,9 +123,14 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
 
         <header className="mb-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="shrink-0 rounded-2xl" />
+            {/* the mark and name the market row morphs into (see TokenMorph); PendingTokenHeader holds the same frame while loading */}
+            <MorphAvatar chain={l.chain} token={l.token}>
+              <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="shrink-0 rounded-2xl" />
+            </MorphAvatar>
             <div className="min-w-0">
-              <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
+              <MorphName chain={l.chain} token={l.token}>
+                <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
+              </MorphName>
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span>{quote.key === "twig" ? <TwigBadge label="Paired with TWIG" /> : quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : quote.key === "museworld" ? <MuseworldBadge label="Paired with MUSEWORLD" /> : <span>Paired with {quote.symbol}</span>}{unlisted ? <UnlistedPairBadge symbol={quote.symbol} /> : null}<span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
             </div>
           </div>

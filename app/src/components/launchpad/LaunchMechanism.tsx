@@ -2,6 +2,7 @@
 
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { useLive } from "./LiveProvider";
+import LiveNumber, { COMPACT_USD } from "../LiveNumber";
 import { GitlawbMark } from "./GitlawbBadge";
 import { TwigMark } from "./TwigBadge";
 import { fmtQuote, fmtUnitsExact, fmtUsd } from "@/lib/launchpad/math";
@@ -14,10 +15,12 @@ import { CHAIN_KEYS, CHAIN_SHORT, chainList } from "@/lib/chainPublic";
 export default function LaunchMechanism() {
   const { live } = useLive();
   const t = live.totals;
-  const count = (value: number) => value.toLocaleString("en-US");
+  // totals roll to their new value when a launch or trade lands (static on first paint and under reduced motion)
+  const count = (value: number) => <LiveNumber value={value} />;
   // some quote has no price right now: the dollar sums undercount, so say "≈" instead of showing a confident smaller number
   const usdNote = t.usd_partial ? "Some launches are quoted in an asset with no USD price right now; dollar totals exclude them until it returns." : undefined;
-  const usd = (v: number, compact = false) => `${t.usd_partial ? "≈" : ""}${fmtUsd(v, { compact })}`;
+  // `live` figures roll as they change (compact); the rest stay exact text. Both carry the same "≈" guard.
+  const usd = (v: number, live = false) => (live ? <LiveNumber value={v} format={COMPACT_USD} prefix={t.usd_partial ? "≈" : undefined} /> : `${t.usd_partial ? "≈" : ""}${fmtUsd(v)}`);
   const gitlawbBurnedExact = `${fmtUnitsExact(t.gitlawb_burned, GITLAWB_DECIMALS)} ${GITLAWB_SYMBOL}`; // every digit of the raw amount, no float
   // TWIG burned: its own figure (the GITLAWB behind it stays in the TWIG contract), shown once there is any; null-safe for a poll from an older machine
   const twigBurned = t.twig_burned ?? "0";
@@ -46,6 +49,6 @@ export default function LaunchMechanism() {
   </div>;
 }
 
-function Metric({ label, value, title, accent = false }: { label: string; value: string; title?: string; accent?: boolean }) {
+function Metric({ label, value, title, accent = false }: { label: string; value: React.ReactNode; title?: string; accent?: boolean }) {
   return <div className="min-w-0"><dt className="min-h-7 sm:min-h-0 text-[10px] sm:text-[11px] text-muted">{label}</dt><dd title={title} className={`mt-1.5 break-words font-mono text-xl sm:text-2xl font-bold tracking-[-0.05em] tnum ${accent ? "text-up" : "text-ink"}`}>{value}</dd></div>;
 }

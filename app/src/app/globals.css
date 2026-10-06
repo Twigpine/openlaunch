@@ -17,6 +17,7 @@
   /* surfaces */
   --color-paper: #fafaf8;
   --color-card: #ffffff;
+  --color-raised: #ffffff; /* floating layers: search, menus, sheets, dialogs */
   --color-line: #e7e5e4;
   --color-line-strong: #d6d3d1;
 
@@ -68,6 +69,7 @@
   color-scheme: dark;
   --color-paper: #000000;
   --color-card: #0a0a0a;
+  --color-raised: #141414; /* one step up from card, so a floating layer reads without a shadow */
   --color-line: #1f1f1f;
   --color-line-strong: #333333;
   --color-ink: #ffffff;
@@ -106,6 +108,7 @@
     color-scheme: light;
     --color-paper: #ffffff;
     --color-card: #ffffff;
+    --color-raised: #ffffff;
     --color-line: #e7e5e4;
     --color-line-strong: #d6d3d1;
     --color-ink: #0f172a;
@@ -330,6 +333,27 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   ::view-transition-group(root),
   ::view-transition-old(root),
   ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+/* ── shared-element morphs between pages (React <ViewTransition share="morph">) ──
+   A token's mark and name travel from the market row into the token page header.
+   The page root does not cross-fade (see above), so only the token moves. A short
+   blur mid-flight hides the scaling of text snapshots. */
+::view-transition-group(.morph) {
+  animation-duration: 360ms;
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+::view-transition-image-pair(.morph) {
+  animation-name: bb-via-blur;
+}
+@keyframes bb-via-blur { 40% { filter: blur(2px); } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(.morph),
+  ::view-transition-image-pair(.morph),
+  ::view-transition-old(.morph),
+  ::view-transition-new(.morph) {
     animation: none !important;
   }
 }

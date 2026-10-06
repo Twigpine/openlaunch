@@ -47,7 +47,8 @@ for (const plain of [false, true]) {
       [0.014, "+1.4%", "text-up"],
       [-0.034, "-3.4%", "text-down-ink"],
       [0.12, "+12%", "text-up"],
-      [10, "+1K%", "text-up"],
+      [10, "11.0×", "text-up"],
+      [18.7, "19.7×", "text-up"],
       [-10, "-1K%", "text-down-ink"],
     ] as const) {
       const chip = render({ v, plain, context: "in 24h", className: "custom-chip" });

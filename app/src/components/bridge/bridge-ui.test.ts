@@ -25,7 +25,8 @@ test("bridge uses bundled official asset marks rather than letter placeholders",
 
 test("bridge keeps one lazily loaded controller across desktop/mobile and dismissal", () => {
   assert.match(header, /<BridgeProvider>/);
-  assert.match(header, /<BridgeButton \/>/);
+  // desktop: one button, icon-only while the header floats (the pill also carries search)
+  assert.match(header, /<BridgeButton compact=\{visible\} \/>/);
   assert.match(header, /<BridgeButton block onOpen=\{\(\) => setOpen\(false\)\} \/>/);
   assert.match(provider, /dynamic\(\(\) => import\("\.\/BridgeDialog"\)/);
   assert.match(provider, /activated \? <BridgeDialog/);
