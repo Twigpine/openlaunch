@@ -57,11 +57,13 @@ for (const plain of [false, true]) {
       assert.ok(chip.props.className.includes(color));
       assert.ok(chip.props.className.includes("custom-chip"));
     }
-    for (const v of [0, -0]) {
+    // no move reads neutral in both styles: a green "+0.0%" would say up when nothing moved
+    for (const v of [0, -0, 0.0004, -0.0004]) {
       const chip = render({ v, plain });
-      assert.equal(label(chip), plain ? "0.0%" : "+0.0%");
-      assert.equal(chip.props.title, "0% since launch");
-      assert.ok(chip.props.className.includes(plain ? "text-muted" : "text-up"));
+      assert.equal(label(chip), "0.0%", String(v));
+      assert.equal(chip.props.title, `${v * 100}% since launch`);
+      assert.match(chip.props.className, /\btext-muted\b/);
+      assert.doesNotMatch(chip.props.className, /(?:text|bg)-(?:up|down)/);
     }
   });
 }
