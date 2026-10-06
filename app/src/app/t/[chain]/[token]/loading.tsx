@@ -1,15 +1,14 @@
 import { Sk } from "@/components/Skeleton";
 import PendingTokenHeader from "@/components/launchpad/PendingTokenHeader";
 
-/* Same frame as page.tsx (main padding, breadcrumb row, header): the token header that the market-row
+/* Same frame as page.tsx (main padding, the hero with its cover): the token header that the market-row
    morph lands on must sit exactly where the real one renders, or the second hop would jump. */
 export default function Loading() {
-  return <main className="mx-auto max-w-6xl px-4 pt-5 pb-28 sm:pt-7 lg:pb-16" aria-busy="true" aria-label="Loading token market">
-    <div className="mb-5 flex min-h-8 items-center"><Sk className="h-4 w-24" /></div>
+  return <main className="bb-mid bb-page pt-5 pb-28 sm:pt-7 lg:pb-16" aria-busy="true" aria-label="Loading token market">
     <PendingTokenHeader />
-    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:gap-6">
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_23.75rem] lg:gap-6">
       <div className="min-w-0 space-y-4">
-        <div className="overflow-hidden rounded-2xl border border-line p-5"><Sk className="h-3 w-24" /><Sk className="mt-3 h-10 w-44" /><Sk className="mt-6 h-10 w-full" /><Sk className="mt-3 h-72 w-full sm:h-[360px] xl:h-[390px]" /></div>
+        <div className="overflow-hidden rounded-2xl border border-line p-5"><Sk className="h-3 w-24" /><Sk className="mt-3 h-10 w-44" /><Sk className="mt-6 h-10 w-full" /><Sk className="mt-3 h-72 w-full sm:h-[360px] xl:h-[380px]" /></div>
         <div className="grid grid-cols-2 gap-4 rounded-xl border border-line bg-card p-4 sm:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <div key={i} className="space-y-2"><Sk className="h-3 w-16" /><Sk className="h-5 w-full" /></div>)}</div>
       </div>
       <aside className="space-y-4">
