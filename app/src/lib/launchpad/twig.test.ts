@@ -98,7 +98,7 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public", TWIG_LOGO_PATH)));
   const brand = src("../../components/launchpad/MuseworldBadge.tsx");
   assert.match(brand, /if \(isTwigQuote\(quoteKey\)\) return "twig";/);
-  assert.match(brand, /twig: <TwigBadge size=\{size\} className=\{className\} \/>/);
+  assert.match(brand, /twig: <TwigBadge size=\{size\} className=\{className\}(?: collapse=\{collapse\})? \/>/);
   assert.match(brand, /return brandOf\(quoteKey\) !== null;/, "hasQuoteBrandBadge reads the same list QuoteBrandBadge renders from");
   for (const f of ["LaunchRow.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
   assert.match(src("../../components/launchpad/TrendingStrip.tsx"), /hasQuoteBrandBadge\(row\.quote_key\)/, "TWIG rows show the badge, not the bare symbol");

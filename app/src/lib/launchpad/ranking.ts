@@ -41,20 +41,30 @@ export function liveTier(r: RankRow, nowMs: number): LiveTier {
   return ageMs < GRACE_HOURS * 3_600_000 ? "new" : "quiet";
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
+/**
+ * The chip's pieces, for surfaces that set the count apart from its words (the market cards):
+ * live { count: 3, label: "wallets this hour", when: "12m ago" }, new { label: "just launched", when: "4m" },
+ * quiet { label: "no buyers yet" }. `more` notes launches folded into this row.
+ */
+export type ChipParts = { tier: LiveTier; count: number | null; label: string; when: string | null; more: string | null };
+
+export function liveChipParts(r: RankRow, nowMs: number): ChipParts {
+  const tier = liveTier(r, nowMs);
+  const more = r.launcher_collapsed ? `+${r.launcher_collapsed} from this wallet` : null;
+  if (tier === "live") {
+    const hour = r.traders_1h_ex > 0;
+    const count = hour ? r.traders_1h_ex : r.traders_24h_ex;
+    return { tier, count, label: `${count === 1 ? "wallet" : "wallets"} ${hour ? "this hour" : "today"}`, when: r.last_outside_trade_at ? `${ago(r.last_outside_trade_at, nowMs)} ago` : null, more: null };
+  }
+  if (tier === "new") return { tier, count: null, label: "just launched", when: ago(r.block_time, nowMs), more };
+  return { tier, count: null, label: "no buyers yet", when: null, more };
 }
 
 /** Why a row sits where it sits on the live sort: "3 wallets this hour · 12m ago", "just launched · 4m", "no buyers yet · +4 from this wallet". */
 export function liveChip(r: RankRow, nowMs: number): { tier: LiveTier; text: string } {
-  const tier = liveTier(r, nowMs);
-  const more = r.launcher_collapsed ? ` · +${r.launcher_collapsed} from this wallet` : "";
-  if (tier === "live") {
-    const when = r.last_outside_trade_at ? ` · ${ago(r.last_outside_trade_at, nowMs)} ago` : "";
-    return { tier, text: r.traders_1h_ex > 0 ? `${plural(r.traders_1h_ex, "wallet")} this hour${when}` : `${plural(r.traders_24h_ex, "wallet")} today${when}` };
-  }
-  if (tier === "new") return { tier, text: `just launched · ${ago(r.block_time, nowMs)}${more}` };
-  return { tier, text: `no buyers yet${more}` };
+  const p = liveChipParts(r, nowMs);
+  const text = [p.count === null ? p.label : `${p.count} ${p.label}`, p.when, p.more].filter(Boolean).join(" · ");
+  return { tier: p.tier, text };
 }
 
 /* ────────────────────────────── trending strip ────────────────────────────── */
