@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
-import { ArrowDown, ArrowRight, ArrowUpRight, Braces, FileCode2, Terminal } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowRight, ArrowUpRight, BookOpen, Bot, Braces, FileCode2, Rocket, Terminal } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import AgentsCodeBlock from "@/components/sections/AgentsCodeBlock";
 import shell from "@/components/sections/SectionShell.module.css";
@@ -8,13 +8,15 @@ import styles from "@/components/sections/Agents.module.css";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, SITE_URL, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
+import { ChainLogo } from "@/components/launchpad/ChainLogo";
 
 export const metadata: Metadata = pageMetadata({ path: "/agents", title: "Agents", description: "Launch and trade tokens from an agent: one contract call, plus a JSON API for the list, trades and metadata." });
 
+/** The page's sections, each with the mark its heading carries. */
 const sections = [
-  { id: "launch", number: "01", label: "Launch a token" },
-  { id: "read", number: "02", label: "Read the API" },
-  { id: "trade", number: "03", label: "Trade & collect" },
+  { id: "launch", icon: Rocket, label: "Launch a token" },
+  { id: "read", icon: BookOpen, label: "Read the API" },
+  { id: "trade", icon: ArrowLeftRight, label: "Trade & collect" },
 ] as const;
 
 const endpoints = [
@@ -34,13 +36,13 @@ export default function AgentsPage() {
 
   return (
     <main className={`${shell.page} ${styles.page}`}>
-      <SectionIntro eyebrow="Developer reference" title="Agents" description={<>No API key, no signup, no platform fee. A launch is one contract call from any wallet with a little ETH for gas. Everything the site shows is also JSON.</>}>
+      <SectionIntro eyebrow="Developer reference" icon={<Bot />} title="Agents" description={<>No API key, no signup, no platform fee. A launch is one contract call from any wallet with a little ETH for gas. Everything the site shows is also JSON.</>}>
         <a href="/llms.txt" className={shell.action}><FileCode2 size={16} aria-hidden="true" />Read llms.txt<ArrowUpRight size={14} aria-hidden="true" /></a>
         <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className={shell.textLink}>Explore the source<ArrowUpRight size={14} aria-hidden="true" /></a>
       </SectionIntro>
 
       <div className={styles.entry}>
-        <div className={styles.entryHeading}><Terminal size={19} aria-hidden="true" /><p>The interface is optional.<span>The same protocol is yours to build with.</span></p></div>
+        <div className={styles.entryHeading}><span className={styles.entryIcon} aria-hidden="true"><Terminal size={17} /></span><p>The interface is optional.<span>The same protocol is yours to build with.</span></p></div>
         <a href="#launch">Start with a launch<ArrowDown size={15} aria-hidden="true" /></a>
       </div>
 
@@ -48,19 +50,19 @@ export default function AgentsPage() {
         <aside className={styles.sidebar}>
           <nav aria-label="Agent documentation sections">
             <p className={styles.indexLabel}>On this page</p>
-            {sections.map(({ id, number, label }) => <a key={id} href={`#${id}`}><span>{number}</span>{label}<ArrowRight size={13} aria-hidden="true" /></a>)}
+            {sections.map(({ id, icon: Icon, label }) => <a key={id} href={`#${id}`}><span aria-hidden="true"><Icon size={13} /></span>{label}<ArrowRight size={13} aria-hidden="true" /></a>)}
           </nav>
           <p className={styles.sidebarNote}>Use the JSON API to read.<br />Use your wallet to write on-chain.</p>
         </aside>
 
         <div className={styles.content}>
           <section id="launch" tabIndex={-1} className={`${shell.anchorSection} ${styles.section}`} aria-labelledby="agents-launch-title">
-            <div className={styles.sectionHeading}><span className={styles.sectionNumber}>01</span><div><h2 id="agents-launch-title">Launch a token</h2><p>One call, from your own wallet.</p></div></div>
+            <div className={styles.sectionHeading}><span className={styles.sectionIcon} aria-hidden="true"><Rocket size={17} /></span><div><h2 id="agents-launch-title">Launch a token</h2><p>One call, from your own wallet.</p></div></div>
             <div className={styles.networks}>
               {CHAIN_KEYS.map((chain) => {
                 const config = launchpad(chain);
                 return <div key={chain} className={styles.network}>
-                  <div className={styles.networkHeading}><h3>{CHAIN_LABELS[chain]}</h3><span>Chain <b>{CHAINS[chain].id}</b></span></div>
+                  <div className={styles.networkHeading}><h3><ChainLogo chain={chain} size={16} />{CHAIN_LABELS[chain]}</h3><span>Chain <b>{CHAINS[chain].id}</b></span></div>
                   <dl>{(["factory", "locker"] as const).map((contract) => <div key={contract}>
                     <dt>{contract}</dt>
                     <dd>{config[contract] ? <a href={explorerAddress(chain, config[contract])} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} ${contract}: ${config[contract]}, view on explorer`}><code>{config[contract]}</code><ArrowUpRight size={13} aria-hidden="true" /></a> : <span>not deployed yet</span>}</dd>
@@ -90,7 +92,7 @@ export default function AgentsPage() {
           </section>
 
           <section id="read" tabIndex={-1} className={`${shell.anchorSection} ${styles.section}`} aria-labelledby="agents-read-title">
-            <div className={styles.sectionHeading}><span className={styles.sectionNumber}>02</span><div><h2 id="agents-read-title">Read the API</h2><p>JSON endpoints, plus a plain-text agent reference.</p></div></div>
+            <div className={styles.sectionHeading}><span className={styles.sectionIcon} aria-hidden="true"><BookOpen size={17} /></span><div><h2 id="agents-read-title">Read the API</h2><p>JSON endpoints, plus a plain-text agent reference.</p></div></div>
             <div className={styles.endpoints}>
               <div className={styles.endpointHeader}><span>Public endpoints</span><span>No API key</span></div>
               {endpoints.map((endpoint) => <div key={endpoint.path} className={styles.endpoint}>
@@ -106,7 +108,7 @@ export default function AgentsPage() {
           </section>
 
           <section id="trade" tabIndex={-1} className={`${shell.anchorSection} ${styles.section}`} aria-labelledby="agents-trade-title">
-            <div className={styles.sectionHeading}><span className={styles.sectionNumber}>03</span><div><h2 id="agents-trade-title">Trade & collect</h2><p>Standard pools. Direct contract calls.</p></div></div>
+            <div className={styles.sectionHeading}><span className={styles.sectionIcon} aria-hidden="true"><ArrowLeftRight size={17} /></span><div><h2 id="agents-trade-title">Trade & collect</h2><p>Standard pools. Direct contract calls.</p></div></div>
             <div className={styles.tradeReference}>
               <div><span className={styles.tradeLabel}>Swap</span><h3>Speak Uniswap v4</h3><p className={styles.prose}>Pools are plain Uniswap v4, with tick spacing <code>200</code> and no hook. The quote can be ETH, TWIG (Base), GITLAWB (Base and Robinhood Chain), USDG (Robinhood Chain), USDC (Arc) or a supported issuer-registry stock token. Get the actual pool key with <code>poolKeyOf(token)</code> on the factory. Swap through the Universal Router with a <code>V4_SWAP</code> command, or any router that speaks v4.</p></div>
               <div><span className={styles.tradeLabel}>Collect</span><h3>Pay out accrued fees</h3><p className={styles.prose}>Anyone may call <code>collect(tokenId)</code> on that chain&apos;s locker to pay out accrued fees. Base locker: <code>{locker}</code>. Use the matching chain address above.</p></div>
