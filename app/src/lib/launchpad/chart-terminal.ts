@@ -51,6 +51,14 @@ export function formatChartAxis(value: number): string {
   return (magnitude >= 1000 ? compactAxisPrice : preciseAxisPrice).format(value);
 }
 
+/** How long a stretch of the chart covers, as a short label: "45m", "18h", "4d". Empty for no stretch at all. */
+export function chartSpanLabel(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}m`;
+  if (seconds < 2 * 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
 export type WalletChartMarker = { t: number; is_buy: boolean; quote: string };
 export type WalletChartMarkerBucket = { t: number; is_buy: boolean; count: number };
 
@@ -100,4 +108,43 @@ export function selectedRangeStats(candles: readonly Candle[], fromTime = -Infin
     volume: visible.reduce((sum, candle) => sum + candle.volume, 0),
     trades: visible.reduce((sum, candle) => sum + candle.trades, 0),
   };
+}
+
+/** A history that spans this many times from its lowest low to its highest high opens on a log scale. */
+export const LOG_SCALE_SPAN = 10;
+
+/**
+ * Log for a launch-day spike that would flatten today's price into the floor of a linear axis; linear otherwise.
+ * Only traded buckets count: a carried price is not a low.
+ */
+export function defaultChartScale(candles: readonly Candle[]): "log" | "normal" {
+  let low = Infinity;
+  let high = 0;
+  for (const candle of candles) {
+    if (candle.filled) continue;
+    if (candle.low > 0 && candle.low < low) low = candle.low;
+    if (candle.high > high) high = candle.high;
+  }
+  return Number.isFinite(low) && high / low >= LOG_SCALE_SPAN ? "log" : "normal";
+}
+
+export type ChartLandmark = { t: number; kind: "launch" | "peak"; value: number };
+/** A peak in the newest this-many buckets gets no label: it is the current price, and the label would meet the axis. */
+const PEAK_CLEARANCE = 3;
+
+/**
+ * Where the line starts and where it peaked, for labels on the chart. The launch mark needs the launch inside the
+ * first loaded bucket; the peak is the highest traded high, left out when it sits in the newest few buckets (the price
+ * label already says where it is now, and a label there would run under the axis) or when there are too few buckets
+ * for a peak to mean anything.
+ */
+export function chartLandmarks(candles: readonly Candle[], launchT: number, intervalS: number): ChartLandmark[] {
+  if (candles.length < 3) return [];
+  const out: ChartLandmark[] = [];
+  const first = candles[0];
+  if (launchT >= first.t && launchT < first.t + intervalS) out.push({ t: first.t, kind: "launch", value: first.open });
+  let peak = -1;
+  for (let i = 0; i < candles.length; i++) if (!candles[i].filled && (peak < 0 || candles[i].high > candles[peak].high)) peak = i;
+  if (peak >= 0 && peak < candles.length - PEAK_CLEARANCE) out.push({ t: candles[peak].t, kind: "peak", value: candles[peak].high });
+  return out;
 }

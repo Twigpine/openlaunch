@@ -17,13 +17,13 @@ test("cspNonce base64-encodes at least 16 random bytes", () => {
   assert.throws(() => cspNonce(new Uint8Array(8)), /16 random bytes/);
 });
 
-test("production policy: nonce-only scripts, no framing, same-origin by default", () => {
+test("production policy: nonce-only scripts, deny embedding this site, exact hosted-chart origin", () => {
   const csp = buildCsp(NONCE);
   assert.equal(directive(csp, "default-src"), "default-src 'self'");
   assert.equal(directive(csp, "script-src"), `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic'`);
   assert.doesNotMatch(directive(csp, "script-src"), /unsafe-inline|unsafe-eval/);
   assert.equal(directive(csp, "frame-ancestors"), "frame-ancestors 'none'");
-  assert.equal(directive(csp, "frame-src"), "frame-src 'none'");
+  assert.equal(directive(csp, "frame-src"), "frame-src https://www.geckoterminal.com");
   assert.equal(directive(csp, "object-src"), "object-src 'none'");
   assert.equal(directive(csp, "base-uri"), "base-uri 'self'");
   assert.equal(directive(csp, "form-action"), "form-action 'self'");
@@ -51,6 +51,16 @@ test("development adds eval and HMR sockets and drops the https upgrade", () => 
   assert.ok(directive(csp, "script-src").endsWith(" 'unsafe-eval'"));
   assert.match(directive(csp, "connect-src"), / ws: http:\/\/localhost:\* http:\/\/127\.0\.0\.1:\*$/);
   assert.doesNotMatch(csp, /upgrade-insecure-requests/);
+});
+
+test("chart frames work after client navigation without allowing provider scripts or connections in our page", () => {
+  for (const dev of [false, true]) {
+    const policy = buildCsp(NONCE, { dev });
+    assert.equal(directive(policy, "frame-src"), "frame-src https://www.geckoterminal.com");
+    assert.equal(directive(policy, "frame-ancestors"), "frame-ancestors 'none'");
+    assert.doesNotMatch(directive(policy, "connect-src"), /geckoterminal/);
+    assert.doesNotMatch(directive(policy, "script-src"), /geckoterminal/);
+  }
 });
 
 test("a malformed nonce cannot smuggle directives into the policy", () => {

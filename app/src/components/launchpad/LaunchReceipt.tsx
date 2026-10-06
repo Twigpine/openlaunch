@@ -1,20 +1,29 @@
-import { ArrowDown, ArrowUpRight, LockKeyhole } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { launchpad } from "@/lib/launchpad/config";
 import { explorerAddress, explorerTx, type ChainKey } from "@/lib/chainPublic";
 
-/** A receipt of the launch mechanics, not a claim about current wallet balances. */
+/** A receipt of the launch mechanics, not a claim about current wallet balances. Set like one: dotted leaders, mono figures. */
 export default function LaunchReceipt({ chain, symbol, supply, txHash }: { chain: ChainKey; symbol: string; supply: string; txHash: string }) {
   const locker = launchpad(chain).locker;
-  return <section className="overflow-hidden rounded-2xl border border-line bg-paper" aria-labelledby="receipt-title">
-    <div className="flex min-h-12 items-center justify-between border-b border-line px-5"><h2 id="receipt-title" className="text-sm font-semibold text-ink">The launch receipt</h2><a href={explorerTx(chain, txHash)} target="_blank" rel="noreferrer" className="flex size-9 items-center justify-center text-muted hover:text-ink" aria-label="Verify the launch transaction"><ArrowUpRight size={16} /></a></div>
-    <div className="px-5 py-4">
-      <div className="flex items-baseline justify-between gap-3"><span className="text-xs text-muted">Fixed supply</span><span className="truncate font-mono text-sm text-ink tnum" title={`${supply} ${symbol}`}>{supply} {symbol}</span></div>
-      <div className="flex items-center gap-3 py-2 text-[10px] text-muted"><ArrowDown size={13} className="ml-1" /><span>100% deposited at launch</span></div>
-      <a href={locker ? explorerAddress(chain, locker) : "/rules#contracts"} target={locker ? "_blank" : undefined} rel={locker ? "noreferrer" : undefined} className="flex items-center justify-between gap-3 rounded-xl border border-line-strong px-3 py-3 hover:bg-card">
-        <div><span className="flex items-center gap-2 text-xs font-medium text-ink"><LockKeyhole size={13} /> Liquidity position</span><span className="mt-1 block text-[11px] text-muted">Ownerless locker · read the code ↗</span></div><span className="font-mono text-xs font-bold text-up">Forever</span>
-      </a>
-      <div className="mt-4 flex items-center justify-between border-t border-dashed border-line-strong pt-4"><span className="text-xs text-muted line-through decoration-faint">Platform fee</span><span className="font-mono text-xl font-bold text-up tnum">$0</span></div>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted text-pretty">No withdrawal key. No platform cut. This does not prevent token prices from falling.</p>
+  return <section className="overflow-hidden rounded-2xl border border-line bg-card" aria-labelledby="receipt-title">
+    <div className="flex items-center justify-between gap-3 px-5 pt-4">
+      <h2 id="receipt-title" className="text-sm font-semibold text-ink">The launch receipt</h2>
+      <a href={explorerTx(chain, txHash)} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 text-xs text-muted transition-colors hover:text-ink motion-reduce:transition-none" aria-label="Verify the launch transaction">Launch tx<ArrowUpRight size={12} aria-hidden="true" /></a>
     </div>
+    <dl className="px-5 pb-4 pt-2 text-xs">
+      <Line k="Fixed supply" v={<span title={`${supply} ${symbol}`}>{supply} {symbol}</span>} />
+      <Line k="Into the pool at launch" v="100%" />
+      <Line k="Liquidity" v={<a href={locker ? explorerAddress(chain, locker) : "/rules#contracts"} target={locker ? "_blank" : undefined} rel={locker ? "noreferrer" : undefined} title="An ownerless locker holds the position. Read the code." className="inline-flex items-center gap-1 text-up underline decoration-up/30 underline-offset-4 transition-colors hover:decoration-up motion-reduce:transition-none">Locked forever<ArrowUpRight size={12} aria-hidden="true" /></a>} />
+      <Line k="Platform fee" v={<span className="text-up">$0</span>} />
+    </dl>
+    <p className="border-t border-dashed border-line-strong px-5 py-3 text-[11px] leading-relaxed text-muted text-pretty">No withdrawal key. No platform cut. This does not prevent token prices from falling.</p>
   </section>;
+}
+
+function Line({ k, v }: { k: string; v: React.ReactNode }) {
+  return <div className="flex items-baseline gap-2 py-1.5">
+    <dt className="shrink-0 text-muted">{k}</dt>
+    <span aria-hidden="true" className="min-w-4 flex-1 translate-y-[-3px] border-b border-dotted border-line-strong" />
+    <dd className="min-w-0 truncate font-mono font-semibold text-ink tnum">{v}</dd>
+  </div>;
 }

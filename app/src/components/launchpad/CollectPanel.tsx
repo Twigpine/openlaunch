@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useConfig, useReadContracts } from "wagmi";
+import { useConfig, useReadContracts } from "wagmi";
+import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import { type Address, type Hex } from "viem";
 import { btn } from "@/components/ui";
@@ -54,7 +55,7 @@ export default function CollectPanel({
 }) {
   const router = useRouter();
   const config = useConfig();
-  const { address, chainId } = useAccount();
+  const { address, chainId } = useHydratedAccount();
   const CHAIN = CHAINS[chain];
   const LOCKER_ADDRESS = launchpad(chain).locker;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
@@ -119,7 +120,7 @@ export default function CollectPanel({
   ].filter((c) => c.raw > 0n);
 
   return (
-    <section className="rounded-2xl bg-paper border border-line p-5 space-y-3">
+    <section className="rounded-2xl border border-line bg-card p-5 space-y-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">Where the fees go</h2>
         <span className="font-mono font-bold text-ink tnum">{pipsToPct(lpFee)}</span>
@@ -140,7 +141,7 @@ export default function CollectPanel({
                     {burn ? (
                       <span className="text-warm-ink font-medium">Burned</span>
                     ) : (
-                      <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-mono text-ink hover:underline underline-offset-2 truncate">
+                      <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">
                         {address && r.payout.toLowerCase() === address.toLowerCase() ? "You" : shortAddr(r.payout)}
                       </a>
                     )}
@@ -163,8 +164,9 @@ export default function CollectPanel({
                 <dd className="text-[11px] text-body leading-relaxed">Both sides sent to the dead address. Nobody can claim them.</dd>
               ) : (
                 <>
-                  <dd className="font-mono font-bold text-sm tnum text-warm-ink break-words">{fq(burned.quote)}</dd>
-                  <dd className="font-mono font-bold text-sm tnum text-warm-ink break-words">{ft(burned.token)}</dd>
+                  {/* amber only once something has actually burned; zero reads as the plain fact it is */}
+                  <dd className={`font-mono font-bold text-sm tnum break-words ${burned.quote > 0n ? "text-warm-ink" : "text-muted"}`}>{fq(burned.quote)}</dd>
+                  <dd className={`font-mono font-bold text-sm tnum break-words ${burned.token > 0n ? "text-warm-ink" : "text-muted"}`}>{ft(burned.token)}</dd>
                 </>
               )}
             </div>
@@ -199,7 +201,7 @@ export default function CollectPanel({
       {phase.k === "sent" ? (
         <p className="text-[11px] text-muted">
           tx{" "}
-          <a href={explorerTx(chain, phase.hash)} target="_blank" rel="noreferrer" className="font-mono underline underline-offset-2">
+          <a href={explorerTx(chain, phase.hash)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2">
             {phase.hash.slice(0, 10)}…
           </a>
         </p>
