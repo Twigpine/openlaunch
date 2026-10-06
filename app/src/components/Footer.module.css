@@ -35,6 +35,8 @@
 .signature { display: block; width: fit-content; max-width: 100%; margin: 26px auto 24px; text-align: center; color: var(--color-ink); font-size: clamp(32px, 8.8vw, 112px); line-height: 1.08; font-weight: 700; letter-spacing: -.075em; white-space: nowrap; transition: color 180ms; }
 .signature:is(:hover, :focus-visible) { color: var(--color-brand); }
 .bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; padding-top: 16px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 11px; }
+.credit { text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
+.credit:hover { color: var(--color-ink); }
 .utilities { display: flex; align-items: center; gap: 24px; }
 .license, .backTop { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
 .license:hover, .backTop:hover { color: var(--color-ink); }

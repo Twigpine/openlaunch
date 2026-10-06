@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { INTERVALS, scaleCandles, type Candle } from "./candles.ts";
-import { aggregateWalletMarkers, chartRangeSelection, formatChartAxis, formatChartPrice, selectedRangeStats, type WalletChartMarker } from "./chart-terminal.ts";
+import { LOG_SCALE_SPAN, aggregateWalletMarkers, chartLandmarks, chartRangeSelection, chartSpanLabel, defaultChartScale, formatChartAxis, formatChartPrice, selectedRangeStats, type WalletChartMarker } from "./chart-terminal.ts";
 
 test("chart ranges choose useful intervals and never request before launch", () => {
   const now = 100 * 86400;
@@ -114,4 +114,38 @@ test("price and market-cap scaling never multiplies the quote volume statistic",
   assert.equal(scaled.volume, raw.volume);
   assert.equal(scaled.change, raw.change);
   assert.equal(scaled.close, raw.close * 1_000_000);
+});
+
+const bar = (t: number, low: number, high: number, filled = false) => ({ t, open: low, high, low, close: low, volume: filled ? 0 : 1, trades: filled ? 0 : 1, filled });
+
+test("a launch-day spike that dwarfs today's price opens the chart on a log scale", () => {
+  assert.equal(defaultChartScale([bar(0, 100, 2_400), bar(60, 30, 120), bar(120, 20, 25)]), "log", "2,400 / 20 = 120×");
+  assert.equal(defaultChartScale([bar(0, 10, 30), bar(60, 12, 40)]), "normal", "4× fits a linear axis");
+  assert.equal(defaultChartScale([bar(0, 10, 10 * LOG_SCALE_SPAN)]), "log", "the threshold itself opens log");
+  assert.equal(defaultChartScale([bar(0, 10, 30), bar(60, 0.001, 0.001, true)]), "normal", "a carried price is not a low");
+  assert.equal(defaultChartScale([]), "normal");
+});
+
+test("landmarks: launch in the first bucket, peak at the highest traded high unless it is the newest", () => {
+  const launchT = 1_000;
+  const bars = [bar(960, 10, 12), bar(1_020, 11, 90), bar(1_080, 20, 40), bar(1_140, 15, 30), bar(1_200, 15, 25), bar(1_260, 14, 22)];
+  assert.deepEqual(chartLandmarks(bars, launchT, 60), [{ t: 960, kind: "launch", value: 10 }, { t: 1_020, kind: "peak", value: 90 }]);
+  assert.deepEqual(chartLandmarks(bars, 5_000, 60).map((m) => m.kind), ["peak"], "a launch before the loaded window gets no mark");
+  const rising = [bar(960, 10, 12), bar(1_020, 11, 20), bar(1_080, 20, 40), bar(1_140, 30, 50), bar(1_200, 45, 60)];
+  assert.deepEqual(chartLandmarks(rising, launchT, 60).map((m) => m.kind), ["launch"], "a peak in the newest three buckets is the price label's job");
+  assert.deepEqual(chartLandmarks(bars.slice(0, 2), launchT, 60), [], "two buckets are too few");
+  const carried = [bar(960, 10, 12), bar(1_020, 99, 99, true), bar(1_080, 11, 14), bar(1_140, 9, 10), bar(1_200, 9, 10), bar(1_260, 8, 9)];
+  assert.equal(chartLandmarks(carried, launchT, 60).find((m) => m.kind === "peak")?.t, 1_080, "carried buckets never peak");
+});
+
+test("the chart's span label reads a stretch of time in its largest sensible unit", () => {
+  assert.equal(chartSpanLabel(60), "1m");
+  assert.equal(chartSpanLabel(20), "1m", "a sliver still reads as a minute, never 0m");
+  assert.equal(chartSpanLabel(45 * 60), "45m");
+  assert.equal(chartSpanLabel(3600), "1h");
+  assert.equal(chartSpanLabel(18 * 3600), "18h");
+  assert.equal(chartSpanLabel(47 * 3600), "47h");
+  assert.equal(chartSpanLabel(4 * 86400), "4d");
+  assert.equal(chartSpanLabel(96 * INTERVALS["1h"]), "4d");
+  for (const nothing of [0, -60, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(chartSpanLabel(nothing), "");
 });
