@@ -49,12 +49,13 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
   );
 
   if (block) {
+    // the phone menu's footer line: quiet, under the buttons
     return (
-      <div className="flex items-center justify-between min-h-12 px-3 rounded-xl text-base font-medium text-ink" title="cookie-free: all-time visits · people here right now">
+      <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-3 text-xs text-muted" title="cookie-free: all-time visits · people here right now">
         <span>
-          <LiveNumber value={p.visits} className="font-mono tnum" /> visits
+          <LiveNumber value={p.visits} className="font-mono tnum text-body" /> visits
         </span>
-        <span className="text-sm text-muted">{online}</span>
+        {online}
       </div>
     );
   }

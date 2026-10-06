@@ -4,22 +4,20 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--color-line);
+  /* one borderless tool in the header's rail (HeaderNav), which draws the frame */
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--color-card);
+  background: transparent;
   color: var(--color-body);
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
-/* Larger hit area without widening the desktop instrument strip. */
-.trigger::before { content: ""; position: absolute; inset: -4px; border-radius: inherit; }
-.trigger:hover, .trigger[data-popup-open] { background: var(--color-line); border-color: var(--color-line-strong); color: var(--color-ink); }
+.trigger:hover, .trigger[data-popup-open] { background: var(--color-line); color: var(--color-ink); }
 .bell { position: relative; display: flex; }
 .dot { position: absolute; top: -2px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--color-brand); box-shadow: 0 0 0 2px var(--color-card); }
-.block { width: 100%; min-height: 48px; height: auto; padding: 12px; justify-content: start; gap: 12px; border-color: transparent; border-radius: 12px; font-size: 14px; font-weight: 500; }
-.block::before { display: none; }
+.block { width: 100%; min-height: 48px; height: auto; padding: 12px; justify-content: start; gap: 12px; border-color: transparent; border-radius: 12px; color: var(--color-ink); font-size: 15px; font-weight: 500; }
 .triggerStatus { margin-left: auto; color: var(--color-muted); font-size: 12px; font-weight: 400; }
 .positioner { z-index: 70; }
 .backdrop { position: fixed; inset: 0; z-index: 69; background: color-mix(in srgb, var(--color-scrim) 55%, transparent); }

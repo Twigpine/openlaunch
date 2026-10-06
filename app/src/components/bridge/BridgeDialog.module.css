@@ -1,7 +1,8 @@
-.trigger { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 11px; border: 1px solid var(--color-line); border-radius: 999px; color: var(--color-body); background: var(--color-card); font-size: 13px; font-weight: 500; cursor: pointer; transition: background 160ms, color 160ms, transform 160ms; }
-.compactTrigger { width: 36px; padding: 0; }
+/* in the header the trigger is one borderless tool in the rail (HeaderNav), which draws the frame */
+.trigger { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 7px; min-height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: 999px; color: var(--color-body); background: transparent; font-size: 13px; font-weight: 500; cursor: pointer; transition: background 160ms, color 160ms, transform 160ms; }
+.compactTrigger { width: 30px; padding: 0; }
 .compactTrigger .triggerLabel { display: none; }
-.blockTrigger { width: 100%; justify-content: flex-start; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; color: var(--color-ink); font-size: 16px; }
+.blockTrigger { width: 100%; justify-content: flex-start; gap: 12px; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; color: var(--color-ink); font-size: 15px; }
 .triggerHint { margin-left: auto; font-size: 12px; color: var(--color-muted); }
 .backdrop { position: fixed; inset: 0; z-index: 80; background: color-mix(in srgb, var(--color-scrim) 45%, transparent); opacity: 1; transition: opacity 180ms ease-out; }
 .backdrop[data-starting-style], .backdrop[data-ending-style] { opacity: 0; }
@@ -143,14 +144,15 @@
 @media (hover: hover) and (pointer: fine) {
   .networkTrigger:not(:disabled):hover { background: var(--color-paper); border-color: var(--color-line); }
   .assetTrigger:not(:disabled):hover { border-color: var(--color-brand); }
-  .trigger:hover, .close:hover, .reverse:hover, .externalAction:hover { color: var(--color-ink); background: var(--color-paper); }
+  .close:hover, .reverse:hover, .externalAction:hover { color: var(--color-ink); background: var(--color-paper); }
+  .trigger:hover { color: var(--color-ink); background: var(--color-line); }
   .primary:not(:disabled):hover { background: var(--color-brand-strong); }
   .footer a:hover, .explorerLinks a:hover { text-decoration: underline; }
 }
 .primary:not(:disabled):active, .reverse:not(:disabled):active, .trigger:active { transform: scale(.97); }
 .networkTrigger:not(:disabled):active:not(:focus-visible) { transform: scale(.98); }
 .networkTrigger:focus-visible { transition: none; }
-@media (min-width: 1024px) and (max-width: 1279px) { .trigger:not(.blockTrigger) { width: 36px; padding: 0; } .trigger:not(.blockTrigger) .triggerLabel { display: none; } }
+@media (min-width: 1024px) and (max-width: 1279px) { .trigger:not(.blockTrigger) { width: 30px; padding: 0; } .trigger:not(.blockTrigger) .triggerLabel { display: none; } }
 @media (max-width: 520px) {
   .panel { width: 100%; top: auto; bottom: 0; left: 0; max-height: calc(100dvh - 16px); transform: none; padding: 24px 22px calc(20px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; border-bottom: 0; box-shadow: var(--shadow-sheet); }
   .panel[data-starting-style], .panel[data-ending-style] { transform: translateY(16px); }
