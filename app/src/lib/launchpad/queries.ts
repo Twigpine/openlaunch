@@ -9,6 +9,7 @@ import { memo } from "./memo";
 import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
+import { gitlawbLinkedUsd } from "./twig";
 import { canonicalImageUrl } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS } from "./holders";
@@ -31,7 +32,7 @@ export type LaunchRow = {
   token_id: number;
   launcher: string;
   quote: string;
-  quote_key: Quote["key"]; // eth | usdg | usdc | gitlawb | stock (a registry stock) | other (an unlisted ERC-20, unlisted-quote.ts)
+  quote_key: Quote["key"]; // eth | usdg | usdc | gitlawb | twig | museworld | stock (a registry stock) | other (an unlisted ERC-20, unlisted-quote.ts)
   quote_symbol: string;
   quote_decimals: number;
   quote_decimals_known: boolean; // false only for an unlisted quote not read yet: quote_decimals is a placeholder, do not trade
@@ -109,10 +110,11 @@ let museworldUsdNow: number | null = null;
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
 
-/** Server-side quote resolution: static ETH/USDG/GITLAWB (GITLAWB gets the live price), else a registry stock, else an unlisted quote. */
+/** Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a registry stock, else an unlisted quote. */
 function quoteInfo(chain: ChainKey, address: string): Quote {
   const q = staticQuoteInfo(chain, address);
-  if (q.key === "gitlawb") return { ...q, usd: gitlawbUsdNow };
+  const linked = gitlawbLinkedUsd(q.key, gitlawbUsdNow); // GITLAWB, and TWIG at the same price
+  if (linked !== undefined) return { ...q, usd: linked };
   if (q.key === "museworld") return { ...q, usd: museworldUsdNow };
   if (q.key !== "other") return q;
   const st = stockByAddress(chain, address);
@@ -310,7 +312,10 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   if (opts.filter === "usdg" || opts.filter === "usdc") conds.push(db`${quoteArms(opts.filter)}`);
   // GITLAWB has a different address per chain (and none on Arc): the same chain-scoped match
   const isGitlawb = () => quoteArms("gitlawb");
+  // the quotes that take GITLAWB's USD price in the sorts: GITLAWB, and TWIG (one TWIG unwraps to one GITLAWB; gitlawbLinkedUsd)
+  const isGitlawbPriced = () => db`(${isGitlawb()} OR ${quoteArms("twig")})`;
   if (opts.filter === "gitlawb") conds.push(db`${isGitlawb()}`);
+  if (opts.filter === "twig") conds.push(db`${quoteArms("twig")}`);
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
@@ -325,7 +330,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
   const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
   const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
   const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
@@ -464,7 +469,12 @@ export type LaunchTotals = {
    * bridged across two chains, so one figure and no per-chain split. Shown as an amount, never in USD.
    */
   gitlawb_burned: string;
-  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string }>;
+  /**
+   * TWIG sent to 0x…dEaD by launches quoted in it, raw 18-dec (Base only). Kept apart from gitlawb_burned: the GITLAWB
+   * behind burned TWIG stays in the TWIG contract, so it is TWIG that was burned, and it is shown as such.
+   */
+  twig_burned: string;
+  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
 };
 
 export async function getLaunchTotals(ethUsd: number | null = null): Promise<LaunchTotals> {
@@ -476,7 +486,8 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     fees_to_creators_usd: 0,
     usd_partial: false,
     gitlawb_burned: "0",
-    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0" }])) as LaunchTotals["by_chain"],
+    twig_burned: "0",
+    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0", volume_quote_twig: "0" }])) as LaunchTotals["by_chain"],
   });
   const db = maybeDb();
   if (!db) return empty();
@@ -494,7 +505,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     const q = quoteInfo(chain, r.quote);
     const usd = quoteUsd(q, ethUsd);
     const qu = usd ?? 0;
-    // a quote that normally prices (ETH, GITLAWB, a registry stock) but has no price this instant → the USD sums undercount;
+    // a quote that normally prices (ETH, GITLAWB, TWIG, a registry stock) but has no price this instant → the USD sums undercount;
     // an unlisted ERC-20 (key "other") is unpriced by design and is left out of the USD figures silently, as always
     if (usd === null && q.key !== "other" && (BigInt(r.volume) > 0n || BigInt(r.burned) > 0n || BigInt(r.creators) > 0n)) t.usd_partial = true;
     t.launches += Number(r.launches);
@@ -513,6 +524,9 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
       bc.volume_quote_gitlawb = add(bc.volume_quote_gitlawb, r.volume);
       // GITLAWB is only ever the quote side (never a launched token), so the quote-fee burn is the whole GITLAWB burn
       t.gitlawb_burned = add(t.gitlawb_burned, r.burned);
+    } else if (q.key === "twig") {
+      bc.volume_quote_twig = add(bc.volume_quote_twig, r.volume);
+      t.twig_burned = add(t.twig_burned, r.burned); // TWIG is only ever the quote side here too
     }
   }
   return t;

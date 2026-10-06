@@ -14,9 +14,13 @@ import type { Quote } from "./config";
  */
 
 /** Symbols an unlisted quote may never show as: the quotes we list anywhere, and the assets people take them for. */
-export const RESERVED_QUOTE_SYMBOLS = ["ETH", "WETH", "CBETH", "USDC", "USDG", "USDT", "USDBC", "DAI", "EURC", "BTC", "WBTC", "CBBTC", "GITLAWB", "MUSEWORLD"];
-/** Any symbol starting with these reads as a dollar or as one of our own tokens ("USDC.e", "USD+", "GITLAWB2", "MUSEWORLD.v2"). */
-const RESERVED_PREFIXES = ["USD", "GITLAWB", "MUSEWORLD"];
+export const RESERVED_QUOTE_SYMBOLS = ["ETH", "WETH", "CBETH", "USDC", "USDG", "USDT", "USDBC", "DAI", "EURC", "BTC", "WBTC", "CBBTC", "GITLAWB", "TWIG", "MUSEWORLD"];
+/**
+ * Any symbol starting with these reads as a dollar or as one of our own tokens ("USDC.e", "USD+", "GITLAWB2", "TWIGPINE", "MUSEWORLD.v2").
+ * Broad on purpose: copycat TWIG/TWIGPINE tokens appeared within an hour of the rename, so an unrelated TWIG* quote
+ * shows by its address rather than any TWIG-looking symbol showing as ours.
+ */
+const RESERVED_PREFIXES = ["USD", "GITLAWB", "TWIG", "MUSEWORLD"];
 
 export const UNLISTED_SYMBOL_MAX = 12;
 /** Beyond this, 10^decimals leaves double precision and the tick maths is meaningless. */

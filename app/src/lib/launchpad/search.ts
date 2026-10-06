@@ -2,13 +2,15 @@
 import { newestFirst } from "./paging";
 import { CHAIN_KEYS, type ChainKey } from "../chainKeys.ts";
 import { GITLAWB_ADDRESSES } from "./gitlawb.ts";
-export type LaunchFilter = "fee0" | "burn" | "usdg" | "usdc" | "gitlawb" | "today";
+import { TWIG_ADDRESSES } from "./twig.ts";
+export type LaunchFilter = "fee0" | "burn" | "usdg" | "usdc" | "twig" | "gitlawb" | "today";
 /** `chains`: the filter only makes sense on those chains (its quote is not offered elsewhere) → hidden when another chain is selected. */
 export const FILTERS: { key: LaunchFilter; label: string; title: string; chains?: ChainKey[] }[] = [
   { key: "fee0", label: "0% fee", title: "feeless pools" },
   { key: "burn", label: "fees burned", title: "no beneficiary; every fee is burned" },
   { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)", chains: ["robinhood"] },
   { key: "usdc", label: "USDC", title: "priced in USDC (Arc)", chains: ["arc"] },
+  { key: "twig", label: "TWIG", title: "priced in TWIG, the 1:1 wrapper of GITLAWB (Base)", chains: CHAIN_KEYS.filter((k) => TWIG_ADDRESSES[k] !== null) },
   { key: "gitlawb", label: "GITLAWB", title: "priced in GITLAWB (Base or Robinhood Chain)", chains: CHAIN_KEYS.filter((k) => GITLAWB_ADDRESSES[k] !== null) },
   { key: "today", label: "today", title: "launched in the last 24 hours" },
 ];
@@ -17,7 +19,7 @@ export function filterOnChain(f: { chains?: ChainKey[] }, chain: ChainKey | null
   return !f.chains || chain === null || f.chains.includes(chain);
 }
 export function isFilter(v: unknown): v is LaunchFilter {
-  return v === "fee0" || v === "burn" || v === "usdg" || v === "usdc" || v === "gitlawb" || v === "today";
+  return v === "fee0" || v === "burn" || v === "usdg" || v === "usdc" || v === "twig" || v === "gitlawb" || v === "today";
 }
 
 /** Trim, collapse whitespace, strip a leading $ (people type $SYM), lowercase. */
@@ -45,6 +47,7 @@ export function matchesFilter(l: Matchable, f: LaunchFilter | null, now = Date.n
   if (f === "burn") return l.lp_fee > 0 && l.recipients.length === 1 && l.recipients[0].payout.toLowerCase() === DEAD;
   if (f === "usdg") return l.quote_key === "usdg";
   if (f === "usdc") return l.quote_key === "usdc";
+  if (f === "twig") return l.quote_key === "twig";
   if (f === "gitlawb") return l.quote_key === "gitlawb";
   return now - new Date(l.block_time).getTime() < 86_400_000;
 }
