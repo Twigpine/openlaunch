@@ -75,25 +75,27 @@ export function chunkList<T>(list: T[], size: number): T[][] {
 export const SELECTOR_MARGIN = 10;
 
 /**
- * Run `fetch` over `list` in slices that stay under the chain's selector cap. `caps` remembers each chain's cap: a chain
- * with no known cap is asked once with the whole list (no extra calls where the node allows it, as on Base), and the first
- * refusal records the cap the node states and retries in slices. Any other error propagates unchanged.
+ * Run `fetch` over `list` in slices that stay under the chain's selector cap, the slices in parallel. `caps` remembers
+ * each chain's cap. A chain with no known cap is asked once with the whole list (no extra calls where the node allows
+ * it, as on Base). On a refusal the cap only ever comes down: to the cap the node states when that is below what was
+ * tried, else to half of what was tried (a node that states no number, or a cap that was learned too high), until a
+ * single item still being refused gives up with the node's error. So a wrong guess can cost calls, never a stuck chain.
+ * Any other error propagates unchanged.
  */
 export async function fetchBySelectors<T, K>(caps: Map<K, number>, key: K, list: T[], fetch: (slice: T[]) => Promise<unknown[]>): Promise<unknown[]> {
-  const cap = caps.get(key);
-  if (cap === undefined) {
-    try {
-      return await fetch(list);
-    } catch (err) {
-      const stated = selectorCapFromError(err);
-      if (stated === null) throw err;
-      caps.set(key, stated);
-      return fetchBySelectors(caps, key, list, fetch);
-    }
+  const known = caps.get(key);
+  const size = known === undefined ? Math.max(1, list.length) : Math.max(1, known - SELECTOR_MARGIN);
+  try {
+    const parts = await Promise.all(chunkList(list, size).map((slice) => fetch(slice)));
+    return parts.flat();
+  } catch (err) {
+    const stated = selectorCapFromError(err);
+    if (stated === null || size <= 1) throw err;
+    const tried = size + SELECTOR_MARGIN;
+    const next = stated < tried ? stated : Math.floor(size / 2) + SELECTOR_MARGIN;
+    caps.set(key, next);
+    return fetchBySelectors(caps, key, list, fetch);
   }
-  const out: unknown[] = [];
-  for (const slice of chunkList(list, cap - SELECTOR_MARGIN)) out.push(...(await fetch(slice)));
-  return out;
 }
 
 /** Logs from several slices back in chain order (block, then log index). */

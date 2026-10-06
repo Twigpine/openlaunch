@@ -23,9 +23,25 @@ export const POOL_KEY_COMPONENTS = [
 ] as const;
 
 export const UR_COMMAND_V4_SWAP = 0x10;
+export const UR_COMMAND_WRAP_ETH = 0x0b;
 export const ACTION_SWAP_EXACT_IN_SINGLE = 0x06;
+export const ACTION_SWAP_EXACT_IN = 0x07;
+export const ACTION_SETTLE = 0x0b;
 export const ACTION_SETTLE_ALL = 0x0c;
 export const ACTION_TAKE_ALL = 0x0f;
+/** Universal Router: "the router itself" as a recipient (Constants.ADDRESS_THIS). */
+export const ADDRESS_THIS = "0x0000000000000000000000000000000000000002";
+/** V4 router: settle the whole open delta (ActionConstants.OPEN_DELTA). */
+export const OPEN_DELTA = 0n;
+
+/** PathKey tuple layout (one hop of a multi-hop v4 swap: the currency it ends in and that pool's fee, spacing, hooks). */
+export const PATH_KEY_COMPONENTS = [
+  { name: "intermediateCurrency", type: "address" },
+  { name: "fee", type: "uint24" },
+  { name: "tickSpacing", type: "int24" },
+  { name: "hooks", type: "address" },
+  { name: "hookData", type: "bytes" },
+] as const;
 
 export type PoolKey = { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address };
 

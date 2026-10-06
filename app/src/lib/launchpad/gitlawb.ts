@@ -26,7 +26,7 @@ export const GITLAWB_ADDRESS_ROBINHOOD = "0xd1b0d44e4f6ed940fcc7a9f59bf30daf62cc
 /** GITLAWB per chain, lowercase; null where it has not been bridged (a new chain must say so explicitly). */
 export const GITLAWB_ADDRESSES: Record<ChainKey, string | null> = { base: GITLAWB_ADDRESS, robinhood: GITLAWB_ADDRESS_ROBINHOOD, arc: null };
 export const GITLAWB_SYMBOL = "GITLAWB";
-export const GITLAWB_NAME = "Twigpine"; // the project behind the token (formerly Gitlawb); the ticker stays GITLAWB
+export const GITLAWB_NAME = "Twigpine's original token"; // the project is Twigpine (formerly Gitlawb); the ticker stays GITLAWB, and TWIG is its 1:1 wrapper
 export const GITLAWB_DECIMALS = 18;
 export const GITLAWB_SITE = "https://twigpine.com";
 

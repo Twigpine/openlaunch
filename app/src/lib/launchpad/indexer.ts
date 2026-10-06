@@ -262,8 +262,9 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   if (poolToToken.size > 0) {
     const ids = [...poolToToken.keys()] as Hex[];
     // every pool id is one topic selector: past the node's cap the id list goes out in slices (the 1001st Robinhood launch stopped the indexer)
+    // the selector split is outermost, so a result-cap refusal bisects the block range of the one slice that overflowed only
     const swapLogs = byChainOrder(
-      (await fetchLogsSplit((f, t) => fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t })), from, to)) as Log[],
+      (await fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t }), from, to))) as Log[],
     );
     for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken)) swaps++;
   }
@@ -347,7 +348,7 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
     }
   };
   // every token address is one selector: past the node's cap the address list goes out in slices (log-range.ts)
-  const logs = byChainOrder((await fetchLogsSplit((a, b) => fetchBySelectors(SELECTOR_CAPS, chain, tokens, (slice) => oneBlockOrRange(slice, a, b)), from, to)) as TransferLog[]);
+  const logs = byChainOrder((await fetchBySelectors(SELECTOR_CAPS, chain, tokens, (slice) => fetchLogsSplit((a, b) => oneBlockOrRange(slice, a, b), from, to))) as TransferLog[]);
   if (logs.length === 0) return 0;
   const rows = logs.map((l) => ({
     chain_id: cid,

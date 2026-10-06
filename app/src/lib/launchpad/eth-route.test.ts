@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { decodeAbiParameters, type Address, type Hex } from "viem";
-import { ACTION_SETTLE, ACTION_SWAP_EXACT_IN, ADDRESS_THIS, ETH_ROUTE_CHAINS, OPEN_DELTA, UR_COMMAND_WRAP_ETH, WETH_BASE, encodeEthRouteBuy, ethRouteFor } from "./eth-route.ts";
+import { ETH_ROUTE_CHAINS, encodeEthRouteBuy, ethRouteFor } from "./eth-route.ts";
 import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_POOL_KEY } from "./gitlawb.ts";
 import { poolIdOf } from "./math.ts";
-import { ACTION_TAKE_ALL, UR_COMMAND_V4_SWAP } from "./swap.ts";
+import { ACTION_SETTLE, ACTION_SWAP_EXACT_IN, ACTION_TAKE_ALL, ADDRESS_THIS, OPEN_DELTA, UR_COMMAND_V4_SWAP, UR_COMMAND_WRAP_ETH } from "./swap.ts";
+
+const WETH_BASE = "0x4200000000000000000000000000000000000006";
 import { TWIG_ADDRESS, TWIG_HOOK, TWIG_HOOK_POOL } from "./twig.ts";
 
 /**
@@ -29,7 +31,7 @@ test("the TWIG wrap pool and the GITLAWB pool are the live ones (ids derived, pi
 test("a TWIG pair on Base routes ETH → GITLAWB → TWIG → token", () => {
   const r = ethRouteFor("base", TWIG_ADDRESS, TOKEN, pool(TWIG_ADDRESS))!;
   assert.ok(r);
-  assert.equal(r.currencyIn, WETH_BASE);
+  assert.equal(r.currencyIn.toLowerCase(), WETH_BASE);
   assert.deepEqual(r.via, ["ETH", "GITLAWB", "TWIG"]);
   assert.deepEqual(r.path.map((h) => h.intermediateCurrency.toLowerCase()), [GITLAWB_ADDRESS, TWIG_ADDRESS, TOKEN]);
   // hop 1: the deep WETH/GITLAWB pool (Doppler dynamic-fee hook); hop 2: the wrap hook at 0%; hop 3: the launch's own pool
@@ -77,12 +79,10 @@ test("encodeEthRouteBuy: WRAP_ETH to the router, then SWAP_EXACT_IN ‖ SETTLE f
   assert.deepEqual([takeCurrency.toLowerCase(), takeMin], [TOKEN, minOut], "the buyer takes every token, at least the minimum");
 });
 
-test("encodeEthRouteBuy: the v2 router layout carries one minHopPriceX36 per hop; a zero amount is refused", () => {
+test("encodeEthRouteBuy: the route starts in the first pool's own WETH; a zero amount is refused", () => {
   const route = ethRouteFor("base", GITLAWB_ADDRESS, TOKEN, pool(GITLAWB_ADDRESS))!;
-  const v2 = encodeEthRouteBuy({ route, token: TOKEN, amountIn: 5n, minOut: 1n, layout: "v2" });
-  const [, params] = decodeAbiParameters([{ type: "bytes" }, { type: "bytes[]" }], v2.inputs[1]);
-  const [swap] = decodeAbiParameters([{ type: "tuple", components: [{ name: "currencyIn", type: "address" }, { name: "path", ...PATH[0] }, { name: "minHopPriceX36", type: "uint256[]" }, { name: "amountIn", type: "uint128" }, { name: "amountOutMinimum", type: "uint128" }] }], params[0] as Hex);
-  assert.deepEqual(swap.minHopPriceX36, [0n, 0n]);
+  assert.equal(route.currencyIn, GITLAWB_POOL_KEY.currency0, "one source of truth: the WETH/GITLAWB pool's currency0");
+  assert.equal(GITLAWB_POOL_KEY.currency0.toLowerCase(), WETH_BASE);
   assert.throws(() => encodeEthRouteBuy({ route, token: TOKEN, amountIn: 0n, minOut: 0n }), /positive/);
 });
 
@@ -93,7 +93,7 @@ test("trade panel: ETH is the default way to pay where the route exists; quotes 
   assert.match(panel, /\$\{viaEth \? ":eth" : ""\}/, "a quote for one pay asset never prices the other");
   assert.match(panel, /functionName: "quoteExactInput", args: \[\{ exactCurrency: ethRoute\.currencyIn, path: ethRoute\.path, exactAmount: amountIn \}\]/, "quoted over the exact path the router takes");
   assert.match(panel, /const payToken: Address \| null = side === "sell" \? token : isNative \|\| ethBuy \? null : quote\.address;/, "no approvals for an ETH buy");
-  assert.match(panel, /encodeEthRouteBuy\(\{ route: ethRoute, token, amountIn, minOut: min, layout: V4\.swapLayout \}\)/);
+  assert.match(panel, /encodeEthRouteBuy\(\{ route: ethRoute, token, amountIn, minOut: min \}\)/);
   assert.match(panel, /quote\.key === "twig" && !viaEth/, "the 'Need TWIG?' hint only when paying in TWIG");
   assert.match(panel, /One swap through Uniswap: \{\[\.\.\.ethRoute\.via, symbol\]\.join\(" → "\)\}/);
 });

@@ -79,7 +79,7 @@ test("fetchBySelectors: one call where the node allows it; slices under a stated
       return slice;
     };
     const out = await fetchBySelectors(caps, "robinhood", list, node);
-    assert.deepEqual(calls, [2500, 1000 - SELECTOR_MARGIN, 1000 - SELECTOR_MARGIN, 2500 - 2 * (1000 - SELECTOR_MARGIN)]);
+    assert.deepEqual([...calls].sort((a, b) => b - a), [2500, 1000 - SELECTOR_MARGIN, 1000 - SELECTOR_MARGIN, 2500 - 2 * (1000 - SELECTOR_MARGIN)]);
     assert.deepEqual(out, list, "every item, in order");
     assert.equal(caps.get("robinhood"), 1000);
     calls.length = 0;
@@ -92,6 +92,25 @@ test("fetchBySelectors: one call where the node allows it; slices under a stated
     const calls: number[] = [];
     await fetchBySelectors(caps, "robinhood", list.slice(0, 40), async (slice) => (calls.push(slice.length), slice));
     assert.deepEqual(calls, [40]);
+  }
+  // a node that states no number and really allows 256: the guess of 1000 is too high, so the cap halves until it fits
+  {
+    const caps = new Map<string, number>();
+    const calls: number[] = [];
+    const node = async (slice: number[]) => {
+      calls.push(slice.length);
+      if (slice.length + 2 > 256) throw new Error("too many addresses");
+      return slice;
+    };
+    const out = await fetchBySelectors(caps, "chain", list.slice(0, 300), node);
+    assert.deepEqual(out, list.slice(0, 300), "every item, in order");
+    assert.ok((caps.get("chain") ?? Infinity) - SELECTOR_MARGIN <= 254, `learned a cap that fits (${caps.get("chain")})`);
+    assert.ok(calls.length < 12, `bounded retries (${calls.length} calls)`);
+  }
+  // a single item still refused gives up with the node's error rather than looping
+  {
+    const caps = new Map<string, number>();
+    await assert.rejects(fetchBySelectors(caps, "chain", [1, 2, 3], async () => { throw new Error("exceed max addresses"); }), /exceed max addresses/);
   }
   // any other error propagates and teaches nothing
   {

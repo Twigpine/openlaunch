@@ -9,14 +9,14 @@ import { ArrowDown, ArrowRight, Wallet } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
-import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
+import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI, V4_QUOTER_EXACT_INPUT_ABI } from "@/lib/launchpad/abi";
 import { BUY_PRESETS, NATIVE, SWAP_GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { TWIG_WRAP_URL } from "@/lib/launchpad/twig";
 import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { sanitizeDecimalInput } from "@/lib/launchpad/decimal-input";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
-import { V4_QUOTER_EXACT_INPUT_ABI, encodeEthRouteBuy, ethRouteFor } from "@/lib/launchpad/eth-route";
+import { encodeEthRouteBuy, ethRouteFor } from "@/lib/launchpad/eth-route";
 import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { tradeQuoteKey } from "@/lib/launchpad/token-market";
 import { SLIPPAGE_PRESETS_BPS, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageField, setSlippageBps, subscribeSlippage } from "@/lib/launchpad/trade-slippage";
@@ -56,8 +56,6 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const unlisted = quote.key === "other";
   const tradable = quote.decimalsKnown !== false;
   const isNative = quote.address.toLowerCase() === NATIVE; // the native asset, whatever the chain calls it (ETH, or USDC on Arc)
-  // A buy paid from the gas balance (the native asset, or on Arc the USDC quote that is its ERC-20 face) keeps the swap's gas back,
-  // in the quote's own units; a buy paid in any other ERC-20 does not touch the gas balance
   // "Buy with ETH": the route exists only for TWIG and GITLAWB pairs on Base; ETH is the default way to pay there
   const ethRoute = useMemo(() => ethRouteFor(chain, quote.address, token, poolKey), [chain, quote.address, token, poolKey]);
   const [payWith, setPayWith] = useState<"eth" | "quote">("eth");
@@ -73,6 +71,8 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   // what the buyer pays with: the pair token, or ETH through the route
   const payDecimals = viaEth ? 18 : quote.decimals;
   const pay = { symbol: viaEth ? NATIVE_SYMBOL : quote.symbol, decimals: payDecimals, native: viaEth || isNative };
+  // A buy paid from the gas balance (the native asset, ETH through the route, or on Arc the USDC quote that is its ERC-20
+  // face) keeps the swap's gas back, in the pay asset's own units; a buy paid in any other ERC-20 does not touch it
   const buyReserve = pay.native || sharesGasBalance(chain, quote) ? gasReserveInQuote(SWAP_GAS_RESERVE_WEI[chain], pay.decimals) : 0n;
   const fmtPay = (raw: bigint) => `${fmtQuoteUnits(units(raw, pay.decimals), pay.decimals)} ${pay.symbol}`;
   const [amount, setAmount] = useState("");
@@ -182,7 +182,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       }
 
       const { commands, inputs, value } = ethBuy
-        ? encodeEthRouteBuy({ route: ethRoute, token, amountIn, minOut: min, layout: V4.swapLayout })
+        ? encodeEthRouteBuy({ route: ethRoute, token, amountIn, minOut: min })
         : { ...encodeV4ExactInSingle({ key: poolKey, zeroForOne: side === "buy", amountIn, minOut: min, layout: V4.swapLayout }), value: side === "buy" && isNative ? amountIn : 0n };
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
       const { request } = await pub.simulateContract({
