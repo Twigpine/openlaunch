@@ -40,8 +40,9 @@ test("hero metrics preserve shared live totals without inventing per-chain dolla
   assert.match(metrics, /fmtUnitsExact\(t\.gitlawb_burned, GITLAWB_DECIMALS\)/, "the title carries every digit of the raw amount (no float, no rounding)");
   assert.doesNotMatch(metrics, /fmtUsd\([^)]*gitlawb/i, "the GITLAWB burn is never priced in USD");
   assert.doesNotMatch(metrics, /by_chain\.\w+\.gitlawb_burned/, "no per-chain split for the GITLAWB burn");
-  const details = metrics.indexOf("<details");
-  assert.ok(details >= 0 && metrics.indexOf(">GITLAWB burned<") > details, "the GITLAWB burn stays behind the breakdown toggle");
+  // the breakdown opens as a popover over the page (no layout shift); the GITLAWB burn stays inside it
+  const popup = metrics.indexOf("<Popover.Popup");
+  assert.ok(popup >= 0 && metrics.indexOf(">GITLAWB burned<") > popup, "the GITLAWB burn stays behind the breakdown toggle");
   assert.match(metrics, /All-time volume/);
   assert.match(metrics, /Fees to recipients/);
   assert.doesNotMatch(metrics, /volume_quote_eth|volume_quote_usdg|\bfetch\s*\(|\bsetInterval\s*\(/);

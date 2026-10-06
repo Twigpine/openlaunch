@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { FeedItem } from "./queries";
-import { COMPACT_SCALE, RIVER_HEIGHT, RIVER_WINDOW_MS, feedKey, inRiverWindow, initialRiver, layoutRiver, mergeRiver, pruneRiver, riverCoverage, riverSummary, riverUsd, type RiverEntry } from "./river.ts";
+import { COMPACT_SCALE, LABEL_MAX, LOGO_MIN_R, RIVER_HEIGHT, RIVER_WINDOW_MS, feedKey, inRiverWindow, initialRiver, layoutRiver, mergeRiver, pruneRiver, riverCoverage, riverFlow, riverSummary, riverUsd, type RiverEntry } from "./river.ts";
 
 const NOW = Date.parse("2026-10-04T16:48:00Z");
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
@@ -172,17 +172,17 @@ test("a burst in one lane stacks instead of overlapping, and arrivals never move
   assert.equal(lone.nudge, 0);
 });
 
-test("labels show where they fit: the bigger of two colliding trades wins, small ones wait for hover", () => {
+test("labels show where they fit: the bigger of two colliding trades wins, small ones wait for the hover card", () => {
   const big = swap({ ago: 60_000, usd: 400, symbol: "BIG" });
   const near = swap({ ago: 61_000, usd: 380, symbol: "NEAR", token: "0x5b3c2cd87083ea5c4436525dca6213740405b69e" });
   const tiny = swap({ ago: 10 * 60_000, usd: 8, symbol: "TINY" });
   const marks = only([big, near, tiny]);
-  const by = (s: string) => marks.find((m) => m.label?.startsWith(s))!;
-  assert.equal(by("BIG").label, "BIG $400");
+  const by = (s: string) => marks.find((m) => m.item.symbol === s)!;
+  assert.equal(by("BIG").label, "$400", "the token's image names it; the label is the amount");
   assert.equal(by("BIG").showLabel.wide, true);
   assert.equal(by("NEAR").showLabel.wide, false, "it would overlap BIG");
   assert.equal(by("TINY").showLabel.wide, false, "under the $20 floor");
-  assert.equal(by("TINY").label, "TINY $8.00", "still labelled on hover");
+  assert.equal(by("TINY").label, "$8.00", "the figure is still there for the hover card");
 });
 
 test("launch labels try their side, then the other; a phone shows the mark without the name", () => {
@@ -190,12 +190,44 @@ test("launch labels try their side, then the other; a phone shows the mark witho
   const second = launch({ ago: 61_000, symbol: "TWO", token: "0x0000000000000000000000000000000000000004" });
   const marks = only([first, second]);
   assert.ok(marks.every((m) => m.showLabel.wide), "two launches a second apart both get names");
-  assert.notEqual(marks[0].side, marks[1].side, "one above the line, one below");
+  assert.notEqual(marks[0].place, marks[1].place, "one above the line, one below");
   assert.ok(marks.every((m) => !m.showLabel.compact));
 });
 
 test("labels near the far edge give way rather than spill out of the field", () => {
   const edge = swap({ ago: RIVER_WINDOW_MS - 5_000, usd: 500, symbol: "OLD" });
-  const [m] = only([edge, swap({ ago: 0, usd: 1 })]).filter((x) => x.label?.startsWith("OLD"));
+  const [m] = only([edge, swap({ ago: 0, usd: 1 })]).filter((x) => x.item.symbol === "OLD");
   assert.equal(m.showLabel.wide, false);
+});
+
+test("small trades draw as dots; bigger ones and every launch carry the token's image", () => {
+  const [l, big, small, unpriced] = only([launch({ ago: 10_000 }), swap({ ago: 60_000, usd: 500 }), swap({ ago: 5 * 60_000, usd: 3 }), swap({ ago: 9 * 60_000, usd: null })]);
+  assert.equal(l.logo, true);
+  assert.equal(big.logo, true);
+  assert.ok(big.r >= LOGO_MIN_R);
+  assert.equal(small.logo, false);
+  assert.equal(unpriced.logo, false, "an unpriced trade stays a small dot");
+});
+
+test("a label sits beyond its mark: above a buy, below a sell, never across the line", () => {
+  const [buy, sell] = only([swap({ ago: 60_000, usd: 300, symbol: "UP" }), swap({ ago: 8 * 60_000, buy: false, usd: 300, symbol: "DOWN" })]);
+  assert.equal(buy.showLabel.wide, true);
+  assert.equal(buy.place, "above");
+  assert.equal(sell.showLabel.wide, true);
+  assert.equal(sell.place, "below");
+});
+
+test("only a handful of labels show at rest, and a phone shows a subset of the wide ones in the same places", () => {
+  const busy = Array.from({ length: 14 }, (_, i) => swap({ ago: (i + 1) * 2 * 60_000, buy: i % 2 === 0, usd: 200 + i * 10, symbol: `T${i}`, token: `0x${(i + 1).toString(16).padStart(40, "0")}` }));
+  const marks = only(busy);
+  assert.ok(marks.filter((m) => m.showLabel.wide).length <= LABEL_MAX.wide);
+  assert.ok(marks.filter((m) => m.showLabel.compact).length <= LABEL_MAX.compact);
+  assert.ok(marks.some((m) => m.showLabel.wide), "a quiet field still names its biggest trades");
+  assert.ok(marks.every((m) => !m.showLabel.compact || m.showLabel.wide), "nothing on a phone that the wide layout did not place");
+});
+
+test("the flow meter adds up priced buys and sells and counts the unpriced ones instead of guessing", () => {
+  const flow = riverFlow(entries([swap({ ago: 1_000, usd: 120 }), swap({ ago: 2_000, usd: 30 }), swap({ ago: 3_000, buy: false, usd: 50 }), swap({ ago: 4_000, usd: null }), launch({ ago: 5_000 })]));
+  assert.deepEqual(flow, { bought: 150, sold: 50, unpriced: 1 });
+  assert.deepEqual(riverFlow([]), { bought: 0, sold: 0, unpriced: 0 });
 });
