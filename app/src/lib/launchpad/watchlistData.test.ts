@@ -180,11 +180,12 @@ test("old catchup windows are explicitly clamped to 30 days and first visits ski
 function isolatedRoute(opts: { configured?: boolean; limited?: boolean; fail?: boolean } = {}) {
   const data = isolatedData();
   let reads = 0;
+  const limitKeys: string[] = [];
   class SnapshotDate extends Date { static now() { return NOW; } }
   const exported = compile(route, {
     "next/server": { NextResponse: { json: (body: unknown, init: ResponseInit) => Response.json(body, init) } },
     "@/lib/db": { dbConfigured: () => opts.configured !== false },
-    "@/lib/launchpad/editServer": { rateLimited: () => Boolean(opts.limited) },
+    "@/lib/launchpad/editServer": { rateLimited: (key: string) => { limitKeys.push(key); return Boolean(opts.limited); } },
     "@/lib/launchpad/ethPrice": { ethUsd: async () => { reads++; return null; } },
     "@/lib/launchpad/watchlistData": {
       ...data,
@@ -194,8 +195,8 @@ function isolatedRoute(opts: { configured?: boolean; limited?: boolean; fail?: b
       },
     },
   }, SnapshotDate) as unknown as { POST: (req: Request) => Promise<Response> };
-  const request = (items: unknown) => new Request("https://example.test/api/launch/watchlist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
-  return { post: exported.POST, request, reads: () => reads };
+  const request = (items: unknown, extra: Record<string, string> = {}) => new Request("https://example.test/api/launch/watchlist", { method: "POST", headers: { "content-type": "application/json", ...extra }, body: JSON.stringify({ items }) });
+  return { post: exported.POST, request, reads: () => reads, limitKeys };
 }
 
 test("watchlist route is uncached, uses server milliseconds, and avoids reads for bad input", async () => {
@@ -224,6 +225,16 @@ test("watchlist route has explicit retryable outages and rate limits without lea
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("retry-after"), "60");
   assert.equal(reads(), 0);
+});
+
+test("watchlist rate limit keys on the proxy-set client IP, never a client-supplied forwarded entry", async () => {
+  const { post, request, limitKeys } = isolatedRoute();
+  await post(request([], { "fly-client-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1, 203.0.113.7" }));
+  await post(request([], { "x-forwarded-for": "198.51.100.1, 198.51.100.2, 203.0.113.9" }));
+  await post(request([], { "x-forwarded-for": "198.51.100.77, 203.0.113.9" }));
+  await post(request([]));
+  assert.deepEqual(limitKeys, ["watchlist:ip:203.0.113.7", "watchlist:ip:203.0.113.9", "watchlist:ip:203.0.113.9", "watchlist:ip:0.0.0.0"],
+    "a new spoofed first entry lands in the same bucket");
 });
 
 test("launch lookup reuses shaping in one bounded query and gates holder counts on complete backfill", async () => {

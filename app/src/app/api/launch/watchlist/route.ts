@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 /** Read-only POST keeps the user's device-local token list out of URLs. Nothing is persisted. */
 export async function POST(req: Request) {
   const headers = { "cache-control": "no-store" };
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  // Fly's proxy sets fly-client-ip. The first x-forwarded-for entry is whatever the client sent, so the
+  // fallback is the last one, which the proxy appended: a spoofed header never buys a fresh rate-limit bucket.
+  const ip = req.headers.get("fly-client-ip")?.trim() || (req.headers.get("x-forwarded-for") ?? "").split(",").at(-1)?.trim() || "0.0.0.0";
   if (rateLimited(`watchlist:ip:${ip}`, 60)) {
     return NextResponse.json({ error: "Too many refreshes. Try again shortly." }, { status: 429, headers: { ...headers, "retry-after": "60" } });
   }
