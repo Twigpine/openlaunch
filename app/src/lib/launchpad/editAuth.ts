@@ -11,7 +11,7 @@ import { parseXHandle } from "./xHandle.ts";
 export const EDIT_TTL_MS = 5 * 60_000;
 export const EDIT_DOMAIN = "openlaunch.lol";
 
-export type EditFields = { description?: string; image_url?: string; website?: string; x_handle?: string };
+export type EditFields = { description?: string; image_url?: string; banner_url?: string; website?: string; x_handle?: string };
 
 export function buildEditMessage(p: { chain: string; token: string; wallet: string; nonce: string; expiresAt: number; fields: EditFields }): string {
   const lines = [
@@ -26,6 +26,8 @@ export function buildEditMessage(p: { chain: string; token: string; wallet: stri
     `Changes:`,
     `description: ${p.fields.description ?? ""}`,
     `image: ${p.fields.image_url ?? ""}`,
+    // only when set, so a message signed before banners existed still verifies (a set banner is always signed)
+    ...(p.fields.banner_url ? [`banner: ${p.fields.banner_url}`] : []),
     `website: ${p.fields.website ?? ""}`,
     `x: ${p.fields.x_handle ?? ""}`,
     ``,
@@ -55,12 +57,14 @@ export function validateEdit(f: Partial<Record<keyof EditFields, unknown>>): { o
     }
   };
   const image_url = url(f.image_url);
+  const banner_url = url(f.banner_url);
   const website = url(f.website);
   if (image_url === null) return { ok: false, error: "image: https URL only" };
+  if (banner_url === null) return { ok: false, error: "banner: https URL only" };
   if (website === null) return { ok: false, error: "website: https URL only" };
   const x = parseXHandle(f.x_handle);
   if (!x.ok) return { ok: false, error: x.error };
   const x_handle = x.handle;
   if (/<[a-z!/]/i.test(description)) return { ok: false, error: "description: no HTML" };
-  return { ok: true, value: { description, image_url, website, x_handle } };
+  return { ok: true, value: { description, image_url, banner_url, website, x_handle } };
 }
