@@ -68,7 +68,8 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
       className={`bb-market-row group block border-b border-line bg-paper px-4 py-2.5 md:pr-13 transition-colors hover:bg-card focus-visible:relative focus-visible:z-10 motion-reduce:transition-none ${flash}`}
       title={l.description || `${l.name} (${l.symbol})`}
     >
-      <div className={`grid ${columns} grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5`}>
+      {/* the phone cap column is at most 9.25rem: a long quote figure ("2.61M 0xa69f…8792") truncates there instead of taking the row */}
+      <div className={`grid ${columns} grid-cols-[minmax(0,1fr)_fit-content(9.25rem)] items-center gap-x-3 gap-y-1.5`}>
         <div className="flex min-w-0 items-center gap-3">
           {rank !== undefined ? <span className={`hidden shrink-0 place-items-center font-mono text-[11px] font-semibold tnum xl:grid ${rank <= 3 ? "size-5 rounded-md bg-ink text-inverse dark:bg-brand" : "w-5 text-faint"}`}>{rank}</span> : null}
           <span className="relative shrink-0">
@@ -78,7 +79,9 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
             <ChainCorner chain={l.chain} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1.5">
+            {/* below 1024px the badge drops under the name when the two do not fit, so a name is never squeezed to nothing
+                (an unlisted-pair row on a phone, the narrow name column of the tablet table) */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 lg:flex-nowrap">
               <MorphName chain={l.chain} token={l.token}>
                 <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
               </MorphName>
