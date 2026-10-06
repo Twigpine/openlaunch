@@ -16,7 +16,6 @@ import { nowMs } from "@/lib/launchpad/time";
 import { inRiverWindow, riverCoverage } from "@/lib/launchpad/river";
 import TrendingStrip from "@/components/launchpad/TrendingStrip";
 import WhyFree from "@/components/launchpad/WhyFree";
-import HeroBackdrop from "@/components/launchpad/HeroBackdrop";
 import { MagicCard } from "@/components/vendor/magic-card";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
 
@@ -47,27 +46,20 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   const now = nowMs();
 
   return (
-    <main className="bb-mid relative pb-16">
-      {/* the hero and the river share one full-bleed band; it clips its own backdrop so nothing widens the page */}
-      <div className="relative isolate overflow-hidden">
-        <HeroBackdrop />
-        <div className="bb-page space-y-8 pb-4">
-          <LaunchHero configured={LAUNCHPAD_CONFIGURED} />
-          <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} recent={feed} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
-        </div>
-      </div>
-      <div className="bb-page mt-6 space-y-8">
-        <TrendingStrip initial={trending} />
-        <div className="grid items-start gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
-          <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>
-          <aside aria-label="New launches and community" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
-            <JustLaunched initial={fresh.items} serverNow={now} />
-            <div className="min-w-0 space-y-4">
-              <PostsFeed initial={posts} compact />
-              <WhyFree />
-            </div>
-          </aside>
-        </div>
+    <main className="bb-mid bb-page relative space-y-8 pb-16">
+      <LaunchHero configured={LAUNCHPAD_CONFIGURED} />
+      {/* what is hot first (names and numbers to act on), then the last half hour as it happens, then every launch */}
+      <TrendingStrip initial={trending} serverNow={now} />
+      <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} recent={feed} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
+      <div className="grid items-start gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
+        <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>
+        <aside aria-label="New launches and community" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
+          <JustLaunched initial={fresh.items} serverNow={now} />
+          <div className="min-w-0 space-y-4">
+            <PostsFeed initial={posts} compact />
+            <WhyFree />
+          </div>
+        </aside>
       </div>
     </main>
   );

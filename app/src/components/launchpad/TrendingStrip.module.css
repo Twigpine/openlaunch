@@ -1,0 +1,10 @@
+/* 640 to 1023px the leader card is as wide as the board. One tall column would leave its right half empty, so the
+   window's figures move beside the identity and the cap, bottom-aligned with them. Phones and desktop stack. */
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .leader { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; column-gap: 2rem; }
+  .spacer { display: none; }
+  .figures { border-top: 0; padding-top: 0; }
+}
+
+/* The site-wide focus ring (globals.css) squares any focused element to 6px corners; a card keeps its own shape under the ring. */
+.card:focus-visible { border-radius: 1rem; }

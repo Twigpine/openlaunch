@@ -79,7 +79,7 @@ export type TrendRow = RankRow & {
   holders: number;
 };
 
-export const STRIP_SIZE = 5; // king (2 columns) + 4 on desktop = one 6-column row
+export const STRIP_SIZE = 5; // the leader's card plus four runners in a 2x2 block beside it (trending-board.ts)
 export const MIN_TRADES_1H = 3;
 export const MIN_TRADERS_1H = 2; // distinct wallets other than the launcher
 export const MIN_STRIP = 3; // fewer eligible than this → fall back to the 24h window
