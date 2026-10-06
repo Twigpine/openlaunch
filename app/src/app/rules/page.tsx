@@ -8,6 +8,7 @@ import styles from "@/components/sections/RulesGuide.module.css";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
+import LaunchMachine from "@/components/launchpad/LaunchMachine";
 
 export const metadata: Metadata = pageMetadata({ path: "/rules", title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity." });
 
@@ -71,6 +72,8 @@ export default function RulesPage() {
               <div><p className={styles.eyebrow}>01 / The launch</p><h2 id="launch-heading">One signature.<br />Four things happen.</h2></div>
               <p>All in the same transaction.<br />No separate setup. No platform fee.</p>
             </div>
+            {/* the animated walk-through that used to open the home page: token, pool, lock */}
+            <div className={styles.machine}><LaunchMachine /></div>
             <ol className={styles.steps}>
               {STEPS.map(({ title, description, value, label }, i) => (
                 <li key={title} className={styles.step}>

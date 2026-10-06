@@ -1,0 +1,98 @@
+/*
+ * The river. Every mark drifts right to left over the half-hour window on one shared CSS clock
+ * (a negative delay puts it at its true age), so the page runs no per-frame script.
+ * Heights and the compact scale mirror RIVER_HEIGHT and COMPACT_SCALE in lib/launchpad/river.ts.
+ */
+.field {
+  --s: 0.75;
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+  container-type: inline-size;
+}
+@media (min-width: 640px) {
+  .field { --s: 1; height: 220px; }
+}
+
+.line { position: absolute; inset-inline: 0; top: 50%; height: 1px; background: var(--color-line-strong); }
+.tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--color-line); }
+
+.axis { position: relative; height: 14px; margin-top: 6px; color: var(--color-muted); font: 10.5px/14px var(--font-mono); font-variant-numeric: tabular-nums; }
+.axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.axis .now { transform: translateX(-100%); color: var(--color-body); }
+.axis .compactHide { display: none; }
+@media (min-width: 640px) {
+  .axis .compactHide { display: inline; }
+}
+
+.mark {
+  --d: calc(var(--r) * var(--s) * 2px);
+  position: absolute;
+  left: calc(100% - var(--d) / 2 - var(--nudge));
+  top: calc(var(--y) * 100% - var(--d) / 2);
+  width: var(--d);
+  height: var(--d);
+  border-radius: 9999px;
+  animation: drift 1800s linear both;
+  animation-delay: var(--delay);
+}
+.mark:hover, .mark:focus-visible { z-index: 3; }
+@keyframes drift {
+  0% { transform: translateX(0); opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateX(-100cqw); opacity: 0; }
+}
+
+.buy { color: var(--color-up); }
+.sell { color: var(--color-down); }
+.launch { color: var(--color-brand); }
+
+.dot { display: block; width: 100%; height: 100%; border-radius: 9999px; background: currentColor; opacity: 0.88; transition: opacity 120ms ease-out; }
+.mark:hover .dot { opacity: 1; }
+
+.avatar { display: block; width: 22px; height: 22px; border-radius: 9999px; transform: scale(var(--s)); transform-origin: 0 0; box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 3px currentColor; }
+.avatar > * { border-radius: 9999px; }
+.lock {
+  position: absolute; right: -6px; bottom: -5px;
+  display: grid; place-items: center; width: 15px; height: 15px;
+  border-radius: 9999px; border: 1px solid var(--color-line-strong);
+  background: var(--color-raised); color: var(--color-ink);
+  transform: scale(var(--s));
+}
+
+/* labels: shown at rest only where lib/launchpad/river.ts found room, and always on hover */
+.label {
+  position: absolute; top: 50%; right: calc(100% + 5px);
+  transform: translateY(-50%);
+  padding: 0 4px; border-radius: 4px;
+  background: color-mix(in srgb, var(--color-paper) 84%, transparent);
+  color: var(--color-body);
+  font: 500 11px/15px var(--font-mono); font-variant-numeric: tabular-nums;
+  white-space: nowrap; pointer-events: none;
+  opacity: 0;
+}
+.launchLabel { right: auto; left: 50%; top: auto; transform: translateX(-50%); color: var(--color-ink); font-family: var(--font-sans); font-weight: 600; font-size: 12px; }
+.launchLabel[data-side="up"] { bottom: calc(100% + 8px); }
+.launchLabel[data-side="down"] { top: calc(100% + 10px); }
+.label[data-compact="true"] { opacity: 1; }
+@media (min-width: 640px) {
+  .label[data-compact="true"] { opacity: 0; }
+  .label[data-wide="true"] { opacity: 1; }
+}
+.mark:hover .label, .mark:focus-visible .label { opacity: 1; color: var(--color-ink); }
+
+/* one ring when a real event lands; never on the first paint */
+.ping .dot, .ping .avatar { animation: ping 1s ease-out; }
+@keyframes ping {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent); }
+  100% { box-shadow: 0 0 0 16px transparent; }
+}
+
+.empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; padding: 0 16px; text-align: center; }
+
+/* reduced motion: a still timeline, re-placed every few seconds from the render clock */
+@media (prefers-reduced-motion: reduce) {
+  .mark { animation: none; transform: translateX(calc(var(--age) * -100cqw)); opacity: var(--fade); }
+  .ping .dot, .ping .avatar { animation: none; }
+  .dot { transition: none; }
+}

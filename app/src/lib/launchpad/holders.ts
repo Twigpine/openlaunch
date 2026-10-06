@@ -7,6 +7,8 @@ export const DEAD_ADDR = "0x000000000000000000000000000000000000dead";
 /** Buys in the launch block and the next SNIPER_BLOCKS blocks count as sniping. */
 export const SNIPER_BLOCKS = 3;
 export const TOP_HOLDERS = 10;
+/** Persisted bigint-max marker: transfer history is complete and the live loop keeps it current. */
+export const SYNCED_FOREVER = 9223372036854775807n;
 /** A single wallet above this share of supply is flagged in the panel. */
 export const WHALE_BPS = 500; // 5%
 

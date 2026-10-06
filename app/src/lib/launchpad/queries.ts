@@ -12,7 +12,7 @@ import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from ".
 import { gitlawbLinkedUsd } from "./twig";
 import { canonicalImageUrl } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
-import { SNIPER_BLOCKS } from "./holders";
+import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
 import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
@@ -385,6 +385,22 @@ export async function getLaunch(chain: ChainKey, token: string, ethUsd: number |
   await withStocks();
   const rows = await db<Raw[]>`${db.unsafe(SELECT)} WHERE l.chain_id = ${chainIdOf(chain)} AND l.token = ${token.toLowerCase()}`;
   return rows[0] ? shape(rows[0], ethUsd) : null;
+}
+
+/** A bounded watchlist lookup shares the market read model without one query per token. */
+export async function getLaunchesByRefs(refs: readonly { chain: ChainKey; token: string }[], ethUsd: number | null = null): Promise<{ launch: LaunchRow; holders: number | null }[]> {
+  if (refs.length > 50) throw new Error("too many launch references");
+  const db = maybeDb();
+  if (!db || refs.length === 0) return [];
+  await withStocks();
+  const matches = refs.map((ref) => db`(l.chain_id = ${chainIdOf(ref.chain)} AND l.token = ${ref.token.toLowerCase()})`);
+  const rows = await db<(Raw & { holders_synced_block: bigint | null })[]>`
+    ${db.unsafe(SELECT)} WHERE ${matches.reduce((a, b) => db`${a} OR ${b}`)}`;
+  return rows.map((r) => ({
+    launch: shape(r, ethUsd),
+    // Same completed-backfill sentinel as getHolderPanel. An unfinished index is not zero holders.
+    holders: r.holders_synced_block !== null && BigInt(r.holders_synced_block) === SYNCED_FOREVER ? Number(r.holders) : null,
+  }));
 }
 
 /** Find which chain a token lives on (for the legacy /t/<token> redirect). */
