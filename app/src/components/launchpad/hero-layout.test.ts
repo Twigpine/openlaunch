@@ -18,7 +18,7 @@ const skeleton = read("../../app/(home)/loading.tsx");
 const rule = (css: string, selector: string) => css.split("\n").find((line) => line.startsWith(`${selector} {`)) ?? "";
 
 test("the headline is stepped so it stays two lines, and the hero is two columns from 768px", () => {
-  for (const step of ["text-[28px]", "min-[360px]:text-[32px]", "min-[400px]:text-[36px]", "min-[480px]:text-[44px]", "sm:text-[56px]", "md:text-[34px]", "lg:text-[42px]", "xl:text-[52px]"]) {
+  for (const step of ["text-[34px]", "min-[400px]:text-[40px]", "min-[480px]:text-[48px]", "sm:text-[60px]", "md:text-[44px]", "lg:text-[56px]", "xl:text-[68px]"]) {
     assert.ok(HERO.headline.split(" ").includes(step), `headline size step ${step}`);
   }
   assert.ok(HERO.grid.includes("md:grid-cols-[minmax(0,1.06fr)_minmax(0,1fr)]"));
@@ -113,7 +113,7 @@ test("the two dollar figures explain themselves, and the ≈ note is readable wi
 
 test("the strip's figures are mono, untracked, and sized so they never clip", () => {
   const figure = rule(totalsCss, ".figure");
-  // Space Mono Bold glyphs collide at negative tracking
+  // bold figures set with negative tracking crowd their digits
   assert.match(figure, /letter-spacing: 0;/);
   assert.match(figure, /font-family: var\(--font-mono\);/);
   assert.match(figure, /font-weight: 700;/);

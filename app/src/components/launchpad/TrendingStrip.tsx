@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 import TokenAvatar from "./TokenAvatar";
+import { ChainCorner } from "./ChainLogo";
 import { QuoteBrandBadge, hasQuoteBrandBadge } from "./MuseworldBadge";
 import ChangeChip from "./ChangeChip";
 import { useLive } from "./LiveProvider";
@@ -213,14 +214,14 @@ function Leader({ row, window, now, top, enter }: { row: LaunchRow; window: Snap
             <span className="flex min-w-0 items-center gap-1.5 text-muted"><span aria-hidden="true">·</span><span className="sr-only">, </span>{CHAIN_SHORT[row.chain]}<span aria-hidden="true">·</span><span className="sr-only">, paired with </span>{hasQuoteBrandBadge(row.quote_key) ? <QuoteBrandBadge quoteKey={row.quote_key} /> : <span className="truncate">{row.quote_symbol}</span>}<span className="sr-only">: </span></span>
           </p>
           <div className="mt-3.5 flex min-w-0 items-center gap-3.5">
-            <TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={52} className="shrink-0 rounded-2xl" />
+            <span className="relative shrink-0"><TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={52} className="rounded-2xl" /><ChainCorner chain={row.chain} size={18} /></span>
             <div className="min-w-0">
               <p className="truncate text-lg font-semibold leading-snug tracking-tight text-ink">{row.name}</p>
               <p className="truncate font-mono text-xs text-muted"><span className="sr-only">, </span>{row.symbol}</p>
             </div>
           </div>
           <div className="mt-3.5 flex min-w-0 items-center gap-3">
-            {/* Space Mono Bold collides at negative tracking, so none; the line box is tall enough that `truncate` clips no glyph */}
+            {/* no negative tracking on a bold figure; the line box is tall enough that `truncate` clips no glyph */}
             <p className="min-w-0 truncate font-mono text-[30px] font-bold leading-[1.2] tracking-normal text-ink tnum" title={`Market cap ${c.main} · ${c.detail}`}><span className="sr-only">, market cap </span>{c.main}{c.usd === null ? <span className="sr-only">, {c.detail}</span> : null}</p>
             <span aria-hidden="true" className="shrink-0"><ChangeChip v={row.change_from_launch} /></span>
             <span className="sr-only">, {changeWords(row.change_from_launch)}. </span>
@@ -250,7 +251,7 @@ function Runner({ row, rank, window, top }: { row: LaunchRow; rank: number; wind
     <Link href={href(row)} onClick={open(row)} title={hint(row)} className={`flex h-full min-w-0 flex-col justify-between rounded-2xl border border-line bg-card px-4 py-3.5 transition-colors hover:border-muted motion-reduce:transition-none sm:py-4 ${styles.card}`}>
       <div className="flex min-w-0 items-center gap-2.5">
         <span className="w-5 shrink-0 font-mono text-[11px] text-muted tnum"><span className="sr-only">Number </span>{String(rank).padStart(2, "0")}<span className="sr-only">: </span></span>
-        <TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={38} className="shrink-0 rounded-xl" />
+        <span className="relative shrink-0"><TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={38} className="rounded-xl" /><ChainCorner chain={row.chain} size={14} /></span>
         {/* the name column keeps a floor and the cap gives way first, so a long quote figure never erases the name */}
         <div className="min-w-16 flex-1">
           <p className="truncate text-sm font-semibold text-ink">{row.name}</p>

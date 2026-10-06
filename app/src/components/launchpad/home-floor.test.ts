@@ -168,7 +168,7 @@ test("the board carries no decoration, and the ranking's own figure shows on eve
   assert.ok(hidden.some((line) => line.includes("peer-open:block")));
   assert.ok(!hidden.some((line) => line.includes("a.wallets")));
   assert.match(board, /const count = \(n: number\) => n\.toLocaleString\("en-US"\);/);
-  assert.match(board, /text-\[30px\] font-bold leading-\[1\.2\] tracking-normal/, "Space Mono Bold collides at negative tracking");
+  assert.match(board, /text-\[30px\] font-bold leading-\[1\.2\] tracking-normal/, "no negative tracking on a bold figure");
 });
 
 test("the board re-sorts on the shared poll alone, and holds only under a mouse or a keyboard focus", () => {
