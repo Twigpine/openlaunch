@@ -21,8 +21,11 @@ export default function WatchButton({ token, labelled = false, onRemoved }: { to
           setMessage(result === "limit" ? "Your watchlist is full. Remove a token to save another (50 maximum)." : result === "invalid" ? "This token could not be saved." : "");
           if (result === "removed") onRemoved?.(event.currentTarget);
         }}
-        className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl transition-colors disabled:opacity-40 motion-reduce:transition-none ${labelled ? "border border-line px-3 text-xs hover:border-line-strong" : "w-11"} ${saved ? "text-brand" : "text-muted hover:text-ink"}`}>
-        <motion.span initial={false} whileTap={reduced ? undefined : { scale: 0.88 }} animate={{ scale: saved && !reduced ? [1, 1.3, 1] : 1, rotate: saved && !reduced ? [0, -12, 0] : 0 }} transition={{ duration: reduced ? 0 : 0.24 }} className="inline-flex">
+        className={`group/star inline-flex min-h-11 items-center justify-center gap-2 rounded-xl transition-colors disabled:opacity-40 motion-reduce:transition-none ${labelled ? "border border-line px-3 text-xs hover:border-line-strong" : "w-11"} ${saved ? "text-brand" : "text-muted hover:text-ink"}`}>
+        {/* the press feedback is the button's own :active state, in CSS. A tap gesture on the span made motion turn it into
+            a focusable element: a second tab stop, an attribute that differed between server and client under reduced
+            motion, and a click that left focus on the span instead of the button */}
+        <motion.span initial={false} animate={{ scale: saved && !reduced ? [1, 1.3, 1] : 1, rotate: saved && !reduced ? [0, -12, 0] : 0 }} transition={{ duration: reduced ? 0 : 0.24 }} className="inline-flex transition-[scale] duration-100 group-active/star:scale-[.88] motion-reduce:transition-none motion-reduce:group-active/star:scale-100">
           <Star size={17} aria-hidden="true" fill={saved ? "currentColor" : "none"} strokeWidth={1.7} />
         </motion.span>
         {labelled ? saved ? "Watching" : "Watch" : null}

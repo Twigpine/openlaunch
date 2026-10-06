@@ -63,7 +63,9 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
             <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={36} className="shrink-0 rounded-lg" />
           </MorphAvatar>
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
+            {/* below 1024px the badge drops under the name when the two do not fit, so the name is never squeezed to nothing
+                (phones, and the narrow name column of the tablet table) */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 lg:flex-nowrap">
               <MorphName chain={l.chain} token={l.token}>
                 <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
               </MorphName>
@@ -93,7 +95,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
         <div className="hidden text-right font-mono text-[11px] text-muted tnum md:block"><span className="sr-only">Launched </span>{age}<span className="sr-only"> ago</span></div>
         <dl className="col-span-2 grid grid-cols-[1.3fr_1fr_1fr_auto] gap-3 border-t border-line pt-2.5 md:hidden">
           <div className="min-w-0"><dt className="text-[10px] text-muted">Volume · {window}</dt><dd className="mt-1 truncate font-mono text-[11px] text-body tnum" title={volumeDetail}>{volLabel}</dd></div>
-          <div><dt className="text-[10px] text-muted">Buys / sells</dt><dd className="mt-1 font-mono text-[11px] tnum"><span className="text-up">{l.buys}</span><span className="text-muted"> / </span><span className="text-down-ink">{l.sells}</span></dd></div>
+          <div><dt className="text-[10px] text-muted">Buys / sells</dt><dd className="mt-1 whitespace-nowrap font-mono text-[11px] tnum"><span className="text-up">{l.buys}</span><span className="text-muted"> / </span><span className="text-down-ink">{l.sells}</span></dd></div>
           <div><dt className="text-[10px] text-muted">Holders</dt><dd className="mt-1 font-mono text-[11px] text-body tnum">{l.holders}</dd></div>
           <div className="text-right"><dt className="text-[10px] text-muted">Age</dt><dd className="mt-1 font-mono text-[11px] text-body tnum">{age}</dd></div>
         </dl>
