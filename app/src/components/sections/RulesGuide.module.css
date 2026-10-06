@@ -1,107 +1,116 @@
 .guide { color: var(--color-body); }
-.guide :is(a, summary):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 4px; border-radius: 4px; }
+.guide :is(a, summary):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 4px; border-radius: 6px; }
 .guide p { text-wrap: pretty; }
-.layout { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 56px; margin-top: 48px; }
+.layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 48px; }
 .contents { position: sticky; top: 112px; align-self: start; }
-.eyebrow { color: var(--color-muted); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
-.contents ol { margin-top: 14px; }
-.contents li a { display: flex; align-items: center; gap: 12px; min-height: 44px; color: var(--color-body); font-size: 12px; border-radius: 6px; }
-.contents li a span { color: var(--color-muted); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
-.contents li a:hover { color: var(--color-ink); }
+/* a section's label: sentence case with its mark, never a tracked all-caps eyebrow */
+.eyebrow { display: inline-flex; align-items: center; gap: 7px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
+.eyebrow > svg { flex-shrink: 0; color: var(--color-brand); }
+.contents ol { margin-top: 10px; }
+.contents li a { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; margin-inline: -10px; color: var(--color-body); font-size: 13px; border-radius: 10px; transition: background-color 160ms, color 160ms; }
+.contents li a span { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-card); color: var(--color-muted); transition: color 160ms; }
+.contents li a:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
 .contents li a:hover span { color: var(--color-brand); }
-.sourceLink { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 12px; }
+.sourceLink { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 12px; }
 .sourceLink:hover { color: var(--color-ink); }
 .article { min-width: 0; display: grid; gap: 64px; }
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .sectionHeading h2, .closing h2 { margin-top: 10px; color: var(--color-ink); font-size: 30px; font-weight: 600; line-height: 1.18; letter-spacing: -.035em; text-wrap: balance; }
 .sectionHeading > p { padding-bottom: 2px; color: var(--color-muted); font-size: 12px; line-height: 1.7; }
 .machine { max-width: 40rem; margin: 0 auto 32px; }
-.steps { border-block: 1px solid var(--color-line-strong); }
-.step { display: grid; grid-template-columns: 44px minmax(0, 1fr) 124px; gap: 20px; align-items: start; position: relative; padding: 26px 0; }
+/* the four things one launch does, as a card: a real sequence, so each keeps its number */
+.steps { padding: 0 24px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); }
+.step { display: grid; grid-template-columns: 44px minmax(0, 1fr) 124px; gap: 20px; align-items: start; position: relative; padding: 24px 0; }
 .step + .step { border-top: 1px solid var(--color-line); }
-.stepNumber { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--color-line-strong); border-radius: 50%; background: var(--color-paper); color: var(--color-brand); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; position: relative; z-index: 1; }
-.step:not(:last-child)::after { content: ""; position: absolute; width: 1px; background: var(--color-line); left: 21px; top: 70px; bottom: -26px; }
+.stepNumber { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--color-brand) 35%, transparent); border-radius: 50%; background: var(--color-brand-soft); color: var(--color-brand); font: 600 12px var(--font-mono); font-variant-numeric: tabular-nums; position: relative; z-index: 1; }
+.step:not(:last-child)::after { content: ""; position: absolute; width: 1px; background: var(--color-line-strong); left: 21px; top: 68px; bottom: -24px; }
 .stepCopy h3, .tradingFees h3, .collectNote h3, .fixedList h3 { color: var(--color-ink); font-size: 15px; font-weight: 600; }
 .stepCopy p { margin-top: 8px; font-size: 13px; line-height: 1.7; }
 .stepValue { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; padding-top: 2px; text-align: right; }
 .stepValue strong { color: var(--color-ink); font: 700 22px var(--font-mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.stepValue span { color: var(--color-muted); font-size: 10px; }
-.mechanismNote { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 14px; color: var(--color-muted); font-size: 11px; }
+.stepValue span { color: var(--color-muted); font-size: 11px; }
+.mechanismNote { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 14px; color: var(--color-muted); font-size: 12px; }
 .mechanismNote > svg { flex-shrink: 0; color: var(--color-brand); }
 .mechanismNote a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-left: auto; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
 .mechanismNote a:hover, .platformFee a:hover, .verifiers a:hover, .contractNote a:hover { color: var(--color-ink); }
-.feePanel { display: grid; grid-template-columns: 200px minmax(0, 1fr); border: 1px solid var(--color-line); border-radius: 16px; overflow: hidden; }
-.platformFee { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; background: var(--color-card); }
-.platformFee > strong { color: var(--color-up); font: 700 58px var(--font-mono); font-variant-numeric: tabular-nums; line-height: 1.2; letter-spacing: -.06em; margin-top: 20px; }
-.platformFee p { margin-top: 12px; font-size: 12px; line-height: 1.7; }
-.platformFee a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: auto; padding-top: 12px; font-size: 11px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
+.feePanel { display: grid; grid-template-columns: 210px minmax(0, 1fr); border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); overflow: hidden; }
+/* the platform fee in the up tint, like the home page's $0 */
+.platformFee { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; background: var(--color-up-soft); }
+.platformFee > strong { color: var(--color-up); font: 700 58px var(--font-mono); font-variant-numeric: tabular-nums; line-height: 1.2; letter-spacing: -.06em; margin-top: 16px; }
+.platformFee p { margin-top: 10px; color: var(--color-body); font-size: 12px; line-height: 1.7; }
+.platformFee a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: auto; padding-top: 12px; font-size: 12px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
 .tradingFees { padding: 24px; border-left: 1px solid var(--color-line); }
 .tradingFees dl { margin-top: 12px; }
-.tradingFees dl > div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 16px; padding: 16px 0; }
+.tradingFees dl > div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 16px; padding: 14px 0; }
+.tradingFees dl > div + div { border-top: 1px solid var(--color-line); }
 .tradingFees dt { color: var(--color-ink); font: 700 13px/1.7 var(--font-mono); font-variant-numeric: tabular-nums; }
 .tradingFees dd, .tradingFees > p { font-size: 12px; line-height: 1.7; }
 .tradingFees > p { padding-top: 16px; border-top: 1px solid var(--color-line); color: var(--color-muted); }
-.collectNote { display: grid; gap: 12px; margin-top: 20px; padding-left: 20px; border-left: 1px solid var(--color-line-strong); }
+.collectNote { display: grid; gap: 12px; margin-top: 20px; padding-left: 20px; border-left: 2px solid var(--color-line-strong); }
 .collectNote h3 { font-size: 13px; }
 .collectNote p { margin-top: 8px; font-size: 12px; line-height: 1.8; }
 .collectNote > p { margin-top: 0; color: var(--color-muted); }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.fixedList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--color-line); }
-.fixedList li { display: flex; gap: 14px; padding: 22px 24px 22px 0; border-bottom: 1px solid var(--color-line); }
-.fixedList li:nth-child(even) { padding-right: 0; padding-left: 24px; border-left: 1px solid var(--color-line); }
-.fixedMark { color: var(--color-muted); font-size: 20px; line-height: 1.1; }
-.fixedList p { margin-top: 8px; font-size: 12px; line-height: 1.8; }
-.riskIntro { max-width: 660px; padding-bottom: 24px; font-size: 14px; line-height: 1.8; }
-.questions { border-top: 1px solid var(--color-line-strong); }
-.questions details { border-bottom: 1px solid var(--color-line); }
-.questions summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 64px; padding-block: 16px; color: var(--color-ink); font-size: 14px; font-weight: 500; cursor: pointer; list-style: none; }
+.mono { font-family: var(--font-code); }
+/* what can never happen, as hairline tiles: the lines are the gap over a line-coloured grid */
+.fixedList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-line); overflow: hidden; }
+.fixedList li { display: flex; gap: 14px; padding: 22px; background: var(--color-card); }
+.fixedMark { display: grid; place-items: center; width: 22px; height: 22px; flex-shrink: 0; margin-top: 1px; border-radius: 999px; background: var(--color-up-soft); color: var(--color-up); }
+.fixedList p { margin-top: 6px; font-size: 12px; line-height: 1.8; }
+.riskIntro { max-width: 660px; padding-bottom: 20px; font-size: 14px; line-height: 1.8; }
+.questions { border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); overflow: hidden; }
+.questions details + details { border-top: 1px solid var(--color-line); }
+.questions summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 60px; padding: 14px 20px; color: var(--color-ink); font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; transition: background-color 160ms; }
+.questions summary:hover { background: color-mix(in srgb, var(--color-ink) 3%, transparent); }
 .questions summary::-webkit-details-marker { display: none; }
 .questions summary > svg { flex-shrink: 0; color: var(--color-muted); transition: transform 160ms; }
 .questions details[open] summary > svg { transform: rotate(180deg); }
-.questions details > div { padding: 0 32px 24px 0; font-size: 13px; line-height: 1.8; }
+.questions details > div { padding: 0 52px 22px 20px; font-size: 13px; line-height: 1.8; }
 .questions details p + p { margin-top: 12px; }
-.contractIcon { color: var(--color-muted); flex-shrink: 0; }
 .contractIntro { margin-top: -10px; margin-bottom: 24px; color: var(--color-muted); font-size: 13px; line-height: 1.7; }
-.registry { border: 1px solid var(--color-line); border-radius: 16px; overflow: hidden; }
+.registry { border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); overflow: hidden; }
 .network { padding: 24px; }
-.network + .network { border-top: 1px solid var(--color-line-strong); }
-.network > header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 16px; }
-.network h3 { color: var(--color-ink); font-size: 16px; font-weight: 600; }
-.network > header > span { color: var(--color-muted); font-size: 10px; }
-.network > header strong { margin-left: 4px; color: var(--color-body); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.network + .network { border-top: 1px solid var(--color-line); }
+.network > header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px; }
+.network h3 { display: inline-flex; align-items: center; gap: 9px; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+.network > header > span { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-line); border-radius: 999px; color: var(--color-muted); font-size: 11px; }
+.network > header strong { margin-left: 4px; color: var(--color-body); font: 500 11px var(--font-mono); font-variant-numeric: tabular-nums; }
 .addresses > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; min-height: 48px; border-top: 1px solid var(--color-line); }
 .addresses dt { color: var(--color-muted); font-size: 12px; }
 .addresses dd { min-width: 0; }
-.addresses a { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; color: var(--color-ink); font: 12px/1.7 var(--font-mono); font-variant-numeric: tabular-nums; }
+.addresses a { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; color: var(--color-ink); font: 12px/1.7 var(--font-code); }
 .addresses a > span { overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 4px; }
 .addresses a:hover { color: var(--color-brand); }
 .addresses a > svg { flex-shrink: 0; color: var(--color-muted); }
 .notDeployed { display: inline-block; padding-block: 12px; font-size: 12px; color: var(--color-muted); }
-.verifiers { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-line); }
-.verifiers > p { margin-bottom: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-muted); }
+.verifiers { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--color-line); }
+.verifiers > p { margin-bottom: 6px; font-size: 12px; font-weight: 500; color: var(--color-muted); }
 .verifiers > div { display: grid; grid-template-columns: minmax(0, 1fr) 86px 78px; align-items: center; gap: 8px; font-size: 12px; }
-.verifiers a { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; color: var(--color-muted); font-size: 11px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
+.verifiers a { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; color: var(--color-muted); font-size: 12px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
 .contractNote { margin-top: 20px; font-size: 12px; line-height: 1.8; color: var(--color-muted); }
 .contractNote a { text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
-.closing { display: flex; justify-content: space-between; align-items: center; gap: 24px; border-top: 1px solid var(--color-line-strong); padding-top: 32px; }
+.closing { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 28px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); }
 .closing h2 { font-size: 24px; }
 .closing > a { flex-shrink: 0; }
 @media (max-width: 1023px) {
-  .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 32px; }
-  .contents { position: static; padding-block: 16px; border-block: 1px solid var(--color-line); }
-  .contents ol { display: flex; flex-wrap: wrap; gap: 0 24px; margin-top: 6px; }
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .contents { position: static; padding: 14px 16px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); }
+  .contents ol { display: flex; flex-wrap: wrap; gap: 0 20px; margin-top: 4px; }
+  .contents li a { margin-inline: 0; padding: 0; }
+  .contents li a:hover { background: transparent; }
   .sourceLink { display: none; }
 }
 @media (max-width: 639px) {
   .article { gap: 44px; }
-  .contents ol { column-gap: 18px; }
-  .contents li a { gap: 7px; font-size: 11px; }
+  .contents ol { column-gap: 16px; }
+  .contents li a { gap: 7px; font-size: 12px; }
+  .contents li a span { width: 22px; height: 22px; border-radius: 7px; }
   .sectionHeading { align-items: flex-start; flex-direction: column; gap: 14px; margin-bottom: 20px; }
   .sectionHeading h2 { font-size: 26px; }
   .sectionHeading > p br { display: none; }
-  .step { grid-template-columns: 36px minmax(0, 1fr); gap: 8px 14px; padding: 22px 0; }
-  .stepNumber { width: 36px; height: 36px; font-size: 10px; }
-  .step:not(:last-child)::after { left: 17px; top: 58px; bottom: -22px; }
+  .steps { padding: 0 16px; }
+  .step { grid-template-columns: 36px minmax(0, 1fr); gap: 8px 14px; padding: 20px 0; }
+  .stepNumber { width: 36px; height: 36px; font-size: 11px; }
+  .step:not(:last-child)::after { left: 17px; top: 56px; bottom: -20px; }
   .stepCopy h3 { font-size: 14px; }
   .stepCopy p { font-size: 12px; }
   .stepValue { grid-column: 2; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 8px; padding-top: 6px; text-align: left; }
@@ -121,20 +130,19 @@
   .tradingFees dl > div { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
   .tradingFees dt { font-size: 11px; }
   .fixedList { grid-template-columns: minmax(0, 1fr); }
-  .fixedList li, .fixedList li:nth-child(even) { padding: 20px 0; border-left: none; }
+  .fixedList li { padding: 18px; }
   .fixedList h3 { font-size: 14px; }
-  .questions summary { font-size: 13px; }
-  .questions details > div { padding-right: 0; font-size: 12px; }
+  .questions summary { padding-inline: 16px; font-size: 13px; }
+  .questions details > div { padding: 0 16px 18px; font-size: 12px; }
   .riskIntro { font-size: 13px; }
-  .contractIcon { display: none; }
-  .network { padding: 20px; }
+  .network { padding: 18px; }
   .network > header { flex-direction: column; align-items: flex-start; }
   .addresses > div { grid-template-columns: minmax(0, 1fr); padding-top: 12px; }
   .addresses a { font-size: 11px; padding-block: 8px; }
   .verifiers > div { grid-template-columns: minmax(0, 1fr) 68px 61px; gap: 4px; font-size: 11px; }
-  .verifiers a { font-size: 10px; }
-  .closing { flex-direction: column; align-items: flex-start; }
+  .verifiers a { font-size: 11px; }
+  .closing { flex-direction: column; align-items: flex-start; padding: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .questions summary > svg { transition: none; }
+  .questions summary > svg, .questions summary, .contents li a, .contents li a span { transition: none; }
 }
