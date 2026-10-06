@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Info } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, LEGACY_DOMAIN } from "@/lib/brand";
@@ -34,6 +34,7 @@ export default function AboutPage() {
     <main className={shell.page}>
       <SectionIntro
         eyebrow="About"
+        icon={<Info />}
         title={`What ${BRAND} is`}
         description={<>{BRAND} is a free, open-source token launchpad. One transaction deploys a fixed-supply ERC-20, opens a Uniswap v4 pool at the market cap you pick and locks 100% of the supply as liquidity, forever. It runs on Base, Robinhood Chain and Arc.</>}
       >
