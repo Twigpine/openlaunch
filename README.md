@@ -34,7 +34,7 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
   no transfer function. Proven with an adversarial fork suite against the live deployment.
 - **Three chains, one set of rules.** Base, Robinhood Chain and Arc (Circle's L1, where gas and quotes are USDC), same contracts; Arc runs `LaunchFactoryArc`, the same source plus a guard that refuses native-asset quotes (see `contracts/docs/LAUNCHPAD.md`).
 - **Any quote asset.** ETH, USDG, USDC on Arc, **TWIG** ([Twigpine](https://twigpine.com)'s token on Base: a 1:1 wrapper of GITLAWB,
-  wrap or unwrap any time with no fee; priced at GITLAWB's price; fees paid or burned in TWIG), **GITLAWB** ([Gitlawb](https://gitlawb.com)'s token, on Base and bridged 1:1 to
+  wrap or unwrap any time with no fee; priced at GITLAWB's price; fees paid or burned in TWIG), **GITLAWB** ([Twigpine](https://twigpine.com)'s token, on Base and bridged 1:1 to
   Robinhood Chain; priced from its Base Uniswap v4 WETH pool; fees paid or burned in GITLAWB; the Base form offers TWIG in its place), or a **tokenized stock**: Coinbase's B20 stocks on Base
   (NVDAc, AAPLc, TSLAc, …, priced from Chainlink on-chain feeds) and Robinhood Stock Tokens on Robinhood Chain.
 - **Trade in-page.** Buys and sells go straight to the Uniswap v4 pool through the Universal Router; the site

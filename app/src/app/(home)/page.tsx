@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BRAND_GITHUB } from "@/lib/brand";
 import Link from "next/link";
 import LaunchHero from "@/components/launchpad/LaunchHero";
 import LaunchList from "@/components/launchpad/LaunchList";
@@ -47,7 +48,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
                   <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Trading fee</dt><dd className="font-mono text-ink tnum">0 / 1 / 3%</dd></div>
                 </dl>
                 <p className="mt-3 text-pretty text-[11px] leading-relaxed text-muted">Creators choose the trading fee. It goes in full to their beneficiaries, or is burned.</p>
-                <a href="https://github.com/Gitlawb/openlaunch/tree/main/contracts/src" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-8 items-center text-xs font-medium text-body underline decoration-line-strong underline-offset-4 hover:text-ink">Read the contracts ↗</a>
+                <a href={`${BRAND_GITHUB}/tree/main/contracts/src`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-8 items-center text-xs font-medium text-body underline decoration-line-strong underline-offset-4 hover:text-ink">Read the contracts ↗</a>
                 <div className="mt-3 border-t border-line pt-3"><Link href="/agents" className="inline-flex min-h-8 items-center text-xs font-medium text-brand hover:underline underline-offset-4">Agents can launch too →</Link></div>
               </section>
             </div>

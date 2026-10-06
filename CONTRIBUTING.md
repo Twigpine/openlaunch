@@ -15,7 +15,7 @@ keep it that way are welcome.
 ## Setup
 
 ```
-git clone --recurse-submodules https://github.com/Gitlawb/openlaunch.git
+git clone --recurse-submodules https://github.com/Twigpine/openlaunch.git
 cd openlaunch/app && npm install && cp .env.example .env.local   # fill in RPCs + DATABASE_URL
 npm run migrate && npm run dev
 cd ../contracts && forge test --match-path test/LaunchFactory.t.sol

@@ -1,6 +1,6 @@
 import { SITE_URL } from "@/lib/chainPublic";
 import { launchpad } from "@/lib/launchpad/config";
-import { BRAND_DOMAIN } from "@/lib/brand";
+import { BRAND_DOMAIN, BRAND_GITHUB } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export function GET() {
   const a = launchpad("arc");
   const body = `# ${BRAND_DOMAIN}
 
-> openlaunch (${BRAND_DOMAIN}) is an open-source (MIT: https://github.com/Gitlawb/openlaunch), zero-fee token launchpad on Base (8453), Robinhood Chain (4663) and Arc (5042). One transaction deploys a token and locks 100% of its supply as
+> openlaunch (${BRAND_DOMAIN}) is an open-source (MIT: ${BRAND_GITHUB}), zero-fee token launchpad on Base (8453), Robinhood Chain (4663) and Arc (5042). One transaction deploys a token and locks 100% of its supply as
 > Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all. About page: ${SITE_URL}/about
 
 ## Source verification
@@ -56,7 +56,7 @@ Uniswap v4: Base PoolManager 0x498581fF718922c3f8e6A244956aF099B2652b2b, Univers
 USDG (Robinhood, 6 dec): 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 USDC (Arc, 6 dec):       0x3600000000000000000000000000000000000000 (also the gas token; native balance = the same USDC at 18 decimals)
 TWIG (Base, 18 dec):     0x6aC18bcf4eDE02591d4917452700ea5eaAea13c1 (Twigpine's token: 1:1 wrapper of GITLAWB, wrap/unwrap any time, no fee; the Base form's quote; priced = GITLAWB; fees paid in TWIG, burned when recipients = [])
-GITLAWB (Base, 18 dec):  0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3 (Gitlawb's token; still recognised and priced on Base; fees paid in GITLAWB, burned when recipients = [])
+GITLAWB (Base, 18 dec):  0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3 (Twigpine's token; still recognised and priced on Base; fees paid in GITLAWB, burned when recipients = [])
 GITLAWB (Robinhood, 18 dec): 0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D (LayerZero OFT of the Base token, 1:1)
 
 ## Launch (contract call)
