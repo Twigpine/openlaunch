@@ -7,6 +7,22 @@ import { BANNER_HEIGHT, BANNER_WIDTH, maxBytesFor, sniffImage, type ImageRole } 
 import { Spinner } from "@/components/Skeleton";
 
 /**
+ * The address an image preview loads: an http(s) URL typed into the field, parsed the way the browser will request
+ * it, or null. The parser already percent-encodes quotes and angle brackets, so the replace never changes a real
+ * address; it is there so static analysis (CodeQL js/xss-through-dom) can see that typed text never reaches the
+ * <img> as markup.
+ */
+function previewUrl(value: string): string | null {
+  const url = value.trim();
+  if (!/^https?:\/\//.test(url)) return null;
+  try {
+    return new URL(url).href.replace(/["<]/g, encodeURIComponent);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Token image picker: drop zone / tap-to-browse → POST /api/launch/image → https URL into `value`.
  * The URL field stays available for people who already host the image. Wallet must be connected
  * (uploads are rate-limited per wallet server-side). `kind="banner"` picks the wide banner instead of
@@ -20,10 +36,7 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [over, setOver] = useState(false);
-  // checked and rendered as one trimmed string, its scheme fixed by a prefix check: whatever is typed into the URL field
-  // can only ever preview as an http(s) image, never as a script URL (and CodeQL can see the guard)
-  const url = value.trim();
-  const preview = url.startsWith("http") && /^https?:\/\//.test(url) ? url : null;
+  const preview = previewUrl(value);
   const banner = kind === "banner";
   const max = maxBytesFor(kind);
 
