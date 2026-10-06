@@ -11,7 +11,8 @@ import { useLive } from "./LiveProvider";
 import TradingChart from "./TradingChart";
 
 /** One bounded history request, then shared-clock refreshes. No extra poller. */
-export default function PriceChart({ chain, token, symbol, launchedAt }: { chain: ChainKey; token: string; symbol: string; launchedAt: string }) {
+export default function PriceChart({ chain, token, symbol, launchedAt, review = false, onTradesFound }: { chain: ChainKey; token: string; symbol: string; launchedAt: string; review?: boolean; onTradesFound?: () => void }) {
+  const reviewMode = process.env.NODE_ENV === "development" && review;
   const launchT = Math.floor(new Date(launchedAt).getTime() / 1000);
   const [interval, setInterval] = useState<Interval>(() => defaultInterval(nowMs() / 1000 - launchT));
   const [range, setRange] = useState<ChartRange>("auto");
@@ -42,12 +43,14 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
         : range === "auto" ? undefined : chartRangeSelection(range, launchT, now).from;
       const query = new URLSearchParams({ chain, token, interval });
       if (from !== undefined) query.set("from", String(from));
-      if (address) query.set("wallet", address);
-      const response = await fetch(`/api/launch/candles?${query}`, { cache: "no-store", signal: controller.signal });
+      if (address && !reviewMode) query.set("wallet", address);
+      const endpoint = reviewMode ? "/ui-review-charts/candles" : "/api/launch/candles";
+      const response = await fetch(`${endpoint}?${query}`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`Chart request failed (${response.status}).`);
       const payload = await response.json() as ChartPayload;
       if (id !== generation.current || controller.signal.aborted) return;
       ready.current = requestKey;
+      if (payload.baseline.hasPriorTrades || payload.candles.length) onTradesFound?.();
       if (!tailOnly) lastFull.current = nowMs();
       setFailure(null);
       setResult((current) => ({ key: requestKey,
@@ -58,7 +61,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     } finally {
       if (id === generation.current) { fetching.current = false; setLoading(false); }
     }
-  }, [requestKey, chain, token, interval, range, address, launchT]);
+  }, [requestKey, chain, token, interval, range, address, launchT, reviewMode, onTradesFound]);
 
   useEffect(() => {
     const lifetime = generation;
@@ -81,7 +84,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
 
   return <TradingChart chain={chain} token={token} symbol={symbol} interval={interval} range={range}
     data={result?.key === requestKey ? result.data : null} loading={loading || (result?.key !== requestKey && failure?.key !== requestKey)}
-    error={failure?.key === requestKey ? failure.message : null} hasWallet={Boolean(address)}
+    error={failure?.key === requestKey ? failure.message : null} hasWallet={Boolean(address) && !reviewMode}
     onIntervalChange={(next) => { setInterval(next); setRange("auto"); }}
     onRangeChange={(next) => { const selection = chartRangeSelection(next, launchT, Math.floor(nowMs() / 1000)); setRange(next); setInterval(selection.interval); }}
     onRefresh={() => void load()} />;

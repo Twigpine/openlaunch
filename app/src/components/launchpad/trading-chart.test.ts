@@ -49,7 +49,7 @@ test("real history baselines and quiet ranges are not presented as executed trad
   assert.match(renderer, /fillCandles\(data\.candles, INTERVALS\[interval\], data\.from, data\.asOf, data\.baseline\.price\)/);
   assert.match(renderer, /data\?\.baseline\.hasPriorTrades/);
   assert.match(renderer, /Carried price · no swaps/);
-  assert.match(renderer, /The line marks the launch price, not trading activity/);
+  assert.match(renderer, /A launch price is not trading history/);
   assert.match(renderer, /Showing the last indexed price\. No swaps in this range/);
   assert.match(renderer, /selectedRangeStats\(series, visible\?\.from, visible\?\.to\)/);
   assert.match(renderer, /context="across the visible candles"/);

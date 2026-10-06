@@ -9,7 +9,7 @@ import TradePanel from "@/components/launchpad/TradePanel";
 import CollectPanel from "@/components/launchpad/CollectPanel";
 import CopyChip from "@/components/launchpad/CopyChip";
 import MobileBuyBar from "@/components/launchpad/MobileBuyBar";
-import PriceChart from "@/components/launchpad/PriceChart";
+import TokenChart from "@/components/launchpad/TokenChart";
 import TokenComments from "@/components/launchpad/Posts";
 import ChangeChip from "@/components/launchpad/ChangeChip";
 import HoldersPanel from "@/components/launchpad/HoldersPanel";
@@ -137,7 +137,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
 
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:gap-6 lg:grid-rows-[min-content_1fr]">
           <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-            <PriceChart key={`${chain}:${l.token}`} chain={chain} token={l.token} symbol={l.symbol} launchedAt={l.block_time} />
+            <TokenChart chain={chain} token={l.token} symbol={l.symbol} poolId={l.pool_id} quote={l.quote} launchedAt={l.block_time} hasTrades={l.buys + l.sells > 0} />
             <dl className="mt-4 grid grid-cols-2 divide-x divide-line overflow-hidden rounded-xl border border-line bg-card sm:grid-cols-4">
               <Stat k={priceUsd !== null ? "Price / USD" : `Price / ${quote.symbol}`} v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
               <Stat k="Volume / all time" v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />

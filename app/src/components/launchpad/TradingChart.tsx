@@ -55,7 +55,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
   const usd = denomination === "usd" && usdAvailable;
   const currency = usd ? "USD" : data?.quote.symbol ?? "Quote";
   const prepared = useMemo(() => {
-    if (!data) return prepareChartSeries([], [1]);
+    if (!data || (!data.baseline.hasPriorTrades && !data.candles.length)) return prepareChartSeries([], [1]);
     const dense = fillCandles(data.candles, INTERVALS[interval], data.from, data.asOf, data.baseline.price);
     return prepareChartSeries(dense, [metric === "mcap" ? data.supply : 1, usd ? data.quote.usd! : 1]);
   }, [data, interval, metric, usd]);
@@ -194,7 +194,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
           <div className={styles.kicker}><ScanLine size={14} aria-hidden /><span>{symbol} <span className={styles.secondary}>/ {currency}</span></span><span className={styles.chain}>{CHAIN_SHORT[chain]}</span></div>
           <h2 className={styles.metric}>{metric === "mcap" ? "Market cap" : "Token price"}</h2>
           <div className={styles.priceLine}><strong title={latest ? String(latest.close) : undefined}>{latest ? fmt(latest.close, true) : "—"}</strong><span className={styles.denom}>{currency}</span></div>
-          <div className={styles.change}>{stats?.change != null ? <ChangeChip v={stats.change} plain context="across the visible candles" /> : null}<span>{stats ? "Visible range" : "Waiting for chart data"}</span></div>
+          <div className={styles.change}>{stats?.change != null ? <ChangeChip v={stats.change} plain context="across the visible candles" /> : null}<span>{stats ? "Visible range" : data && !hasHistory ? "Awaiting first swap" : "Waiting for chart data"}</span></div>
         </div>
         <div className={styles.headerControls}>
           <ToggleGroup aria-label="Chart metric" value={[metric]} onValueChange={(values) => { if (values[0]) setMetric(values[0] as "mcap" | "price"); }}>
@@ -234,7 +234,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
         {loading && !data ? <div className={styles.overlay} aria-label="Loading chart"><Sk className="h-full w-full rounded-lg" /></div> : null}
         {error && !data ? <div className={`${styles.overlay} ${styles.empty}`} role="status"><strong>Chart data is unavailable</strong><p>Try loading the indexed history again.</p><button type="button" onClick={onRefresh}>Retry chart</button></div> : null}
         {prepared.unavailable ? <div className={`${styles.overlay} ${styles.empty}`} role="status"><strong>This history can’t be charted safely</strong><p>The returned values are invalid or exceed supported numeric precision.</p><button type="button" onClick={onRefresh}>Retry chart</button></div> : null}
-        {!loading && !error && !prepared.unavailable && noWindowTrades ? <div className={styles.baselineNote}><span>{hasHistory ? "A quiet window" : "Waiting for indexed trades"}</span><small>{hasHistory ? "Showing the last indexed price. No swaps in this range." : "The line marks the launch price, not trading activity."}</small></div> : null}
+        {!loading && !error && !prepared.unavailable && noWindowTrades ? <div className={styles.baselineNote}><span>{hasHistory ? "A quiet window" : "No trades yet"}</span><small>{hasHistory ? "Showing the last indexed price. No swaps in this range." : "Candles appear after the first indexed swap. A launch price is not trading history."}</small></div> : null}
       </div>
       <div className={styles.bottomToolbar}>
         <ToggleGroup aria-label="Chart date range" value={[range]} onValueChange={(values) => { if (values[0]) onRangeChange(values[0] as ChartRange); }} className={styles.ranges}>

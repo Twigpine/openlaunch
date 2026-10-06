@@ -1,4 +1,4 @@
-.terminal { min-width: 0; overflow: hidden; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); color: var(--color-ink); }
+.terminal { min-width: 0; overflow: hidden; background: var(--color-paper); color: var(--color-ink); }
 .header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px; }
 .marketIdentity { min-width: 0; }
 .kicker { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; }

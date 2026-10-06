@@ -25,6 +25,56 @@ Next 16 app router, React 19, Tailwind 4, wagmi 3 + viem 2, Postgres (postgres.j
 - `db/schema.sql` — `bb_launches`, `bb_launch_swaps`, `bb_launch_fee_events`, `bb_launch_meta`,
   `bb_launch_sync_state` (+ `bb_migrations`). Idempotent; applied on every deploy.
 
+## Token charts
+
+Token pages prefer GeckoTerminal’s hosted advanced chart. The lookup validates the
+exact chain, Uniswap v4 pool ID, launched base token and quote. Reversed listings
+are not used, because the embed would chart the quote asset instead of the token.
+Base, Robinhood and Arc use their own provider network IDs. Arc pools retain the
+factory's USDC ERC-20 quote identity; native USDC is not substituted for it.
+
+Unlisted, unpriced or temporarily unavailable pools fall back to Openlaunch’s own
+indexed candles. **On-chain** is also available manually if a provider frame is
+blank, blocked or slow; an iframe load event cannot prove its chart rendered.
+Tokens without indexed swaps show **No trades yet**, not fabricated launch-price
+candles. The existing shared live clock refreshes native history and can discover
+the first swap. Retry Advanced to recheck a previously unavailable provider.
+
+The native renderer is lazy-loaded and retains extreme-value normalization,
+quote/USD and price/market-cap modes, volume, read-only wallet markers and bounded
+history. The swap panel, stats, indexer and public candle API are unchanged.
+
+`GET /api/launch/chart-provider?chain=&token=&pool=&quote=` returns a classified
+status. It deduplicates lookups, caches ready/reversed metadata for 15 minutes and
+unlisted/unpriced results for 60 seconds (at most 1,000 entries per process).
+Requests time out after 8 seconds. Limits are 60 requests/IP/minute, 10 uncached
+upstream calls/minute and two concurrent upstream requests per process; HTTP 429
+starts a 60-second upstream cooldown. Cache hits remain available during cooldown.
+Scale-out does not supply a shared global limit; use a shared cache/budget if needed.
+Provider errors are never cached as missing listings.
+
+Gecko’s official embed options set a black background in dark mode, the site’s
+light paper in light mode, and its grayscale logo. Gecko’s own toolbar handles
+intervals, drawing tools, indicators and display modes; availability remains under
+the provider’s control. Attribution stays visible. Changing site theme, reloading,
+or switching sources may reset drawings. No proprietary chart library files are
+redistributed.
+
+Only the fixed Gecko API origin is requested by the server, without viewer wallet
+addresses or credentials. The browser contacts Gecko directly for the iframe.
+CSP allows only `https://www.geckoterminal.com` as a frame origin on all entry
+pages, preserving client navigation. It does not allow provider scripts or
+connections in the parent page; `frame-ancestors` remains `none`.
+
+The development-only `/ui-review-charts` exercises eight real pool identities,
+including an Arc USDC-quoted pool, without a local database. Its allowlisted candle
+proxy reads the public production
+API without forwarding wallets, cookies or credentials. Both preview endpoints
+return 404 in production. See its [test notes](src/app/ui-review-charts/README.md).
+
+No schema migration is required. Reverting the chart integration restores the
+previous native-only UI; stored candle history remains untouched.
+
 ## Local dev against a Base fork
 ```
 anvil --fork-url https://mainnet.base.org --port 8545 --chain-id 8453
