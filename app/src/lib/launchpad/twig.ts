@@ -29,6 +29,15 @@ export const TWIG_WRAP_URL = "https://wrap.twigpine.com";
  * generated from the web repo's `public/logo-dark.png` (the light tree with its green dot on near-black): cropped to
  * the mark, 160px, transparent corners, same radius as the GITLAWB tile.
  */
+
+/**
+ * The TWIG/GITLAWB wrap pool on Base: Twigpine's Uniswap v4 hook swaps exactly 1:1 by wrapping or unwrapping, 0% fee
+ * (Uniswap approved it for routing, 2026-10-06). GITLAWB sorts below TWIG, so it is currency0. The ETH route for a
+ * TWIG-paired launch goes through it (eth-route.ts); its id is derived, never pasted, and eth-route.test.ts pins it.
+ */
+export const TWIG_HOOK = "0xf7423f48886f86f551b517254d21af4267732888";
+export const TWIG_HOOK_POOL = { fee: 0, tickSpacing: 1, hooks: TWIG_HOOK } as const;
+
 export const TWIG_LOGO_PATH = "/twig-mark.png";
 /** The tile's ground — badges use the same colour so the tile and the pill read as one piece. */
 export const TWIG_LOGO_BG = "#080B0A";
