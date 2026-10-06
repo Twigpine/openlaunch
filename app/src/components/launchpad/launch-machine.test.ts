@@ -107,3 +107,21 @@ test("step selection and copy follow CSS phase events, including the loop seam",
   assert.match(css, /\.stageProgress\[data-phase\] \{ animation-play-state: var\(--motion-state\); \}/);
   assert.match(css, /:is\(\.stageProgress\[data-phase\], \.detailContent\[aria-hidden\]\) \{ animation: none; \}/);
 });
+
+test("the home hero shows the plain looping locker and points at the Trending board", () => {
+  // no props: Step 1 has no reactions to live events, the drawing is the same loop /rules shows
+  assert.match(hero, /<LaunchMachine \/>/);
+  assert.match(hero, /<a href="#trending"[^>]*>\s*See what&apos;s trending\s*<\/a>/);
+  assert.doesNotMatch(hero, /See how it works/);
+  assert.match(hero, /Launch a token\.\s*<br \/>\s*We take <span className="text-brand">nothing\.<\/span>/);
+});
+
+test("a host can tighten the locker's size without touching its clocks", () => {
+  assert.match(css, /\.machine \{[^}]*max-width: var\(--machine-max, 560px\);/);
+  assert.match(css, /\.detail \{[^}]*min-height: var\(--detail-min, 105px\); \}/);
+  assert.ok(css.includes("@media (min-width: 1024px) { .detail { min-height: var(--detail-min, 84px); } }"), "two lines of copy from 1024px, so less height is held");
+  const phone = css.slice(css.indexOf("@media (max-width: 639px)"));
+  assert.match(phone, /\.detail \{ min-height: 88px;/);
+  // the three step texts share one grid cell, so a lower minimum can never make the block jump between steps
+  assert.match(css, /\.detailContent \{ grid-area: 1 \/ 1; \}/);
+});

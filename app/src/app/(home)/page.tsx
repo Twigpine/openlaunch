@@ -45,8 +45,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   return (
     <main className="relative mx-auto max-w-6xl space-y-8 px-4 pb-16">
       <LaunchHero configured={LAUNCHPAD_CONFIGURED} />
+      {/* what is hot first (names and numbers to act on), then the last half hour as it happens, then every launch */}
+      <TrendingStrip initial={trending} serverNow={now} />
       <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
-      <TrendingStrip initial={trending} />
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
         <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} hasDb={dbConfigured()} />
         <aside aria-label="New launches and community" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">

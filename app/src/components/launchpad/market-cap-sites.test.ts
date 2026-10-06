@@ -13,11 +13,21 @@ test("the home row shows the quote detail on every width", () => {
 });
 
 test("one-string sites use the compact form, which carries the mark for an unpriced quote", () => {
-  for (const [file, expected] of [["./TrendingStrip.tsx", 1], ["./MeDashboard.tsx", 2], ["../../app/t/[chain]/[token]/page.tsx", 1]] as const) {
+  for (const [file, expected] of [["./MeDashboard.tsx", 2], ["../../app/t/[chain]/[token]/page.tsx", 1]] as const) {
     const src = read(file);
     assert.equal((src.match(/capDisplay\([^)]*\)\.compact/g) ?? []).length, expected, `${file} uses .compact`);
     assert.doesNotMatch(src, /capDisplay\([^)]*\)\.main/, `${file} never renders .main alone`);
   }
+});
+
+test("the Trending board leads with the main figure and keeps the mark in sight on every card", () => {
+  const board = read("./TrendingStrip.tsx");
+  assert.match(board, /const cap = \(row: LaunchRow\) => capDisplay\(row\.fdv_quote, row\.quote_usd/);
+  assert.equal((board.match(/<\/span>\{c\.main\}/g) ?? []).length, 2, "the leader's figure and a runner's");
+  assert.match(board, /Market cap\{c\.usd === null \? ` \(\$\{c\.detail\}\)` : ""\}, and the change since launch/, "the leader's caption carries the mark");
+  assert.match(board, /\{a\.volume\}<\/span>\{c\.usd === null \? <> · \{c\.detail\}<\/> : null\}/, "a runner carries it beside its volume, which shows on every width");
+  assert.equal((board.match(/title=\{`Market cap \$\{c\.main\} · \$\{c\.detail\}`\}/g) ?? []).length, 2, "both figures keep the other denomination on hover");
+  assert.doesNotMatch(board, /\.compact\b/, "the one-string form pushed the token's name out of a runner card");
 });
 
 test("the launch form renders main + detail for the opening cap, the preview card and the post-buy estimate", () => {

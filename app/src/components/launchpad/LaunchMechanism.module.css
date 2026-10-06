@@ -1,0 +1,57 @@
+/* The totals strip: one hairline panel, five readings. Trades is the page's one big live figure. */
+.panel { overflow: hidden; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); }
+/* 1px gaps over the line colour draw the dividers, whatever the wrap */
+.readings { display: grid; gap: 1px; background: var(--color-line); }
+
+/* phones: compact rows, label left and figure right on one baseline, notes hidden */
+.reading { --fig-max: 20px; --fig-line: 26px; --fig-drop: 7px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; min-width: 0; padding: 9px 16px; background: var(--color-card); }
+.lead { --fig-max: 30px; --fig-line: 38px; --fig-drop: 9px; }
+.label { flex: none; white-space: nowrap; font-size: 11px; font-weight: 500; line-height: 1; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted); }
+/* Space Mono Bold collides at negative tracking, so none. The figure's box is the room it has (a query container);
+   the value inside is sized from that room and its own length, so a long value shrinks instead of clipping or wrapping.
+   NumberFlow lets its digits overhang the figure sideways by the width of its edge fade. Keep that fade narrow and inside
+   the figure's own (padded, pulled-back) box, so the box never reports an overflow that is not there. The fade above and
+   below is kept short too, so a rolling digit does not ghost over the label. */
+.figure { flex: 1 1 0; min-width: 0; container-type: inline-size; text-align: right; white-space: nowrap; font-family: var(--font-mono); font-weight: 700; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums; --number-flow-mask-width: .2em; --number-flow-mask-height: .16em; margin-inline: calc(var(--fig-max) * -.2); padding-inline: calc(var(--fig-max) * .2); }
+/* the first size is for a browser without container units. A character is counted as .74em: Space Mono's .6em advance
+   plus room for a reader's own letter spacing (WCAG 1.4.12 asks for .12em), so a long count still fits with it on */
+.value { font-size: var(--fig-max); font-size: clamp(10px, calc(100cqi / (var(--chars) * .74)), var(--fig-max)); }
+/* A strut: a zero-width box that gives the line a fixed height and a fixed baseline, whatever the font size on it.
+   Every figure in a row (the big one, the small ones, the plain "$0") therefore sits on one baseline. */
+.label::before, .figure::before { content: ""; display: inline-block; width: 0; height: var(--fig-line); vertical-align: calc(-1 * var(--fig-drop)); }
+/* NumberFlow pads its digits for the roll mask, which makes a rolling figure's line taller than a plain one (and drops
+   its baseline); take the padding back out of the layout, here and in the breakdown. This repeats the library's own
+   padding formula (number-flow 0.6.2, dist/ssr-*.mjs: `round(nearest, calc(var(--number-flow-mask-height, .25em) / 2), 1px)`,
+   applied twice): if an upgrade changes it, the Trades figure drops below its neighbours, so re-check the strip then. */
+.panel number-flow-react { margin-block: calc(round(nearest, calc(var(--number-flow-mask-height, .25em) / 2), 1px) * -2); }
+.note { display: none; }
+/* no sideways fade on the small exact figures: its overhang would stick out of a column sized to the figure */
+.breakdown { --number-flow-mask-width: 0px; padding: 0 16px; border-top: 1px solid var(--color-line); }
+/* the panel clips at its edge, so the summary's focus ring is drawn inside */
+.breakdown summary:focus-visible { outline-offset: -2px; }
+/* a label that wraps ("Robinhood Chain launches") must not push its value below its neighbours' */
+.breakdown dl > div { display: flex; flex-direction: column; justify-content: space-between; }
+
+/* from 640px: columns. Each reading borrows the strip's three rows (label, figure, note), so they line up across readings
+   however a label or a note wraps. Trades takes the first row whole, the other four share the second. */
+@media (min-width: 640px) {
+  .readings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .reading { --fig-max: 24px; --fig-line: 30px; --fig-drop: 7px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: subgrid; grid-row: span 3; gap: 0; align-items: start; padding: 16px 16px 14px; }
+  .lead { --fig-max: 40px; --fig-line: 46px; --fig-drop: 10px; grid-column: 1 / -1; }
+  .label { white-space: normal; line-height: 1.4; }
+  .label::before { content: none; }
+  .figure { margin-top: 6px; text-align: left; }
+  .note { display: block; margin-top: 4px; font-size: 11px; line-height: 1.5; color: var(--color-muted); text-wrap: balance; }
+}
+/* the narrowest four-column cells: a little less padding and tracking keeps "Fees to recipients" on one line */
+@media (min-width: 640px) and (max-width: 767.98px) {
+  .reading, .breakdown { padding-inline: 12px; }
+  .label { letter-spacing: .06em; }
+}
+/* from 1024px: one row of six columns, Trades over two. One strut for the whole row puts all five figures on a baseline. */
+@media (min-width: 1024px) {
+  .readings { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .reading { --fig-line: 58px; --fig-drop: 10px; }
+  .lead { --fig-max: 54px; grid-column: span 2; }
+  .note { margin-top: 6px; }
+}

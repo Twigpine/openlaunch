@@ -1,0 +1,27 @@
+/* The hero's stage for the launch mechanism: a plotting grid that fades out, and four corner marks. Decorative. */
+.stage { position: relative; min-width: 0; padding: 14px 14px 10px; }
+.grid {
+  position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: radial-gradient(circle at 1px 1px, var(--color-faint) 1px, transparent 1.5px);
+  background-size: 22px 22px; background-position: 50% 0;
+  -webkit-mask-image: radial-gradient(ellipse 62% 46% at 50% 40%, #000 25%, transparent 100%); mask-image: radial-gradient(ellipse 62% 46% at 50% 40%, #000 25%, transparent 100%);
+}
+.corner { position: absolute; width: 12px; height: 12px; pointer-events: none; border: 0 solid var(--color-line-strong); }
+.corner[data-corner="tl"] { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.corner[data-corner="tr"] { top: 0; right: 0; border-top-width: 1px; border-right-width: 1px; }
+.corner[data-corner="bl"] { bottom: 0; left: 0; border-bottom-width: 1px; border-left-width: 1px; }
+.corner[data-corner="br"] { right: 0; bottom: 0; border-right-width: 1px; border-bottom-width: 1px; }
+@media (min-width: 640px) {
+  .stage { padding: 18px 20px 12px; }
+}
+/* short laptop screens (1536x730, 1366x768, 1280x720): the totals must still be on the first screen, so the
+   mechanism is drawn smaller and the hero gives back its padding. These beat the Tailwind paddings on the same elements. */
+@media (min-width: 1024px) and (max-height: 840px) {
+  .stage { --machine-max: 400px; --detail-min: 88px; }
+  .hero { padding-top: 8px; }
+  .strip { margin-top: 12px; }
+}
+/* a 768px-tall display leaves about 657px under the browser's own bars: one more step keeps the figures in view there */
+@media (min-width: 1024px) and (max-height: 700px) {
+  .stage { --machine-max: 340px; }
+}

@@ -1,4 +1,4 @@
-.machine { --cycle: 7.2s; --motion-state: paused; min-width: 0; width: 100%; max-width: 560px; margin-inline: auto; }
+.machine { --cycle: 7.2s; --motion-state: paused; min-width: 0; width: 100%; max-width: var(--machine-max, 560px); margin-inline: auto; }
 .heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 2px; }
 .eyebrow { display: flex; align-items: center; gap: 9px; color: var(--color-muted); font-size: 11px; }
 .crosshair { width: 9px; height: 9px; position: relative; }
@@ -150,7 +150,10 @@
   40% { transform: scaleX(1); opacity: 1; }
   40.001%, 100% { transform: scaleX(1); opacity: 0; }
 }
-.detail { display: grid; align-content: start; padding: 16px 8px 0; min-height: 105px; }
+/* the host may tighten both (the home hero does on short screens): --machine-max caps the drawing, --detail-min the reserved copy height */
+.detail { display: grid; align-content: start; padding: 16px 8px 0; min-height: var(--detail-min, 105px); }
+/* from 1024px the copy is two lines at most, so less height is held for it */
+@media (min-width: 1024px) { .detail { min-height: var(--detail-min, 84px); } }
 .detailContent { grid-area: 1 / 1; }
 .detailContent[aria-hidden="true"] { visibility: hidden; }
 .machine[data-loop="true"] .detailContent[aria-hidden="false"] { animation: detail-enter 180ms ease-out both; animation-play-state: var(--motion-state); }
@@ -176,6 +179,6 @@
   .stageButton { gap: 6px; padding-inline: 6px; font-size: 11px; }
   .stageButton::after, .stageProgress { left: 6px; right: 6px; }
   .stageDot { display: none; }
-  .detail { min-height: 115px; padding-inline: 6px; }
+  .detail { min-height: 88px; padding-inline: 6px; }
   .proof { padding-inline: 6px; }
 }
