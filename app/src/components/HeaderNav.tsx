@@ -282,6 +282,8 @@ const mobileTool = "h-9 w-9 inline-flex items-center justify-center rounded-full
 
 function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; onSearch: () => void }) {
   const [open, setOpen] = useState(false);
+  // MotionConfig's reducedMotion only drops transforms, so the fades below are zeroed by hand, as the menu card's are
+  const reduced = useReducedMotion();
   const menuToggle = useRef<HTMLButtonElement>(null);
   const dismissMenu = useCallback(() => {
     setOpen(false);
@@ -292,7 +294,7 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
     <>
       {/* the page dims behind the open menu; a tap on it closes the menu */}
       <AnimatePresence>
-        {open ? <motion.div key="scrim" aria-hidden="true" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} onClick={dismissMenu} className="fixed inset-0 z-40 bg-scrim/35 backdrop-blur-[2px] lg:hidden dark:bg-scrim/60" /> : null}
+        {open ? <motion.div key="scrim" aria-hidden="true" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : 0.15 }} onClick={dismissMenu} className="fixed inset-0 z-40 bg-scrim/35 backdrop-blur-[2px] lg:hidden dark:bg-scrim/60" /> : null}
       </AnimatePresence>
       <MobileNav
         visible={visible}
@@ -344,7 +346,7 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
               const active = isActive(n.href);
               const Icon = n.icon;
               return (
-                <motion.div key={n.href} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, delay: 0.03 * i }}>
+                <motion.div key={n.href} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={reduced ? { duration: 0 } : { duration: 0.18, delay: 0.03 * i }}>
                   <Link
                     href={n.href}
                     onClick={() => setOpen(false)}
