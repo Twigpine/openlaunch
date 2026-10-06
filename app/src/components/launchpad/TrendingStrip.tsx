@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import TokenAvatar from "./TokenAvatar";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge, hasQuoteBrandBadge } from "./MuseworldBadge";
 import { useLive } from "./LiveProvider";
 import type { LaunchRow } from "@/lib/launchpad/queries";
 import { capDisplay } from "@/lib/launchpad/market-cap";
@@ -74,7 +74,7 @@ export default function TrendingStrip({ initial }: { initial: Snap }) {
                   <span className="sr-only">Number {index + 1}: </span>
                   <TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={30} className="shrink-0 rounded-full" />
                   <span className="max-w-[9rem] truncate font-semibold text-ink">{row.name}</span>
-                  <QuoteBrandBadge quoteKey={row.quote_key} />
+                  {hasQuoteBrandBadge(row.quote_key) ? <QuoteBrandBadge quoteKey={row.quote_key} /> : null}
                   <span className="font-mono text-ink tnum"><span className="sr-only">market cap </span>{capDisplay(row.fdv_quote, row.quote_usd, { key: row.quote_key, symbol: row.quote_symbol, decimals: row.quote_decimals }).compact}</span>
                   <span className="text-xs text-muted"><span className="font-mono tnum">{trades}</span> {trades === 1 ? "trade" : "trades"}</span>
                 </Link>

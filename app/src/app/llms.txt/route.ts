@@ -40,7 +40,7 @@ ${verificationLine("Arc (5042)", a, [
 
 ## What a launch does
 1. deploys a fixed-supply ERC-20 (1,000,000,000; no mint/pause/blacklist/tax/owner)
-2. initializes a Uniswap v4 pool quote/token (quote = ETH, GITLAWB, USDG on Robinhood Chain, USDC on Arc, or a registry stock token; tick spacing 200, no hook) at the chosen start tick
+2. initializes a Uniswap v4 pool quote/token (quote = ETH, TWIG on Base, GITLAWB, USDG on Robinhood Chain, USDC on Arc, or a registry stock token; tick spacing 200, no hook) at the chosen start tick
 3. mints one single-sided position holding 100% of supply to an ownerless locker (no withdraw path exists)
 4. registers fee routing: lpFee 0 | 10000 (1%) | 30000 (3%) pips; recipients [] = fees burned,
    else {payout,bps}[] summing to 10000. Fixed forever.
@@ -55,7 +55,8 @@ Uniswap v4: Base PoolManager 0x498581fF718922c3f8e6A244956aF099B2652b2b, Univers
             Arc PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951, Universal Router 0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1
 USDG (Robinhood, 6 dec): 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 USDC (Arc, 6 dec):       0x3600000000000000000000000000000000000000 (also the gas token; native balance = the same USDC at 18 decimals)
-GITLAWB (Base, 18 dec):  0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3 (Gitlawb's token; fees paid in GITLAWB, burned when recipients = [])
+TWIG (Base, 18 dec):     0x6aC18bcf4eDE02591d4917452700ea5eaAea13c1 (Twigpine's token: 1:1 wrapper of GITLAWB, wrap/unwrap any time, no fee; the Base form's quote; priced = GITLAWB; fees paid in TWIG, burned when recipients = [])
+GITLAWB (Base, 18 dec):  0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3 (Gitlawb's token; still recognised and priced on Base; fees paid in GITLAWB, burned when recipients = [])
 GITLAWB (Robinhood, 18 dec): 0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D (LayerZero OFT of the Base token, 1:1)
 
 ## Launch (contract call)

@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GITLAWB_LOGO_BG, GITLAWB_LOGO_PATH } from "@/lib/launchpad/gitlawb";
 import { MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH } from "@/lib/launchpad/museworld";
+import { TWIG_LOGO_BG, TWIG_LOGO_PATH } from "@/lib/launchpad/twig";
 
 /** Brand logos from public/, inlined once per process each (satori needs a data URL or absolute URL). */
 const brandLogos = new Map<string, Promise<string | null>>();
@@ -77,6 +78,7 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
   const card = l ? shapeCard(l, nowMs()) : null;
   const glLogo = card?.quote?.kind === "gitlawb" ? await logoDataUrl(GITLAWB_LOGO_PATH) : null;
   const mwLogo = card?.quote?.kind === "museworld" ? await logoDataUrl(MUSEWORLD_LOGO_PATH) : null;
+  const twLogo = card?.quote?.kind === "twig" ? await logoDataUrl(TWIG_LOGO_PATH) : null;
   const official = card?.quote?.kind === "museworld";
   const logo = l ? await memo(`og-logo:${chain}:${token.toLowerCase()}`, 60_000, () => ownLogo(l.image_url)) : null;
   const h = hueOf(token);
@@ -129,6 +131,10 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
                     {card.quote.kind === "museworld" ? (
                       <span style={{ display: "flex", width: 30, height: 30, borderRadius: 8, overflow: "hidden" }}>
                         {mwLogo ? <img src={mwLogo} width={30} height={30} alt="" /> : null}
+                      </span>
+                    ) : card.quote.kind === "twig" ? (
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: TWIG_LOGO_BG, overflow: "hidden" }}>
+                        {twLogo ? <img src={twLogo} width={30} height={30} alt="" /> : null}
                       </span>
                     ) : card.quote.kind === "gitlawb" ? (
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: GITLAWB_LOGO_BG, overflow: "hidden" }}>
