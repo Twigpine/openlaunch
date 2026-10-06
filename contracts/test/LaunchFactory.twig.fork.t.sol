@@ -67,9 +67,10 @@ contract LaunchTwigQuote is Test {
         assertEq(IERC20Meta(TWIG).balanceOf(buyer), 200_000_000e18, "wrapped 1:1");
     }
 
-    /// TWIG is fully backed: its supply equals the GITLAWB it holds.
+    /// TWIG is fully backed: it holds at least one GITLAWB per TWIG. Not equality: GITLAWB sent straight to the
+    /// wrapper (no deposit) over-backs it until someone recovers it, and that must not fail the test.
     function _assertBacked() internal view {
-        assertEq(
+        assertLe(
             IERC20Meta(TWIG).totalSupply(), IERC20Meta(GITLAWB).balanceOf(TWIG), "every TWIG backed by one GITLAWB"
         );
     }

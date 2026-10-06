@@ -38,7 +38,13 @@ export function twigUsdFromGitlawb(gitlawbUsd: number | null): number | null {
   return gitlawbUsd !== null && Number.isFinite(gitlawbUsd) && gitlawbUsd > 0 ? gitlawbUsd : null;
 }
 
-export function isTwigAddress(address: string, chain: ChainKey): boolean {
-  const t = TWIG_ADDRESSES[chain];
-  return t !== null && address.toLowerCase() === t;
+/**
+ * USD for a quote priced off GITLAWB's own price: GITLAWB itself, and TWIG (one TWIG unwraps to one GITLAWB).
+ * undefined for every other key, which keeps its own price. The one rule the form, the quotes API and the rows use;
+ * the SQL sorts match the same two keys (queries.ts `isGitlawbPriced`).
+ */
+export function gitlawbLinkedUsd(key: string, gitlawbUsd: number | null): number | null | undefined {
+  if (key === "gitlawb") return gitlawbUsd;
+  if (key === "twig") return twigUsdFromGitlawb(gitlawbUsd);
+  return undefined;
 }

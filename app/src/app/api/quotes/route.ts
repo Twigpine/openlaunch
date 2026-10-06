@@ -6,7 +6,7 @@ import { searchStocks } from "@/lib/launchpad/stocks";
 import { searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
 import { memo } from "@/lib/launchpad/memo";
 import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
-import { twigUsdFromGitlawb } from "@/lib/launchpad/twig";
+import { gitlawbLinkedUsd } from "@/lib/launchpad/twig";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,10 @@ export async function GET(req: Request) {
   if (!isChainKey(chain)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const q = (u.searchParams.get("q") ?? "").slice(0, 12);
   const gl = await gitlawbUsd(); // one price for both chains: the Robinhood token is the Base token bridged 1:1
-  const fixed = launchpad(chain).quotes.map((x) => ({ ...x, usd: x.key === "gitlawb" ? gl : x.key === "twig" ? twigUsdFromGitlawb(gl) : x.usd })); // TWIG unwraps 1:1 to GITLAWB
+  const fixed = launchpad(chain).quotes.map((x) => {
+    const linked = gitlawbLinkedUsd(x.key, gl); // GITLAWB, and TWIG (unwraps 1:1 to GITLAWB), take GITLAWB's live price
+    return { ...x, usd: linked === undefined ? x.usd : linked };
+  });
   const stocks = await memo(`quotes:stocks:${chain}:${q.toUpperCase()}`, 30_000, async () => {
     let hits: { address: string; symbol: string; name: string; decimals: number; logo: string | null }[];
     const source = STOCK_SOURCE[chain];

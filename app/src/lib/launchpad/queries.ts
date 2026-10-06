@@ -9,7 +9,7 @@ import { memo } from "./memo";
 import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
-import { twigUsdFromGitlawb } from "./twig";
+import { gitlawbLinkedUsd } from "./twig";
 import { canonicalImageUrl } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS } from "./holders";
@@ -113,8 +113,8 @@ let gitlawbUsdNow: number | null = null;
 /** Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a registry stock, else an unlisted quote. */
 function quoteInfo(chain: ChainKey, address: string): Quote {
   const q = staticQuoteInfo(chain, address);
-  if (q.key === "gitlawb") return { ...q, usd: gitlawbUsdNow };
-  if (q.key === "twig") return { ...q, usd: twigUsdFromGitlawb(gitlawbUsdNow) };
+  const linked = gitlawbLinkedUsd(q.key, gitlawbUsdNow); // GITLAWB, and TWIG at the same price
+  if (linked !== undefined) return { ...q, usd: linked };
   if (q.key === "museworld") return { ...q, usd: museworldUsdNow };
   if (q.key !== "other") return q;
   const st = stockByAddress(chain, address);
@@ -312,6 +312,8 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   if (opts.filter === "usdg" || opts.filter === "usdc") conds.push(db`${quoteArms(opts.filter)}`);
   // GITLAWB has a different address per chain (and none on Arc): the same chain-scoped match
   const isGitlawb = () => quoteArms("gitlawb");
+  // the quotes that take GITLAWB's USD price in the sorts: GITLAWB, and TWIG (one TWIG unwraps to one GITLAWB; gitlawbLinkedUsd)
+  const isGitlawbPriced = () => db`(${isGitlawb()} OR ${quoteArms("twig")})`;
   if (opts.filter === "gitlawb") conds.push(db`${isGitlawb()}`);
   if (opts.filter === "twig") conds.push(db`${quoteArms("twig")}`);
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
@@ -322,14 +324,13 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const stockArms = stockEntries.flatMap(([a, v]) => stockChains(a).map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${v}::double precision`));
   const stockCase = stockArms.length ? stockArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
-  const twigFactor = twigUsdFromGitlawb(gitlawbUsdNow) ?? 0; // one TWIG unwraps to one GITLAWB: GITLAWB's price, or 0 weight while unknown
   const museworldFactor = museworldUsdNow !== null && museworldUsdNow > 0 ? museworldUsdNow : 0;
   const stables = fixedUsdQuotes();
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
   const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
   const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("twig")} THEN ${twigFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
   const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);

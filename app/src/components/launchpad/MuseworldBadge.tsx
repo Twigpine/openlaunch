@@ -33,15 +33,27 @@ export function isMuseworldQuote(quoteKey: string | null | undefined): boolean {
   return quoteKey === "museworld";
 }
 
-/** Whether a quote earns a brand badge (QuoteBrandBadge renders something for it). */
-export function hasQuoteBrandBadge(quoteKey: string | null | undefined): boolean {
-  return isTwigQuote(quoteKey) || isGitlawbQuote(quoteKey) || isMuseworldQuote(quoteKey);
+type Brand = "twig" | "gitlawb" | "museworld";
+/** The brand a quote earns a badge for, if any: TWIG, GITLAWB or Museworld's official one. The one list of brands. */
+function brandOf(quoteKey: string | null | undefined): Brand | null {
+  if (isTwigQuote(quoteKey)) return "twig";
+  if (isGitlawbQuote(quoteKey)) return "gitlawb";
+  if (isMuseworldQuote(quoteKey)) return "museworld";
+  return null;
 }
 
-/** The brand badge a quote earns, if any: TWIG's, GITLAWB's or Museworld's official one. One place for every list to call. */
+/** Whether a quote earns a brand badge (QuoteBrandBadge renders something for it). */
+export function hasQuoteBrandBadge(quoteKey: string | null | undefined): boolean {
+  return brandOf(quoteKey) !== null;
+}
+
+/** A quote's brand badge, or nothing. One place for every list to call; `satisfies` keeps it in step with `Brand`. */
 export function QuoteBrandBadge({ quoteKey, size = "sm", className = "" }: { quoteKey: string | null | undefined; size?: "sm" | "md"; className?: string }) {
-  if (isTwigQuote(quoteKey)) return <TwigBadge size={size} className={className} />;
-  if (isGitlawbQuote(quoteKey)) return <GitlawbBadge size={size} className={className} />;
-  if (isMuseworldQuote(quoteKey)) return <MuseworldBadge size={size} className={className} />;
-  return null;
+  const brand = brandOf(quoteKey);
+  if (brand === null) return null;
+  return ({
+    twig: <TwigBadge size={size} className={className} />,
+    gitlawb: <GitlawbBadge size={size} className={className} />,
+    museworld: <MuseworldBadge size={size} className={className} />,
+  } satisfies Record<Brand, React.ReactElement>)[brand];
 }

@@ -9,8 +9,7 @@ import TokenAvatar from "./TokenAvatar";
 import ImageUpload from "./ImageUpload";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import LaunchFeeSettings, { type FeeBeneficiary } from "./LaunchFeeSettings";
-import GitlawbBadge from "./GitlawbBadge";
-import TwigBadge from "./TwigBadge";
+import { QuoteBrandBadge } from "./MuseworldBadge";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
@@ -19,12 +18,12 @@ import { bpsToPct, buildRecipients, describeShares, emptyRow, isBurnAddress, typ
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { uppercaseInPlace } from "@/lib/launchpad/symbol-input";
 import { resolveCustomMcapInput, resolveFirstBuyInput } from "@/lib/launchpad/decimal-input";
-import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
+import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUnitsExact, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, gasReserveInQuote, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
-import { TWIG_WRAP_URL, twigUsdFromGitlawb } from "@/lib/launchpad/twig";
+import { TWIG_WRAP_URL, gitlawbLinkedUsd } from "@/lib/launchpad/twig";
 import { parseXHandle } from "@/lib/launchpad/xHandle";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, DEFAULT_CHAIN, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
@@ -70,7 +69,7 @@ const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the qu
 const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock: { pays: string; badge: string; empty: string; issuer: string } | null }> = {
   base: {
     blurb: "Priced in ETH, TWIG or a Coinbase tokenized stock. Gas ≈ cents.",
-    gitlawbOrigin: " on Base",
+    gitlawbOrigin: "", // the Base form offers TWIG, not GITLAWB, so this copy is never shown there
     stock: {
       pays: "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
       badge: "Coinbase stock",
@@ -175,11 +174,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const [stock, setStock] = useState<Quote | null>(null);
   const [stockQ, setStockQ] = useState("");
   const [stockHits, setStockHits] = useState<Quote[]>([]);
-  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price.
+  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price (gitlawbLinkedUsd).
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
-  const quote: Quote = staticQuote.key === "gitlawb" ? { ...staticQuote, usd: gitlawbUsd } : staticQuote.key === "twig" ? { ...staticQuote, usd: twigUsdFromGitlawb(gitlawbUsd) } : staticQuote;
+  const linkedUsd = gitlawbLinkedUsd(staticQuote.key, gitlawbUsd);
+  const quote: Quote = linkedUsd === undefined ? staticQuote : { ...staticQuote, usd: linkedUsd };
   // the branded quote this chain's form offers, if any: TWIG on Base, GITLAWB on Robinhood Chain
-  const brandQuoteKey = cfg.quotes.some((q) => q.key === "twig") ? "twig" : cfg.quotes.some((q) => q.key === "gitlawb") ? "gitlawb" : null;
+  const brandQuote = cfg.quotes.find((q) => q.key === "twig") ?? cfg.quotes.find((q) => q.key === "gitlawb") ?? null;
+  // TWIG and GITLAWB: badged, priced at GITLAWB's live price, millions of units per dollar
+  const isBrandQuote = quote.key === "twig" || quote.key === "gitlawb";
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;
   const gasReserve = GAS_RESERVE_WEI[chain];
@@ -272,14 +274,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
-  // "1M TWIG", not "1000000 TWIG": the same compact units the preset chips use
-  const initialBuyLabel = `${fmtQuoteUnits(Number(initialBuy.trim()), quote.decimals)} ${quote.symbol}`;
+  // "1,000,000 TWIG", not "1000000 TWIG": every digit of what the buy will send, grouped (never rounded, it is what the creator confirms)
+  const initialBuyLabel = initialBuyRaw ? `${fmtUnitsExact(initialBuyRaw, quote.decimals)} ${quote.symbol}` : "";
   const errors: string[] = [];
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
   if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: use 1–10 English letters (A–Z) or digits (0–9).");
   if (startTick === null) errors.push("Starting market cap must be a positive number.");
   if (quoteKey === "stock" && !stock) errors.push(STOCK_PICK_MESSAGE);
-  if ((quoteKey === "gitlawb" || quoteKey === "twig") && quote.usd === null && !customMcap.trim() && startTick === null) errors.push(`${quote.symbol} price unavailable right now: enter a custom starting market cap in ${quote.symbol}, or reload.`);
+  if (isBrandQuote && quote.usd === null && !customMcap.trim() && startTick === null) errors.push(`${quote.symbol} price unavailable right now: enter a custom starting market cap in ${quote.symbol}, or reload.`);
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
   const xParsed = parseXHandle(x);
@@ -492,20 +494,16 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 ))}
               </div>
               <span className="text-xs text-muted">
-                {quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : quote.key === "twig" ? "Buyers pay with TWIG; fees are paid in TWIG, or burned." : quote.key === "gitlawb" ? "Buyers pay with GITLAWB; fees are paid in GITLAWB, or burned." : quote.key === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : "Buyers pay with ETH."}
+                {quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : isBrandQuote ? `Buyers pay with ${quote.symbol}; fees are paid in ${quote.symbol}, or burned.` : quote.key === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : "Buyers pay with ETH."}
               </span>
-              {brandQuoteKey === "twig" && quote.key !== "twig" ? (
-                <button type="button" onClick={() => { setQuoteKey("twig"); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title="Pair with TWIG and your token carries the TWIG badge everywhere on the site">
-                  Pair with TWIG, get the <TwigBadge /> badge
-                </button>
-              ) : brandQuoteKey === "gitlawb" && quote.key !== "gitlawb" ? (
-                <button type="button" onClick={() => { setQuoteKey("gitlawb"); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title="Pair with GITLAWB and your token carries the GITLAWB badge everywhere on the site">
-                  Pair with GITLAWB, get the <GitlawbBadge /> badge
+              {brandQuote && quote.key !== brandQuote.key ? (
+                <button type="button" onClick={() => { setQuoteKey(brandQuote.key); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title={`Pair with ${brandQuote.symbol} and your token carries the ${brandQuote.symbol} badge everywhere on the site`}>
+                  Pair with {brandQuote.symbol}, get the <QuoteBrandBadge quoteKey={brandQuote.key} /> badge
                 </button>
               ) : null}
             </div>
           ) : null}
-          {quoteKey === "twig" ? (
+          {isBrandQuote ? (
             <div className="space-y-2">
               <span className="inline-flex items-center gap-2 h-9 pl-1.5 pr-3 rounded-full border border-brand bg-brand-soft text-brand text-sm font-semibold">
                 {quote.logo ? (
@@ -517,25 +515,13 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price unavailable</span>}
               </span>
               <p className={helper}>
-                Your token carries the <TwigBadge /> badge on the launch list, trending, the activity feed, its page and its share card. TWIG is Twigpine&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and every trading fee burns TWIG. Priced at GITLAWB&apos;s price, from the Uniswap v4 WETH/GITLAWB pool on Base.{" "}
-                <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">wrap.twigpine.com ↗</a>
-              </p>
-            </div>
-          ) : null}
-          {quoteKey === "gitlawb" ? (
-            <div className="space-y-2">
-              <span className="inline-flex items-center gap-2 h-9 pl-1.5 pr-3 rounded-full border border-brand bg-brand-soft text-brand text-sm font-semibold">
-                {quote.logo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={quote.logo} alt="" width={22} height={22} className="rounded-md" />
-                ) : null}
-                {quote.symbol}
-                <span className="font-normal text-xs opacity-80">{quote.name}</span>
-                {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price unavailable</span>}
-              </span>
-              <p className={helper}>
-                Your token carries the <GitlawbBadge /> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Gitlawb&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool on Base.{" "}
-                <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">gitlawb.com ↗</a>
+                Your token carries the <QuoteBrandBadge quoteKey={quote.key} /> badge on the launch list, trending, the activity feed, its page and its share card.{" "}
+                {quote.key === "twig" ? (
+                  <>TWIG is Twigpine&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and every trading fee burns TWIG. Priced at GITLAWB&apos;s price, from the Uniswap v4 WETH/GITLAWB pool on Base.</>
+                ) : (
+                  <>GITLAWB is Gitlawb&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool on Base.</>
+                )}{" "}
+                <a href={quote.key === "twig" ? TWIG_WRAP_URL : GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{quote.key === "twig" ? "wrap.twigpine.com" : "gitlawb.com"} ↗</a>
               </p>
             </div>
           ) : null}
@@ -725,8 +711,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           {fdvPreview !== null && tokensPerEth !== null ? (
             <p className="text-sm text-body">
               Opens at <span className="font-mono font-bold text-ink tnum">{cap(fdvPreview).main}</span>
-              <span className="font-mono text-muted tnum"> · {cap(fdvPreview).detail}</span> fully diluted. The first {quote.key === "gitlawb" || quote.key === "twig" ? "1M " : ""}{quote.symbol} buys about{" "}
-              <span className="font-mono font-bold text-ink tnum">{fmtCompact(tokensPerEth * (quote.key === "gitlawb" || quote.key === "twig" ? 1e6 : 1), 0)}</span> tokens, then the price climbs along the curve.
+              <span className="font-mono text-muted tnum"> · {cap(fdvPreview).detail}</span> fully diluted. The first {isBrandQuote ? "1M " : ""}{quote.symbol} buys about{" "}
+              <span className="font-mono font-bold text-ink tnum">{fmtCompact(tokensPerEth * (isBrandQuote ? 1e6 : 1), 0)}</span> tokens, then the price climbs along the curve.
             </p>
           ) : null}
         </section>
@@ -886,7 +872,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <div className="font-mono text-xs text-muted truncate">{symbolClean || "TICKER"}</div>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
-              {quote.key === "twig" ? <TwigBadge size="md" /> : quote.key === "gitlawb" ? <GitlawbBadge size="md" /> : null}
+              <QuoteBrandBadge quoteKey={quote.key} size="md" />
               <FeeChip lpFee={feePips} mode={feeMode} />
             </div>
           </div>

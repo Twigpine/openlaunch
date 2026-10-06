@@ -9,7 +9,7 @@ import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD } from "./gitlawb.ts";
 import { MCAP_USD_TARGETS, capEntry, capPresets } from "./market-cap.ts";
 import { quotePillOf } from "./ogcard.ts";
 import { FILTERS, filterOnChain, isFilter, matchesFilter } from "./search.ts";
-import { TWIG_ADDRESS, TWIG_ADDRESSES, TWIG_LOGO_PATH, isTwigAddress, twigUsdFromGitlawb } from "./twig.ts";
+import { TWIG_ADDRESS, TWIG_ADDRESSES, TWIG_LOGO_PATH, gitlawbLinkedUsd, twigUsdFromGitlawb } from "./twig.ts";
 import { cleanQuoteSymbol } from "./unlisted-quote.ts";
 
 /**
@@ -31,8 +31,6 @@ test("TWIG resolves on Base by address, with its logo; nowhere else", () => {
     assert.equal(TWIG_ADDRESSES[k], null, `${k}: TWIG is not bridged`);
     assert.equal(quoteInfo(k, TWIG_ADDRESS).key, "other", `${k}: the same address is some other token`);
   }
-  assert.ok(isTwigAddress("0x6AC18BCF4EDE02591D4917452700EA5EAAEA13C1", "base"));
-  assert.ok(!isTwigAddress(TWIG_ADDRESS, "robinhood"));
   assert.ok(listedQuoteAddresses("base").includes(TWIG_ADDRESS), "known, so the indexer does not treat it as unlisted");
 });
 
@@ -51,17 +49,22 @@ test("the Base form offers ETH then TWIG; GITLAWB leaves the Base form but stays
 test("TWIG's USD is exactly GITLAWB's, and unknown while GITLAWB's is", () => {
   assert.equal(twigUsdFromGitlawb(0.0000227), 0.0000227);
   for (const bad of [null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(twigUsdFromGitlawb(bad), null, String(bad));
+  // the one rule every caller uses: GITLAWB and TWIG take GITLAWB's price; every other quote keeps its own (undefined)
+  assert.equal(gitlawbLinkedUsd("gitlawb", 0.0000227), 0.0000227);
+  assert.equal(gitlawbLinkedUsd("twig", 0.0000227), 0.0000227);
+  assert.equal(gitlawbLinkedUsd("twig", null), null);
+  for (const k of ["eth", "usdg", "usdc", "museworld", "stock", "other"]) assert.equal(gitlawbLinkedUsd(k, 0.0000227), undefined, k);
 });
 
 test("server: TWIG takes GITLAWB's price in rows, sorts and the quotes API; never its own thin pool", () => {
   const q = src("queries.ts");
-  assert.match(q, /if \(q\.key === "twig"\) return \{ \.\.\.q, usd: twigUsdFromGitlawb\(gitlawbUsdNow\) \};/);
-  assert.match(q, /const twigFactor = twigUsdFromGitlawb\(gitlawbUsdNow\) \?\? 0;/);
-  assert.match(q, /WHEN \$\{quoteArms\("twig"\)\} THEN \$\{twigFactor\}::double precision/);
+  assert.match(q, /const linked = gitlawbLinkedUsd\(q\.key, gitlawbUsdNow\);[^\n]*\n  if \(linked !== undefined\) return \{ \.\.\.q, usd: linked \};/);
+  assert.match(q, /const isGitlawbPriced = \(\) => db`\(\$\{isGitlawb\(\)\} OR \$\{quoteArms\("twig"\)\}\)`;/);
+  assert.match(q, /WHEN \$\{isGitlawbPriced\(\)\} THEN \$\{gitlawbFactor\}::double precision/, "TWIG ranks at GITLAWB's price in the USD sorts");
   assert.match(q, /if \(opts\.filter === "twig"\) conds\.push\(db`\$\{quoteArms\("twig"\)\}`\);/);
   assert.match(q, /t\.twig_burned = add\(t\.twig_burned, r\.burned\)/);
-  assert.match(src("../../app/api/quotes/route.ts"), /x\.key === "twig" \? twigUsdFromGitlawb\(gl\)/);
-  assert.match(src("../../components/launchpad/LaunchForm.tsx"), /staticQuote\.key === "twig" \? \{ \.\.\.staticQuote, usd: twigUsdFromGitlawb\(gitlawbUsd\) \}/);
+  assert.match(src("../../app/api/quotes/route.ts"), /gitlawbLinkedUsd\(x\.key, gl\)/);
+  assert.match(src("../../components/launchpad/LaunchForm.tsx"), /const linkedUsd = gitlawbLinkedUsd\(staticQuote\.key, gitlawbUsd\);/);
   assert.doesNotMatch(src("twig.ts"), /getSlot0|StateView|readContract/, "no price read of its own");
 });
 
@@ -94,12 +97,15 @@ test("presets: dollar caps from the live price, TWIG-unit buys like GITLAWB's", 
 test("badge: Twigpine tile in every list, the form, the token page and the share card", () => {
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public", TWIG_LOGO_PATH)));
   const brand = src("../../components/launchpad/MuseworldBadge.tsx");
-  assert.match(brand, /if \(isTwigQuote\(quoteKey\)\) return <TwigBadge/);
+  assert.match(brand, /if \(isTwigQuote\(quoteKey\)\) return "twig";/);
+  assert.match(brand, /twig: <TwigBadge size=\{size\} className=\{className\} \/>/);
+  assert.match(brand, /return brandOf\(quoteKey\) !== null;/, "hasQuoteBrandBadge reads the same list QuoteBrandBadge renders from");
   for (const f of ["LaunchRow.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
   assert.match(src("../../components/launchpad/TrendingStrip.tsx"), /hasQuoteBrandBadge\(row\.quote_key\)/, "TWIG rows show the badge, not the bare symbol");
   const form = src("../../components/launchpad/LaunchForm.tsx");
-  assert.match(form, /Pair with TWIG, get the <TwigBadge \/> badge/);
-  assert.match(form, /quote\.key === "twig" \? <TwigBadge size="md" \/>/);
+  assert.match(form, /const brandQuote = cfg\.quotes\.find\(\(q\) => q\.key === "twig"\) \?\? cfg\.quotes\.find\(\(q\) => q\.key === "gitlawb"\) \?\? null;/, "TWIG is the nudge wherever the form offers it");
+  assert.match(form, /Pair with \{brandQuote\.symbol\}, get the <QuoteBrandBadge quoteKey=\{brandQuote\.key\} \/> badge/);
+  assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} size="md" \/>/);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label="Paired with TWIG" \/>/);
   assert.deepEqual(quotePillOf("twig", "TWIG"), { symbol: "TWIG", ticker: "TW", kind: "twig" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /card\.quote\.kind === "twig"/);
