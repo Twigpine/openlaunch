@@ -20,7 +20,10 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [over, setOver] = useState(false);
-  const preview = /^https?:\/\//.test(value.trim()) ? value.trim() : null;
+  // checked and rendered as one trimmed string, its scheme fixed by a prefix check: whatever is typed into the URL field
+  // can only ever preview as an http(s) image, never as a script URL (and CodeQL can see the guard)
+  const url = value.trim();
+  const preview = url.startsWith("http") && /^https?:\/\//.test(url) ? url : null;
   const banner = kind === "banner";
   const max = maxBytesFor(kind);
 
