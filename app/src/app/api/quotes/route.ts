@@ -6,12 +6,13 @@ import { searchStocks } from "@/lib/launchpad/stocks";
 import { searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
 import { memo } from "@/lib/launchpad/memo";
 import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
+import { twigUsdFromGitlawb } from "@/lib/launchpad/twig";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → quote assets the launch form may offer on that chain:
- * the fixed ones (ETH, USDG, USDC, GITLAWB — with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD):
+ * the fixed ones (ETH, USDG, USDC, TWIG, GITLAWB — TWIG and GITLAWB with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD):
  * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc.
  * Only registry addresses are ever labelled as stocks.
  */
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
   if (!isChainKey(chain)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const q = (u.searchParams.get("q") ?? "").slice(0, 12);
   const gl = await gitlawbUsd(); // one price for both chains: the Robinhood token is the Base token bridged 1:1
-  const fixed = launchpad(chain).quotes.map((x) => ({ ...x, usd: x.key === "gitlawb" ? gl : x.usd }));
+  const fixed = launchpad(chain).quotes.map((x) => ({ ...x, usd: x.key === "gitlawb" ? gl : x.key === "twig" ? twigUsdFromGitlawb(gl) : x.usd })); // TWIG unwraps 1:1 to GITLAWB
   const stocks = await memo(`quotes:stocks:${chain}:${q.toUpperCase()}`, 30_000, async () => {
     let hits: { address: string; symbol: string; name: string; decimals: number; logo: string | null }[];
     const source = STOCK_SOURCE[chain];

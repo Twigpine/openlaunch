@@ -1,6 +1,7 @@
 import { BadgeCheck } from "lucide-react";
 import { MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH, MUSEWORLD_SYMBOL } from "@/lib/launchpad/museworld";
 import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
+import TwigBadge, { isTwigQuote } from "./TwigBadge";
 
 /** Museworld's logo tile (white "m" and sparkle on Museworld blue, transparent corners baked in), served from our origin. */
 export function MuseworldMark({ size = 16, className = "" }: { size?: number; className?: string }) {
@@ -32,8 +33,14 @@ export function isMuseworldQuote(quoteKey: string | null | undefined): boolean {
   return quoteKey === "museworld";
 }
 
-/** The brand badge a quote earns, if any: GITLAWB's or Museworld's official one. One place for every list to call. */
+/** Whether a quote earns a brand badge (QuoteBrandBadge renders something for it). */
+export function hasQuoteBrandBadge(quoteKey: string | null | undefined): boolean {
+  return isTwigQuote(quoteKey) || isGitlawbQuote(quoteKey) || isMuseworldQuote(quoteKey);
+}
+
+/** The brand badge a quote earns, if any: TWIG's, GITLAWB's or Museworld's official one. One place for every list to call. */
 export function QuoteBrandBadge({ quoteKey, size = "sm", className = "" }: { quoteKey: string | null | undefined; size?: "sm" | "md"; className?: string }) {
+  if (isTwigQuote(quoteKey)) return <TwigBadge size={size} className={className} />;
   if (isGitlawbQuote(quoteKey)) return <GitlawbBadge size={size} className={className} />;
   if (isMuseworldQuote(quoteKey)) return <MuseworldBadge size={size} className={className} />;
   return null;

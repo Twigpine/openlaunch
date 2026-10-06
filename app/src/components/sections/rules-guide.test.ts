@@ -17,6 +17,9 @@ test("the rules guide retains native navigation and visible risk disclosures", (
   assert.match(page, /every launch stays in the New tab/i);
   assert.match(page, /GITLAWB-quoted pool/);
   assert.match(page, /burns GITLAWB on every trade/);
+  assert.match(page, /TWIG- or GITLAWB-quoted pool/);
+  assert.match(page, /burns TWIG on every trade/);
+  assert.match(page, /one TWIG counts as one GITLAWB/);
   assert.match(page, /a locked pool does not make a token valuable/);
   assert.match(page, /Nothing is refundable/);
   assert.match(page, /no anti-snipe mechanism/);

@@ -10,6 +10,7 @@ import ImageUpload from "./ImageUpload";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import LaunchFeeSettings, { type FeeBeneficiary } from "./LaunchFeeSettings";
 import GitlawbBadge from "./GitlawbBadge";
+import TwigBadge from "./TwigBadge";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
@@ -23,6 +24,7 @@ import { BUY_PRESETS, defaultFirstBuy, gasReserveInQuote, suggestFirstBuy } from
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
+import { TWIG_WRAP_URL, twigUsdFromGitlawb } from "@/lib/launchpad/twig";
 import { parseXHandle } from "@/lib/launchpad/xHandle";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, DEFAULT_CHAIN, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
@@ -67,7 +69,7 @@ const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the qu
 /** Per-chain copy in the form. A chain's quotes and stock registry differ, so its sentences do too; `stock` is null where no registry exists. */
 const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock: { pays: string; badge: string; empty: string; issuer: string } | null }> = {
   base: {
-    blurb: "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents.",
+    blurb: "Priced in ETH, TWIG or a Coinbase tokenized stock. Gas ≈ cents.",
     gitlawbOrigin: " on Base",
     stock: {
       pays: "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
@@ -173,9 +175,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const [stock, setStock] = useState<Quote | null>(null);
   const [stockQ, setStockQ] = useState("");
   const [stockHits, setStockHits] = useState<Quote[]>([]);
-  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null
+  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price.
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
-  const quote: Quote = staticQuote.key === "gitlawb" ? { ...staticQuote, usd: gitlawbUsd } : staticQuote;
+  const quote: Quote = staticQuote.key === "gitlawb" ? { ...staticQuote, usd: gitlawbUsd } : staticQuote.key === "twig" ? { ...staticQuote, usd: twigUsdFromGitlawb(gitlawbUsd) } : staticQuote;
+  // the branded quote this chain's form offers, if any: TWIG on Base, GITLAWB on Robinhood Chain
+  const brandQuoteKey = cfg.quotes.some((q) => q.key === "twig") ? "twig" : cfg.quotes.some((q) => q.key === "gitlawb") ? "gitlawb" : null;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;
   const gasReserve = GAS_RESERVE_WEI[chain];
@@ -268,12 +272,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
+  // "1M TWIG", not "1000000 TWIG": the same compact units the preset chips use
+  const initialBuyLabel = `${fmtQuoteUnits(Number(initialBuy.trim()), quote.decimals)} ${quote.symbol}`;
   const errors: string[] = [];
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
   if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: use 1–10 English letters (A–Z) or digits (0–9).");
   if (startTick === null) errors.push("Starting market cap must be a positive number.");
   if (quoteKey === "stock" && !stock) errors.push(STOCK_PICK_MESSAGE);
-  if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim() && startTick === null) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or reload.");
+  if ((quoteKey === "gitlawb" || quoteKey === "twig") && quote.usd === null && !customMcap.trim() && startTick === null) errors.push(`${quote.symbol} price unavailable right now: enter a custom starting market cap in ${quote.symbol}, or reload.`);
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
   const xParsed = parseXHandle(x);
@@ -464,7 +470,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               );
             })}
           </div>
-          {/* every chain offers at least one fixed quote plus tokenized stocks; Base also offers GITLAWB */}
+          {/* every chain offers at least one fixed quote plus tokenized stocks; Base also offers TWIG, Robinhood Chain GITLAWB */}
           {cfg.quotes.length > 0 ? (
             <div className="flex items-center gap-2 flex-wrap">
               <span className={label}>Priced in</span>
@@ -486,13 +492,34 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 ))}
               </div>
               <span className="text-xs text-muted">
-                {quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : quote.key === "gitlawb" ? "Buyers pay with GITLAWB; fees are paid in GITLAWB, or burned." : quote.key === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : "Buyers pay with ETH."}
+                {quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : quote.key === "twig" ? "Buyers pay with TWIG; fees are paid in TWIG, or burned." : quote.key === "gitlawb" ? "Buyers pay with GITLAWB; fees are paid in GITLAWB, or burned." : quote.key === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : "Buyers pay with ETH."}
               </span>
-              {cfg.quotes.some((q) => q.key === "gitlawb") && quote.key !== "gitlawb" ? (
+              {brandQuoteKey === "twig" && quote.key !== "twig" ? (
+                <button type="button" onClick={() => { setQuoteKey("twig"); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title="Pair with TWIG and your token carries the TWIG badge everywhere on the site">
+                  Pair with TWIG, get the <TwigBadge /> badge
+                </button>
+              ) : brandQuoteKey === "gitlawb" && quote.key !== "gitlawb" ? (
                 <button type="button" onClick={() => { setQuoteKey("gitlawb"); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title="Pair with GITLAWB and your token carries the GITLAWB badge everywhere on the site">
                   Pair with GITLAWB, get the <GitlawbBadge /> badge
                 </button>
               ) : null}
+            </div>
+          ) : null}
+          {quoteKey === "twig" ? (
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-2 h-9 pl-1.5 pr-3 rounded-full border border-brand bg-brand-soft text-brand text-sm font-semibold">
+                {quote.logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={quote.logo} alt="" width={22} height={22} className="rounded-md" />
+                ) : null}
+                {quote.symbol}
+                <span className="font-normal text-xs opacity-80">{quote.name}</span>
+                {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price unavailable</span>}
+              </span>
+              <p className={helper}>
+                Your token carries the <TwigBadge /> badge on the launch list, trending, the activity feed, its page and its share card. TWIG is Twigpine&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and every trading fee burns TWIG. Priced at GITLAWB&apos;s price, from the Uniswap v4 WETH/GITLAWB pool on Base.{" "}
+                <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">wrap.twigpine.com ↗</a>
+              </p>
             </div>
           ) : null}
           {quoteKey === "gitlawb" ? (
@@ -698,8 +725,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           {fdvPreview !== null && tokensPerEth !== null ? (
             <p className="text-sm text-body">
               Opens at <span className="font-mono font-bold text-ink tnum">{cap(fdvPreview).main}</span>
-              <span className="font-mono text-muted tnum"> · {cap(fdvPreview).detail}</span> fully diluted. The first {quote.key === "gitlawb" ? "1M " : ""}{quote.symbol} buys about{" "}
-              <span className="font-mono font-bold text-ink tnum">{fmtCompact(tokensPerEth * (quote.key === "gitlawb" ? 1e6 : 1), 0)}</span> tokens, then the price climbs along the curve.
+              <span className="font-mono text-muted tnum"> · {cap(fdvPreview).detail}</span> fully diluted. The first {quote.key === "gitlawb" || quote.key === "twig" ? "1M " : ""}{quote.symbol} buys about{" "}
+              <span className="font-mono font-bold text-ink tnum">{fmtCompact(tokensPerEth * (quote.key === "gitlawb" || quote.key === "twig" ? 1e6 : 1), 0)}</span> tokens, then the price climbs along the curve.
             </p>
           ) : null}
         </section>
@@ -843,7 +870,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           <p className="text-xs text-muted leading-relaxed">
             One transaction on {CHAIN_LABEL}: deploys the token, creates the Uniswap v4 pool ({quote.symbol} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents.
             Nothing is refundable and nothing can be edited afterwards.
-            {initialBuyRaw ? ` Then a second transaction buys ${initialBuy.trim()} ${quote.symbol} of your token${quote.key !== "eth" ? " (with a one-time approval the first time)" : ""}; if you reject it, the launch still stands.` : ""}
+            {initialBuyRaw ? ` Then a second transaction buys ${initialBuyLabel} of your token${quote.key !== "eth" ? " (with a one-time approval the first time)" : ""}; if you reject it, the launch still stands.` : ""}
           </p>
         </section>
       </form>
@@ -859,14 +886,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <div className="font-mono text-xs text-muted truncate">{symbolClean || "TICKER"}</div>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
-              {quote.key === "gitlawb" ? <GitlawbBadge size="md" /> : null}
+              {quote.key === "twig" ? <TwigBadge size="md" /> : quote.key === "gitlawb" ? <GitlawbBadge size="md" /> : null}
               <FeeChip lpFee={feePips} mode={feeMode} />
             </div>
           </div>
           {description.trim() ? <p className="mt-3 text-sm text-body line-clamp-3">{description.trim()}</p> : null}
           <dl className="mt-4 grid grid-cols-2 gap-2">
             <Mini k="Opens at" v={fdvPreview !== null ? cap(fdvPreview).main : "—"} sub={fdvPreview !== null ? cap(fdvPreview).detail : CHAIN_LABELS[chain]} />
-            <Mini k="First buy" v={initialBuyRaw ? `${initialBuy.trim()} ${quote.symbol}` : "none"} sub={buyPreview ? `${buySource === "suggested" ? "suggested · " : ""}~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
+            <Mini k="First buy" v={initialBuyRaw ? initialBuyLabel : "none"} sub={buyPreview ? `${buySource === "suggested" ? "suggested · " : ""}~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
             <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feeRouteSub} />
             <Mini k="Platform fee" v="0" sub="always" accent />
           </dl>
@@ -877,7 +904,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
             ["Opens a Uniswap v4 pool", `${quote.symbol} / your token on ${CHAIN_LABELS[chain]}, no hook`],
             ["Locks 100% of supply as liquidity", "the position NFT lives in an ownerless locker, forever"],
             ["Routes trading fees", feePips === 0 ? "nothing to route at 0%" : feeMode === "burn" ? "burned at collect time" : recipients.length === 0 ? "to the beneficiaries you name, claimable any time" : `${describeShares(recipients, shortAddr)}, claimable any time`],
-            ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuy.trim()} ${quote.symbol} right after the launch confirms, with a second wallet prompt`]] : []),
+            ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuyLabel} right after the launch confirms, with a second wallet prompt`]] : []),
           ].map(([t, d]) => (
             <li key={t} className="flex gap-2.5">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-brand shrink-0" aria-hidden />
