@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import WalletAvatar from "@/components/WalletAvatar";
@@ -10,6 +10,7 @@ import { useLive } from "./LiveProvider";
 import { toast } from "./TxToasts";
 import { btn } from "@/components/ui";
 import { buildModMessage, buildPostMessage, buildReportMessage, POST_MAX, REPORT_REASONS, validateBody, type ReportReason } from "@/lib/launchpad/posts";
+import { COMMENTS_PAGE, clearDraft, groupReplies, initialPostsLoadState, loadCommentDraft, nextPostsLoadState, resolveReplyTarget, saveDraft, shouldIgnoreLoad, visibleTopIds } from "@/lib/launchpad/post-threads";
 import type { PostRow } from "@/lib/launchpad/postsServer";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
@@ -51,25 +52,79 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(0);
+  const [shownCount, setShownCount] = useState(COMMENTS_PAGE);
+  // True once the first load() for the current chain/token has settled.
+  // A restored replyTo cannot be validated until then: posts starts empty, so
+  // an empty list must not read as "parent missing" before the fetch, nor as
+  // "parent exists" for signing. Submit of a restored reply blocks meanwhile.
+  // loadError arms the Retry button; postsLoaded stays false on failure so a
+  // restored reply keeps pending and the draft is never silently top-level.
+  const [{ postsLoaded, loadError }, setLoadState] = useState(initialPostsLoadState);
+  // Draft restores async after hydration so server and client render the same empty composer first.
+  // The loaded value is always assigned (even when empty) so text typed for one
+  // token can never leak into — and be submitted from — another token's composer.
+  // The reply destination restores with the body: otherwise a reload turns a
+  // reply draft into a top-level post (parentId: null).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const d = loadCommentDraft(chain, token);
+      setBody(d.body.slice(0, POST_MAX));
+      setReplyTo(d.parentId);
+      setShownCount(COMMENTS_PAGE);
+      setPosts([]);
+      setLoadState(initialPostsLoadState);
+      setErr(null);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [chain, token]);
   const seenPosts = useRef<string>("");
   const isCreator = Boolean(address && address.toLowerCase() === launcher.toLowerCase());
+  // Guard against stale loads: a fetch for token A resolving after the switch
+  // to token B must not overwrite B's posts or unblock B's reply validation.
+  // Same generation + AbortController pattern as PriceChart.
+  const request = useRef<AbortController | null>(null);
+  const generation = useRef(0);
 
   const load = useCallback(async () => {
+    const id = ++generation.current;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    const ignored = () => shouldIgnoreLoad(id, generation.current, controller.signal.aborted);
     try {
-      const res = await fetch(`/api/posts?chain=${chain}&token=${token}`, { cache: "no-store" });
-      if (!res.ok) return;
+      const res = await fetch(`/api/posts?chain=${chain}&token=${token}`, { cache: "no-store", signal: controller.signal });
+      if (ignored()) return;
+      if (!res.ok) {
+        // Failure, not proof of anything: keep postsLoaded false so a restored
+        // reply stays pending (submit blocks) and the draft keeps its destination.
+        setLoadState((prev) => nextPostsLoadState(prev, { kind: "http-error", status: res.status }));
+        return;
+      }
       const d = (await res.json()) as { posts: PostRow[]; muted: boolean };
+      if (!Array.isArray(d.posts)) {
+        if (ignored()) return;
+        setLoadState((prev) => nextPostsLoadState(prev, { kind: "invalid" }));
+        return;
+      }
+      if (ignored()) return;
       setPosts(d.posts);
       setMuted(d.muted);
       setNow(nowMs());
+      setLoadState((prev) => nextPostsLoadState(prev, { kind: "ok" }));
     } catch {
-      /* keep */
+      if (ignored()) return;
+      setLoadState((prev) => nextPostsLoadState(prev, { kind: "network-error" }));
     }
   }, [chain, token]);
 
   useEffect(() => {
-    const id = setTimeout(() => void load(), 0);
-    return () => clearTimeout(id);
+    const lifetime = generation;
+    const timer = setTimeout(() => void load(), 0);
+    return () => {
+      clearTimeout(timer);
+      lifetime.current++;
+      request.current?.abort();
+    };
   }, [load]);
   // refresh when the shared poller says there is a newer post on this token
   useEffect(
@@ -85,6 +140,13 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
     [subscribe, chain, token, load],
   );
 
+  // A restored reply target is validated only after the first successful load.
+  // Before that a restored reply is pending and submit blocks instead of signing
+  // an unvalidated parent. After load the truncated posts window (latest 100) is
+  // not authoritative — a missing id there does not mean the parent is gone, so
+  // we preserve the target and let the server decide (no silent top-level fallback).
+  const { target: effectiveReplyTo, pending: validationPending } = resolveReplyTarget(replyTo, postsLoaded);
+
   async function submit() {
     if (!address) return;
     const v = validateBody(body);
@@ -92,18 +154,26 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       setErr(v.error);
       return;
     }
+    // Re-resolve here: posts may have changed since the last render.
+    const resolved = resolveReplyTarget(replyTo, postsLoaded);
+    if (resolved.pending) {
+      setErr("Loading comments — please try again in a moment.");
+      return;
+    }
+    const target = resolved.target;
     setBusy(true);
     setErr(null);
     try {
       const n = nonce();
       const ts = nowMs();
-      const message = buildPostMessage({ chain, token, wallet: address, nonce: n, ts, parentId: replyTo, body: v.body });
+      const message = buildPostMessage({ chain, token, wallet: address, nonce: n, ts, parentId: target, body: v.body });
       const { signature } = await signed(config, chain, message);
-      const res = await fetch("/api/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain, token, wallet: address, parentId: replyTo, body: v.body, nonce: n, ts, signature }) });
+      const res = await fetch("/api/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain, token, wallet: address, parentId: target, body: v.body, nonce: n, ts, signature }) });
       const d = (await res.json()) as { ok?: boolean; post?: PostRow; error?: string };
       if (!res.ok || !d.post) throw new Error(d.error ?? "post rejected");
       setPosts((cur) => [d.post!, ...cur]);
       setBody("");
+      clearDraft(chain, token);
       setReplyTo(null);
     } catch (e) {
       setErr(friendlyError(e));
@@ -145,8 +215,9 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
     }
   }
 
-  const top = posts.filter((p) => p.parent_id === null);
-  const replies = (id: number) => posts.filter((p) => p.parent_id === id).slice().reverse();
+  const { top, repliesById } = useMemo(() => groupReplies(posts), [posts]);
+  const visibleTop = useMemo(() => visibleTopIds(top, shownCount), [top, shownCount]);
+  const remaining = top.length - visibleTop.length;
 
   return (
     <section className={embedded ? "overflow-hidden bg-paper" : "rounded-2xl bg-card border border-line overflow-hidden"} id="comments">
@@ -172,39 +243,72 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
           </div>
         ) : (
           <div className="space-y-2">
-            {replyTo !== null ? (
+            {validationPending ? (
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted" role="status">
+                  Checking reply target…
+                </p>
+                {replyTo !== null ? (
+                  <p className="text-[11px] text-muted">
+                    Replying to #{replyTo}{" "}
+                    <button type="button" className="underline hover:text-ink" onClick={() => { setReplyTo(null); saveDraft(chain, token, body, null); }}>
+                      cancel
+                    </button>
+                  </p>
+                ) : null}
+                {loadError ? (
+                  <p className="text-[11px] text-down-ink" role="alert">
+                    {loadError}{" "}
+                    <button type="button" className="underline hover:text-ink" onClick={() => { setLoadState((prev) => ({ ...prev, loadError: null })); void load(); }}>
+                      Try again
+                    </button>
+                  </p>
+                ) : null}
+              </div>
+            ) : effectiveReplyTo !== null ? (
               <p className="text-[11px] text-muted">
-                Replying to #{replyTo}{" "}
-                <button type="button" className="underline hover:text-ink" onClick={() => setReplyTo(null)}>
+                Replying to #{effectiveReplyTo}{" "}
+                <button type="button" className="underline hover:text-ink" onClick={() => { setReplyTo(null); saveDraft(chain, token, body, null); }}>
                   cancel
                 </button>
               </p>
             ) : null}
             <textarea
               value={body}
-              onChange={(e) => setBody(e.target.value.slice(0, POST_MAX))}
+              onChange={(e) => {
+                const next = e.target.value.slice(0, POST_MAX);
+                setBody(next);
+                saveDraft(chain, token, next, effectiveReplyTo);
+              }}
               placeholder={`Say something about ${symbol}…`}
+              aria-label={`Comment about ${symbol}`}
+              aria-describedby={`comment-count-${chain}`}
               className="w-full rounded-xl bg-card border border-line-strong focus:border-brand focus:ring-4 focus:ring-brand/10 outline-none px-3 py-2 text-sm text-ink placeholder:text-faint min-h-16 resize-y"
             />
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted font-mono tnum">{POST_MAX - body.length}</span>
-              <button type="button" onClick={() => void submit()} disabled={busy || !body.trim()} className={btn.primarySm}>
-                {busy ? "Sign in wallet…" : replyTo !== null ? "Reply" : "Post"}
+              <span id={`comment-count-${chain}`} className="text-[11px] text-muted font-mono tnum">{POST_MAX - body.length}</span>
+              <button type="button" onClick={() => void submit()} disabled={busy || !body.trim() || validationPending} className={btn.primarySm}>
+                {busy ? "Sign in wallet…" : validationPending ? "Checking…" : effectiveReplyTo !== null ? "Reply" : "Post"}
               </button>
             </div>
-            {err ? <p className="text-xs text-down-ink">{err}</p> : null}
+            {POST_MAX - body.length <= 50 ? (
+              <p className="sr-only" role="status">{POST_MAX - body.length} characters remaining</p>
+            ) : null}
+            {err ? <p className="text-xs text-down-ink" role="alert">{err}</p> : null}
           </div>
         )}
       </div>
 
       <ul className="divide-y divide-line">
         {top.length === 0 ? <li className="px-4 py-8 text-center text-sm text-muted">No comments yet.</li> : null}
-        {top.map((p) => (
+        {visibleTop.map((p) => {
+          const thread = repliesById.get(p.id) ?? [];
+          return (
           <li key={p.id} className="px-4 py-3">
-            <PostItem p={p} now={now} canReply={isConnected && !muted} onReply={() => setReplyTo(p.id)} onReport={address && p.wallet !== address.toLowerCase() ? (r) => void report(p, r) : undefined} />
-            {replies(p.id).length ? (
+            <PostItem p={p} now={now} canReply={isConnected && !muted} onReply={() => { setReplyTo(p.id); if (body) saveDraft(chain, token, body, p.id); }} onReport={address && p.wallet !== address.toLowerCase() ? (r) => void report(p, r) : undefined} />
+            {thread.length ? (
               <ul className="mt-2 ml-6 pl-3 border-l border-line space-y-2">
-                {replies(p.id).map((r) => (
+                {thread.map((r) => (
                   <li key={r.id}>
                     <PostItem p={r} now={now} canReply={false} onReport={address && r.wallet !== address.toLowerCase() ? (x) => void report(r, x) : undefined} />
                   </li>
@@ -212,8 +316,22 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
               </ul>
             ) : null}
           </li>
-        ))}
+          );
+        })}
       </ul>
+      {remaining > 0 ? (
+        <div className="border-t border-line px-4 py-3 text-center">
+          <button
+            type="button"
+            onClick={() => setShownCount((n) => n + COMMENTS_PAGE)}
+            aria-label={`Show more comments, ${remaining} remaining, showing ${visibleTop.length} of ${top.length}`}
+            className="min-h-10 rounded-xl border border-line-strong px-4 text-sm font-medium text-ink hover:bg-card"
+          >
+            Show more
+          </button>
+          <p className="mt-1 text-[11px] text-muted" role="status">Showing {visibleTop.length} of {top.length} comments</p>
+        </div>
+      ) : null}
     </section>
   );
 }
