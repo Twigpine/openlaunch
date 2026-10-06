@@ -16,7 +16,7 @@
 .trigger:hover, .trigger[data-popup-open] { border-color: var(--color-line-strong); background: var(--color-line); }
 .triggerMark { position: relative; display: flex; flex-shrink: 0; }
 .connectionDot { position: absolute; right: 0; bottom: 0; width: 7px; height: 7px; background: var(--color-up); border: 2px solid var(--color-card); border-radius: 50%; }
-.triggerAddress { font: 400 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.triggerAddress { font: 400 12px var(--font-code); font-variant-numeric: tabular-nums; }
 .triggerNetwork { padding-left: 8px; border-left: 1px solid var(--color-line-strong); font: 500 10px var(--font-sans); color: var(--color-muted); }
 .chevron { color: var(--color-muted); transition: transform 160ms; }
 .trigger[data-popup-open] .chevron { transform: rotate(180deg); }
@@ -59,9 +59,9 @@
 .close:hover { color: var(--color-ink); background: var(--color-card); }
 .identity { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .identityText { min-width: 0; }
-.account { font: 400 20px var(--font-mono); letter-spacing: -.045em; }
+.account { font: 400 20px var(--font-code); letter-spacing: -.02em; }
 .provider { margin-top: 4px; font-size: 12px; color: var(--color-muted); overflow-wrap: anywhere; }
-.fullAddress { margin-top: 16px; font: 400 11px/1.75 var(--font-mono); color: var(--color-muted); overflow-wrap: anywhere; user-select: all; }
+.fullAddress { margin-top: 16px; font: 400 11px/1.75 var(--font-code); color: var(--color-muted); overflow-wrap: anywhere; user-select: all; }
 .shortcuts { display: flex; gap: 8px; margin: 12px 0 20px; }
 .shortcut { display: inline-flex; justify-content: center; align-items: center; gap: 7px; flex: 1; min-height: 44px; padding: 8px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-card); font-size: 12px; font-weight: 500; cursor: pointer; }
 .shortcut:hover { border-color: var(--color-line-strong); }
