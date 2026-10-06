@@ -10,9 +10,13 @@
 
 /* Chart code reads tokens at runtime; retain even tokens with no utility class. */
 @theme static {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-display: var(--font-unbounded), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* figures: every price, amount and count. The same Geist as the words, with tabular digits (see .font-mono below),
+     the way other launchpads set their numbers; a typewriter face for money read as a terminal, not a market. */
+  --font-mono: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  /* addresses and transaction hashes: a true monospace, so 0x strings line up and read character by character */
+  --font-code: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 
   /* surfaces */
   --color-paper: #fafaf8;
@@ -53,15 +57,68 @@
   --color-chart-grid: #f1f0ee;
   --color-chart-vol: #cbd5e1;
 
+  /* the dim second voice of a display headline: a neutral grey (no slate cast against the warm paper) */
+  --color-dim: #737373;
+  /* decorative glows (card edges, hover halos, beams, the hero grid): neutral on light, brand blue on dark,
+     so blue on light stays the action colour alone */
+  --color-glow: rgb(15 23 42 / 0.3);
+  --color-glow-soft: rgb(15 23 42 / 0.035);
+  /* segmented controls (components/vendor/toggle-group.tsx): a recessed track and a raised thumb that slides */
+  --color-track: #f1f1ef;
+  --color-thumb: #ffffff;
+
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.04);
   --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.06), 0 10px 28px rgba(15, 23, 42, 0.09);
   --shadow-sheet: 0 -8px 40px rgba(15, 23, 42, 0.12);
   --shadow-dialog: 0 24px 64px rgba(15, 23, 42, 0.18);
+  --shadow-track: inset 0 0 0 1px rgba(15, 23, 42, 0.05), inset 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-thumb: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.1), 0 3px 8px -3px rgba(15, 23, 42, 0.14);
+
+  /* Magic UI motion (components/vendor, MIT): each one stops under reduced motion at its call site */
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  --animate-shiny-text: shiny-text 8s infinite;
+  --animate-shine: shine var(--duration) infinite linear;
 }
+
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(calc(-100% - var(--gap))); } }
+@keyframes marquee-vertical { from { transform: translateY(0); } to { transform: translateY(calc(-100% - var(--gap))); } }
+@keyframes shiny-text {
+  0%, 90%, 100% { background-position: calc(-100% - var(--shiny-width)) 0; }
+  30%, 60% { background-position: calc(100% + var(--shiny-width)) 0; }
+}
+@keyframes shine {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  to { background-position: 0% 0%; }
+}
+
+/* A band of light that crosses a filled call to action now and then (and once, quickly, on hover). The host needs
+   relative + overflow-hidden. A shine, not a colour: white at low opacity over the button's own fill. */
+.bb-sheen::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, rgb(255 255 255 / 0.34) 50%, transparent 62%);
+  transform: translateX(-100%);
+  animation: bb-sheen 5s linear 1.2s infinite; /* a steady 1.2s crossing every 5s */
+}
+@keyframes bb-sheen { 0%, 76% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .bb-sheen::after { display: none; } }
+
+/* The hero's first-paint entrance: pure CSS so the words are there before any script runs. `--d` staggers it. */
+.bb-rise { animation: bb-rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+@keyframes bb-rise { from { opacity: 0; transform: translateY(12px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+@media (prefers-reduced-motion: reduce) { .bb-rise { animation: none; } }
 
 :root {
   color-scheme: light;
 }
+
+/* The page column, boxed like other launchpads: 72rem by default, and 80rem on the market pages (home and token),
+   which hold a .bb-mid element, so the board fits four cards a row and the chart sits beside its trade column, with
+   margins showing on any laptop screen. The header's resting row lines up with whichever column the page uses. */
+:root { --page-max: 72rem; --page-pad: 1rem; }
+:root:has(.bb-mid) { --page-max: 80rem; --page-pad: clamp(1rem, 2.5vw, 2rem); }
+.bb-page { width: 100%; max-width: var(--page-max); margin-inline: auto; padding-inline: var(--page-pad); }
 
 /* ── Dark: black ground, alpha ramp of white, near-zero chroma greys. The blue
    and green brighten because the light values drop under 3:1 on black. ── */
@@ -94,11 +151,18 @@
   --color-holder-good-bg: #06241a;
   --color-chart-grid: #1a1a1a;
   --color-chart-vol: #333333;
+  --color-dim: #8c8c8c;
+  --color-glow: #4d8bff;
+  --color-glow-soft: rgb(77 139 255 / 0.09);
+  --color-track: #000000;
+  --color-thumb: #232323;
   --color-scrim: #000000;
   --shadow-card: 0 1px 2px #00000026, 0 4px 16px #00000026;
   --shadow-card-hover: 0 2px 4px #00000033, 0 10px 28px #00000040;
   --shadow-sheet: 0 -8px 40px #00000066;
   --shadow-dialog: 0 24px 64px #00000080;
+  --shadow-track: inset 0 0 0 1px #1f1f1f, inset 0 1px 2px #00000099;
+  --shadow-thumb: inset 0 1px 0 #ffffff17, 0 0 0 1px #ffffff0d, 0 2px 6px -1px #000000b3;
 }
 
 /* Black paper does not print: a class-based theme survives into the print
@@ -132,11 +196,11 @@ body {
   overflow-x: clip;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "cv11", "ss01";
 }
 
-/* tabular numbers everywhere money shows */
-.tnum {
+/* tabular numbers everywhere money shows; figures (font-mono) always line up in columns */
+.tnum,
+.font-mono {
   font-variant-numeric: tabular-nums;
 }
 
@@ -277,7 +341,14 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 @keyframes bb-row-sell { 0% { background-color: var(--color-down-soft); border-color: var(--color-down); } 100% { background-color: var(--color-card); border-color: var(--color-line); } }
 .bb-row-buy { animation: bb-row-buy 2.2s ease-out 1; }
 .bb-row-sell { animation: bb-row-sell 2.2s ease-out 1; }
-@media (prefers-reduced-motion: reduce) { .bb-row-new, .bb-row-buy, .bb-row-sell { animation: none; } }
+/* the card layout's version: a ring in the event's colour instead of a row fill */
+@keyframes bb-card-new { 0% { box-shadow: 0 0 0 2px var(--color-ink); } 100% { box-shadow: 0 0 0 2px transparent; } }
+@keyframes bb-card-buy { 0% { box-shadow: 0 0 0 2px var(--color-up), 0 0 28px -6px var(--color-up); } 100% { box-shadow: 0 0 0 2px transparent, 0 0 28px -6px transparent; } }
+@keyframes bb-card-sell { 0% { box-shadow: 0 0 0 2px var(--color-down), 0 0 28px -6px var(--color-down); } 100% { box-shadow: 0 0 0 2px transparent, 0 0 28px -6px transparent; } }
+.bb-card-new { animation: bb-card-new 1.6s ease-out 1; }
+.bb-card-buy { animation: bb-card-buy 2.2s ease-out 1; }
+.bb-card-sell { animation: bb-card-sell 2.2s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { .bb-row-new, .bb-row-buy, .bb-row-sell, .bb-card-new, .bb-card-buy, .bb-card-sell { animation: none; } }
 
 /* ── loading system: route progress bar, skeleton shimmer, spinner ─────────── */
 /* scaleX rather than width: the bar animates on the compositor instead of
