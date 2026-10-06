@@ -16,9 +16,10 @@ test("the rules guide retains native navigation and visible risk disclosures", (
   assert.match(page, /quiet launches/);
   assert.match(page, /every launch stays in the New tab/i);
   assert.match(page, /GITLAWB-quoted pool/);
-  assert.match(page, /burns GITLAWB on every trade/);
+  assert.match(page, /GITLAWB fees burned when they are collected/);
   assert.match(page, /TWIG- or GITLAWB-quoted pool/);
-  assert.match(page, /burns TWIG on every trade/);
+  assert.match(page, /TWIG fees burned when they are collected/);
+  assert.doesNotMatch(page, /burns (TWIG|GITLAWB) on every trade/, "fees accrue and are burned when collected, not per trade");
   assert.match(page, /one TWIG counts as one GITLAWB/);
   assert.match(page, /a locked pool does not make a token valuable/);
   assert.match(page, /Nothing is refundable/);
