@@ -60,10 +60,12 @@ test("light is the original Clear Sky palette, unchanged, and the unclassed base
   assert.match(darkBlock, /color-scheme:\s*dark/);
 });
 
-test("typography is unchanged", () => {
-  assert.match(themeBlock, /--font-sans:\s*var\(--font-inter\)/);
-  assert.match(themeBlock, /--font-mono:\s*var\(--font-space-mono\)/);
-  assert.match(themeBlock, /--font-display:\s*var\(--font-unbounded\)/);
+test("typography is one family: Geist for words and figures, Geist Mono only for addresses and hashes", () => {
+  assert.match(themeBlock, /--font-sans:\s*var\(--font-geist\)/);
+  assert.match(themeBlock, /--font-mono:\s*var\(--font-geist\)/);
+  assert.match(themeBlock, /--font-code:\s*var\(--font-geist-mono\)/);
+  assert.match(themeBlock, /--font-display:\s*var\(--font-geist\)/);
+  assert.match(css, /\.font-mono\s*\{\s*font-variant-numeric:\s*tabular-nums;/, "figures line up in columns");
 });
 
 test("the dark: variant resolves against a class, not a media query", () => {

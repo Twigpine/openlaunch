@@ -318,3 +318,8 @@ CREATE TABLE IF NOT EXISTS bb_quote_tokens (
   checked_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (chain_id, address)
 );
+
+-- ── token banners (2026-10-05) ─────────────────────────────────────────────
+-- An optional wide image the creator uploads beside the logo. Same rules as image_url (https only; uploads are
+-- re-encoded server-side, here to a 1500×500 WebP). NULL means no banner: the market cards draw one from the logo.
+ALTER TABLE bb_launch_meta ADD COLUMN IF NOT EXISTS banner_url text;

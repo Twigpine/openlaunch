@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
-import { ArrowDown, ArrowRight, ArrowUpRight, ChevronDown, FileCode2, LockKeyhole } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, Check, ChevronDown, CircleAlert, Coins, FileCode2, LockKeyhole, Rocket } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import styles from "@/components/sections/RulesGuide.module.css";
@@ -9,6 +9,7 @@ import { launchpad } from "@/lib/launchpad/config";
 import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
 import LaunchMachine from "@/components/launchpad/LaunchMachine";
+import { ChainLogo } from "@/components/launchpad/ChainLogo";
 
 export const metadata: Metadata = pageMetadata({ path: "/rules", title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity." });
 
@@ -26,8 +27,9 @@ const FIXED = [
   ["No admin", "No owner, no pause, no upgrade, no allowlist. The contracts are the same for everyone, forever."],
 ] as const;
 
+/** The guide's sections, each with the mark its heading carries. */
 const CONTENTS = [
-  ["launchpad", "The launch"], ["fees", "Fees & routing"], ["immutable", "What stays fixed"], ["know", "Before you begin"], ["contracts", "Contracts"],
+  ["launchpad", "The launch", Rocket], ["fees", "Fees & routing", Coins], ["immutable", "What stays fixed", LockKeyhole], ["know", "Before you begin", CircleAlert], ["contracts", "Contracts", FileCode2],
 ] as const;
 
 /** Verification records stay chain-specific and point to each deployed contract. */
@@ -50,7 +52,7 @@ const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr:
 export default function RulesPage() {
   return (
     <main className={`${shell.page} ${styles.guide}`}>
-      <SectionIntro eyebrow="The protocol, explained" title="How it works" description="One transaction on Base, Robinhood Chain or Arc. Your token, a market, and a permanently locked liquidity position. You only pay gas.">
+      <SectionIntro eyebrow="The protocol, explained" icon={<BookOpen />} title="How it works" description="One transaction on Base, Robinhood Chain or Arc. Your token, a market, and a permanently locked liquidity position. You only pay gas.">
         <Link href="/launch" className={shell.action}>Launch a token <ArrowRight size={15} aria-hidden="true" /></Link>
         <a href="#contracts" className={shell.textLink}>Verify the contracts <ArrowDown size={14} aria-hidden="true" /></a>
       </SectionIntro>
@@ -60,7 +62,7 @@ export default function RulesPage() {
           <nav aria-label="On this page">
             <p className={styles.eyebrow}>In this guide</p>
             <ol>
-              {CONTENTS.map(([id, title], i) => <li key={id}><a href={`#${id}`}><span>{String(i + 1).padStart(2, "0")}</span>{title}</a></li>)}
+              {CONTENTS.map(([id, title, Icon]) => <li key={id}><a href={`#${id}`}><span aria-hidden="true"><Icon size={13} /></span>{title}</a></li>)}
             </ol>
           </nav>
           <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className={styles.sourceLink}><FileCode2 size={16} aria-hidden="true" /> Read the source <ArrowUpRight size={13} aria-hidden="true" /></a>
@@ -69,8 +71,8 @@ export default function RulesPage() {
         <div className={styles.article}>
           <section className={shell.anchorSection} id="launchpad" aria-labelledby="launch-heading">
             <div className={styles.sectionHeading}>
-              <div><p className={styles.eyebrow}>01 / The launch</p><h2 id="launch-heading">One signature.<br />Four things happen.</h2></div>
-              <p>All in the same transaction.<br />No separate setup. No platform fee.</p>
+              <div><p className={styles.eyebrow}><Rocket size={14} aria-hidden="true" />The launch</p><h2 id="launch-heading">One signature.<br />Four things happen.</h2></div>
+              <p>All in the same transaction. <br />No separate setup. No platform fee.</p>
             </div>
             {/* the animated walk-through that used to open the home page: token, pool, lock */}
             <div className={styles.machine}><LaunchMachine /></div>
@@ -87,7 +89,7 @@ export default function RulesPage() {
           </section>
 
           <section className={shell.anchorSection} id="fees" aria-labelledby="fees-heading">
-            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>02 / Fees & routing</p><h2 id="fees-heading">Know where it goes.</h2></div></div>
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}><Coins size={14} aria-hidden="true" />Fees & routing</p><h2 id="fees-heading">Know where it goes.</h2></div></div>
             <div className={styles.feePanel}>
               <div className={styles.platformFee}><span className={styles.eyebrow}>Platform fee</span><strong>0%</strong><p>We take nothing.<br />Gas is paid to the network.</p><a href="#contracts">Check the code <ArrowUpRight size={13} aria-hidden="true" /></a></div>
               <div className={styles.tradingFees}>
@@ -106,12 +108,12 @@ export default function RulesPage() {
           </section>
 
           <section className={shell.anchorSection} id="immutable" aria-labelledby="fixed-heading">
-            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>03 / What stays fixed</p><h2 id="fixed-heading">Code, not a promise.</h2></div><a href="#contracts" className={shell.textLink}>Read the contracts <ArrowUpRight size={14} aria-hidden="true" /></a></div>
-            <ul className={styles.fixedList}>{FIXED.map(([title, description]) => <li key={title}><span className={styles.fixedMark} aria-hidden="true">×</span><div><h3>{title}</h3><p>{description}</p></div></li>)}</ul>
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}><LockKeyhole size={14} aria-hidden="true" />What stays fixed</p><h2 id="fixed-heading">Code, not a promise.</h2></div><a href="#contracts" className={shell.textLink}>Read the contracts <ArrowUpRight size={14} aria-hidden="true" /></a></div>
+            <ul className={styles.fixedList}>{FIXED.map(([title, description]) => <li key={title}><span className={styles.fixedMark} aria-hidden="true"><Check size={12} strokeWidth={3} /></span><div><h3>{title}</h3><p>{description}</p></div></li>)}</ul>
           </section>
 
           <section className={shell.anchorSection} id="know" aria-labelledby="know-heading">
-            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>04 / Before you begin</p><h2 id="know-heading">Locked liquidity.<br />Not a guarantee of value.</h2></div></div>
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}><CircleAlert size={14} aria-hidden="true" />Before you begin</p><h2 id="know-heading">Locked liquidity.<br />Not a guarantee of value.</h2></div></div>
             <p className={styles.riskIntro}>Tokens launched here are created by their launchers, not by openlaunch. Do your own research; a locked pool does not make a token valuable. Nothing is refundable.</p>
             <div className={styles.questions}>
               <details open><summary>How does the price move?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Price follows a single-sided Uniswap v4 curve: the first buyers get the most tokens per unit of the quote asset, and every buy moves the price up. Sells move it down.</p><p>There is no anti-snipe mechanism. Bots can buy in the first block like anyone else.</p><p>The launch form suggests a small first buy (about $25) so your token opens with a holder and a price; clear it and the launch stays free.</p></div></details>
@@ -123,13 +125,13 @@ export default function RulesPage() {
           </section>
 
           <section className={shell.anchorSection} id="contracts" aria-labelledby="contracts-heading">
-            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>05 / The source of truth</p><h2 id="contracts-heading">Don&apos;t take our word for it.</h2></div><FileCode2 size={28} className={styles.contractIcon} aria-hidden="true" /></div>
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}><FileCode2 size={14} aria-hidden="true" />The source of truth</p><h2 id="contracts-heading">Don&apos;t take our word for it.</h2></div></div>
             <p className={styles.contractIntro}>Contracts, addresses and source verification. The same contract design on every chain, with chain-specific Uniswap deployments.</p>
             <div className={styles.registry}>
               {CHAIN_KEYS.map((chain) => {
                 const config = launchpad(chain);
                 return <section key={chain} className={styles.network} aria-labelledby={`${chain}-contracts`}>
-                  <header><h3 id={`${chain}-contracts`}>{CHAIN_LABELS[chain]}</h3><span>Chain ID <strong>{CHAINS[chain].id}</strong></span></header>
+                  <header><h3 id={`${chain}-contracts`}><ChainLogo chain={chain} size={18} />{CHAIN_LABELS[chain]}</h3><span>Chain ID <strong>{CHAINS[chain].id}</strong></span></header>
                   <dl className={styles.addresses}>{(["factory", "locker"] as const).map((kind) => {
                     const address = config[kind];
                     return <div key={kind}><dt>{kind === "factory" ? "Factory" : "Locker"}</dt><dd>{address ? <a href={explorerAddress(chain, address)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} ${kind}: ${address}`}><span>{address}</span><ArrowUpRight size={14} aria-hidden="true" /></a> : <span className={styles.notDeployed}>Not deployed yet</span>}</dd></div>;

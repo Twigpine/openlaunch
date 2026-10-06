@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IMAGE_KEY_BYTES, IMAGE_MAX_BYTES, canonicalImageUrl, checkUpload, imageKey, imageUrlFor, isOwnImageUrl, isWalletParam, randomImageKey, sniffImage } from "./images.ts";
+import { BANNER_MAX_BYTES, IMAGE_KEY_BYTES, IMAGE_MAX_BYTES, canonicalImageUrl, checkUpload, imageRole, maxBytesFor, imageKey, imageUrlFor, isOwnImageUrl, isWalletParam, randomImageKey, sniffImage } from "./images.ts";
 
 const pad = (head: number[], len = 64) => new Uint8Array([...head, ...new Array(Math.max(0, len - head.length)).fill(0)]);
 const PNG = pad([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -93,4 +93,16 @@ test("canonicalImageUrl: legacy bucket-host URLs with our key become same-origin
   assert.equal(canonicalImageUrl(`https://openlaunch-images.fly.storage.tigris.dev/${key}`, null), `https://openlaunch-images.fly.storage.tigris.dev/${key}`, "uploads off → no rewrite");
   assert.equal(canonicalImageUrl("not a url", base), "not a url");
   assert.equal(isOwnImageUrl(canonicalImageUrl(`https://openlaunch-images.fly.storage.tigris.dev/${key}`, base), base), true, "canonical form passes the OG allow-list");
+});
+
+test("a banner is the only other role, and gets a larger upload cap than the logo", () => {
+  assert.equal(imageRole("banner"), "banner");
+  for (const v of ["logo", undefined, null, "", "Banner", "../banner"]) assert.equal(imageRole(v), "logo", String(v));
+  assert.equal(maxBytesFor("logo"), IMAGE_MAX_BYTES);
+  assert.equal(maxBytesFor("banner"), BANNER_MAX_BYTES);
+  assert.ok(BANNER_MAX_BYTES > IMAGE_MAX_BYTES);
+  const big = new Uint8Array(IMAGE_MAX_BYTES + 1);
+  big.set(PNG.slice(0, 8));
+  assert.equal(checkUpload(big).ok, false, "over the logo cap");
+  assert.equal(checkUpload(big, BANNER_MAX_BYTES).ok, true, "within the banner cap");
 });

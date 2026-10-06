@@ -1,18 +1,20 @@
 /** Shared class strings for the "Clear Sky" design system. Presentation only. */
 
+// every button presses in a touch (scale 0.98) and filled ones carry a hairline top highlight; disabled ones stay still
 const btnBase =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold text-sm whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none";
+  "inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold text-sm whitespace-nowrap transition-[color,background-color,border-color,box-shadow,transform,filter] duration-150 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 select-none motion-reduce:transition-colors motion-reduce:active:scale-100";
+const lit = "shadow-[inset_0_1px_0_rgb(255_255_255/0.18)]";
 
 export const btn = {
-  primary: `${btnBase} min-h-11 px-5 bg-brand text-inverse hover:bg-brand-strong`,
-  primarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand text-inverse hover:bg-brand-strong`,
+  primary: `${btnBase} ${lit} min-h-11 px-5 bg-brand text-inverse hover:bg-brand-strong hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_10px_24px_-12px_var(--color-glow)]`,
+  primarySm: `${btnBase} ${lit} min-h-9 px-3.5 text-[13px] bg-brand text-inverse hover:bg-brand-strong`,
   secondary: `${btnBase} min-h-11 px-5 bg-card text-ink border border-line-strong hover:border-ink/40 hover:bg-paper`,
   secondarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-card text-ink border border-line-strong hover:border-ink/40`,
   soft: `${btnBase} min-h-11 px-5 bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
   softSm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
-  up: `${btnBase} min-h-11 px-5 bg-up text-inverse hover:brightness-110`,
+  up: `${btnBase} ${lit} min-h-11 px-5 bg-up text-inverse hover:brightness-110 hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_10px_24px_-12px_var(--color-glow)]`,
   // bg-warm-ink, not bg-warm: white on #d97706 is 3.19:1, below AA for a filled control.
-  warm: `${btnBase} min-h-11 px-5 bg-warm-ink text-inverse hover:brightness-110`,
+  warm: `${btnBase} ${lit} min-h-11 px-5 bg-warm-ink text-inverse hover:brightness-110`,
   warmOutline: `${btnBase} min-h-11 px-5 bg-warm-soft text-warm-ink border border-warm/40 hover:border-warm`,
   icon: `${btnBase} h-10 w-10 rounded-xl text-ink hover:bg-paper border border-transparent hover:border-line`,
 };
@@ -32,4 +34,4 @@ export const helper = "mt-1.5 text-xs text-muted";
 export const pill = "inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs font-medium text-body whitespace-nowrap";
 
 export const codeBlock =
-  "overflow-x-auto rounded-xl bg-paper border border-line px-4 py-3 font-mono text-[13px] leading-relaxed text-ink bb-scroll";
+  "overflow-x-auto rounded-xl bg-paper border border-line px-4 py-3 font-code text-[13px] leading-relaxed text-ink bb-scroll";

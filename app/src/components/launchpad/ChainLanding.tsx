@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
@@ -14,6 +15,8 @@ import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { dbConfigured } from "@/lib/db";
 import { pageMetadata } from "@/lib/seo";
+import { nowMs } from "@/lib/launchpad/time";
+import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
 
 /** Metadata for /<chain>: its own title, snippet and canonical (never "/", see app/metadata.test.ts). */
 export function chainLandingMetadata(chain: ChainKey): Metadata {
@@ -35,6 +38,8 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
     getLaunchTotalsForRequest(usd), // the root layout already ran it this request: shared, not repeated
   ]);
   const launches = totals.by_chain[chain].launches;
+  const now = nowMs();
+  const layout = parseLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
   const others = CHAIN_KEYS.filter((k) => k !== chain && hasChainPage(k));
 
   return (
@@ -64,7 +69,7 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
       <section className={`${shell.anchorSection} mt-14`} aria-labelledby="chain-launches-heading">
         <h2 id="chain-launches-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Tokens on {CHAIN_LABELS[chain]}</h2>
         <div className="mt-6">
-          <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort="live" initialWindow="all" initialChain={chain} initialFilter={null} hasDb={dbConfigured()} />
+          <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort="live" initialWindow="all" initialChain={chain} initialFilter={null} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} />
         </div>
       </section>
 

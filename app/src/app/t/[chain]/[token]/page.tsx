@@ -10,13 +10,14 @@ import TradePanel from "@/components/launchpad/TradePanel";
 import CollectPanel from "@/components/launchpad/CollectPanel";
 import CopyChip from "@/components/launchpad/CopyChip";
 import MobileBuyBar from "@/components/launchpad/MobileBuyBar";
-import PriceChart from "@/components/launchpad/PriceChart";
+import TokenChart from "@/components/launchpad/TokenChart";
 import TokenComments from "@/components/launchpad/Posts";
 import ChangeChip from "@/components/launchpad/ChangeChip";
 import HoldersPanel from "@/components/launchpad/HoldersPanel";
 import TokenDetails from "@/components/launchpad/TokenDetails";
 import TokenTrades from "@/components/launchpad/TokenTrades";
 import LaunchReceipt from "@/components/launchpad/LaunchReceipt";
+import TokenAbout from "@/components/launchpad/TokenAbout";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
@@ -37,6 +38,15 @@ import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { clampSocial } from "@/lib/launchpad/ogcard";
 import { capDisplay } from "@/lib/launchpad/market-cap";
+import { launchpad } from "@/lib/launchpad/config";
+import { tokenTint } from "@/lib/launchpad/tintServer";
+import { proofFacts } from "@/lib/launchpad/proof";
+import TokenProof, { type ProofLink } from "@/components/launchpad/TokenProof";
+import WatchButton from "@/components/launchpad/WatchButton";
+import { BorderBeam } from "@/components/vendor/border-beam";
+import { Banner } from "@/components/launchpad/LaunchCard";
+import { ChainLogo } from "@/components/launchpad/ChainLogo";
+import type { ProofKey } from "@/lib/launchpad/proof";
 
 /** Where GITLAWB lives, as said beside a GITLAWB-quoted pool. */
 const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: " (bridged 1:1 from Base over LayerZero; one supply, two chains)", arc: "" /* not bridged to Arc */ };
@@ -77,9 +87,19 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   };
   const unlisted = quote.key === "other";
   const stockQuote = quote.key === "stock" ? stockByAddress(chain, l.quote) : null;
-  const [swaps, holders] = await Promise.all([getSwaps(chain, l.token, quote.decimals, 40), memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token))]);
+  const [swaps, holders, tint] = await Promise.all([getSwaps(chain, l.token, quote.decimals, 40), memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)), tokenTint(l.image_url, l.token)]);
   const now = nowMs();
   const mode = feeModeOf(l.lp_fee, l.recipients);
+  const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals });
+  const proof = proofFacts({ holders, symbol: l.symbol, launcher: l.launcher, lpFee: l.lp_fee, mode, recipients: l.recipients.length });
+  const locker = launchpad(chain).locker;
+  const proofLinks: Partial<Record<ProofKey, ProofLink>> = {
+    ...(locker ? { lock: { href: explorerAddress(chain, locker), label: "View locker", external: true } } : {}),
+    creator: { href: explorerAddress(chain, l.launcher), label: "Creator wallet", external: true },
+    spread: { href: "#holders", label: "All holders" },
+    launch: { href: explorerTx(chain, l.tx_hash), label: "Launch transaction", external: true },
+    fees: { href: "#contracts", label: "Fee settings" },
+  };
   const poolKey = { currency0: l.quote as Address, currency1: l.token as Address, fee: l.lp_fee, tickSpacing: TICK_SPACING, hooks: NATIVE as Address };
   const priceUsd = l.price_usd;
   const chainLabel = CHAIN_LABELS[chain];
@@ -87,8 +107,14 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
 
   const supplyLabel = fmtCompact(Number(BigInt(l.supply)) / 1e18, 0);
   const feeRoute = mode === "free" ? "No trading fee" : `${pipsToPct(l.lp_fee)} trading fee → ${mode === "burn" ? "burned" : mode === "split" ? "beneficiaries" : "beneficiary"}`;
+  // the trade box's own wording: short, no arrow
+  const tradeFee = mode === "free" ? "None" : `${pipsToPct(l.lp_fee)}, ${mode === "burn" ? "burned" : mode === "split" ? `to ${l.recipients.length} recipients` : "to the recipient"}`;
   const swapSite = SWAP_SITES[chain];
   const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
+  // a chip on the cover: dark glass, so it reads over any banner in either theme (display is set where it is used)
+  const glass = "h-7 shrink-0 items-center gap-1.5 rounded-full bg-black/45 px-2.5 text-[11px] font-medium text-white ring-1 ring-white/15 backdrop-blur-md";
+  // one segment of the action bar; display is set per segment, so a phone-hidden one never carries two display classes
+  const segment = "items-center gap-1.5 px-3 transition-colors hover:bg-ink/5 hover:text-ink focus-visible:-outline-offset-2 motion-reduce:transition-none";
 
   // Facts-only structured data (on-chain fields + creator metadata, no scores).
   // Escaped for the script sink: creator-supplied name/description must not
@@ -113,45 +139,94 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
-      <main className="mx-auto max-w-6xl px-4 pt-5 pb-28 sm:pt-7 lg:pb-16">
-        <nav aria-label="Breadcrumb" className="mb-5 flex min-h-8 items-center justify-between gap-3 text-xs text-muted">
-          <Link href="/#launches" className="inline-flex items-center gap-2 hover:text-ink"><ArrowLeft size={13} /> All launches</Link>
-          <span className="flex items-center gap-2"><span>{chainLabel}</span><span aria-hidden>·</span><span>Uniswap v4</span></span>
-        </nav>
-
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            {/* the mark and name the market row morphs into (see TokenMorph); PendingTokenHeader holds the same frame while loading */}
-            <MorphAvatar chain={l.chain} token={l.token}>
-              <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="shrink-0 rounded-2xl" />
-            </MorphAvatar>
-            <div className="min-w-0">
-              <MorphName chain={l.chain} token={l.token}>
-                <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
-              </MorphName>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span>{quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : quote.key === "museworld" ? <MuseworldBadge label="Paired with MUSEWORLD" /> : <span>Paired with {quote.symbol}</span>}{unlisted ? <UnlistedPairBadge symbol={quote.symbol} /> : null}<span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
-            </div>
+      {/* the token's tint (from its logo) is a CSS variable per theme: the ring, the chart line, the proof marks. Never an action colour. */}
+      <div className="relative isolate overflow-x-clip [--tok:var(--tok-light)] dark:[--tok:var(--tok-dark)]" style={{ "--tok-light": tint.light, "--tok-dark": tint.dark } as React.CSSProperties}>
+      <main className="bb-mid bb-page pt-5 pb-28 sm:pt-7 lg:pb-16">
+        {/* The hero: the same cover the token wears on its market card (the creator's banner, else its logo's colours),
+            the way back and the chain on it, and the mark over its lower edge. PendingTokenHeader holds this frame while
+            the page loads, so the mark and name that morph in from the market row land in place. */}
+        <header className="relative mb-6 overflow-hidden rounded-3xl border border-line bg-card">
+          <div className="relative h-24 overflow-hidden sm:h-28">
+            <Banner token={l.token} image={l.image_url} banner={l.banner_url} />
+            {/* the cover melts into the card, so the mark and the name read on one surface */}
+            <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-3/4 bg-linear-to-b from-transparent via-card/50 to-card" />
+            <nav aria-label="Breadcrumb" className="absolute inset-x-3 top-3 flex items-center justify-between gap-2 sm:inset-x-4 sm:top-4">
+              <Link href="/#launches" className={`inline-flex ${glass} transition-colors hover:bg-black/60 motion-reduce:transition-none`}><ArrowLeft size={13} aria-hidden="true" /> All launches</Link>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className={`inline-flex ${glass}`}><ChainLogo chain={chain} size={14} />{chainLabel}</span>
+                <span className={`hidden sm:inline-flex ${glass}`}>Uniswap v4</span>
+              </span>
+            </nav>
           </div>
-          <div className="flex max-w-full flex-wrap items-center gap-2">
-            <CopyChip value={l.token} className="!min-h-9 !rounded-lg" />
-            <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={utility}>{explorerName(chain)}<ArrowUpRight size={12} /></a>
-            <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={utility} aria-label="Share token on X"><Share2 size={13} /> Share</a>
+          <div className="grid gap-x-8 gap-y-4 px-4 pb-5 sm:px-6 sm:pb-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+            <div className="flex min-w-0 items-start gap-4">
+              {/* the ring takes the tint; the mark and name inside are what the market row morphs into (see TokenMorph) */}
+              <span className="relative -mt-11 shrink-0 rounded-[22px] border-2 bg-card p-[3px] shadow-[0_10px_28px_-12px_rgb(0_0_0/0.55)] sm:-mt-12" style={{ borderColor: "var(--tok)" }}>
+                <MorphAvatar chain={l.chain} token={l.token}>
+                  <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={72} className="shrink-0 rounded-2xl" />
+                </MorphAvatar>
+              </span>
+              <div className="min-w-0 pt-2">
+                <MorphName chain={l.chain} token={l.token}>
+                  <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
+                </MorphName>
+                {/* the chain is on the cover; here the ticker, the pair and the age. Phones wrap these, so they drop the dots that would dangle at a line's end. */}
+                <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted sm:gap-x-1.5">
+                  <span className="font-mono text-body">{l.symbol}</span>
+                  <span aria-hidden="true" className="max-sm:hidden">·</span>
+                  {quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : quote.key === "museworld" ? <MuseworldBadge label="Paired with MUSEWORLD" /> : <span>paired with {quote.symbol}</span>}
+                  {unlisted ? <UnlistedPairBadge symbol={quote.symbol} /> : null}
+                  <span aria-hidden="true" className="max-sm:hidden">·</span>
+                  <span title={new Date(l.block_time).toUTCString()}>launched {ago(l.block_time, now)} ago</span>
+                </p>
+              </div>
+            </div>
+            <div className="md:row-span-2 md:text-right">
+              <p className="text-xs text-muted">Market cap</p>
+              <p className="mt-1 font-mono text-3xl font-bold tracking-[-0.03em] text-ink tnum sm:text-4xl" title={cap.usd !== null ? fmtUsd(cap.usd) : cap.main}>{cap.main}</p>
+              <p className="mt-1 font-mono text-[11px] text-muted tnum">{cap.detail}</p>
+              <p className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted md:justify-end">
+                <span className="text-sm"><ChangeChip v={l.change_from_launch} plain /> <span className="text-muted">since launch</span></span>
+                <span aria-hidden="true">·</span>
+                <span><span className="font-mono text-body tnum">{l.holders.toLocaleString("en-US")}</span> holders, <span className="font-mono text-body tnum">{(l.buys + l.sells).toLocaleString("en-US")}</span> trades</span>
+              </p>
+            </div>
+            <div className="flex max-w-full flex-wrap items-center gap-2">
+              <WatchButton token={{ chain, token: l.token, name: l.name, symbol: l.symbol }} labelled />
+              {/* the token's links as one bar, the Watch button's height: share, copy the address, the explorer */}
+              <div className="inline-flex h-10 max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-card text-xs font-medium text-body sm:h-9">
+                <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label="Share token on X"><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">Share</span></a>
+                <CopyChip value={l.token} className={`inline-flex ${segment} border-l border-line font-code`} />
+                {/* phones keep one row of actions; the explorer link is also in About & contracts */}
+                <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={`hidden sm:inline-flex ${segment} border-l border-line`}>{explorerName(chain)}<ArrowUpRight size={13} aria-hidden="true" /></a>
+              </div>
+            </div>
           </div>
         </header>
 
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:gap-6 lg:grid-rows-[min-content_1fr]">
-          <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-            <PriceChart key={`${chain}:${l.token}`} chain={chain} token={l.token} symbol={l.symbol} launchedAt={l.block_time} />
-            <dl className="mt-4 grid grid-cols-2 divide-x divide-line overflow-hidden rounded-xl border border-line bg-card sm:grid-cols-4">
-              <Stat k={priceUsd !== null ? "Price / USD" : `Price / ${quote.symbol}`} v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
-              <Stat k="Volume / all time" v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />
-              <Stat k="Buys / sells" v={<><span className="text-up">{count(l.buys)}</span><span className="px-1 text-muted">/</span><span className="text-down-ink">{count(l.sells)}</span></>} sub={`${count(l.buys + l.sells)} total trades`} />
-              <Stat k="Since launch" v={<ChangeChip v={l.change_from_launch} plain />} sub="Market cap change" />
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_23.75rem] lg:gap-6 lg:grid-rows-[min-content_1fr]">
+          <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
+            <TokenChart chain={chain} token={l.token} symbol={l.symbol} poolId={l.pool_id} quote={l.quote} launchedAt={l.block_time} hasTrades={l.buys + l.sells > 0} />
+            {/* hairlines between the cells come from the gap over a line-coloured grid, so they hold in both layouts */}
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-4">
+              <Stat k="Price" v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
+              <Stat k="24h volume" v={l.volume_24h_usd !== null ? marketUsd(l.volume_24h_usd) : fmtQuote(l.volume_24h, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_24h, quote.decimals, quote.symbol)} />
+              <Stat k="Total volume" v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />
+              <Stat k="Buys and sells" v={<><span className="text-up">{count(l.buys)}</span><span className="px-1 text-faint">/</span><span className="text-down-ink">{count(l.sells)}</span></>} sub={`${count(l.buys + l.sells)} trades`}>
+                <BuySellBar buys={l.buys} sells={l.sells} />
+              </Stat>
             </dl>
+            <TokenProof facts={proof.facts} holdersReady={proof.holdersReady} links={proofLinks} bar={proof.holdersReady && holders ? { top10Bps: holders.top10Bps, poolBps: holders.poolBps } : null} />
           </div>
 
           <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1">
-            <TradePanel chain={chain} token={l.token as Address} symbol={l.symbol} poolKey={poolKey} quote={quote} ethUsd={usd} />
+            {/* a beam in the token's colour travels the trade box border; the box itself keeps the action colours */}
+            <div className="relative rounded-2xl">
+              <TradePanel chain={chain} token={l.token as Address} symbol={l.symbol} poolKey={poolKey} poolId={l.pool_id as `0x${string}`} feeRoute={tradeFee} quote={quote} ethUsd={usd} />
+              <BorderBeam size={120} duration={9} colorFrom="var(--tok)" colorTo="var(--tok)" />
+            </div>
+            {/* the token at a glance beside the trade box, as other launchpads keep it; the full record is in the About tab */}
+            <TokenAbout chain={chain} token={l.token} symbol={l.symbol} description={l.description} website={l.website} x_handle={l.x_handle} launcher={l.launcher} launchedAt={l.block_time} now={now} swap={swapSite ? { name: swapSite.name, url: swapSite.url(l.token) } : null} />
             <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} />
             <CollectPanel chain={chain} quote={quote} token={l.token as Address} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} collectedToken={l.fees_token_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} priceQuote={l.price_quote} ethUsd={usd} />
           </aside>
@@ -189,17 +264,27 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
           </div>
         </div>
       </main>
-      <MobileBuyBar symbol={l.symbol} mcap={capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact} />
+      </div>
+      <MobileBuyBar symbol={l.symbol} mcap={cap.compact} />
     </>
   );
 }
 
-function Stat({ k, v, sub }: { k: string; v: React.ReactNode; sub: string }) {
-  return <div className="min-w-0 px-4 py-3"><dt className="text-[10px] text-muted">{k}</dt><dd className="mt-1 truncate font-mono text-sm font-bold text-ink tnum">{v}</dd><dd className="mt-1 truncate font-mono text-[10px] text-muted tnum" title={sub}>{sub}</dd></div>;
+function Stat({ k, v, sub, children }: { k: string; v: React.ReactNode; sub: string; children?: React.ReactNode }) {
+  return <div className="min-w-0 bg-card px-4 py-3.5"><dt className="text-[11px] text-muted">{k}</dt><dd className="mt-1.5 truncate font-mono text-[15px] font-bold tracking-tight text-ink tnum">{v}</dd><dd className="mt-1 truncate font-mono text-[10px] text-muted tnum" title={sub}>{sub}</dd>{children}</div>;
+}
+/** Buys against sells as one thin bar; no trades draws an empty track, never an even split. */
+function BuySellBar({ buys, sells }: { buys: number; sells: number }) {
+  const trades = buys + sells;
+  const share = trades ? Math.round((buys / trades) * 100) : 0;
+  return <dd className="mt-2 flex h-1 gap-px overflow-hidden rounded-full" title={trades ? `${share}% of trades are buys` : "No trades yet"}>
+    {trades ? <><span className="bg-up" style={{ width: `${(buys / trades) * 100}%` }} /><span className="flex-1 bg-down" /></> : <span className="flex-1 bg-line-strong" />}
+    <span className="sr-only">{trades ? `${share}% of trades are buys` : "No trades yet"}</span>
+  </dd>;
 }
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3"><dt className="text-muted">{k}</dt><dd className="min-w-0 break-words text-right font-mono text-body tnum">{v}</dd></div>;
 }
 function A({ href, children }: { href: string; children: React.ReactNode }) {
-  return <a href={href} target="_blank" rel="noreferrer" className="text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">{children}</a>;
+  return <a href={href} target="_blank" rel="noreferrer" className="font-code text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">{children}</a>;
 }

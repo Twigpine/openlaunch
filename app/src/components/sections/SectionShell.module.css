@@ -1,20 +1,25 @@
 .page { max-width: 1152px; margin-inline: auto; padding: 40px 16px 32px; min-width: 0; }
-.intro { padding-bottom: 32px; border-bottom: 1px solid var(--color-line); margin-bottom: 32px; }
-.eyebrow { display: flex; align-items: center; gap: 9px; color: var(--color-muted); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
-.eyebrow > span { width: 6px; height: 6px; background: var(--color-brand); border-radius: 1px; }
+.intro { margin-bottom: 36px; }
+/* the page's label as a chip, like the one on the home hero: sentence case, never a tracked all-caps eyebrow */
+.eyebrow { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-height: 28px; padding: 0 11px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-card); color: var(--color-body); font-size: 12px; font-weight: 500; }
+.eyebrowIcon { display: inline-flex; flex-shrink: 0; color: var(--color-brand); }
+.eyebrowIcon svg { width: 14px; height: 14px; }
 .introRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-top: 18px; }
 .introCopy { min-width: 0; max-width: 740px; }
-.title { color: var(--color-ink); font-size: 32px; line-height: 1.14; font-weight: 700; letter-spacing: -.04em; text-wrap: balance; overflow-wrap: anywhere; }
-.description { max-width: 620px; margin-top: 16px; color: var(--color-body); font-size: 15px; line-height: 1.7; text-wrap: pretty; }
+.title { color: var(--color-ink); font-size: 32px; line-height: 1.12; font-weight: 700; letter-spacing: -.04em; text-wrap: balance; overflow-wrap: anywhere; }
+.description { max-width: 620px; margin-top: 14px; color: var(--color-body); font-size: 15px; line-height: 1.7; text-wrap: pretty; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; flex-shrink: 0; }
-.action { display: inline-flex; justify-content: center; align-items: center; gap: 12px; min-height: 44px; padding: 10px 17px; border: 1px solid var(--color-line-strong); border-radius: 999px; color: var(--color-ink); font-size: 13px; font-weight: 600; transition: background-color 160ms, border-color 160ms; }
-.action:hover { background: var(--color-card); border-color: var(--color-ink); }
+/* the site's secondary button: a card-coloured rounded rectangle with a strong hairline */
+.action { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 1px solid var(--color-line-strong); border-radius: 12px; background: var(--color-card); color: var(--color-ink); font-size: 14px; font-weight: 600; white-space: nowrap; transition: background-color 160ms, border-color 160ms, transform 150ms; }
+.action:hover { background: var(--color-paper); border-color: color-mix(in srgb, var(--color-ink) 40%, transparent); }
+.action:active { transform: scale(.98); }
+.action:disabled { opacity: .5; cursor: wait; }
 .textLink { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-size: 13px; color: var(--color-body); }
 .textLink:hover { color: var(--color-ink); }
-.panel { min-width: 0; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); overflow: hidden; }
+.panel { min-width: 0; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); overflow: hidden; }
 .panelHeading { min-height: 64px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--color-line); color: var(--color-ink); font-size: 14px; font-weight: 600; }
 .anchorSection { scroll-margin-top: 104px; }
 .page :is(a, button, summary, input, textarea):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
-@media (min-width: 640px) { .page { padding-top: 56px; } .title { font-size: 44px; } .description { font-size: 16px; } }
+@media (min-width: 640px) { .page { padding-top: 48px; } .title { font-size: 44px; } .description { font-size: 16px; } }
 @media (max-width: 1023px) { .introRow { align-items: flex-start; flex-direction: column; } }
-@media (prefers-reduced-motion: reduce) { .action { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .action { transition: none; } .action:active { transform: none; } }

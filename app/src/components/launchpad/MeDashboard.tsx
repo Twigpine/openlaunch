@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Layers3, LockKeyhole, RefreshCw, Wallet } from "lucide-react";
-import { useAccount, useConfig } from "wagmi";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
+import { useConfig } from "wagmi";
+import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
-import ChainBadge from "./ChainBadge";
+import { ChainCorner, ChainLogoStack } from "./ChainLogo";
+import WalletAvatar from "@/components/WalletAvatar";
 import { QuoteBrandBadge } from "./MuseworldBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
@@ -15,7 +17,7 @@ import EditTokenSheet from "./EditTokenSheet";
 import { toast } from "./TxToasts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/vendor/tabs";
 import { LAUNCH_LOCKER_ABI, ERC20_MIN_ABI } from "@/lib/launchpad/abi";
-import { launchpad } from "@/lib/launchpad/config";
+import { VISIBLE_CHAINS, launchpad } from "@/lib/launchpad/config";
 import { earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, isBurnOnly, type FeeSides } from "@/lib/launchpad/creator";
 import { fmtCompact, fmtQuote, fmtTokens, fmtUsd } from "@/lib/launchpad/math";
 import { capDisplay } from "@/lib/launchpad/market-cap";
@@ -40,7 +42,7 @@ const key = (l: { chain: ChainKey; token: string }) => `${l.chain}:${l.token}`;
  * and creator-signed metadata edits. No server keys, no sessions.
  */
 export default function MeDashboard() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useHydratedAccount();
   // A different account gets a fresh data, balance, and editing boundary.
   return <WalletDashboard key={address?.toLowerCase() ?? "disconnected"} address={address} isConnected={isConnected} />;
 }
@@ -156,11 +158,12 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       <div className={styles.dashboard}>
         <section className={styles.welcome} aria-labelledby="wallet-welcome">
           <div className={styles.welcomeMain}>
-            <span className={styles.walletMark} aria-hidden="true"><Wallet size={28} strokeWidth={1.5} /></span>
+            <span className={styles.walletMark} aria-hidden="true"><Wallet size={22} strokeWidth={1.75} /></span>
             <p className={styles.eyebrow}>Start with your wallet</p>
             <h2 id="wallet-welcome">Your wallet.<br /><span>Your workspace.</span></h2>
             <p className={styles.welcomeCopy}>Bring your launches, fees and trading activity into one view. No new account to create.</p>
             <ConnectWallet className={styles.connectButton}>
+              <span className={styles.buttonTile} aria-hidden="true"><Wallet size={17} /></span>
               Connect wallet<ArrowRight size={16} aria-hidden="true" />
             </ConnectWallet>
             <p className={styles.readOnly}><LockKeyhole size={14} aria-hidden="true" />Connecting lets you read. Transactions and edits need your signature.</p>
@@ -168,9 +171,9 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
           <div className={styles.welcomeGuide}>
             <p className={styles.eyebrow}>After you connect</p>
             <ol className={styles.capabilities}>
-              <li><span className={styles.step}>01</span><div><h3><Layers3 size={18} aria-hidden="true" />Manage your launches</h3><p>Open each token, update its description, logo and links. On-chain settings stay fixed.</p></div></li>
-              <li><span className={styles.step}>02</span><div><h3><Coins size={18} aria-hidden="true" />See where fees go</h3><p>View your beneficiary share and uncollected fees. Collect to the recipients set at launch.</p></div></li>
-              <li><span className={styles.step}>03</span><div><h3><ArrowDownLeft size={18} aria-hidden="true" />Follow your activity</h3><p>Check token balances and past trades across every chain, with links to the transactions.</p></div></li>
+              <li><span className={styles.capIcon} aria-hidden="true"><Layers3 size={17} /></span><div><h3>Manage your launches</h3><p>Open each token, update its description, logo and links. On-chain settings stay fixed.</p></div></li>
+              <li><span className={styles.capIcon} aria-hidden="true"><Coins size={17} /></span><div><h3>See where fees go</h3><p>View your beneficiary share and uncollected fees. Collect to the recipients set at launch.</p></div></li>
+              <li><span className={styles.capIcon} aria-hidden="true"><ArrowDownLeft size={17} /></span><div><h3>Follow your activity</h3><p>Check token balances and past trades across every chain, with links to the transactions.</p></div></li>
             </ol>
             <Link href="/#launches" className={styles.browseLink}>Just exploring? Browse launches<ArrowUpRight size={15} aria-hidden="true" /></Link>
           </div>
@@ -189,8 +192,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
   const walletBar = <div className={styles.walletBar}>
-    <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><Wallet size={19} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
-    <div className={styles.walletUtilities}><span className={styles.updateNote}>{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
+    <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><WalletAvatar address={address} size={40} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
+    <div className={styles.walletUtilities}><span className={styles.updateNote}><ChainLogoStack chains={VISIBLE_CHAINS} size={16} />{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
   </div>;
 
   if (!me) {
@@ -206,10 +209,10 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       {walletBar}
       {err ? <p className={styles.error} role="alert">Refresh failed: {err}. Showing the last loaded data. Try Refresh again.</p> : null}
       <dl className={styles.stats}>
-        <Stat k="Your launches" v={String(me.launches.length)} hint="Across all chains" />
-        <Stat k="Fees earned" v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
-        <Stat k="Uncollected" v={feesReading ? "Reading…" : feesUnknown ? "—" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
-        <Stat k="Holdings value" v={holdingsReading ? "Reading…" : holdingsUnknown ? "—" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
+        <Stat k="Your launches" icon={<Layers3 size={14} />} v={String(me.launches.length)} hint="Across all chains" />
+        <Stat k="Fees earned" icon={<Coins size={14} />} v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
+        <Stat k="Uncollected" icon={<Hourglass size={14} />} v={feesReading ? "Reading…" : feesUnknown ? "—" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
+        <Stat k="Holdings value" icon={<Wallet size={14} />} v={holdingsReading ? "Reading…" : holdingsUnknown ? "—" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
       </dl>
 
       <Tabs defaultValue="launches" className={styles.ledger}>
@@ -223,8 +226,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         <div className={styles.panelHeading}>
           <div><h2>Your launches</h2><p>Manage details and collect trading fees.</p></div>
           {collectable.length > 1 ? (
-            <button type="button" onClick={() => void collectAll()} disabled={busy !== null} className={styles.outlineButton}>
-              {busy ? "Collecting…" : `Collect all (${collectable.length})`}
+            <button type="button" onClick={() => void collectAll()} disabled={busy !== null} className={styles.collectButton}>
+              <Coins size={15} aria-hidden="true" />{busy ? "Collecting…" : `Collect all (${collectable.length})`}
             </button>
           ) : null}
         </div>
@@ -241,18 +244,18 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
             return (
               <li key={k} className={styles.launchRow}>
                   <Link href={`/t/${l.chain}/${l.token}`} className={styles.tokenIdentity}>
-                    <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={40} />
+                    <span className={styles.avatar}><TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={40} className="rounded-xl" /><ChainCorner chain={l.chain} /></span>
                     <div className="min-w-0">
                       <div className={styles.tokenName}>
                         <span className="font-semibold text-[15px] text-ink truncate">{l.name}</span>
                         <span className="font-mono text-xs text-muted">{l.symbol}</span>
-                        <ChainBadge chain={l.chain} />
                         <QuoteBrandBadge quoteKey={l.quote_key} />
                         {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} /> : null}
                       </div>
                       <div className={styles.tokenMeta}>
                         <FeeChip lpFee={l.lp_fee} mode={feeModeOf(l.lp_fee, l.recipients)} />
-                        <span>mc {capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact}</span>
+                        <span>{CHAIN_SHORT[l.chain]}</span>
+                        <span>· mc {capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact}</span>
                         <span>· {l.buys + l.sells} trades</span>
                         {now ? <span suppressHydrationWarning>· {ago(l.block_time, now)} ago</span> : null}
                       </div>
@@ -269,11 +272,11 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <div className="text-[11px] text-muted">uncollected</div>
                   </div>
                   <div className={styles.rowActions}>
-                    <button type="button" onClick={() => void collect(l)} disabled={busy !== null || !hasFees(p)} className={styles.outlineButton} aria-label={`Collect fees for ${l.symbol}`}>
-                      {busy === k ? "Collecting…" : "Collect"}
+                    <button type="button" onClick={() => void collect(l)} disabled={busy !== null || !hasFees(p)} className={styles.collectButton} aria-label={`Collect fees for ${l.symbol}`}>
+                      <Coins size={14} aria-hidden="true" />{busy === k ? "Collecting…" : "Collect"}
                     </button>
                     <button type="button" onClick={() => setEditing(l)} className={styles.quietButton} aria-label={`Edit ${l.symbol} details`}>
-                      Edit
+                      <PencilLine size={14} aria-hidden="true" />Edit
                     </button>
                   </div>
               </li>
@@ -294,17 +297,16 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
             return (
               <li key={key(t)}>
                 <Link href={`/t/${t.chain}/${t.token}`} className={styles.holdingRow}>
-                  <TokenAvatar chain={t.chain} token={t.token} symbol={t.symbol} image={t.image_url} size={36} />
+                  <span className={styles.avatar}><TokenAvatar chain={t.chain} token={t.token} symbol={t.symbol} image={t.image_url} size={36} className="rounded-xl" /><ChainCorner chain={t.chain} /></span>
                   <div className="min-w-0 flex-1">
                     <div className={styles.tokenName}>
                       <span className="font-semibold text-ink truncate">{t.name}</span>
                       <span className="font-mono text-xs text-muted">{t.symbol}</span>
-                      <ChainBadge chain={t.chain} />
                       <QuoteBrandBadge quoteKey={t.quote_key} />
                       {t.quote_key === "other" ? <UnlistedPairBadge symbol={t.quote_symbol} /> : null}
                     </div>
                     <div className={styles.tokenMeta}>
-                      {t.my_buys} buys · {t.my_sells} sells · mc {capDisplay(t.fdv_quote, t.quote_usd, { key: t.quote_key, symbol: t.quote_symbol, decimals: t.quote_decimals }).compact}
+                      {CHAIN_SHORT[t.chain]} · {t.my_buys} buys · {t.my_sells} sells · mc {capDisplay(t.fdv_quote, t.quote_usd, { key: t.quote_key, symbol: t.quote_symbol, decimals: t.quote_decimals }).compact}
                     </div>
                   </div>
                   <div className={styles.holdingValue}>
@@ -331,7 +333,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
               <tbody className="font-mono tnum">
                 {me.trades.map((t) => (
                   <tr key={t.tx_hash} className="border-b border-line last:border-0">
-                    <td><span className={`${styles.tradeSide} ${t.is_buy ? "text-up" : "text-down-ink"}`}>{t.is_buy ? <ArrowDownLeft size={14} aria-hidden="true" /> : <ArrowUpRight size={14} aria-hidden="true" />}{t.is_buy ? "Buy" : "Sell"}</span></td>
+                    <td><span className={styles.tradeSide} data-side={t.is_buy ? "buy" : "sell"}>{t.is_buy ? <ArrowDownLeft size={14} aria-hidden="true" /> : <ArrowUpRight size={14} aria-hidden="true" />}{t.is_buy ? "Buy" : "Sell"}</span></td>
                     <td><Link href={`/t/${t.chain}/${t.token}`}>{t.symbol}</Link> <span className={styles.tradeChain}>{CHAIN_SHORT[t.chain]}</span></td>
                     <td>{fmtQuote(t.quote_raw, t.quote_decimals, t.quote_symbol)}</td>
                     <td className={styles.usdColumn}>{t.usd !== null ? fmtUsd(t.usd) : "—"}</td>
@@ -354,10 +356,10 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
           chain={editing.chain}
           token={editing.token}
           symbol={editing.symbol}
-          initial={{ description: editing.description ?? "", image_url: editing.image_url ?? "", website: editing.website ?? "", x_handle: editing.x_handle ?? "" }}
+          initial={{ description: editing.description ?? "", image_url: editing.image_url ?? "", banner_url: editing.banner_url ?? "", website: editing.website ?? "", x_handle: editing.x_handle ?? "" }}
           onClose={() => setEditing(null)}
           onSaved={(f: EditFields) => {
-            setMe((m) => (m ? { ...m, launches: m.launches.map((l) => (key(l) === key(editing) ? { ...l, description: f.description || null, image_url: f.image_url || null, website: f.website || null, x_handle: f.x_handle || null } : l)) } : m));
+            setMe((m) => (m ? { ...m, launches: m.launches.map((l) => (key(l) === key(editing) ? { ...l, description: f.description || null, image_url: f.image_url || null, banner_url: f.banner_url || null, website: f.website || null, x_handle: f.x_handle || null } : l)) } : m));
             toast({ kind: "info", title: `${editing.symbol} details updated` });
           }}
         />
@@ -366,10 +368,10 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   );
 }
 
-function Stat({ k, v, hint, accent }: { k: string; v: string; hint: string; accent?: "up" | "warm" }) {
+function Stat({ k, icon, v, hint, accent }: { k: string; icon: React.ReactNode; v: string; hint: string; accent?: "up" | "warm" }) {
   return (
     <div className={styles.stat}>
-      <dt>{k}</dt>
+      <dt><span className={styles.statIcon} aria-hidden="true">{icon}</span>{k}</dt>
       <dd className={accent === "up" ? "text-up" : accent === "warm" ? "text-warm-ink" : "text-ink"}>{v}</dd>
       <dd className={styles.statHint}>{hint}</dd>
     </div>
