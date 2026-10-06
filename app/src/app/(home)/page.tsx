@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import LaunchHero from "@/components/launchpad/LaunchHero";
 import LaunchList from "@/components/launchpad/LaunchList";
 import LiveRiver from "@/components/launchpad/LiveRiver";
@@ -14,6 +15,7 @@ import { dbConfigured } from "@/lib/db";
 import { isFilter } from "@/lib/launchpad/search";
 import { nowMs } from "@/lib/launchpad/time";
 import { inRiverWindow, riverCoverage } from "@/lib/launchpad/river";
+import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
 import TrendingStrip from "@/components/launchpad/TrendingStrip";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +42,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   ]);
   const trending = fetchedTrending ?? trendingFrom(page.items); // the default view's first page doubles as the strip's candidates
   const now = nowMs();
+  const layout = parseLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
 
   return (
     <main className="relative mx-auto max-w-6xl space-y-8 px-4 pb-16">
@@ -47,7 +50,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
       <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
       <TrendingStrip initial={trending} />
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
-        <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} hasDb={dbConfigured()} />
+        <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} />
         <aside aria-label="New launches and community" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
           <JustLaunched initial={fresh.items} serverNow={now} />
           <div className="min-w-0 space-y-4">

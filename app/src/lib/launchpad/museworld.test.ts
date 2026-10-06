@@ -66,7 +66,7 @@ test("server: priced from its own GITLAWB pool, guarded by the average, fails so
 test("badge: Museworld blue with its logo, in every list and on the token page and share card", () => {
   assert.equal(MUSEWORLD_BLUE, "#0866FF");
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public", MUSEWORLD_LOGO_PATH)));
-  for (const f of ["LaunchRow.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
+  for (const f of ["LaunchRow.tsx", "LaunchCard.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<MuseworldBadge label="Paired with MUSEWORLD" \/>/);
   assert.deepEqual(quotePillOf("museworld", "MUSEWORLD"), { symbol: "MUSEWORLD", ticker: "MW", kind: "museworld" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /official · priced in/);
