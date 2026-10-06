@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
-import { describeWebp, toLogoWebp } from "./imageProcess.ts";
-import { IMAGE_SIZE, sniffImage } from "./images.ts";
+import { describeWebp, toBannerWebp, toLogoWebp } from "./imageProcess.ts";
+import { BANNER_HEIGHT, BANNER_WIDTH, IMAGE_SIZE, sniffImage } from "./images.ts";
 
 async function fixture(format: "png" | "jpeg" | "webp" | "gif", w: number, h: number, extra?: (s: sharp.Sharp) => sharp.Sharp): Promise<Uint8Array> {
   let s = sharp({ create: { width: w, height: h, channels: 4, background: { r: 0, g: 82, b: 255, alpha: 1 } } });
@@ -52,4 +52,17 @@ test("big inputs are cropped to a square, never enlarged blurrily beyond the log
   assert.equal(d.width, IMAGE_SIZE);
   assert.equal(d.height, IMAGE_SIZE);
   assert.ok(out.length < 200_000, `output ${out.length}B is small`);
+});
+
+test("a banner is re-encoded to a 1500×500 WebP whatever its shape, and a tiny one is refused", async () => {
+  for (const [w, h] of [[3000, 1000], [1200, 1200], [800, 200]]) {
+    const out = await toBannerWebp(await fixture("png", w, h));
+    const d = await describeWebp(out);
+    assert.equal(d.format, "webp");
+    assert.equal(d.width, BANNER_WIDTH);
+    assert.equal(d.height, BANNER_HEIGHT);
+    assert.equal(d.hasExif, false);
+  }
+  await assert.rejects(toBannerWebp(await fixture("png", 200, 80)), /too small/);
+  await assert.rejects(toBannerWebp(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])));
 });

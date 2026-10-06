@@ -13,11 +13,19 @@ test("the home row shows the quote detail on every width", () => {
 });
 
 test("one-string sites use the compact form, which carries the mark for an unpriced quote", () => {
-  for (const [file, expected] of [["./TrendingStrip.tsx", 1], ["./MeDashboard.tsx", 2], ["../../app/t/[chain]/[token]/page.tsx", 1]] as const) {
+  for (const [file, expected] of [["./TrendingStrip.tsx", 1], ["./MeDashboard.tsx", 2], ["./LaunchCard.tsx", 1]] as const) {
     const src = read(file);
     assert.equal((src.match(/capDisplay\([^)]*\)\.compact/g) ?? []).length, expected, `${file} uses .compact`);
     assert.doesNotMatch(src, /capDisplay\([^)]*\)\.main/, `${file} never renders .main alone`);
   }
+});
+
+test("the token page leads with dollars and keeps the quote detail; the phone bar uses the compact form", () => {
+  const page = read("../../app/t/[chain]/[token]/page.tsx");
+  assert.match(page, /const cap = capDisplay\(l\.fdv_quote, l\.quote_usd, /);
+  assert.match(page, />\{cap\.main\}<\/p>\r?\n\s*<p [^>]*>\{cap\.detail\}<\/p>/, "the header shows the quote detail under the dollar figure");
+  assert.match(page, /<MobileBuyBar symbol=\{l\.symbol\} mcap=\{cap\.compact\} \/>/);
+  assert.doesNotMatch(page, /capDisplay\([^)]*\)\.main/);
 });
 
 test("the launch form renders main + detail for the opening cap, the preview card and the post-buy estimate", () => {

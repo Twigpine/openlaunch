@@ -106,9 +106,9 @@ export async function applySignedEdit(r: EditRequest): Promise<{ ok: true } | { 
        RETURNING nonce`;
     if (consumed.length === 0) return { ok: false as const, error: "nonce invalid or already used", status: 401 };
     await t`
-      INSERT INTO bb_launch_meta (chain_id, token, launcher, name, symbol, description, image_url, website, x_handle, updated_at)
-      VALUES (${cid}, ${token}, ${wallet}, ${row[0].name}, ${row[0].symbol}, ${v.value.description || null}, ${v.value.image_url || null}, ${v.value.website || null}, ${v.value.x_handle || null}, now())
-      ON CONFLICT (chain_id, token) DO UPDATE SET description = EXCLUDED.description, image_url = EXCLUDED.image_url, website = EXCLUDED.website, x_handle = EXCLUDED.x_handle, updated_at = now()`;
+      INSERT INTO bb_launch_meta (chain_id, token, launcher, name, symbol, description, image_url, banner_url, website, x_handle, updated_at)
+      VALUES (${cid}, ${token}, ${wallet}, ${row[0].name}, ${row[0].symbol}, ${v.value.description || null}, ${v.value.image_url || null}, ${v.value.banner_url || null}, ${v.value.website || null}, ${v.value.x_handle || null}, now())
+      ON CONFLICT (chain_id, token) DO UPDATE SET description = EXCLUDED.description, image_url = EXCLUDED.image_url, banner_url = EXCLUDED.banner_url, website = EXCLUDED.website, x_handle = EXCLUDED.x_handle, updated_at = now()`;
     return { ok: true as const };
   });
   return result;

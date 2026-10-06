@@ -61,7 +61,9 @@ export function buildCsp(nonce: string, { dev = false, connectSrc = [] }: CspOpt
     "base-uri 'self'",
     "object-src 'none'",
     "frame-ancestors 'none'",
-    "frame-src 'none'",
+    // App Router navigation retains the original document's CSP. The exact
+    // chart origin must be allowed on every entry page, not only /t routes.
+    "frame-src https://www.geckoterminal.com",
     "form-action 'self'",
     // Nonce for scripts in the HTML; 'strict-dynamic' trusts what those scripts load (Next's chunks).
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}`,

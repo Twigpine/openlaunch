@@ -82,7 +82,8 @@ export function SkFeedPost({ i }: { i: number }) {
         </div>
         <Sk className="h-4 w-4 shrink-0" />
       </div>
-      <div className="mt-[18px]">
+      {/* the body sits in the post's speech bubble */}
+      <div className="mt-[18px] rounded-[6px_16px_16px_16px] bg-ink/[0.045] px-4 py-3">
         {Array.from({ length: lines }, (_, n) => <div key={n} className="flex h-[26px] items-center"><Sk className="h-3.5" style={{ width: n === lines - 1 ? `${30 + ((i * 23) % 45)}%` : "100%" }} /></div>)}
       </div>
       <div className="mt-[18px] flex items-center gap-2"><Sk className="h-5 w-5 shrink-0 rounded-md" /><Sk className="h-3 w-44 max-w-full" /></div>

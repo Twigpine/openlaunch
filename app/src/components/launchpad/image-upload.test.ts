@@ -72,10 +72,12 @@ test("non-HTTP(S) input never becomes an image preview", () => {
 test("quotes and markup in an HTTP(S) URL remain encoded attribute data", () => {
   const value = 'https://images.example/logo.png?x=" onerror="alert(1)"><script>alert(2)</script>&y=\'test\'';
   const escaped = "https://images.example/logo.png?x=&quot; onerror=&quot;alert(1)&quot;&gt;&lt;script&gt;alert(2)&lt;/script&gt;&amp;y=&#x27;test&#x27;";
+  // the preview loads the parsed URL, as the browser would request it: quotes, angle brackets and spaces percent-encoded
+  const parsed = "https://images.example/logo.png?x=%22%20onerror=%22alert(1)%22%3E%3Cscript%3Ealert(2)%3C/script%3E&amp;y=%27test%27";
   const [html] = renderPreviews([{ value }]);
   // Assert the actual serialized sink, not a duplicate sanitization function or
-  // a source-code pattern. React must keep the entire value in one src attribute.
-  assert.ok(html.includes(`<img src="${escaped}" alt=""`));
+  // a source-code pattern. The whole value stays in one src attribute; the field keeps what was typed.
+  assert.ok(html.includes(`<img src="${parsed}" alt=""`));
   assert.ok(html.includes(`value="${escaped}"`));
   assert.equal(html.includes(' onerror="'), false);
   assert.equal(html.includes("<script>"), false);

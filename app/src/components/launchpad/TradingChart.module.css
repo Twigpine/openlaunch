@@ -1,91 +1,62 @@
-.terminal { min-width: 0; overflow: hidden; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); color: var(--color-ink); }
-.header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px; }
-.marketIdentity { min-width: 0; }
-.kicker { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; }
-.kicker > svg { flex-shrink: 0; color: var(--color-muted); }
-.kicker > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.secondary { color: var(--color-muted); }
-.chain { border-left: 1px solid var(--color-line-strong); padding-left: 8px; margin-left: 2px; color: var(--color-muted); font-size: 10px; }
-.metric { margin-top: 18px; color: var(--color-muted); font-size: 11px; font-weight: 400; }
-.priceLine { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-top: 3px; }
-.priceLine strong { font: 700 36px/1.2 var(--font-mono); letter-spacing: -.06em; overflow-wrap: anywhere; }
-.denom { color: var(--color-muted); font-size: 11px; }
-.change { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 7px; color: var(--color-muted); font-size: 10px; }
-.headerControls { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; gap: 10px; }
-.headerControls button { min-height: 36px; padding-inline: 12px; }
-.currencySelect { position: relative; display: flex; align-items: center; }
-.currencySelect select { height: 32px; max-width: 125px; appearance: none; padding: 0 28px 0 10px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font-size: 11px; cursor: pointer; }
-.currencySelect svg { position: absolute; right: 9px; pointer-events: none; color: var(--color-muted); }
-.toolbar { display: flex; align-items: stretch; gap: 4px; border-block: 1px solid var(--color-line); background: var(--color-card); padding: 0 8px; }
-.scrollTools { display: flex; align-items: center; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
-.intervals, .ranges { flex-shrink: 0; border: 0; border-radius: 0; background: transparent; padding: 0; gap: 0; }
-.intervals .interval { height: 44px; padding-inline: 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--color-muted); font: 11px var(--font-mono); box-shadow: none; }
-.intervals .interval[data-pressed] { border-bottom-color: var(--color-ink); background: transparent; color: var(--color-ink); }
-.divider { width: 1px; height: 18px; flex-shrink: 0; background: var(--color-line-strong); margin-inline: 6px; }
-.tool { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; gap: 6px; height: 44px; padding-inline: 10px; border-bottom: 2px solid transparent; white-space: nowrap; color: var(--color-muted); font-size: 11px; cursor: pointer; }
-.tool[aria-pressed="true"] { border-bottom-color: var(--color-ink); color: var(--color-ink); }
-.fixedTools { display: flex; border-left: 1px solid var(--color-line); }
-.iconButton { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 44px; color: var(--color-muted); cursor: pointer; }
-.iconButton:hover, .tool:hover, .scaleButton:hover { background: var(--color-line); color: var(--color-ink); }
-.terminal button:disabled { opacity: .4; cursor: not-allowed; }
-.legend { padding: 13px 16px 10px; min-height: 74px; }
-.legendContext { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; }
-.legendContext > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.legendContext > span > span { color: var(--color-muted); }
-.legendContext time { flex-shrink: 0; color: var(--color-muted); font: 10px var(--font-mono); }
-.ohlc { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; margin-top: 7px; min-height: 17px; font: 11px var(--font-mono); }
-.ohlc b { margin-right: 5px; color: var(--color-muted); font: 10px var(--font-sans); }
-.ohlc[data-direction="up"] { color: var(--color-up); }
-.ohlc[data-direction="down"] { color: var(--color-down-ink); }
-.legendVolume, .carried { color: var(--color-muted); }
-.carried { font: 10px var(--font-sans); }
-.plotWrap { position: relative; min-height: 0; }
-.plot { width: 100%; height: 390px; font-family: var(--font-mono); }
+/* The token chart card: a readout that follows the crosshair, the plot, then one row of intervals and view chips. */
+.terminal { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-card); color: var(--color-ink); }
+.header { min-width: 0; padding: 16px 18px 4px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.value { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 14px; }
+.figure { min-width: 0; font: 700 30px/1.15 var(--font-mono); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.unit { color: var(--color-muted); font: 500 11px/1 var(--font-sans); }
+.unitGroup { padding: 2px; border-radius: 8px; }
+.unitItem { min-height: 22px; padding-inline: 7px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; }
+.info { display: grid; place-items: center; width: 24px; height: 24px; margin-left: -4px; border-radius: 999px; color: var(--color-muted); cursor: help; transition: background-color 0.15s, color 0.15s; }
+.info:hover, .info[data-popup-open] { background: color-mix(in oklab, var(--color-ink) 6%, transparent); color: var(--color-ink); }
+.context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 20px; margin-top: 8px; color: var(--color-muted); font-size: 11px; }
+.context time { color: var(--color-body); font: 11px var(--font-mono); }
+.details { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; min-height: 17px; margin-top: 8px; color: var(--color-body); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.details b { margin-right: 5px; color: var(--color-muted); font: 500 10px var(--font-sans); }
+.details small { color: var(--color-muted); font-size: 10px; }
+.carried { color: var(--color-muted); font: 10px var(--font-sans); }
+.stale { color: var(--color-warm-ink); }
+.controls { display: flex; align-items: center; gap: 4px; }
+/* smaller than the toggle group's default: the chart's controls sit beside a figure, not in a form */
+.compact { padding: 2px; border-radius: 10px; }
+.compactItem { min-height: 26px; padding-inline: 9px; border-radius: 8px; font-size: 11px; }
+.iconItem { min-height: 26px; width: 30px; padding: 0; border-radius: 8px; }
+.iconButton { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: var(--color-muted); transition: background-color 0.15s, color 0.15s; }
+.iconButton:hover { background: color-mix(in oklab, var(--color-ink) 6%, transparent); color: var(--color-ink); }
+/* a little air at the left edge, so the first bucket never sits on the card's border */
+.plotWrap { position: relative; padding-left: 6px; }
+.plot { width: 100%; height: 340px; font-family: var(--font-mono); }
 .plot:focus-visible { outline-offset: -2px; }
-.overlay { position: absolute; inset: 0; z-index: 3; background: var(--color-paper); padding: 16px; }
-.empty { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; color: var(--color-muted); font-size: 12px; text-align: center; }
+.overlay { position: absolute; inset: 0; z-index: 3; padding: 12px 16px; background: var(--color-card); }
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--color-muted); font-size: 12px; text-align: center; }
 .empty strong { color: var(--color-ink); font-size: 14px; }
-.empty button { min-height: 44px; padding-inline: 16px; border: 1px solid var(--color-line-strong); border-radius: 8px; color: var(--color-ink); cursor: pointer; }
-.baselineNote { position: absolute; z-index: 3; top: 18%; left: 16px; right: 112px; display: flex; flex-direction: column; gap: 8px; text-align: center; pointer-events: none; }
-.baselineNote span { font-size: 13px; }
-.baselineNote small { color: var(--color-muted); font-size: 11px; line-height: 1.6; }
-.bottomToolbar { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--color-line); padding: 4px 8px; }
-.ranges .range { height: 44px; padding-inline: 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--color-muted); font: 11px var(--font-mono); box-shadow: none; }
-.ranges .range[data-pressed] { border-bottom-color: var(--color-ink); background: transparent; color: var(--color-ink); }
-.scaleTools { display: flex; align-items: center; gap: 2px; }
-.scaleButton { min-width: 34px; min-height: 44px; padding-inline: 5px; border-bottom: 2px solid transparent; color: var(--color-muted); font: 11px var(--font-mono); cursor: pointer; }
-.scaleButton[aria-pressed="true"] { border-bottom-color: var(--color-ink); color: var(--color-ink); }
-.footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 11px 16px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 10px; }
-.footer a:hover { color: var(--color-ink); }
-.dataNote { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 12px; color: var(--color-muted); font-size: 10px; line-height: 1.6; }
-.terminal :is(button, select, a, [tabindex]):focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.empty button { min-height: 40px; padding-inline: 16px; border: 1px solid var(--color-line-strong); border-radius: 10px; color: var(--color-ink); cursor: pointer; }
+/* a quiet or empty window says so over the plot, without hiding the axes */
+.note { position: absolute; z-index: 3; top: 22%; left: 50%; display: flex; flex-direction: column; gap: 6px; width: min(340px, calc(100% - 120px)); transform: translateX(-50%); padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; background: color-mix(in oklab, var(--color-card) 84%, transparent); backdrop-filter: blur(8px); text-align: center; pointer-events: none; }
+.note span { color: var(--color-ink); font-size: 13px; font-weight: 500; }
+.note small { color: var(--color-muted); font-size: 11px; line-height: 1.55; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--color-line); }
+.intervals { padding: 2px; border-radius: 10px; }
+.interval { min-height: 28px; padding-inline: 10px; border-radius: 8px; font: 11px var(--font-mono); }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding-inline: 10px; border: 1px solid transparent; border-radius: 9px; color: var(--color-muted); font-size: 11px; font-weight: 500; cursor: pointer; transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
+.chip:hover { background: color-mix(in oklab, var(--color-ink) 5%, transparent); color: var(--color-ink); }
+.chip[aria-pressed="true"] { border-color: var(--color-line); background: var(--color-paper); color: var(--color-ink); }
+.terminal :is(button, a, [tabindex]):focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.terminal button:disabled { opacity: 0.4; cursor: not-allowed; }
 .terminal:fullscreen { display: flex; flex-direction: column; border: 0; border-radius: 0; padding-inline: max(12px, env(safe-area-inset-left)); overflow-y: auto; }
-.terminal:fullscreen .header { padding: 12px; }
-.terminal:fullscreen .metric { margin-top: 8px; }
-.terminal:fullscreen .priceLine strong { font-size: 28px; }
-.terminal:fullscreen .plotWrap { flex: 1; min-height: 200px; }
-.terminal:fullscreen .plot { position: absolute; inset: 0; height: 100%; }
-@media (min-width: 1280px) { .plot { height: 430px; } }
+.terminal:fullscreen .plotWrap { flex: 1; min-height: 240px; }
+.terminal:fullscreen .plot { position: absolute; inset: 0 0 0 6px; width: auto; height: 100%; }
+@media (min-width: 1280px) { .plot { height: 360px; } }
 @media (max-width: 639px) {
-  .header { padding: 16px 12px; gap: 8px; }
-  .priceLine strong { font-size: 28px; }
-  .headerControls button { padding-inline: 9px; }
-  .kicker { font-size: 11px; }
-  .chain { display: none; }
-  .legend { padding: 12px; min-height: 95px; }
-  .legendContext { flex-wrap: wrap; gap: 6px; }
-  .ohlc { font-size: 10px; gap: 5px 9px; }
-  .plot { height: 340px; }
-  .fixedTools .iconButton { width: 34px; }
-  .bottomToolbar { padding-inline: 4px; }
-  .ranges .range { padding-inline: 9px; }
-  .scaleTools { margin-left: auto; }
-  .footer, .dataNote { padding-inline: 12px; }
+  .header { padding: 14px 12px 2px; }
+  .value { margin-top: 12px; }
+  .figure { font-size: 26px; }
+  /* two lines held open, so the plot never moves while a finger scrubs between the summary and a bucket */
+  .details { min-height: 36px; align-content: flex-start; }
+  .plot { height: 300px; }
+  .note { width: calc(100% - 96px); }
+  .bar { padding: 8px; }
+  .interval { padding-inline: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .terminal * { scroll-behavior: auto; transition: none; } }
-@media (max-width: 399px) {
-  .header { flex-wrap: wrap; gap: 14px; }
-  .marketIdentity { flex: 1 0 100%; }
-  .headerControls { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
-  .priceLine strong { letter-spacing: -.045em; }
-}
+@media (prefers-reduced-motion: reduce) { .terminal * { transition: none; } }

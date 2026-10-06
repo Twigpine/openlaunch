@@ -39,7 +39,7 @@ function NavigationSurface({ children, className, visible = false, mobile = fals
         width,
         y: visible ? 20 : 0,
         borderRadius: visible ? 28 : 0,
-        backdropFilter: visible ? "blur(10px)" : "blur(0px)",
+        backdropFilter: visible ? "blur(16px) saturate(1.5)" : "blur(0px) saturate(1)",
         ...(mobile ? { paddingLeft: visible ? 12 : 16, paddingRight: visible ? 12 : 16 } : {}),
       }}
       transition={{ duration: reduced ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
@@ -87,9 +87,9 @@ export function MobileNavMenu({ children, className, isOpen, onClose }: SlotProp
       {isOpen ? (
         <motion.div
           key="mobile-navigation"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
           transition={{ duration: reduced ? 0 : 0.12 }}
           className={cn(
             "absolute inset-x-0 top-16 z-50 flex flex-col gap-2 rounded-2xl border border-line bg-card p-2",

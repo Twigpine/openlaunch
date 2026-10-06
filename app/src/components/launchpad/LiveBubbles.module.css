@@ -1,0 +1,131 @@
+/*
+ * The bubble map. Places come from a d3-force layout run to rest on each update (no timer); the glide to a new place,
+ * the slow float, the arrival pulse and the sparks are all CSS, so the page runs no per-frame script.
+ * The heights mirror ESTIMATED in LiveBubbles.tsx.
+ */
+.field {
+  position: relative;
+  height: 300px;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    radial-gradient(60% 75% at 50% 50%, color-mix(in oklab, var(--color-ink) 5%, transparent), transparent 72%),
+    radial-gradient(circle, color-mix(in oklab, var(--color-ink) 10%, transparent) 1px, transparent 1.5px) 0 0 / 22px 22px;
+}
+@media (min-width: 640px) {
+  .field { height: 320px; }
+}
+
+.bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--r) * 2px);
+  height: calc(var(--r) * 2px);
+  translate: calc(var(--x) * 1px - var(--r) * 1px) calc(var(--y) * 1px - var(--r) * 1px);
+  transition: translate 1.2s cubic-bezier(0.22, 1, 0.36, 1), width 1.2s cubic-bezier(0.22, 1, 0.36, 1), height 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+  outline: none;
+}
+.bubble:hover { z-index: 2; }
+
+/* a glass orb in the colour of the side that led: a soft highlight, a tinted body, a ring and a glow that deepen with the lead */
+.orb {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 9999px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 32% 24%, rgb(255 255 255 / 0.16), transparent 40%),
+    radial-gradient(circle at 50% 58%, color-mix(in oklab, var(--tone) calc(16% + var(--k) * 26%), transparent), color-mix(in oklab, var(--tone) 5%, transparent) 76%);
+  border: 1.5px solid color-mix(in oklab, var(--tone) calc(30% + var(--k) * 45%), transparent);
+  box-shadow: 0 0 calc(var(--r) * 0.7px) calc(var(--r) * -0.12px) color-mix(in oklab, var(--tone) calc(var(--k) * 45%), transparent);
+  animation: float var(--float) ease-in-out var(--float-delay) infinite alternate;
+  transition: scale 0.25s ease;
+}
+.bubble:hover .orb { scale: 1.07; }
+@keyframes float {
+  from { translate: 0 -3px; }
+  to { translate: 0 3px; }
+}
+
+.logo { position: relative; display: grid; flex-shrink: 0; }
+.symbol {
+  max-width: 82%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-size: clamp(10px, calc(var(--r) * 0.22px), 15px);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.value {
+  color: color-mix(in oklab, var(--tone) 82%, var(--color-ink));
+  font-size: clamp(9px, calc(var(--r) * 0.18px), 13px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.bubble[data-side="even"] .value { color: var(--color-body); }
+
+/* a ring that leaves the bubble when a trade lands */
+.pulse {
+  position: absolute;
+  inset: -1px;
+  border: 2px solid var(--tone);
+  border-radius: inherit;
+  pointer-events: none;
+  animation: pulse 0.9s ease-out forwards;
+}
+@keyframes pulse {
+  from { opacity: 0.85; scale: 1; }
+  to { opacity: 0; scale: 1.5; }
+}
+
+/* a launch that arrives live pops in, then floats like the rest */
+.born { animation: born 0.7s cubic-bezier(0.2, 1.4, 0.4, 1) both, float var(--float) ease-in-out var(--float-delay) infinite alternate; }
+@keyframes born {
+  from { scale: 0.2; opacity: 0; }
+  to { scale: 1; opacity: 1; }
+}
+
+/* a buy flies into its bubble, a sell flies out of it */
+.spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 9999px;
+  background: var(--tone);
+  box-shadow: 0 0 10px 1px var(--tone);
+  opacity: 0;
+  pointer-events: none;
+  animation: spark-in 0.9s cubic-bezier(0.3, 0.6, 0.35, 1) forwards;
+}
+.spark[data-side="sell"] { animation-name: spark-out; }
+@keyframes spark-in {
+  0% { translate: var(--dx) var(--dy); opacity: 0; }
+  25% { opacity: 1; }
+  100% { translate: 0 0; opacity: 0; }
+}
+@keyframes spark-out {
+  0% { translate: 0 0; opacity: 1; }
+  100% { translate: var(--dx) var(--dy); opacity: 0; }
+}
+
+.empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; padding: 16px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble { transition: none; }
+  .orb, .born { animation: none; }
+  .pulse, .spark { display: none; }
+  .bubble:hover .orb { scale: 1; }
+}

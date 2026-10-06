@@ -36,7 +36,7 @@ export function TapeList({ items, now, fresh, label = "Recent launches and trade
                 {item.kind === "swap" && item.is_dev ? <span className="text-warm-ink">by the creator</span> : null}
                 <span className="ml-auto shrink-0 text-[10px] text-muted">{CHAIN_SHORT[item.chain]}</span>
               </div>
-              <p className="mt-1 font-mono text-[10px] text-muted">{shortAddr(item.kind === "launch" ? item.launcher : item.trader)}{item.kind === "launch" && item.lp_fee === 0 ? <span className="font-sans">, 0% trading fee</span> : null}</p>
+              <p className="mt-1 font-code text-[10px] text-muted">{shortAddr(item.kind === "launch" ? item.launcher : item.trader)}{item.kind === "launch" && item.lp_fee === 0 ? <span className="font-sans">, 0% trading fee</span> : null}</p>
             </Link>
           </li>
         );

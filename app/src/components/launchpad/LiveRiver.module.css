@@ -5,25 +5,35 @@
  */
 .field {
   --s: 0.75;
+  --h: 168px;
   position: relative;
-  height: 150px;
+  height: var(--h);
   overflow: hidden;
-  container-type: inline-size;
+  /* the past dissolves at the far edge instead of being cut off */
+  mask-image: linear-gradient(90deg, transparent, #000 56px);
 }
 @media (min-width: 640px) {
-  .field { --s: 1; height: 220px; }
+  .field { --s: 1; --h: 240px; }
+}
+
+/* the time track: its right edge is now. It stops short of the field's edge so the newest mark is drawn whole. */
+.lane { position: absolute; inset: 0 24px 0 0; container-type: inline-size; }
+
+/* one column of dots per minute, rows centred on the line */
+.grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--color-line-strong) 1px, transparent 1.5px);
+  background-size: calc(100cqw / 30) 24px;
+  background-position: calc(100% + 100cqw / 60) 50%;
 }
 
 .line { position: absolute; inset-inline: 0; top: 50%; height: 1px; background: var(--color-line-strong); }
-.tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--color-line); }
-
-.axis { position: relative; height: 14px; margin-top: 6px; color: var(--color-muted); font: 10.5px/14px var(--font-mono); font-variant-numeric: tabular-nums; }
-.axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
-.axis .now { transform: translateX(-100%); color: var(--color-body); }
-.axis .compactHide { display: none; }
-@media (min-width: 640px) {
-  .axis .compactHide { display: inline; }
-}
+.tick { position: absolute; top: calc(50% - 3px); width: 1px; height: 7px; background: var(--color-line-strong); }
+.now { position: absolute; top: 0; bottom: 0; left: 100%; border-left: 1px dashed var(--color-line-strong); }
+/* the hovered mark's moment, down to the axis */
+.cross { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--color-muted); opacity: 0.6; }
+.nowDot { position: absolute; left: 100%; top: 50%; width: 7px; height: 7px; margin: -3px 0 0 -3px; border-radius: 9999px; background: var(--color-up); box-shadow: 0 0 0 3px var(--color-card); }
 
 .mark {
   --d: calc(var(--r) * var(--s) * 2px);
@@ -36,7 +46,7 @@
   animation: drift 1800s linear both;
   animation-delay: var(--delay);
 }
-.mark:hover, .mark:focus-visible { z-index: 3; }
+.mark:hover { z-index: 3; }
 @keyframes drift {
   0% { transform: translateX(0); opacity: 1; }
   85% { opacity: 1; }
@@ -45,13 +55,33 @@
 
 .buy { color: var(--color-up); }
 .sell { color: var(--color-down); }
-.launch { color: var(--color-brand); }
+.launch { color: var(--color-ink); }
+:global(.dark) .launch { color: var(--color-brand); }
 
-.dot { display: block; width: 100%; height: 100%; border-radius: 9999px; background: currentColor; opacity: 0.88; transition: opacity 120ms ease-out; }
-.mark:hover .dot { opacity: 1; }
+/* a trade stands on a stem from the line, so how far it reaches reads at a glance */
+.mark[data-side]::before {
+  content: "";
+  position: absolute;
+  left: calc(50% - 0.5px);
+  width: 1px;
+  background: currentColor;
+  opacity: 0.4;
+  z-index: -1;
+}
+.mark[data-side="up"]::before { top: 50%; height: calc((0.5 - var(--y)) * var(--h)); transform-origin: 50% 100%; }
+.mark[data-side="down"]::before { bottom: 50%; height: calc((var(--y) - 0.5) * var(--h)); transform-origin: 50% 0; }
+/* and touches it with a small foot */
+.mark[data-side]::after { content: ""; position: absolute; left: calc(50% - 1.5px); width: 3px; height: 3px; border-radius: 9999px; background: currentColor; opacity: 0.75; }
+.mark[data-side="up"]::after { top: calc(50% + (0.5 - var(--y)) * var(--h) - 1.5px); }
+.mark[data-side="down"]::after { bottom: calc(50% + (var(--y) - 0.5) * var(--h) - 1.5px); }
 
-.avatar { display: block; width: 22px; height: 22px; border-radius: 9999px; transform: scale(var(--s)); transform-origin: 0 0; box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 3px currentColor; }
-.avatar > * { border-radius: 9999px; }
+.dot { display: block; width: 100%; height: 100%; border-radius: 9999px; background: currentColor; box-shadow: 0 0 0 2px var(--color-card); }
+/* on black, each mark carries a faint halo of its own colour */
+:global(.dark) .dot { box-shadow: 0 0 0 2px var(--color-card), 0 0 14px -2px color-mix(in srgb, currentColor 70%, transparent); }
+:global(.dark) .avatar { box-shadow: 0 0 18px -2px color-mix(in srgb, currentColor 60%, transparent); }
+/* the token's own image, ringed in the trade's colour */
+.avatar { display: block; width: 100%; height: 100%; border-radius: 9999px; background: var(--color-card); outline: 2px solid currentColor; outline-offset: 1.5px; }
+.avatar > * { width: 100% !important; height: 100% !important; border: 0 !important; border-radius: 9999px !important; font-size: calc(var(--d) * 0.45) !important; }
 .lock {
   position: absolute; right: -6px; bottom: -5px;
   display: grid; place-items: center; width: 15px; height: 15px;
@@ -60,39 +90,68 @@
   transform: scale(var(--s));
 }
 
-/* labels: shown at rest only where lib/launchpad/river.ts found room, and always on hover */
+.dot, .avatar { transition: transform 160ms ease-out, opacity 160ms ease-out; }
+.mark::before, .mark::after, .lock { transition: opacity 160ms ease-out; }
+.mark:hover .dot, .mark:hover .avatar { transform: scale(1.18); }
+.mark:hover::before { opacity: 0.85; }
+/* pointing at one token fades the rest, so its other trades stand out */
+.field[data-hovering] .mark:not([data-match]) .dot,
+.field[data-hovering] .mark:not([data-match]) .avatar,
+.field[data-hovering] .mark:not([data-match]) .lock,
+.field[data-hovering] .mark:not([data-match])::before,
+.field[data-hovering] .mark:not([data-match])::after { opacity: 0.16; }
+.field[data-hovering] .mark:not([data-match]) .label { visibility: hidden; }
+
+/* labels: shown at rest only where lib/launchpad/river.ts found room */
 .label {
-  position: absolute; top: 50%; right: calc(100% + 5px);
-  transform: translateY(-50%);
-  padding: 0 4px; border-radius: 4px;
-  background: color-mix(in srgb, var(--color-paper) 84%, transparent);
-  color: var(--color-body);
-  font: 500 11px/15px var(--font-mono); font-variant-numeric: tabular-nums;
-  white-space: nowrap; pointer-events: none;
+  position: absolute;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: var(--color-raised);
+  box-shadow: 0 0 0 1px var(--color-line), 0 1px 2px rgb(15 23 42 / 0.06);
+  font: 600 10.5px/16px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
   opacity: 0;
 }
-.launchLabel { right: auto; left: 50%; top: auto; transform: translateX(-50%); color: var(--color-ink); font-family: var(--font-sans); font-weight: 600; font-size: 12px; }
-.launchLabel[data-side="up"] { bottom: calc(100% + 8px); }
-.launchLabel[data-side="down"] { top: calc(100% + 10px); }
+.sell .label { color: var(--color-down-ink); }
+.launch .label { color: var(--color-ink); font-size: 11px; letter-spacing: 0.02em; }
+.label[data-place="above"] { left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); }
+.label[data-place="below"] { left: 50%; top: calc(100% + 6px); transform: translateX(-50%); }
+.label[data-place="left"] { right: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
 .label[data-compact="true"] { opacity: 1; }
 @media (min-width: 640px) {
   .label[data-compact="true"] { opacity: 0; }
   .label[data-wide="true"] { opacity: 1; }
 }
-.mark:hover .label, .mark:focus-visible .label { opacity: 1; color: var(--color-ink); }
 
-/* one ring when a real event lands; never on the first paint */
-.ping .dot, .ping .avatar { animation: ping 1s ease-out; }
+/* a real arrival grows out of the line, pops in and rings once; never on the first paint */
+.ping::before { animation: stem 420ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.ping::after { animation: pop 240ms ease-out backwards; }
+.ping .dot, .ping .avatar { animation: pop 520ms cubic-bezier(0.3, 1.5, 0.5, 1) 120ms backwards, ping 1.4s ease-out 260ms; }
+@keyframes stem { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes pop { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes ping {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent); }
-  100% { box-shadow: 0 0 0 16px transparent; }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  100% { box-shadow: 0 0 0 18px transparent; }
 }
 
 .empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; padding: 0 16px; text-align: center; }
+
+.axis { position: relative; height: 14px; margin: 8px 24px 0 0; color: var(--color-muted); font: 10.5px/14px var(--font-mono); font-variant-numeric: tabular-nums; }
+.axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.axis .nowLabel { color: var(--color-ink); }
+.axis .crossLabel { z-index: 1; padding: 0 6px; border-radius: 9999px; background: var(--color-ink); color: var(--color-inverse); }
+.axis .compactHide { display: none; }
+@media (min-width: 640px) {
+  .axis .compactHide { display: inline; }
+}
 
 /* reduced motion: a still timeline, re-placed every few seconds from the render clock */
 @media (prefers-reduced-motion: reduce) {
   .mark { animation: none; transform: translateX(calc(var(--age) * -100cqw)); opacity: var(--fade); }
   .ping .dot, .ping .avatar { animation: none; }
-  .dot { transition: none; }
+  .ping::before, .ping::after { animation: none; }
+  .dot, .avatar, .mark::before, .mark::after, .lock { transition: none; }
 }

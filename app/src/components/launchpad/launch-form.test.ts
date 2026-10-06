@@ -30,7 +30,9 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
 });
 
 test("launch merge retains chain-scoped marks and honest optional-buy copy", () => {
-  assert.match(source, /<TokenAvatar chain=\{chain\}/);
+  // the preview marks carry the chosen chain: it goes into the preview row, which both preview views draw from
+  assert.match(source, /previewLaunch\(\{ chain, /);
+  assert.match(readFileSync(new URL("./LaunchPreview.tsx", import.meta.url), "utf8"), /<TokenAvatar chain=\{row\.chain\}/);
   assert.match(source, /label=\{initialBuyRaw \? "Launch \+ first buy" : "Launch for free, gas only"\}/);
   // a suggested buy is computed from a known, sufficient balance and can be cleared; a typed amount keeps the strict checks
   assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed \|\| ethBal\.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
@@ -165,4 +167,14 @@ test("custom market-cap entry clears the preset pick when sanitization rejects t
 test("a rejected first-buy entry is ignored, never read as declining the first buy", () => {
   assert.match(source, /const next = resolveFirstBuyInput\(e\.target\.value\); if \(next\.kind === "choose"\) chooseFirstBuy\(next\.value\); else if \(next\.kind === "decline"\) declineFirstBuy\(\);/);
   assert.doesNotMatch(source, /sanitizeDecimalInput\(e\.target\.value\); if \(v\) chooseFirstBuy\(v\); else declineFirstBuy\(\)/);
+});
+
+test("the preview draws the real board card from the form, with no link and nothing sent", () => {
+  assert.match(source, /const previewRow = previewLaunch\(\{ chain, name, symbol: symbolClean,/);
+  assert.match(source, /<LaunchPreview row=\{previewRow\} \/>/);
+  const preview = readFileSync(new URL("./LaunchPreview.tsx", import.meta.url), "utf8");
+  assert.match(preview, /<LaunchCard preview l=\{row\} now=\{0\} chip=\{JUST_LAUNCHED\} \/>/);
+  // both views share one grid cell, so switching them never changes the panel's height
+  assert.match(preview, /col-start-1 row-start-1/);
+  assert.doesNotMatch(preview, /\bfetch\s*\(/);
 });

@@ -116,3 +116,22 @@ test("clampSocial: ≤125 chars on a word boundary with an ellipsis; short text 
   assert.equal(clampSocial("x".repeat(200)).length, 125, "no spaces → hard cut + ellipsis");
   assert.ok(clampSocial("x".repeat(200), 155).length <= 155);
 });
+
+test("a banner is signed when set, and a message signed before banners existed still matches", () => {
+  const args = { chain: "base", token: "0xab", wallet: "0xcd", nonce: "n", expiresAt: 0 };
+  const withBanner = buildEditMessage({ ...args, fields: { description: "hi", banner_url: "https://x.y/b.webp" } });
+  assert.match(withBanner, /\nbanner: https:\/\/x\.y\/b\.webp\n/);
+  const without = buildEditMessage({ ...args, fields: { description: "hi" } });
+  assert.doesNotMatch(without, /banner:/);
+  assert.equal(buildEditMessage({ ...args, fields: { description: "hi", banner_url: "" } }), without, "an empty banner reads like no banner");
+  assert.notEqual(withBanner, without);
+});
+
+test("validateEdit: the banner follows the image rules", () => {
+  const v = validateEdit({ banner_url: "https://x.y/b.webp" });
+  assert.equal(v.ok, true);
+  if (v.ok) assert.equal(v.value.banner_url, "https://x.y/b.webp");
+  assert.equal(validateEdit({ banner_url: "http://x.y/b.webp" }).ok, false);
+  assert.equal(validateEdit({ banner_url: "https://localhost/b.webp" }).ok, false);
+  assert.equal(validateEdit({ banner_url: "https://10.0.0.5/b.webp" }).ok, false);
+});
