@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAccount, useConfig } from "wagmi";
+import { useConfig } from "wagmi";
+import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getWalletClient } from "wagmi/actions";
 import WalletAvatar from "@/components/WalletAvatar";
 import ChainBadge from "./ChainBadge";
@@ -15,7 +16,8 @@ import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import ConnectWallet from "@/components/ConnectWallet";
-import { ChevronDown, MessageSquare } from "lucide-react";
+import { ArrowUpRight, ChevronDown, MessageSquare } from "lucide-react";
+import { MagicCard } from "@/components/vendor/magic-card";
 
 function nonce(): string {
   const b = new Uint8Array(16);
@@ -41,7 +43,7 @@ async function signed(config: ReturnType<typeof useConfig>, chain: ChainKey, mes
  * reply level. Report and (for the creator) mute are signatures too.
  */
 export default function TokenComments({ chain, token, symbol, launcher, embedded = false }: { chain: ChainKey; token: string; symbol: string; launcher: string; embedded?: boolean }) {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useHydratedAccount();
   const config = useConfig();
   const { subscribe } = useLive();
   const [posts, setPosts] = useState<PostRow[]>([]);
@@ -267,6 +269,12 @@ function PostItem({ p, now, canReply, onReply, onReport }: { p: PostRow; now: nu
 
 /** The human feed (home column + /feed): latest top-level posts across tokens. */
 const COMPACT_LIMIT = 5;
+/** The home column's tag badge: the same three standings as TagChip, in sentence case. */
+const TAG_BADGE: Record<Exclude<PostRow["tag"], null>, { label: string; className: string }> = {
+  creator: { label: "Creator", className: "bg-brand-soft text-brand" },
+  whale: { label: "Whale", className: "bg-warm-soft text-warm-ink" },
+  holder: { label: "Holder", className: "bg-up-soft text-up" },
+};
 
 export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; compact?: boolean }) {
   const { subscribe } = useLive();
@@ -305,8 +313,8 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
     }
   };
   const shown = compact ? posts.slice(0, COMPACT_LIMIT) : posts;
-  return (
-    <section className={`rounded-2xl border border-line overflow-hidden ${compact ? "bg-paper" : "bg-card"}`}>
+  const feed = (
+    <section className={compact ? "overflow-hidden rounded-[inherit]" : "rounded-2xl border border-line overflow-hidden bg-card"}>
       <div className={`px-4 ${compact ? "min-h-14" : "h-11"} flex items-center justify-between gap-2 ${compact && collapsed ? "" : "border-b border-line"}`}>
         <h2 className="text-sm font-semibold text-ink flex items-center gap-2">
           {compact ? <MessageSquare size={14} aria-hidden="true" className="text-muted" /> : null}
@@ -315,8 +323,8 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
         </h2>
         {compact ? (
           <div className="flex items-center gap-2">
-            <Link href="/feed" className="inline-flex min-h-10 items-center text-[11px] text-muted hover:text-ink">
-              View all ↗
+            <Link href="/feed" className="inline-flex min-h-10 items-center gap-0.5 text-[11px] font-medium text-muted transition-colors hover:text-ink motion-reduce:transition-none">
+              View all<ArrowUpRight size={12} aria-hidden="true" />
             </Link>
             <button
               type="button"
@@ -325,7 +333,7 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
               aria-controls="home-posts"
               aria-label={collapsed ? "Show posts" : "Hide posts"}
               title={collapsed ? "Show posts" : "Hide posts"}
-              className="h-10 w-10 inline-flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-card"
+              className="h-10 w-10 inline-flex items-center justify-center rounded-lg text-muted transition-colors hover:text-ink hover:bg-ink/[0.05] motion-reduce:transition-none"
             >
               <ChevronDown size={14} className={`transition-transform motion-reduce:transition-none ${collapsed ? "-rotate-90" : ""}`} aria-hidden="true" />
             </button>
@@ -337,13 +345,19 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
       <ul id="home-posts" className="divide-y divide-line" hidden={compact && collapsed}>
         {shown.length === 0 ? <li className={`px-4 py-6 ${compact ? "" : "text-center"}`}><p className="text-xs font-medium text-ink">The conversation starts on a token page.</p><p className="mt-1.5 text-pretty text-xs leading-relaxed text-muted">No posts yet. Holders, traders and creators can join with a wallet signature.</p></li> : null}
         {shown.map((p) => (
-          <li key={p.id} className="px-4 py-3">
-            <Link href={`/t/${p.chain}/${p.token}#comments`} className="flex items-start gap-2.5 min-w-0">
+          <li key={p.id} className={compact ? "" : "px-4 py-3"}>
+            <Link href={`/t/${p.chain}/${p.token}#comments`} className={`flex items-start gap-2.5 min-w-0 ${compact ? "px-4 py-3 transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none" : ""}`}>
               <WalletAvatar address={p.wallet} />
               <div className="min-w-0 flex-1">
                 {compact ? <>
-                  <div className="flex min-w-0 items-center justify-between gap-2 text-[11px]"><span className="truncate font-mono text-ink" title={p.wallet}>{shortAddr(p.wallet)}</span><time dateTime={p.created_at} className="shrink-0 font-mono text-muted tnum" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</time></div>
-                  <p className="mt-0.5 truncate text-[10px] text-muted">On {p.symbol || shortAddr(p.token)} · {CHAIN_SHORT[p.chain]}{p.tag ? ` · ${p.tag}` : ""}</p>
+                  <div className="flex min-w-0 items-center gap-2 text-[11px]">
+                    <span className="truncate font-code text-ink" title={p.wallet}>{shortAddr(p.wallet)}</span>
+                    {p.tag ? <span className={`shrink-0 rounded-md px-1.5 py-px text-[10px] font-semibold ${TAG_BADGE[p.tag].className}`}>{TAG_BADGE[p.tag].label}</span> : null}
+                    <time dateTime={p.created_at} className="ml-auto shrink-0 text-muted tnum" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</time>
+                  </div>
+                  {/* a speech bubble that points back at the wallet; long links wrap instead of running out of the card */}
+                  <div className="mt-1.5 rounded-xl rounded-tl-sm bg-ink/[0.045] px-3 py-2"><p className="line-clamp-3 whitespace-pre-wrap text-[13px] leading-relaxed text-ink [overflow-wrap:anywhere]">{p.body}</p></div>
+                  <p className="mt-1.5 truncate text-[11px] text-muted">on <span className="font-medium text-body">${p.symbol || shortAddr(p.token)}</span> · {CHAIN_SHORT[p.chain]}</p>
                 </> : <div className="flex items-center gap-1.5 text-[11px] text-muted font-mono min-w-0">
                   <span className="text-ink shrink-0" title={p.wallet}>{shortAddr(p.wallet)}</span>
                   <ChainBadge chain={p.chain} className="shrink-0" />
@@ -351,7 +365,7 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
                   <span className="truncate font-sans">on {p.symbol || shortAddr(p.token)}</span>
                   <span className="ml-auto shrink-0" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</span>
                 </div>}
-                <p className={`mt-0.5 text-[13px] text-ink whitespace-pre-wrap break-words ${compact ? "line-clamp-3" : ""}`}>{p.body}</p>
+                {compact ? null : <p className="mt-0.5 text-[13px] text-ink whitespace-pre-wrap break-words">{p.body}</p>}
               </div>
             </Link>
           </li>
@@ -359,4 +373,6 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
       </ul>
     </section>
   );
+  // the home column sits among the other sidebar cards, with the same frame and pointer light
+  return compact ? <MagicCard className="rounded-2xl">{feed}</MagicCard> : feed;
 }

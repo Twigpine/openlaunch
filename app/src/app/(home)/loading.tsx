@@ -3,7 +3,7 @@ import { Sk, SkPost, SkRow } from "@/components/Skeleton";
 /** Home skeleton: hero + totals, list header, rows, side column. Same grid as page.tsx so nothing shifts. */
 export default function Loading() {
   return (
-    <main className="relative mx-auto max-w-6xl px-4 pb-16 space-y-8" aria-busy="true" aria-label="loading">
+    <main className="bb-mid bb-page relative pb-16 space-y-8" aria-busy="true" aria-label="loading">
       <section className="pt-10 sm:pt-14 pb-2 grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-x-8 gap-y-8 xl:gap-x-12 lg:gap-y-0 lg:grid-rows-[min-content_1fr]">
         <div className="min-w-0 lg:col-start-1 lg:row-start-1">
           <div className="space-y-2">
