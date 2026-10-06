@@ -519,9 +519,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 {quote.key === "twig" ? (
                   <>TWIG is Twigpine&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and the fees are burned as TWIG when collected. Priced at GITLAWB&apos;s price, from the Uniswap v4 WETH/GITLAWB pool on Base.</>
                 ) : (
-                  <>GITLAWB is Gitlawb&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base.</>
+                  <>GITLAWB is Twigpine&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base.</>
                 )}{" "}
-                <a href={quote.key === "twig" ? TWIG_WRAP_URL : GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{quote.key === "twig" ? "wrap.twigpine.com" : "gitlawb.com"} ↗</a>
+                <a href={quote.key === "twig" ? TWIG_WRAP_URL : GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{quote.key === "twig" ? "wrap.twigpine.com" : "twigpine.com"} ↗</a>
               </p>
             </div>
           ) : null}

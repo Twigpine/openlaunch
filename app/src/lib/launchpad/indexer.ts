@@ -8,7 +8,7 @@ import { CONFIGURED_CHAINS, launchpad, listedQuoteAddresses } from "./config";
 import { validDecimals } from "./unlisted-quote";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
-import { fetchLogsSplit, isRangeTooLarge } from "./log-range";
+import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
 
 /**
@@ -237,6 +237,12 @@ async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<str
   return { poolToToken, tokenIdToToken };
 }
 
+/**
+ * Each chain's cap on address + topic selectors per eth_getLogs filter (log-range.ts). Robinhood Chain's is known (1000);
+ * any other chain learns its cap from its first refusal, and one that has none keeps sending the whole list in one call.
+ */
+const SELECTOR_CAPS = new Map<ChainKey, number>([["robinhood", 1000]]);
+
 /** Apply every launchpad-relevant log in one range. Launched first so same-range swaps resolve. */
 async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Promise<{ launches: number; swaps: number; fees: number }> {
   const client = publicClient(chain);
@@ -255,7 +261,11 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
   if (poolToToken.size > 0) {
     const ids = [...poolToToken.keys()] as Hex[];
-    const swapLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: ids }, fromBlock: f, toBlock: t }), from, to);
+    // every pool id is one topic selector: past the node's cap the id list goes out in slices (the 1001st Robinhood launch stopped the indexer)
+    // the selector split is outermost, so a result-cap refusal bisects the block range of the one slice that overflowed only
+    const swapLogs = byChainOrder(
+      (await fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t }), from, to))) as Log[],
+    );
     for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken)) swaps++;
   }
   const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: f, toBlock: t }), from, to);
@@ -337,7 +347,8 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
       return [...(await oneBlockOrRange(addrs.slice(0, mid), a, b)), ...(await oneBlockOrRange(addrs.slice(mid), a, b))];
     }
   };
-  const logs = await fetchLogsSplit((a, b) => oneBlockOrRange(tokens, a, b), from, to);
+  // every token address is one selector: past the node's cap the address list goes out in slices (log-range.ts)
+  const logs = byChainOrder((await fetchBySelectors(SELECTOR_CAPS, chain, tokens, (slice) => fetchLogsSplit((a, b) => oneBlockOrRange(slice, a, b), from, to))) as TransferLog[]);
   if (logs.length === 0) return 0;
   const rows = logs.map((l) => ({
     chain_id: cid,
@@ -597,10 +608,14 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
   if (reason) return { status: "skipped", reason };
   const db = maybeDb()!;
   const cid = chainIdOf(chain);
+  // the chain head as read this run: recorded even when the run then fails, so /api/health shows a stuck chain's real lag
+  // (head_block used to move only on success, so a chain that failed every run kept reporting its last small lag)
+  let knownHead: bigint | null = null;
   try {
     await db`INSERT INTO bb_launch_sync_cursor (chain_id) VALUES (${cid}) ON CONFLICT DO NOTHING`;
     const [{ cursor_block }] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
     const head = await publicClient(chain).getBlockNumber();
+    knownHead = head;
     const confirmed = head - confirmations(chain);
     const deploy = launchDeployBlock(chain);
     let from = cursor_block > 0n ? cursor_block - syncOverlapBlocks() : deploy;
@@ -623,7 +638,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
   } catch (err) {
     const msg = errMessage(err);
     // the stored message reaches /api/health unauthenticated: never with the upstream URL (a keyed provider URL carries its API key)
-    await db`UPDATE bb_launch_sync_cursor SET last_run_at = now(), last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
+    await db`UPDATE bb_launch_sync_cursor SET last_run_at = now(), head_block = COALESCE(${knownHead}::bigint, head_block), last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
     throw err;
   }
 }

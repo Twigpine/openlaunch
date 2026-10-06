@@ -9,13 +9,14 @@ import { ArrowDown, ArrowRight, Wallet } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
-import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
+import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI, V4_QUOTER_EXACT_INPUT_ABI } from "@/lib/launchpad/abi";
 import { BUY_PRESETS, NATIVE, SWAP_GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { TWIG_WRAP_URL } from "@/lib/launchpad/twig";
 import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { sanitizeDecimalInput } from "@/lib/launchpad/decimal-input";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
+import { encodeEthRouteBuy, ethRouteFor } from "@/lib/launchpad/eth-route";
 import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { tradeQuoteKey } from "@/lib/launchpad/token-market";
 import { SLIPPAGE_PRESETS_BPS, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageField, setSlippageBps, subscribeSlippage } from "@/lib/launchpad/trade-slippage";
@@ -29,6 +30,8 @@ import ConnectWallet from "@/components/ConnectWallet";
  * (one-time ERC-20 approve to Permit2, then a 30-day Permit2 allowance to the
  * router). Quotes come from the V4 Quoter with a 400ms debounce; every send is
  * simulated first so reverts surface before a signature.
+ * A launch paired with TWIG or GITLAWB on Base can also be bought with ETH: one router call wraps the ETH and swaps it
+ * along ETH → GITLAWB (→ TWIG) → token through the deep pools (lib/launchpad/eth-route.ts), no approvals.
  */
 type Side = "buy" | "sell";
 type Phase =
@@ -53,9 +56,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const unlisted = quote.key === "other";
   const tradable = quote.decimalsKnown !== false;
   const isNative = quote.address.toLowerCase() === NATIVE; // the native asset, whatever the chain calls it (ETH, or USDC on Arc)
-  // A buy paid from the gas balance (the native asset, or on Arc the USDC quote that is its ERC-20 face) keeps the swap's gas back,
-  // in the quote's own units; a buy paid in any other ERC-20 does not touch the gas balance
-  const buyReserve = isNative || sharesGasBalance(chain, quote) ? gasReserveInQuote(SWAP_GAS_RESERVE_WEI[chain], quote.decimals) : 0n;
+  // "Buy with ETH": the route exists only for TWIG and GITLAWB pairs on Base; ETH is the default way to pay there
+  const ethRoute = useMemo(() => ethRouteFor(chain, quote.address, token, poolKey), [chain, quote.address, token, poolKey]);
+  const [payWith, setPayWith] = useState<"eth" | "quote">("eth");
   const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const fmtQ = (raw: bigint) => `${fmtQuoteUnits(units(raw, quote.decimals), quote.decimals)} ${quote.symbol}`;
@@ -64,6 +67,14 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const { address, isConnected, chainId } = useAccount();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const [side, setSide] = useState<Side>("buy");
+  const viaEth = side === "buy" && ethRoute !== null && payWith === "eth";
+  // what the buyer pays with: the pair token, or ETH through the route
+  const payDecimals = viaEth ? 18 : quote.decimals;
+  const pay = { symbol: viaEth ? NATIVE_SYMBOL : quote.symbol, decimals: payDecimals, native: viaEth || isNative };
+  // A buy paid from the gas balance (the native asset, ETH through the route, or on Arc the USDC quote that is its ERC-20
+  // face) keeps the swap's gas back, in the pay asset's own units; a buy paid in any other ERC-20 does not touch it
+  const buyReserve = pay.native || sharesGasBalance(chain, quote) ? gasReserveInQuote(SWAP_GAS_RESERVE_WEI[chain], pay.decimals) : 0n;
+  const fmtPay = (raw: bigint) => `${fmtQuoteUnits(units(raw, pay.decimals), pay.decimals)} ${pay.symbol}`;
   const [amount, setAmount] = useState("");
   // Stored slippage via an external store: the server snapshot is always the default, so server and
   // client render the same markup during hydration (an effect that sets state is rejected by lint).
@@ -77,25 +88,26 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const seq = useRef(0);
   const transactionLock = useRef(false);
 
-  const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && isNative, refetchInterval: 15_000 } });
+  const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && (isNative || ethRoute !== null), refetchInterval: 15_000 } });
   const qbal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && !isNative, refetchInterval: 15_000 } });
   const tok = useReadContract({ address: token, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
 
   const amountIn = useMemo(() => {
     try {
       if (!amount.trim() || Number(amount) <= 0) return null;
-      return side === "buy" ? parseUnits(amount, quote.decimals) : parseUnits(amount, 18);
+      return side === "buy" ? parseUnits(amount, payDecimals) : parseUnits(amount, 18);
     } catch {
       return null;
     }
-  }, [amount, side, quote.decimals]);
+  }, [amount, side, payDecimals]);
 
   const onChain = chainId === CHAIN.id;
   const busy = phase.k === "preparing" || phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
-  const balance = side === "buy" ? (isNative ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
+  const balance = side === "buy" ? (pay.native ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
   const insufficient = amountIn !== null && balance !== undefined && amountIn + (side === "buy" ? buyReserve : 0n) > balance;
 
-  const quoteKey = tradeQuoteKey(chain, token, side, amount);
+  // the pay asset is part of the key: a TWIG quote never prices an ETH buy, or the other way round
+  const quoteKey = `${tradeQuoteKey(chain, token, side, amount)}${viaEth ? ":eth" : ""}`;
   // A response can only be used for the exact chain/token/side/amount requested.
   useEffect(() => {
     const my = ++seq.current;
@@ -105,12 +117,15 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       setQuoting(true);
       try {
         const pub = getPublicClient(config, { chainId: CHAIN.id })!;
-        const { result } = await pub.simulateContract({
-          address: quoter,
-          abi: V4_QUOTER_ABI,
-          functionName: "quoteExactInputSingle",
-          args: [{ poolKey, zeroForOne: side === "buy", exactAmount: amountIn, hookData: "0x" }],
-        });
+        // an ETH buy is quoted over the whole route, the exact path the router will take
+        const { result } = viaEth && ethRoute
+          ? await pub.simulateContract({ address: quoter, abi: V4_QUOTER_EXACT_INPUT_ABI, functionName: "quoteExactInput", args: [{ exactCurrency: ethRoute.currencyIn, path: ethRoute.path, exactAmount: amountIn }] })
+          : await pub.simulateContract({
+              address: quoter,
+              abi: V4_QUOTER_ABI,
+              functionName: "quoteExactInputSingle",
+              args: [{ poolKey, zeroForOne: side === "buy", exactAmount: amountIn, hookData: "0x" }],
+            });
         if (my === seq.current) setQuote({ out: result[0], forKey: quoteKey });
       } catch {
         if (my === seq.current) setQuote(null);
@@ -119,7 +134,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       }
     }, 400);
     return () => { clearTimeout(t); seq.current = my + 1; };
-  }, [amountIn, side, poolKey, config, amount, V4.quoter, CHAIN.id, quoteKey]);
+  }, [amountIn, side, poolKey, config, amount, V4.quoter, CHAIN.id, quoteKey, viaEth, ethRoute]);
 
   async function trade() {
     if (!tradable || !address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
@@ -141,7 +156,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       const min = minOut(quote_.out, tradeSlippageBps);
 
       // Whatever ERC20 we are paying with (the token on a sell, an ERC20 quote on a buy) goes through Permit2.
-      const payToken: Address | null = side === "sell" ? token : isNative ? null : quote.address;
+      // An ETH-route buy pays ETH as msg.value: nothing to approve.
+      const ethBuy = viaEth && ethRoute !== null;
+      const payToken: Address | null = side === "sell" ? token : isNative || ethBuy ? null : quote.address;
       if (payToken) {
         const erc20Allowance = await pub.readContract({ address: payToken, abi: ERC20_MIN_ABI, functionName: "allowance", args: [address, V4.permit2] });
         if (erc20Allowance < amountIn) {
@@ -164,14 +181,16 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         }
       }
 
-      const { commands, inputs } = encodeV4ExactInSingle({ key: poolKey, zeroForOne: side === "buy", amountIn, minOut: min, layout: V4.swapLayout });
+      const { commands, inputs, value } = ethBuy
+        ? encodeEthRouteBuy({ route: ethRoute, token, amountIn, minOut: min })
+        : { ...encodeV4ExactInSingle({ key: poolKey, zeroForOne: side === "buy", amountIn, minOut: min, layout: V4.swapLayout }), value: side === "buy" && isNative ? amountIn : 0n };
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
       const { request } = await pub.simulateContract({
         address: V4.universalRouter,
         abi: UNIVERSAL_ROUTER_ABI,
         functionName: "execute",
         args: [commands, inputs, deadline],
-        value: side === "buy" && isNative ? amountIn : 0n,
+        value,
         account: address,
         dataSuffix: BUILDER_DATA_SUFFIX,
       });
@@ -199,7 +218,8 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
 
   const outLabel = quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(quote_.out) / 1e18)} ${symbol}` : fmtQ(quote_.out)) : null;
   const outUsd = quote_ && quote_.forKey === quoteKey && side === "sell" && quoteUsd ? fmtUsd(units(quote_.out, quote.decimals) * quoteUsd) : null;
-  const inUsd = amountIn !== null && side === "buy" && quoteUsd ? fmtUsd(units(amountIn, quote.decimals) * quoteUsd) : null;
+  const payUsd = viaEth ? ethUsd : quoteUsd;
+  const inUsd = amountIn !== null && side === "buy" && payUsd ? fmtUsd(units(amountIn, pay.decimals) * payUsd) : null;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-line-strong bg-paper scroll-mt-24" id="trade" tabIndex={-1} aria-label={`Trade ${symbol}`}>
@@ -208,6 +228,23 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       <ToggleGroup aria-label="Trade side" value={[side]} onValueChange={(v) => { if (!v[0] || busy) return; setSide(v[0] as Side); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid w-full grid-cols-2">
         {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} className={`min-h-10 text-sm ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? "Buy" : "Sell"}</ToggleGroupItem>)}
       </ToggleGroup>
+
+      {side === "buy" && ethRoute ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted">Pay with</span>
+            <ToggleGroup aria-label="Pay with" value={[payWith]} onValueChange={(v) => { if (!v[0] || busy) return; setPayWith(v[0] as "eth" | "quote"); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid grid-cols-2">
+              <ToggleGroupItem value="eth" disabled={busy} className="min-h-8 px-3 font-mono text-xs">{NATIVE_SYMBOL}</ToggleGroupItem>
+              <ToggleGroupItem value="quote" disabled={busy} className="min-h-8 px-3 font-mono text-xs">{quote.symbol}</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          {viaEth ? (
+            <p className="text-right font-mono text-[10px] text-muted">
+              One swap through Uniswap: {[...ethRoute.via, symbol].join(" → ")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {unlisted ? (
         <p role="note" className="rounded-xl border border-warm/30 bg-warm-soft px-3 py-2 text-[11px] leading-relaxed text-warm-ink text-pretty">
@@ -218,14 +255,14 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       <div className="relative">
         <div className="rounded-xl border border-line bg-card px-4 pt-3 pb-4">
           <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? "You pay" : "You sell"}</label>
-            {balance !== undefined ? <button type="button" disabled={busy} className="max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, quote.decimals) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
+            {balance !== undefined ? <button type="button" disabled={busy} className="max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, pay.decimals) : formatEther(balance))}>Bal {side === "buy" ? fmtPay(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
           </div>
           <div className="mt-2 flex items-center gap-3">
-            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-faint tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />
-            <span className="max-w-24 shrink-0 truncate rounded-lg border border-line-strong bg-paper px-2.5 py-1.5 text-xs font-medium text-ink">{side === "buy" ? quote.symbol : symbol}</span>
+            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-faint tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${pay.symbol} amount` : `${symbol} amount`} />
+            <span className="max-w-24 shrink-0 truncate rounded-lg border border-line-strong bg-paper px-2.5 py-1.5 text-xs font-medium text-ink">{side === "buy" ? pay.symbol : symbol}</span>
           </div>
           <div className="mt-3 grid grid-cols-4 gap-1.5">
-            {side === "buy" ? BUY_PRESETS[quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${quote.symbol}`} className={`min-h-8 rounded-md border font-mono text-[11px] tnum hover:border-line-strong disabled:opacity-40 ${amount === p ? "border-line-strong bg-paper text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), quote.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-8 rounded-md border border-line font-mono text-[11px] text-muted tnum hover:border-line-strong disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
+            {side === "buy" ? BUY_PRESETS[viaEth ? "eth" : quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${pay.symbol}`} className={`min-h-8 rounded-md border font-mono text-[11px] tnum hover:border-line-strong disabled:opacity-40 ${amount === p ? "border-line-strong bg-paper text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), pay.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-8 rounded-md border border-line font-mono text-[11px] text-muted tnum hover:border-line-strong disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
           </div>
         </div>
         <div className="relative z-10 mx-auto -my-3 flex size-7 items-center justify-center rounded-lg border border-line bg-paper text-muted" aria-hidden><ArrowDown size={13} /></div>
@@ -316,7 +353,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
               <Spinner size={14} /> Confirming on {CHAIN_LABEL}…
             </>
           ) : insufficient ? (
-            `Not enough ${side === "buy" ? quote.symbol : symbol}`
+            `Not enough ${side === "buy" ? pay.symbol : symbol}`
           ) : side === "buy" ? (
             `Buy ${symbol}`
           ) : (
@@ -325,7 +362,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         </button>
       )}
 
-      {side === "buy" && quote.key === "twig" && (balance === undefined || balance === 0n || insufficient) ? (
+      {side === "buy" && quote.key === "twig" && !viaEth && (balance === undefined || balance === 0n || insufficient) ? (
         <p className="text-center text-xs text-muted text-pretty">
           Need TWIG? Wrap GITLAWB 1:1 or buy TWIG at{" "}
           <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">wrap.twigpine.com ↗</a>

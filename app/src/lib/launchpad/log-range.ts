@@ -36,3 +36,69 @@ export async function fetchLogsSplit<T>(fetch: (from: bigint, to: bigint) => Pro
     return [...left, ...right];
   }
 }
+
+/**
+ * Selector caps. A node may cap how many address and topic selectors one eth_getLogs filter carries: Robinhood Chain
+ * (Arbitrum Nitro) refuses more than 1000 with "1011 address and topic selectors specified in query, but only 1000 are
+ * allowed" / "exceed max topics". A list of every launched token or pool id outgrows that as a chain grows, and a refused
+ * filter fails every range, so the indexer stops dead (Robinhood, 2026-10-05: the 1001st launch). The fix is to split the
+ * LIST, not the block range.
+ */
+const TOO_MANY_SELECTORS = /selectors specified in query, but only (\d+) are allowed|exceed(?:s|ed)? max (?:topics|addresses)|too many (?:addresses|topics)/i;
+
+/** The node's selector cap when `err` is a selector refusal: the number it states, else 1000 (geth's default); null otherwise. */
+export function selectorCapFromError(err: unknown): number | null {
+  const seen = new Set<unknown>();
+  let cur: unknown = err;
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    const e = cur as { message?: unknown; details?: unknown; cause?: unknown };
+    for (const text of [e.message, e.details]) {
+      if (typeof text !== "string") continue;
+      const m = TOO_MANY_SELECTORS.exec(text);
+      if (m) return m[1] ? Number(m[1]) : 1000;
+    }
+    cur = e.cause;
+  }
+  return null;
+}
+
+/** `list` in consecutive slices of at most `size` (size >= 1). */
+export function chunkList<T>(list: T[], size: number): T[][] {
+  const n = Math.max(1, Math.floor(size));
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+  return out;
+}
+
+/** Headroom under a stated cap: the filter's own address and event-signature topics count against it too. */
+export const SELECTOR_MARGIN = 10;
+
+/**
+ * Run `fetch` over `list` in slices that stay under the chain's selector cap, the slices in parallel. `caps` remembers
+ * each chain's cap. A chain with no known cap is asked once with the whole list (no extra calls where the node allows
+ * it, as on Base). On a refusal the cap only ever comes down: to the cap the node states when that is below what was
+ * tried, else to half of what was tried (a node that states no number, or a cap that was learned too high), until a
+ * single item still being refused gives up with the node's error. So a wrong guess can cost calls, never a stuck chain.
+ * Any other error propagates unchanged.
+ */
+export async function fetchBySelectors<T, K>(caps: Map<K, number>, key: K, list: T[], fetch: (slice: T[]) => Promise<unknown[]>): Promise<unknown[]> {
+  const known = caps.get(key);
+  const size = known === undefined ? Math.max(1, list.length) : Math.max(1, known - SELECTOR_MARGIN);
+  try {
+    const parts = await Promise.all(chunkList(list, size).map((slice) => fetch(slice)));
+    return parts.flat();
+  } catch (err) {
+    const stated = selectorCapFromError(err);
+    if (stated === null || size <= 1) throw err;
+    const tried = size + SELECTOR_MARGIN;
+    const next = stated < tried ? stated : Math.floor(size / 2) + SELECTOR_MARGIN;
+    caps.set(key, next);
+    return fetchBySelectors(caps, key, list, fetch);
+  }
+}
+
+/** Logs from several slices back in chain order (block, then log index). */
+export function byChainOrder<L extends { blockNumber?: bigint | null; logIndex?: number | null }>(logs: L[]): L[] {
+  return [...logs].sort((a, b) => (a.blockNumber === b.blockNumber ? (a.logIndex ?? 0) - (b.logIndex ?? 0) : (a.blockNumber ?? 0n) < (b.blockNumber ?? 0n) ? -1 : 1));
+}

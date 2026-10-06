@@ -1,5 +1,5 @@
 /** ABIs for the launchpad + the Uniswap v4 periphery it uses. Hand-trimmed to what the app calls. */
-import { POOL_KEY_COMPONENTS } from "./swap.ts";
+import { PATH_KEY_COMPONENTS, POOL_KEY_COMPONENTS } from "./swap.ts";
 
 export const LAUNCH_FACTORY_ABI = [
   {
@@ -251,6 +251,30 @@ export const V4_QUOTER_ABI = [
           { name: "zeroForOne", type: "bool" },
           { name: "exactAmount", type: "uint128" },
           { name: "hookData", type: "bytes" },
+        ],
+      },
+    ],
+    outputs: [
+      { name: "amountOut", type: "uint256" },
+      { name: "gasEstimate", type: "uint256" },
+    ],
+  },
+] as const;
+
+/** V4 Quoter: quoteExactInput over a multi-hop path (the "Buy with ETH" route, eth-route.ts). */
+export const V4_QUOTER_EXACT_INPUT_ABI = [
+  {
+    type: "function",
+    name: "quoteExactInput",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "params",
+        type: "tuple",
+        components: [
+          { name: "exactCurrency", type: "address" },
+          { name: "path", type: "tuple[]", components: PATH_KEY_COMPONENTS },
+          { name: "exactAmount", type: "uint128" },
         ],
       },
     ],
