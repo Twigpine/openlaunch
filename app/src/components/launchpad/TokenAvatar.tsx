@@ -1,13 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-/** Deterministic hue from an address — same identity trick as the tape dots. */
-export function hueOf(addr: string): number {
-  let h = 0;
-  for (let i = 2; i < Math.min(addr.length, 18); i++) h = (h * 31 + addr.charCodeAt(i)) % 360;
-  return h;
-}
+import { addressHue } from "@/lib/launchpad/tint";
 
 /**
  * Token image with a graceful fallback: a soft gradient tile with the first letter of the symbol
@@ -17,7 +11,7 @@ export function hueOf(addr: string): number {
 export default function TokenAvatar({ token, symbol, image, size = 40, className = "" }: { chain?: string; token: string; symbol: string; image?: string | null; size?: number; className?: string }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const src = image?.trim() || null;
-  const h = hueOf(token);
+  const h = addressHue(token); // the same hue the token page tint falls back to
   const style = { width: size, height: size, fontSize: Math.max(11, Math.round(size * 0.42)) };
   if (src && src !== failedSrc) {
     return (

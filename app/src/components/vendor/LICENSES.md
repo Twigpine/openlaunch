@@ -14,6 +14,8 @@ The upstream [licensing guide](https://github.com/cosscom/coss/blob/main/LICENSI
 
 `animated-theme-toggler.tsx` is adapted from the [Magic UI component](https://magicui.design/docs/components/animated-theme-toggler). The upstream [license](https://github.com/magicuidesign/magicui/blob/main/LICENSE.md) is reproduced below. Openlaunch-specific changes are noted in the source.
 
+These are adapted from Magic UI registry items under the same license, each with its local changes noted at the top of the file: `border-beam.tsx` ([border-beam](https://magicui.design/r/border-beam.json)), `marquee.tsx` ([marquee](https://magicui.design/r/marquee.json)), `flickering-grid.tsx` ([flickering-grid](https://magicui.design/r/flickering-grid.json)), `animated-shiny-text.tsx` ([animated-shiny-text](https://magicui.design/r/animated-shiny-text.json)), `magic-card.tsx` ([magic-card](https://magicui.design/r/magic-card.json)), `shine-border.tsx` ([shine-border](https://magicui.design/r/shine-border.json)) and `animated-list.tsx` ([animated-list](https://magicui.design/r/animated-list.json)).
+
 MIT License
 
 Copyright (c) Magic UI
