@@ -16,7 +16,7 @@ import type { Quote } from "./config";
 export const SUGGESTED_BUY_USD = 25;
 
 /** Quick-pick amounts per quote; the first one is the suggestion (about $25 at the prices this was written at). */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], usdc: ["25", "100", "250"], gitlawb: ["500000", "1000000", "5000000"], museworld: [] /* not offered in the form */, stock: [], other: [] /* the form never offers an unlisted quote */ };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], usdc: ["25", "100", "250"], gitlawb: ["500000", "1000000", "5000000"], twig: ["1000000", "2500000", "5000000"], museworld: [] /* not offered in the form */, stock: [], other: [] /* the form never offers an unlisted quote */ };
 
 export type NoSuggestion = "no-price" | "unknown-balance" | "insufficient" | "no-gas" | "declined";
 /** `provisional`: shown as selected but not yet confirmed against a balance (no wallet yet, or the read is pending). */
