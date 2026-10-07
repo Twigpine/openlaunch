@@ -13,7 +13,7 @@ LOCK TABLE bb_launches IN EXCLUSIVE MODE;
 
 WITH s AS (
   SELECT chain_id, token, count(*) FILTER (WHERE is_buy) AS buys, count(*) FILTER (WHERE NOT is_buy) AS sells,
-         COALESCE(sum(abs(amount0)), 0) AS volume_quote, max(block_time) AS last_trade_at
+         COALESCE(sum(abs(COALESCE(trader_amount0, amount0))), 0) AS volume_quote, max(block_time) AS last_trade_at
     FROM bb_launch_swaps GROUP BY 1, 2
 )
 SELECT 'drift before' AS what,
@@ -21,13 +21,16 @@ SELECT 'drift before' AS what,
        count(*) FILTER (WHERE (l.buys + l.sells) > 0 AND s.token IS NULL) AS totals_without_swaps
   FROM bb_launches l LEFT JOIN s ON s.chain_id = l.chain_id AND s.token = l.token;
 
--- swaps → buys / sells / volume / last trade
+-- swaps → buys / sells / volume / accrued quote fees / last trade
+-- (volume is the trader's quote amount: quote-only launches record it next to the pool's own delta)
 UPDATE bb_launches l SET
-  buys = COALESCE(s.buys, 0), sells = COALESCE(s.sells, 0), volume_quote = COALESCE(s.volume_quote, 0), last_trade_at = s.last_trade_at
+  buys = COALESCE(s.buys, 0), sells = COALESCE(s.sells, 0), volume_quote = COALESCE(s.volume_quote, 0),
+  fees_quote_accrued = COALESCE(s.fees_quote_accrued, 0), last_trade_at = s.last_trade_at
   FROM (SELECT l2.chain_id, l2.token,
                (SELECT count(*) FROM bb_launch_swaps x WHERE x.chain_id = l2.chain_id AND x.token = l2.token AND x.is_buy) AS buys,
                (SELECT count(*) FROM bb_launch_swaps x WHERE x.chain_id = l2.chain_id AND x.token = l2.token AND NOT x.is_buy) AS sells,
-               (SELECT COALESCE(sum(abs(amount0)), 0) FROM bb_launch_swaps x WHERE x.chain_id = l2.chain_id AND x.token = l2.token) AS volume_quote,
+               (SELECT COALESCE(sum(abs(COALESCE(trader_amount0, amount0))), 0) FROM bb_launch_swaps x WHERE x.chain_id = l2.chain_id AND x.token = l2.token) AS volume_quote,
+               (SELECT COALESCE(sum(quote_fee), 0) FROM bb_launch_swaps x WHERE x.chain_id = l2.chain_id AND x.token = l2.token) AS fees_quote_accrued,
                (SELECT max(block_time) FROM bb_launch_swaps x WHERE x.chain_id = l2.chain_id AND x.token = l2.token) AS last_trade_at
           FROM bb_launches l2) s
  WHERE l.chain_id = s.chain_id AND l.token = s.token;
@@ -53,7 +56,7 @@ UPDATE bb_launches l SET
  WHERE l.chain_id = f.chain_id AND l.token = f.token;
 
 WITH s AS (
-  SELECT chain_id, token, count(*) FILTER (WHERE is_buy) AS buys, count(*) FILTER (WHERE NOT is_buy) AS sells, COALESCE(sum(abs(amount0)), 0) AS volume_quote
+  SELECT chain_id, token, count(*) FILTER (WHERE is_buy) AS buys, count(*) FILTER (WHERE NOT is_buy) AS sells, COALESCE(sum(abs(COALESCE(trader_amount0, amount0))), 0) AS volume_quote
     FROM bb_launch_swaps GROUP BY 1, 2
 )
 SELECT 'drift after' AS what,

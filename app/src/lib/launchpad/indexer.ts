@@ -3,7 +3,11 @@ import { parseEventLogs, type Address, type Hex, type Log } from "viem";
 import { publicClient } from "@/lib/chain";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, errMessage, type Db } from "@/lib/db";
-import { LAUNCH_FACTORY_ABI, LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCHED_EVENT, POOL_SWAP_EVENT, LOCKER_EVENTS } from "./abi";
+import { LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, POOL_SWAP_EVENT } from "./abi";
+import { QUOTE_HOOK_ABI } from "./quote-abi";
+import { launchSuites, feeContractForLaunch, type LaunchSuite } from "./suites";
+import { SUITE_KINDS } from "./suite-kinds";
+import { pairQuoteSwaps, type QuoteSwapLog } from "./quote-swaps";
 import { CONFIGURED_CHAINS, launchpad, listedQuoteAddresses } from "./config";
 import { validDecimals } from "./unlisted-quote";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
@@ -35,16 +39,6 @@ export type LaunchSyncResult = {
   caught_up?: boolean;
 };
 
-const DEPLOY_BLOCK_ENV: Record<ChainKey, () => string | undefined> = {
-  base: () => process.env.LAUNCH_DEPLOY_BLOCK,
-  robinhood: () => process.env.LAUNCH_DEPLOY_BLOCK_ROBINHOOD,
-  arc: () => process.env.LAUNCH_DEPLOY_BLOCK_ARC,
-};
-
-export function launchDeployBlock(chain: ChainKey): bigint {
-  const raw = (DEPLOY_BLOCK_ENV[chain]() ?? "").trim();
-  return /^\d+$/.test(raw) ? BigInt(raw) : 0n;
-}
 /** Blocks left behind the head before a range is indexed. Arc finalizes every block (no reorgs), so none there. */
 const DEFAULT_CONFIRMATIONS: Record<ChainKey, number> = { base: 2, robinhood: 2, arc: 0 };
 /**
@@ -60,8 +54,8 @@ function confirmations(chain: ChainKey): bigint {
 
 function skipReason(chain: ChainKey): string | null {
   if (!maybeDb()) return "db_unconfigured";
-  if (!launchpad(chain).configured) return "launchpad_unconfigured";
-  if (launchDeployBlock(chain) === 0n) return "deploy_block_unset";
+  if (launchSuites(chain).length === 0) return "launchpad_unconfigured";
+  if (!launchSuites(chain).some((s) => s.deployBlock > 0n)) return "deploy_block_unset";
   return null;
 }
 
@@ -98,13 +92,13 @@ async function fromOf(chain: ChainKey, hash: Hex): Promise<string | null> {
 }
 
 // ── apply ────────────────────────────────────────────────────────────────────
-type Launched = { token: Address; tokenId: bigint; launcher: Address; quote: Address; poolId: Hex; startTick: number; lpFee: number; supply: bigint; metadataURI: string };
+type Launched = { token: Address; tokenId: bigint; launcher: Address; quote: Address; poolId: Hex; startTick: number; lpFee?: number; creatorFeePips?: number; supply: bigint; metadataURI: string };
 
-async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launched }): Promise<boolean> {
+async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launched }, suite: LaunchSuite): Promise<boolean> {
   const a = log.args;
   const token = a.token.toLowerCase();
   const client = publicClient(chain);
-  const locker = launchpad(chain).locker!;
+  const locker = suite.locker;
   const [name, symbol, recipients] = await Promise.all([
     client.readContract({ address: a.token, abi: ERC20_MIN_ABI, functionName: "name" }).catch(() => "?"),
     client.readContract({ address: a.token, abi: ERC20_MIN_ABI, functionName: "symbol" }).catch(() => "?"),
@@ -116,10 +110,10 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
   const time = await timeOf(chain, log.blockNumber!);
   const rows = await db`
     INSERT INTO bb_launches (chain_id, token, token_id, launcher, quote, pool_id, start_tick, lp_fee, supply, metadata_uri, name, symbol,
-                             block_number, block_time, tx_hash, log_index, tick, recipients)
-    VALUES (${chainIdOf(chain)}, ${token}, ${a.tokenId}, ${a.launcher.toLowerCase()}, ${a.quote.toLowerCase()}, ${a.poolId.toLowerCase()}, ${a.startTick}, ${a.lpFee},
+                             block_number, block_time, tx_hash, log_index, tick, recipients, suite_id, fee_asset_mode, factory_address, locker_address, fee_contract_address, hook_address, pool_fee_pips, creator_fee_pips, tick_spacing)
+    VALUES (${chainIdOf(chain)}, ${token}, ${a.tokenId}, ${a.launcher.toLowerCase()}, ${a.quote.toLowerCase()}, ${a.poolId.toLowerCase()}, ${a.startTick}, ${a.creatorFeePips ?? a.lpFee ?? 0},
             ${a.supply.toString()}, ${a.metadataURI}, ${name.slice(0, 64)}, ${symbol.slice(0, 16)},
-            ${log.blockNumber!}, ${time}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${a.startTick}, ${db.json(recipients)})
+            ${log.blockNumber!}, ${time}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${a.startTick}, ${db.json(recipients)}, ${suite.id}, ${suite.feeAssetMode}, ${suite.factory.toLowerCase()}, ${suite.locker.toLowerCase()}, ${suite.feeContract.toLowerCase()}, ${suite.hook.toLowerCase()}, ${SUITE_KINDS[suite.id].poolFeePips(a.creatorFeePips ?? a.lpFee ?? 0)}, ${a.creatorFeePips ?? a.lpFee ?? 0}, 200)
     ON CONFLICT (chain_id, token) DO NOTHING
     RETURNING token`;
   return rows.length > 0;
@@ -127,14 +121,17 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
 
 type Swap = { id: Hex; sender: Address; amount0: bigint; amount1: bigint; sqrtPriceX96: bigint; liquidity: bigint; tick: number; fee: number };
 
-async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>): Promise<boolean> {
+async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>, hookSwap?: QuoteSwapLog): Promise<boolean> {
   const a = log.args;
   const poolId = a.id.toLowerCase();
   const token = poolToToken.get(poolId);
   if (!token) return false;
   const cid = chainIdOf(chain);
-  const isBuy = a.amount0 < 0n; // swapper paid quote (currency0)
-  const absQuote = a.amount0 < 0n ? -a.amount0 : a.amount0;
+  const trader0 = hookSwap?.args.amount0 ?? a.amount0;
+  const trader1 = hookSwap?.args.amount1 ?? a.amount1;
+  const quoteFee = hookSwap?.args.quoteFee ?? 0n;
+  const isBuy = trader0 < 0n; // swapper paid quote (currency0)
+  const absQuote = trader0 < 0n ? -trader0 : trader0;
   const [time, trader] = await Promise.all([timeOf(chain, log.blockNumber!), fromOf(chain, log.transactionHash!)]);
   const bn = log.blockNumber!;
   const li = log.logIndex!;
@@ -143,15 +140,16 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
     const inserted = await t`
-    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
+    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time, quote_fee, trader_amount0, trader_amount1)
     VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${trader}, ${a.amount0.toString()}, ${a.amount1.toString()},
-            ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time})
+            ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time}, ${quoteFee.toString()}, ${trader0.toString()}, ${trader1.toString()})
     ON CONFLICT DO NOTHING
     RETURNING tx_hash`;
     if (inserted.length === 0) return false;
     await t`
     UPDATE bb_launches SET
       volume_quote = volume_quote + ${absQuote.toString()}::numeric,
+      fees_quote_accrued = fees_quote_accrued + ${quoteFee.toString()}::numeric,
       buys = buys + ${isBuy ? 1 : 0},
       sells = sells + ${isBuy ? 0 : 1},
       last_trade_at = GREATEST(COALESCE(last_trade_at, ${time}::timestamptz), ${time}::timestamptz),
@@ -169,7 +167,7 @@ type FeeLog = Log &
     | { eventName: "Collected"; args: { tokenId: bigint; token: Address; quoteAmount: bigint; tokenAmount: bigint } }
     | { eventName: "Burned"; args: { tokenId: bigint; currency: Address; amount: bigint } }
     | { eventName: "Paid"; args: { tokenId: bigint; account: Address; currency: Address; amount: bigint } }
-    | { eventName: "Credited" | "Claimed"; args: { account: Address; currency: Address; amount: bigint } }
+    | { eventName: "Credited" | "Claimed"; args: { tokenId?: bigint; account: Address; currency: Address; amount: bigint } }
   );
 
 async function applyFee(pool: Db, chain: ChainKey, log: FeeLog, tokenIdToToken: Map<string, { token: string; quote: string }>): Promise<boolean> {
@@ -184,10 +182,12 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   const li = log.logIndex!;
   const bn = log.blockNumber!;
   if (log.eventName === "Collected") {
+    const info = tokenIdToToken.get(`${log.address.toLowerCase()}:${log.args.tokenId}`);
     const t = log.args.token.toLowerCase();
+    if (!info || info.token !== t) return false;
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, quote_amount, token_amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time})
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, fee_contract_address, quote_amount, token_amount, block_number, block_time)
+      VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.address.toLowerCase()}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
     if (r.length === 0) return false;
     await db`UPDATE bb_launches SET fees_quote_collected = fees_quote_collected + ${log.args.quoteAmount.toString()}::numeric,
@@ -195,15 +195,15 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
     return true;
   }
   if (log.eventName === "Burned") {
-    const info = tokenIdToToken.get(log.args.tokenId.toString());
+    const info = tokenIdToToken.get(`${log.address.toLowerCase()}:${log.args.tokenId}`);
     // Unknown position = the launch itself is not indexed yet (receipt path racing the poller). Inserting now would
     // pin the row with token NULL and skip the launch totals for good (the poller's later pass hits ON CONFLICT and
     // the rebuild script joins on token), so leave it for the poller, which indexes the launch first.
     if (!info) return false;
     const cur = log.args.currency.toLowerCase();
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time})
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, fee_contract_address, currency, amount, block_number, block_time)
+      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${log.address.toLowerCase()}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
     if (r.length === 0) return false;
     if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
@@ -211,30 +211,37 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
     return true;
   }
   if (log.eventName === "Paid") {
-    const info = tokenIdToToken.get(log.args.tokenId.toString());
+    const info = tokenIdToToken.get(`${log.address.toLowerCase()}:${log.args.tokenId}`);
     if (!info) return false; // same as Burned: the poller fills it in once the launch is indexed
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, account, amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'paid', ${log.args.tokenId}, ${info.token}, ${log.args.currency.toLowerCase()}, ${log.args.account.toLowerCase()}, ${log.args.amount.toString()}, ${bn}, ${time})
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, fee_contract_address, currency, account, amount, block_number, block_time)
+      VALUES (${cid}, ${tx}, ${li}, 'paid', ${log.args.tokenId}, ${info.token}, ${log.address.toLowerCase()}, ${log.args.currency.toLowerCase()}, ${log.args.account.toLowerCase()}, ${log.args.amount.toString()}, ${bn}, ${time})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
     return r.length > 0;
   }
+  const info = log.args.tokenId === undefined ? undefined : tokenIdToToken.get(`${log.address.toLowerCase()}:${log.args.tokenId}`);
+  if (log.args.tokenId !== undefined && !info) return false;
   const r = await db`
-    INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, currency, account, amount, block_number, block_time)
-    VALUES (${cid}, ${tx}, ${li}, ${log.eventName === "Credited" ? "credited" : "claimed"}, ${log.args.currency.toLowerCase()}, ${log.args.account.toLowerCase()}, ${log.args.amount.toString()}, ${bn}, ${time})
+    INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, fee_contract_address, currency, account, amount, block_number, block_time)
+    VALUES (${cid}, ${tx}, ${li}, ${log.eventName === "Credited" ? "credited" : "claimed"}, ${log.args.tokenId ?? null}, ${info?.token ?? null}, ${log.address.toLowerCase()}, ${log.args.currency.toLowerCase()}, ${log.args.account.toLowerCase()}, ${log.args.amount.toString()}, ${bn}, ${time})
     ON CONFLICT DO NOTHING RETURNING tx_hash`;
   return r.length > 0;
 }
 
-async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<string, string>; tokenIdToToken: Map<string, { token: string; quote: string }> }> {
-  const rows = await db<{ token: string; pool_id: string; token_id: bigint; quote: string }[]>`SELECT token, pool_id, token_id, quote FROM bb_launches WHERE chain_id = ${chainIdOf(chain)}`;
+type PoolInfo = { token: string; quote: string; pool_id: string; token_id: bigint; suite_id: string; fee_contract_address: string | null; hook_address: string };
+async function poolMaps(db: Db, chain: ChainKey, source?: LaunchSuite) {
+  const rows = await db<PoolInfo[]>`SELECT token, pool_id, token_id, quote, suite_id, fee_contract_address, hook_address FROM bb_launches WHERE chain_id = ${chainIdOf(chain)}`;
   const poolToToken = new Map<string, string>();
   const tokenIdToToken = new Map<string, { token: string; quote: string }>();
-  for (const r of rows) {
-    poolToToken.set(r.pool_id, r.token);
-    tokenIdToToken.set(r.token_id.toString(), { token: r.token, quote: r.quote });
+  const quotePools = new Map<string, string>();
+  for (const row of rows) {
+    const fee = feeContractForLaunch({ ...row, chain });
+    if (source && fee?.toLowerCase() !== source.feeContract.toLowerCase()) continue;
+    poolToToken.set(row.pool_id, row.token);
+    if (fee) tokenIdToToken.set(`${fee.toLowerCase()}:${row.token_id}`, { token: row.token, quote: row.quote });
+    if (row.suite_id === "quote-v2") quotePools.set(row.pool_id, row.hook_address);
   }
-  return { poolToToken, tokenIdToToken };
+  return { poolToToken, tokenIdToToken, quotePools };
 }
 
 /**
@@ -243,36 +250,32 @@ async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<str
  */
 const SELECTOR_CAPS = new Map<ChainKey, number>([["robinhood", 1000]]);
 
-/** Apply every launchpad-relevant log in one range. Launched first so same-range swaps resolve. */
-async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Promise<{ launches: number; swaps: number; fees: number }> {
+/** Launches precede swaps and fees; every source owns a separate resumable cursor. */
+async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint, suite: LaunchSuite): Promise<{ launches: number; swaps: number; fees: number }> {
   const client = publicClient(chain);
-  const cfg = launchpad(chain);
-  const factory = cfg.factory!;
-  const locker = cfg.locker!;
-  const pm = cfg.v4.poolManager;
-  let launches = 0;
-  let swaps = 0;
-  let fees = 0;
-
+  const pm = launchpad(chain).v4.poolManager;
+  const kind = SUITE_KINDS[suite.id];
+  let launches = 0, swaps = 0, fees = 0;
   // every range goes through fetchLogsSplit: a node that caps results per call (Arc: 2000) gets the range halved until it answers
-  const launchedLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: factory, event: LAUNCHED_EVENT, fromBlock: f, toBlock: t }), from, to);
-  for (const l of launchedLogs) if (await applyLaunched(db, chain, l as Log & { args: Launched })) launches++;
-
-  const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
-  if (poolToToken.size > 0) {
+  const launchedLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: suite.factory, event: kind.launchedEvent, fromBlock: f, toBlock: t }), from, to);
+  for (const log of launchedLogs) if (await applyLaunched(db, chain, log as unknown as Log & { args: Launched }, suite)) launches++;
+  const { poolToToken, tokenIdToToken, quotePools } = await poolMaps(db, chain, suite);
+  if (poolToToken.size) {
     const ids = [...poolToToken.keys()] as Hex[];
     // every pool id is one topic selector: past the node's cap the id list goes out in slices (the 1001st Robinhood launch stopped the indexer)
     // the selector split is outermost, so a result-cap refusal bisects the block range of the one slice that overflowed only
     const swapLogs = byChainOrder(
-      (await fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t }), from, to))) as Log[],
+      (await fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t }), from, to))) as (Log & { args: Swap })[],
     );
-    for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken)) swaps++;
+    const hookEvent = kind.hookSwapEvent;
+    const hookLogs = hookEvent ? await fetchLogsSplit((f, t) => client.getLogs({ address: suite.hook, event: hookEvent, strict: true, fromBlock: f, toBlock: t }), from, to) : [];
+    const paired = pairQuoteSwaps(swapLogs, hookLogs as unknown as QuoteSwapLog[], quotePools);
+    for (const log of swapLogs) if (await applySwap(db, chain, log, poolToToken, paired.get(`${log.transactionHash}:${log.logIndex}`))) swaps++;
   }
-  const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: f, toBlock: t }), from, to);
-  for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
-  // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
-  const tokens = [...new Set([...poolToToken.values()])];
-  if (tokens.length > 0) await applyTransfers(db, chain, tokens, from, to);
+  const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: suite.feeContract, events: kind.feeEvents, fromBlock: f, toBlock: t }), from, to);
+  for (const log of feeLogs) if (await applyFee(db, chain, log as unknown as FeeLog, tokenIdToToken)) fees++;
+  const tokens = [...new Set(poolToToken.values())];
+  if (tokens.length) await applyTransfers(db, chain, tokens, from, to);
   return { launches, swaps, fees };
 }
 
@@ -312,7 +315,7 @@ const SYNCED_FOREVER = 9223372036854775807n; // bigint max = "history fully scan
 /** System addresses that hold launched tokens on the protocol's behalf (never counted as holders): pool, position manager, locker, factory, plus router/Permit2 which keep swap dust. */
 export function systemAddresses(chain: ChainKey): string[] {
   const cfg = launchpad(chain);
-  return [cfg.v4.poolManager, cfg.v4.positionManager, cfg.locker!, cfg.factory!, cfg.v4.universalRouter, cfg.v4.permit2].map((a) => a.toLowerCase());
+  return [cfg.v4.poolManager, cfg.v4.positionManager, cfg.v4.universalRouter, cfg.v4.permit2, ...launchSuites(chain).flatMap((s) => [s.locker, s.factory, s.feeContract, s.hook])].map((a) => a.toLowerCase());
 }
 
 /**
@@ -504,13 +507,12 @@ export async function healLaunchReads(chain: ChainKey): Promise<number> {
   const db = maybeDb();
   if (!db || skipReason(chain)) return 0;
   const cid = chainIdOf(chain);
-  const rows = await db<{ token: string; token_id: bigint; name: string; symbol: string; lp_fee: number; recipients: unknown }[]>`
-    SELECT token, token_id, name, symbol, lp_fee, recipients FROM bb_launches
+  const rows = await db<{ token: string; token_id: bigint; name: string; symbol: string; lp_fee: number; recipients: unknown; locker_address: string | null; suite_id: string }[]>`
+    SELECT token, token_id, name, symbol, lp_fee, recipients, locker_address, suite_id FROM bb_launches
      WHERE chain_id = ${cid} AND (name = '?' OR symbol = '?' OR (lp_fee > 0 AND recipients = '[]'::jsonb))
      ORDER BY block_number DESC LIMIT 10`;
   if (rows.length === 0) return 0;
   const client = publicClient(chain);
-  const locker = launchpad(chain).locker!;
   let healed = 0;
   for (const r of rows) {
     const token = r.token as Address;
@@ -519,7 +521,7 @@ export async function healLaunchReads(chain: ChainKey): Promise<number> {
       r.symbol === "?" ? client.readContract({ address: token, abi: ERC20_MIN_ABI, functionName: "symbol" }).catch(() => null) : Promise.resolve(r.symbol),
       r.lp_fee > 0 && Array.isArray(r.recipients) && r.recipients.length === 0
         ? client
-            .readContract({ address: locker, abi: LAUNCH_LOCKER_ABI, functionName: "recipientsOf", args: [BigInt(r.token_id)] })
+            .readContract({ address: (r.locker_address ?? launchSuites(chain).find((s) => s.id === r.suite_id)?.locker) as Address, abi: LAUNCH_LOCKER_ABI, functionName: "recipientsOf", args: [BigInt(r.token_id)] })
             .then((x) => x.map((y) => ({ payout: y.payout.toLowerCase(), bps: Number(y.bps) })))
             .catch(() => null)
         : Promise.resolve(null),
@@ -612,29 +614,46 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
   // (head_block used to move only on success, so a chain that failed every run kept reporting its last small lag)
   let knownHead: bigint | null = null;
   try {
+    const legacy = launchSuites(chain).find((s) => s.id === "lp-v1");
+    if (legacy) await db`
+      UPDATE bb_launches SET factory_address = COALESCE(factory_address, ${legacy.factory.toLowerCase()}),
+        locker_address = COALESCE(locker_address, ${legacy.locker.toLowerCase()}),
+        fee_contract_address = COALESCE(fee_contract_address, ${legacy.feeContract.toLowerCase()})
+      WHERE chain_id = ${cid} AND suite_id = 'lp-v1'
+        AND (factory_address IS NULL OR locker_address IS NULL OR fee_contract_address IS NULL)`;
     await db`INSERT INTO bb_launch_sync_cursor (chain_id) VALUES (${cid}) ON CONFLICT DO NOTHING`;
     const [{ cursor_block }] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
     const head = await publicClient(chain).getBlockNumber();
     knownHead = head;
     const confirmed = head - confirmations(chain);
-    const deploy = launchDeployBlock(chain);
-    let from = cursor_block > 0n ? cursor_block - syncOverlapBlocks() : deploy;
-    if (from < deploy) from = deploy;
     const totals = { launches: 0, swaps: 0, fees: 0 };
-    let chunks = 0;
-    let to = from;
-    while (from <= confirmed && chunks < SYNC_MAX_CHUNKS_PER_CALL) {
-      to = from + SYNC_CHUNK_BLOCKS - 1n;
-      if (to > confirmed) to = confirmed;
-      const r = await applyRange(db, chain, from, to);
-      totals.launches += r.launches;
-      totals.swaps += r.swaps;
-      totals.fees += r.fees;
-      await db`UPDATE bb_launch_sync_cursor SET cursor_block = ${to}, head_block = ${head}, last_run_at = now(), last_error = NULL WHERE chain_id = ${cid}`;
-      from = to + 1n;
-      chunks++;
+    // The chain cursor reports the slowest suite, so the lag on /api/health never hides one that is behind.
+    let slowest: bigint | null = null;
+    let caughtUp = true;
+    for (const suite of launchSuites(chain).filter((s) => s.deployBlock > 0n)) {
+      // Inherit the old cursor once for v1; a new factory always starts at its own deployment.
+      await db`INSERT INTO bb_launch_suite_cursor (chain_id, suite_id, factory_address, cursor_block)
+        VALUES (${cid}, ${suite.id}, ${suite.factory.toLowerCase()}, ${suite.id === "lp-v1" ? cursor_block : 0n}) ON CONFLICT DO NOTHING`;
+      const [cursor] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_suite_cursor WHERE chain_id = ${cid} AND suite_id = ${suite.id} AND factory_address = ${suite.factory.toLowerCase()}`;
+      let reached = BigInt(cursor.cursor_block);
+      let from = reached > 0n ? reached - syncOverlapBlocks() : suite.deployBlock;
+      if (from < suite.deployBlock) from = suite.deployBlock;
+      let chunks = 0;
+      while (from <= confirmed && chunks < SYNC_MAX_CHUNKS_PER_CALL) {
+        const to = from + SYNC_CHUNK_BLOCKS - 1n < confirmed ? from + SYNC_CHUNK_BLOCKS - 1n : confirmed;
+        const result = await applyRange(db, chain, from, to, suite);
+        totals.launches += result.launches; totals.swaps += result.swaps; totals.fees += result.fees;
+        await db`UPDATE bb_launch_suite_cursor SET cursor_block = ${to} WHERE chain_id = ${cid} AND suite_id = ${suite.id} AND factory_address = ${suite.factory.toLowerCase()}`;
+        await db`UPDATE bb_launch_sync_cursor SET head_block = ${head}, last_run_at = now() WHERE chain_id = ${cid}`;
+        reached = to;
+        from = to + 1n; chunks++;
+      }
+      if (from <= confirmed) caughtUp = false;
+      if (slowest === null || reached < slowest) slowest = reached;
     }
-    return { status: "synced", from: from.toString(), to: to.toString(), head: head.toString(), ...totals, caught_up: from > confirmed };
+    const chainCursor = slowest ?? BigInt(cursor_block);
+    await db`UPDATE bb_launch_sync_cursor SET cursor_block = ${chainCursor}, head_block = ${head}, last_run_at = now(), last_error = NULL WHERE chain_id = ${cid}`;
+    return { status: "synced", to: chainCursor.toString(), head: head.toString(), ...totals, caught_up: caughtUp };
   } catch (err) {
     const msg = errMessage(err);
     // the stored message reaches /api/health unauthenticated: never with the upstream URL (a keyed provider URL carries its API key)
@@ -654,29 +673,33 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   if (!receipt) return { status: "not_found" };
   if (receipt.status !== "success") return { status: "reverted" };
   const cfg = launchpad(chain);
-  const factory = cfg.factory!.toLowerCase();
-  const locker = cfg.locker!.toLowerCase();
   const pm = cfg.v4.poolManager.toLowerCase();
-
-  let launches = 0;
-  let swaps = 0;
-  let fees = 0;
+  let launches = 0, swaps = 0, fees = 0;
   const tokens: string[] = [];
-  const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
-  for (const l of launched) {
-    if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
-    tokens.push(l.args.token.toLowerCase());
-  }
-  const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
-  const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
-  for (const l of swapLogs) {
-    if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken)) {
-      swaps++;
-      const t = poolToToken.get(l.args.id.toLowerCase());
-      if (t && !tokens.includes(t)) tokens.push(t);
+  for (const suite of launchSuites(chain)) {
+    const logs = receipt.logs.filter((l) => l.address.toLowerCase() === suite.factory.toLowerCase());
+    const kind = SUITE_KINDS[suite.id];
+    const launched = parseEventLogs({ abi: kind.factoryAbi, eventName: kind.launchedEvent.name, logs }) as unknown as (Log & { args: Launched })[];
+    for (const log of launched) {
+      if (await applyLaunched(db, chain, log, suite)) launches++;
+      tokens.push(log.args.token.toLowerCase());
     }
   }
-  const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
-  for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
+  const { poolToToken, tokenIdToToken, quotePools } = await poolMaps(db, chain);
+  const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
+  const hookLogs = parseEventLogs({ abi: QUOTE_HOOK_ABI, logs: receipt.logs });
+  const paired = pairQuoteSwaps(swapLogs, hookLogs as QuoteSwapLog[], quotePools);
+  for (const log of swapLogs) {
+    if (await applySwap(db, chain, log as unknown as Log & { args: Swap }, poolToToken, paired.get(`${log.transactionHash}:${log.logIndex}`))) {
+      swaps++;
+      const token = poolToToken.get(log.args.id.toLowerCase());
+      if (token && !tokens.includes(token)) tokens.push(token);
+    }
+  }
+  for (const suite of launchSuites(chain)) {
+    const logs = receipt.logs.filter((l) => l.address.toLowerCase() === suite.feeContract.toLowerCase());
+    const parsed = parseEventLogs({ abi: SUITE_KINDS[suite.id].feeAbi, logs });
+    for (const log of parsed) if (["Collected", "Paid", "Burned", "Credited", "Claimed"].includes(log.eventName) && await applyFee(db, chain, log as unknown as FeeLog, tokenIdToToken)) fees++;
+  }
   return { status: "applied", launches, swaps, fees, tokens };
 }

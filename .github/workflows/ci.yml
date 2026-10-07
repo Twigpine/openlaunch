@@ -16,6 +16,19 @@ jobs:
   app:
     name: app · lint, typecheck, unit tests, build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: quote_indexer
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: app
@@ -30,6 +43,10 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit -p .
       - run: npm test
+      - name: quote fee indexer integration
+        env:
+          QUOTE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/quote_indexer
+        run: node --conditions=react-server --import tsx scripts/quote-indexer-check.mts
       - name: production build
         env:
           NEXT_PUBLIC_SITE_URL: https://openlaunch.lol
@@ -53,5 +70,7 @@ jobs:
       - run: forge build --sizes
       - run: forge test --match-path test/LaunchFactory.t.sol -vv
       - run: forge test --match-path test/LaunchFactory.arcGuard.t.sol -vv
+      - run: forge test --match-path test/QuoteFees.t.sol -vv
+      - run: forge test --match-path test/LaunchEvents.t.sol -vv
       - run: script/check-arc-factory.sh
       # live-fork suites (FORK_TESTS=true) need RPC access and run locally before a release; see README
