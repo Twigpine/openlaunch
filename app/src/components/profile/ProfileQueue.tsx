@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useConfig } from "wagmi";
+import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card } from "@/components/ui";
 import { buildProfileAdminListMessage, buildProfileModMessage, type ProfileModAction } from "@/lib/profiles/auth";
 import type { ReviewRow } from "@/lib/profiles/server";
-import { shortAddr } from "@/lib/chainPublic";
+import { CHAINS, DEFAULT_CHAIN, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
 
@@ -26,6 +26,9 @@ function nonce(): string {
 export default function ProfileQueue() {
   const { address } = useHydratedAccount();
   const config = useConfig();
+  const { chainId } = useAccount();
+  // the chain the wallet signs on (a smart-wallet admin is checked there)
+  const chain: ChainKey = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === chainId) ?? DEFAULT_CHAIN;
   const [data, setData] = useState<{ pending: ReviewRow[]; recent: ReviewRow[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,7 +45,7 @@ export default function ProfileQueue() {
     setBusy(true);
     try {
       const s = await signed((n, ts) => buildProfileAdminListMessage({ wallet: address, nonce: n, ts }));
-      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "list", wallet: address, ...s }) });
+      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "list", chain, wallet: address, ...s }) });
       const d = (await res.json()) as { pending?: ReviewRow[]; recent?: ReviewRow[]; error?: string };
       if (!res.ok) throw new Error(d.error ?? "not allowed");
       setErr(null);
@@ -60,7 +63,7 @@ export default function ProfileQueue() {
     try {
       const reason = "";
       const s = await signed((n, ts) => buildProfileModMessage({ action, target, wallet: address, nonce: n, ts, reason }));
-      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, wallet: address, ...s }) });
+      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, chain, wallet: address, ...s }) });
       const d = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(d.error ?? "failed");
       setBusy(false);

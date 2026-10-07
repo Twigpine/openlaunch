@@ -145,24 +145,25 @@ export async function namesFor(wallets: readonly (string | null | undefined)[]):
 // ── signatures ───────────────────────────────────────────────────────────────
 const deployedOn = new Map<string, { chains: ChainKey[]; at: number }>();
 
-/** Chains where the wallet has code (cached 10 min). Null when no chain could be read at all. */
+/**
+ * Chains where the wallet has code (cached 10 min). Deployed on the chain it signed on settles it at once. Otherwise
+ * every chain must answer: a chain that failed to answer could be where the wallet lives, and treating it as "deployed
+ * nowhere" would let an old owner sign through an ERC-6492 wrapper. Null = could not be told; nothing is cached then.
+ */
 async function codeChains(wallet: string, first: ChainKey): Promise<ChainKey[] | null> {
   const hit = deployedOn.get(wallet);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.chains;
   const order = [first, ...CHAIN_KEYS.filter((k) => k !== first)];
   const chains: ChainKey[] = [];
-  let read = 0;
   for (const c of order) {
     try {
       const code = await publicClient(c).getCode({ address: wallet as Address });
-      read++;
       if (code && code !== "0x") chains.push(c);
       if (c === first && chains.length) break; // deployed where it signed: that is all we need
     } catch {
-      /* a chain we cannot read */
+      return null;
     }
   }
-  if (read === 0) return null;
   if (deployedOn.size > 10_000) deployedOn.clear();
   deployedOn.set(wallet, { chains, at: Date.now() });
   return chains;
@@ -224,7 +225,7 @@ async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: 
   const ts = Number(s.ts);
   const v = await verifySig(wallet, message(wallet, s.nonce, ts), s.signature, s.chain);
   if (v === "down") return fail("signature check unavailable, try again", 503);
-  if (v === "bad") return fail("signature does not match", 401);
+  if (v === "bad") return fail("signature does not match (with a smart wallet, switch it to Base and sign again)", 401);
   if (typeof v === "object") return fail(`your wallet lives on ${CHAIN_LABELS[v.switchTo]}: switch your wallet to ${CHAIN_LABELS[v.switchTo]} and sign again`, 409);
   // the wallet bucket is spent only after the wallet is proven (a stranger cannot freeze someone's edits)
   if (rateLimited(`profile:wallet:${wallet}`, 12)) return fail("slow down", 429);
@@ -511,6 +512,7 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
       await db`UPDATE bb_profiles SET points_flag = ${action === "exclude_points" ? "excluded" : null}, points_flag_reason = ${action === "exclude_points" ? reason || null : null}, updated_at = now() WHERE wallet = ${target}`;
       break;
     case "reset_username":
+      if (prof.deleted_at) return fail("a deleted profile has no username to retire", 409);
       // the old name is retired (held by nobody, effectively for good) and the rename clock starts again
       await db.begin(async (tx) => {
         const t = tx as unknown as Db;

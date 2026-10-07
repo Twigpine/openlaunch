@@ -306,8 +306,9 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
 }
 
 // ── swap attribution backlog ─────────────────────────────────────────────────
-const attributionTries = new Map<string, number>();
+const attributionTries = new Map<string, { n: number; at: number }>();
 const ATTRIBUTION_MAX_TRIES = 3;
+const ATTRIBUTION_TRY_GAP_MS = 10 * 60_000; // tries this far apart: a short RPC outage never freezes a row
 
 /**
  * Swaps not checked yet (trader_via IS NULL) get checked a batch per poll: always for the last day (a live lookup
@@ -316,8 +317,8 @@ const ATTRIBUTION_MAX_TRIES = 3;
  *   1. cheap and set-based: a swap whose sender itself moved the token in that transaction (bb_token_transfers) is the
  *      common case and is marked checked without any RPC (a missing transfer never marks anything);
  *   2. the rest get the evidence read from the chain (traderOf): only an EntryPoint operation moves the trade. A row
- *      whose evidence cannot be read after a few tries is kept on its sender and marked 'unread', so unreadable rows
- *      never pile up at the head of the queue.
+ *      whose evidence cannot be read on three tries at least ten minutes apart is kept on its sender and marked
+ *      'unread', so unreadable rows never pile up at the head of the queue.
  * Only blocks the cursor has passed (their transfers are in). UPDATEs re-test trader_via IS NULL, so two machines
  * running the same batch change each row once.
  */
@@ -328,27 +329,38 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
   const cid = chainIdOf(chain);
   const [cur] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
   if (!cur || cur.cursor_block <= 0n) return 0;
-  const since = new Date(history ? 0 : Date.now() - 86_400_000).toISOString(); // history: every row; otherwise the last day
+  // history: every row; otherwise the last day, as a block range so the partial index is scanned as a range (the
+  // lowest block with a swap in the last day comes off the block_time index, a few hundred rows)
+  let fromBlock = 0n;
+  if (!history) {
+    const [d] = await db<{ b: bigint | null }[]>`SELECT min(block_number) AS b FROM bb_launch_swaps WHERE chain_id = ${cid} AND block_time > now() - interval '1 day'`;
+    if (d?.b === null || d?.b === undefined) return 0;
+    fromBlock = BigInt(d.b);
+  }
   await db`
     UPDATE bb_launch_swaps s SET trader_via = 'tx_from', tx_from = COALESCE(s.tx_from, s.trader)
       FROM (SELECT tx_hash, log_index FROM bb_launch_swaps
-             WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block} AND block_time > ${since}::timestamptz
+             WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
              ORDER BY block_number DESC LIMIT 5000) b
      WHERE s.chain_id = ${cid} AND s.tx_hash = b.tx_hash AND s.log_index = b.log_index AND s.trader_via IS NULL
        AND EXISTS (SELECT 1 FROM bb_token_transfers t WHERE t.chain_id = s.chain_id AND t.tx_hash = s.tx_hash AND t.token = s.token AND (t.from_addr = s.trader OR t.to_addr = s.trader))`;
   const rows = await db<{ tx_hash: string; log_index: number; trader: string }[]>`
     SELECT tx_hash, log_index, trader FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block} AND block_time > ${since}::timestamptz
+     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
      ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
   let moved = 0;
   for (const r of rows) {
     const key = `${chain}:${r.tx_hash}:${r.log_index}`;
     const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
     if (!who.via || !who.trader) {
-      // evidence unreadable right now (RPC refusal, a transaction the node no longer has): a few tries, then give up
-      const n = (attributionTries.get(key) ?? 0) + 1;
+      // evidence unreadable right now (RPC refusal, a transaction the node no longer has): a few tries spaced at least
+      // ten minutes apart, then give up, so a short outage never freezes a smart wallet's trade on its bundler
+      const prev = attributionTries.get(key);
+      const now = Date.now();
+      if (prev && now - prev.at < ATTRIBUTION_TRY_GAP_MS) continue;
+      const n = (prev?.n ?? 0) + 1;
       if (attributionTries.size > 20_000) attributionTries.clear();
-      attributionTries.set(key, n);
+      attributionTries.set(key, { n, at: now });
       if (n >= ATTRIBUTION_MAX_TRIES) {
         await db`UPDATE bb_launch_swaps SET trader_via = 'unread', tx_from = COALESCE(tx_from, trader) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL`;
         attributionTries.delete(key);

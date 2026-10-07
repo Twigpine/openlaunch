@@ -15,11 +15,11 @@ export async function POST(req: Request) {
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
   try {
     if (b.action === "list") {
-      const r = await listProfilesForReview({ wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
+      const r = await listProfilesForReview({ chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
       return NextResponse.json({ pending: r.pending, recent: r.recent }, { headers: { "cache-control": "no-store" } });
     }
-    const r = await moderateProfile({ action: b.action, target: b.target, reason: b.reason, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
+    const r = await moderateProfile({ action: b.action, target: b.target, reason: b.reason, chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
     return NextResponse.json({ ok: true });
   } catch (err) {
