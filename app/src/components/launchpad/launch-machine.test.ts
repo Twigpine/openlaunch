@@ -109,11 +109,11 @@ test("step selection and copy follow CSS phase events, including the loop seam",
   assert.match(css, /:is\(\.stageProgress\[data-phase\], \.detailContent\[aria-hidden\]\) \{ animation: none; \}/);
 });
 
-test("the home hero shows the plain looping locker and points at the Trending board", () => {
-  // no props: Step 1 has no reactions to live events, the drawing is the same loop /rules shows
+test("the home hero shows the looping locker and points to the rules guide", () => {
+  // no props: the drawing is the same loop /rules shows; anything live is drawn over it, never inside it
   assert.match(hero, /<LaunchMachine \/>/);
-  assert.match(hero, /<a href="#trending"[^>]*>\s*See what&apos;s trending\s*<\/a>/);
-  assert.doesNotMatch(hero, /See how it works/);
+  assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works"/);
+  assert.doesNotMatch(hero, /See what&apos;s trending/);
   assert.match(hero, /Launch a token\.\s*<br \/>\s*We take <span className="text-brand">nothing\.<\/span>/);
 });
 

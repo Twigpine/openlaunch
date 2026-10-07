@@ -17,42 +17,66 @@ const totalsCss = read("./LaunchMechanism.module.css");
 const skeleton = read("../../app/(home)/loading.tsx");
 const rule = (css: string, selector: string) => css.split("\n").find((line) => line.startsWith(`${selector} {`)) ?? "";
 
-test("the headline is stepped so it stays two lines, and the hero is two columns from 768px", () => {
+test("the headline is stepped so it stays two lines, and the hero grid has three arrangements", () => {
   for (const step of ["text-[34px]", "min-[400px]:text-[40px]", "min-[480px]:text-[48px]", "sm:text-[60px]", "md:text-[44px]", "lg:text-[56px]", "xl:text-[68px]"]) {
     assert.ok(HERO.headline.split(" ").includes(step), `headline size step ${step}`);
   }
-  assert.ok(HERO.grid.includes("md:grid-cols-[minmax(0,1.06fr)_minmax(0,1fr)]"));
-  assert.ok(HERO.grid.split(" ").includes("items-center"), "text and locker are centred on each other");
-  assert.ok(HERO.grid.split(" ").includes("gap-y-6") && HERO.strip.split(" ").includes("mt-5"), "tight gaps on phones");
-  assert.ok(HERO.section.split(" ").includes("lg:pt-4") && HERO.strip.split(" ").includes("lg:mt-5"), "tight rhythm from 1024px");
+  // the shortest laptop window (about 657px under the toolbars) gets a smaller headline and copy, so the totals stay in view
+  assert.ok(HERO.headline.split(" ").includes("[@media(min-width:1024px)_and_(max-height:700px)]:text-[52px]"));
+  assert.ok(HERO.copy.split(" ").includes("[@media(min-width:1024px)_and_(max-height:700px)]:text-base"));
+  assert.ok(HERO.section.split(" ").includes("lg:pt-4"), "tight rhythm from 1024px");
+  // phones: copy, the locker, then the totals. 768px: text beside the locker, totals under both. 1024px: the totals
+  // move up under the text and the locker spans both rows, with copy hugging its row's bottom and the totals its top
+  assert.match(heroCss, /\.layout \{[^}]*align-items: center;[^}]*grid-template-columns: minmax\(0, 1fr\); grid-template-areas: "copy" "stage" "totals"; \}/);
+  assert.match(heroCss, /@media \(min-width: 768px\) \{ \.layout \{ grid-template-columns: minmax\(0, 1\.06fr\) minmax\(0, 1fr\); grid-template-areas: "copy stage" "totals totals"; \} \}/);
+  assert.match(heroCss, /@media \(min-width: 1024px\) \{\n\s*\.layout \{ grid-template-areas: "copy stage" "totals stage";[^}]*\}\n\s*\.copyArea \{ align-self: end; \}\n\s*\.totalsArea \{ align-self: start; \}/);
+  assert.match(heroCss, /\.stage \{ grid-area: stage;/);
 });
 
-test("the hero's second link is a real touch target on phones and the proofs are easy to hit", () => {
-  assert.match(hero, /<a href="#trending" className="inline-flex min-h-11 items-center justify-center [^"]*sm:min-h-0">/);
-  assert.equal((hero.match(/min-h-6 items-center/g) ?? []).length, 3, "MIT licensed, Source on GitHub, Verified contracts");
-  assert.ok(HERO.proofs.split(" ").includes("gap-y-2"), "wrapped proof rows sit 8px apart");
+test("the hero has two ways in, and the proofs are chips that are easy to hit", () => {
+  // the filled button, and the way in for someone who wants it explained first: the rules guide
   assert.match(hero, /<HeroCtaLink id="hero-cta" href="\/launch"/);
+  assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works" className="group inline-flex min-h-12 /);
+  assert.match(hero, /<span aria-hidden="true" className="hidden sm:inline">See how it works<\/span>/);
+  // phones: both buttons share one row, and below 380px the second is just its tile so the filled one keeps its words
+  assert.ok(HERO.actions.split(" ").includes("items-center") && !HERO.actions.split(" ").includes("flex-col"));
+  assert.match(hero, /max-\[379px\]:hidden sm:hidden">How it works</);
+  // the chain chip links to the same guide and appears from 640px (the copy below names the chains on a phone)
+  assert.match(hero, /<Link href="\/rules#launchpad" className=\{HERO\.chip\}>/);
+  assert.ok(HERO.chip.split(" ").includes("hidden") && HERO.chip.split(" ").includes("sm:inline-flex"));
+  // three proof chips, each at least 32px tall (36px from 640px), each a place to check the claim
+  assert.equal((hero.match(/className=\{proof\}/g) ?? []).length, 3, "MIT licensed, Source on GitHub, Verified contracts");
+  assert.match(hero, /const proof = "inline-flex min-h-8 [^"]*sm:min-h-9 /);
+  assert.ok(HERO.proofs.split(" ").includes("gap-2"), "wrapped proof rows sit 8px apart");
+  assert.doesNotMatch(hero, /See what&apos;s trending|#trending/, "the old second link is gone");
 });
 
 test("the hero and its loading skeleton render the same layout strings", () => {
   for (const file of [hero, skeleton]) {
     assert.match(file, /import \{ HERO \} from "(?:\.|@\/components\/launchpad)\/hero-layout"/);
-    for (const key of Object.keys(HERO)) assert.ok(file.includes(`HERO.${key}`), `HERO.${key} is used`);
+    // the chip is drawn by the skeleton as a plain placeholder; every other string is shared
+    for (const key of Object.keys(HERO).filter((k) => k !== "chip")) assert.ok(file.includes(`HERO.${key}`), `HERO.${key} is used`);
   }
+  assert.ok(hero.includes("HERO.chip"));
   // nothing about the hero grid is typed a second time in the skeleton
   assert.doesNotMatch(skeleton, /grid-cols-\[minmax\(0,1\.\d+fr\)/);
-  // the stage, the locker box and the strip come from the real stylesheets, so the short-screen rules apply to both
+  // the grid, the stage, the locker box and the totals come from the real stylesheets, so the short-screen rules apply to both
   assert.match(skeleton, /import hero from "@\/components\/launchpad\/LaunchHero\.module\.css"/);
   assert.match(skeleton, /import machine from "@\/components\/launchpad\/LaunchMachine\.module\.css"/);
   assert.match(skeleton, /import totals from "@\/components\/launchpad\/LaunchMechanism\.module\.css"/);
-  for (const cls of ["hero.hero", "hero.stage", "hero.strip", "machine.machine", "machine.detail", "totals.panel", "totals.readings", "totals.lead", "totals.figure", "totals.breakdown"]) {
+  for (const cls of ["hero.hero", "hero.layout", "hero.copyArea", "hero.stage", "hero.totalsArea", "machine.machine", "machine.detail", "totals.panel", "totals.readings", "totals.lead", "totals.figure", "totals.breakdown"]) {
     assert.ok(skeleton.includes(cls), `skeleton uses ${cls}`);
   }
-  assert.ok(hero.includes("${HERO.section} ${styles.hero}") && hero.includes("${HERO.strip} ${styles.strip}"));
+  assert.ok(hero.includes("${HERO.section} ${styles.hero}") && hero.includes("<div className={styles.layout}>") && hero.includes("<div className={styles.totalsArea}>"));
+  // the same three areas, in the same order, in both
+  for (const [file, names] of [[hero, ["styles.copyArea", "styles.stage", "styles.totalsArea"]], [skeleton, ["hero.copyArea", "hero.stage", "hero.totalsArea"]]] as const) {
+    const at = names.map((name) => file.indexOf(name));
+    assert.ok(at.every((i) => i >= 0) && [...at].sort((a, b) => a - b).join() === at.join(), "copy, the locker, then the totals");
+  }
 });
 
-test("the skeleton follows the page order: hero, totals, Trending, river, list", () => {
-  const at = ["HERO.grid", "totals.panel", "sm:grid-cols-2 lg:grid-cols-10 lg:grid-rows-2", "relative h-[687px] rounded-3xl border border-line bg-card/70 p-4 shadow-card sm:h-[463px] sm:p-6", "<SkRow "].map((mark) => skeleton.indexOf(mark));
+test("the skeleton follows the page order: hero with its totals, Trending, live panel, list", () => {
+  const at = ["hero.layout", "totals.panel", "sm:grid-cols-2 lg:grid-cols-10 lg:grid-rows-2", "relative h-[687px] rounded-3xl border border-line bg-card/70 p-4 shadow-card sm:h-[463px] sm:p-6", "<SkRow "].map((mark) => skeleton.indexOf(mark));
   assert.ok(at.every((i) => i >= 0), `every block is there: ${at}`);
   assert.deepEqual([...at].sort((a, b) => a - b), at);
   // the board's own grid: a leader over two rows and four runners
@@ -66,7 +90,7 @@ test("short laptop screens get a smaller locker and tighter gaps", () => {
   const block = heroCss.slice(at);
   assert.match(block, /\.stage \{ --machine-max: 400px; --detail-min: 88px; \}/);
   assert.match(block, /\.hero \{ padding-top: \d+px; \}/);
-  assert.match(block, /\.strip \{ margin-top: \d+px; \}/);
+  assert.match(block, /\.layout \{ row-gap: \.75rem; \}/);
 });
 
 test("the totals strip has five readings in order, with Trades as the big one", () => {
@@ -123,16 +147,17 @@ test("the strip's figures are mono, untracked, and sized so they never clip", ()
   assert.doesNotMatch(totalsCss, /letter-spacing: -/);
   assert.match(rule(totalsCss, ".value"), /font-size: clamp\(\d+px, calc\(100cqi \/ \(var\(--chars\) \* \.\d+\)\), var\(--fig-max\)\);/);
   assert.match(totals, /style=\{\{ "--chars": chars \} as CSSProperties\}/);
-  // one big figure: 30px on phones, 40px from 640px, 54px from 1024px; the rest 20px then 24px
-  assert.deepEqual([...totalsCss.matchAll(/\.lead \{[^}]*--fig-max: (\d+)px/g)].map((m) => m[1]), ["30", "40", "54"]);
-  assert.deepEqual([...totalsCss.matchAll(/\.reading \{[^}]*--fig-max: (\d+)px/g)].map((m) => m[1]), ["20", "24"]);
+  // one big figure: 30px on phones, 40px from 640px, 46px from 1024px (where it is a card in the hero's left column); the rest 20px then 24px
+  assert.deepEqual([...totalsCss.matchAll(/\.lead \{[^}]*--fig-max: (\d+)px/g)].map((m) => m[1]), ["30", "40", "46"]);
+  assert.deepEqual([...totalsCss.matchAll(/\.reading \{[^}]*--fig-max: (\d+)px/g)].map((m) => m[1]), ["20", "24", "24"]);
 });
 
 test("the strip is one hairline panel with a registered grid and no decoration", () => {
   assert.match(rule(totalsCss, ".panel"), /border: 1px solid var\(--color-line\); border-radius: 16px; background: var\(--color-card\);/);
   assert.match(rule(totalsCss, ".readings"), /gap: 1px; background: var\(--color-line\);/);
-  // six columns with Trades over two from 1024px; four columns with Trades on its own row from 640px
-  assert.match(totalsCss, /@media \(min-width: 1024px\) \{\n\s*\.readings \{ grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \}[\s\S]*?\.lead \{[^}]*grid-column: span 2; \}/);
+  // a card from 1024px (the hero's left column is narrow): Trades down the left side, the other four as a 2x2 beside it, no notes
+  assert.match(totalsCss, /@media \(min-width: 1024px\) \{\n\s*\.readings \{ grid-template-columns: minmax\(0, 1\.5fr\) repeat\(2, minmax\(0, 1fr\)\); \}[\s\S]*?\.lead \{[^}]*grid-column: 1; grid-row: span 4;[^}]*\}[\s\S]*?\.note \{ display: none; \}/);
+  // four columns with Trades on its own row from 640px
   assert.match(totalsCss, /@media \(min-width: 640px\) \{\n\s*\.readings \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}[\s\S]*?\.lead \{[^}]*grid-column: 1 \/ -1; \}/);
   // phones: notes hidden, so every row is label and figure only
   assert.ok(totalsCss.includes("\n.note { display: none; }\n"));

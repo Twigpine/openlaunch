@@ -5,25 +5,28 @@ import machine from "@/components/launchpad/LaunchMachine.module.css";
 import totals from "@/components/launchpad/LaunchMechanism.module.css";
 
 /**
- * Home skeleton, in the page's own order: hero (text and the locker in its stage), totals strip, Trending board,
- * live panel, then the launches list with its side column. The hero grid comes from hero-layout.ts and the stage,
- * locker and strip boxes from the real components' stylesheets, so heights follow the real layout (including the
- * short-screen compaction) instead of copying it. Only the Trending and live-panel blocks are sized by hand.
+ * Home skeleton, in the page's own order: hero (text, the locker in its stage and the totals, in the real grid), the live
+ * line, Trending board, live panel, then the launches list with its side column. The hero's class strings come from
+ * hero-layout.ts and its grid, stage, locker and totals from the real components' stylesheets, so heights follow the
+ * real layout (including the short-screen compaction) instead of copying it. Only the Trending and live-panel blocks
+ * are sized by hand.
  */
 export default function Loading() {
   return (
     <main className="bb-mid bb-page relative pb-16 space-y-8" aria-busy="true" aria-label="loading">
       <section className={`${HERO.section} ${hero.hero}`}>
-        <div className={HERO.grid}>
-          <div className="min-w-0">
+        <div className={hero.layout}>
+          <div className={hero.copyArea}>
+            <span className="hidden h-7 w-80 max-w-full items-center sm:flex"><Sk className="h-7 w-full rounded-full" /></span>
             {/* the headline's own classes: each bar sits in one line of its line-height, so two bars are as tall as the two lines */}
             <div className={HERO.headline}>{[0, 1].map((i) => <span key={i} className="flex h-[1.02em] items-center"><Sk className={`h-[0.74em] ${i ? "w-11/12" : "w-10/12"}`} /></span>)}</div>
-            {/* the copy wraps to 7 lines at 320px, 6 from 340px, 5 from 420px and 4 from 520px; beside the locker (md) the locker is the taller column */}
+            {/* the copy wraps to 7 lines at 320px, 6 from 340px, 5 from 420px and 4 from 520px; in the narrower column beside the
+                locker it is 6 lines from 768px, 5 from 1024px and 4 from 1280px */}
             <div className={HERO.copy}>
-              {["", "", "", "min-[520px]:hidden", "min-[420px]:hidden", "min-[340px]:hidden", "w-2/3"].map((line, i) => <span key={i} className={`flex h-lh items-center ${line.includes("hidden") ? line : ""}`}><Sk className={`h-[0.7em] ${line.startsWith("w-") ? line : "w-full"}`} /></span>)}
+              {["", "", "", "min-[520px]:max-[767px]:hidden min-[1280px]:hidden", "min-[420px]:max-[767px]:hidden min-[1024px]:hidden", "min-[340px]:hidden", "w-2/3"].map((line, i) => <span key={i} className={`flex h-lh items-center ${line.includes("hidden") ? line : ""}`}><Sk className={`h-[0.7em] ${line.startsWith("w-") ? line : "w-full"}`} /></span>)}
             </div>
-            <div className={HERO.actions}><Sk className="h-12 w-full rounded-xl sm:w-44" /><span className="flex h-11 items-center justify-center sm:h-5"><Sk className="h-4 w-36" /></span></div>
-            <div className={HERO.proofs}>{["w-[76px]", "w-[120px]", "w-[104px]"].map((w) => <span key={w} className="flex h-6 items-center"><Sk className={`h-3 ${w}`} /></span>)}</div>
+            <div className={HERO.actions}><Sk className="h-12 min-w-0 flex-1 rounded-2xl sm:h-[54px] sm:w-52 sm:flex-none" /><Sk className="h-12 w-[149px] shrink-0 rounded-2xl max-[379px]:w-12 sm:h-[54px] sm:w-56" /></div>
+            <div className={HERO.proofs}>{["w-[106px] sm:w-[122px]", "w-[96px] sm:w-[170px]", "w-[133px] sm:w-[152px]"].map((w) => <Sk key={w} className={`h-8 rounded-full sm:h-9 ${w}`} />)}</div>
           </div>
           <div className={hero.stage}>
             <div className={machine.machine}>
@@ -35,21 +38,22 @@ export default function Loading() {
               <div className="flex h-[53px] items-center px-2 min-[340px]:h-[30px]"><Sk className="h-2.5 w-full" /></div>
             </div>
           </div>
-        </div>
-        <div className={`${HERO.strip} ${hero.strip}`}>
-          <div className={totals.panel}>
-            <div className={totals.readings}>
-              {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className={i ? totals.reading : `${totals.reading} ${totals.lead}`}>
-                  <div className={`${totals.label} flex items-center sm:min-h-[1.4em]`}><Sk className="h-2.5 w-20" /></div>
-                  <div className={`${totals.figure} flex items-center justify-end sm:justify-start`}><Sk className={i ? "h-4 w-16 sm:h-5" : "h-6 w-32 sm:h-8 sm:w-44 lg:h-10 lg:w-56"} /></div>
-                  <div className={`${totals.note} ${i ? "min-h-[3em]" : "min-h-[1.5em]"}`}><Sk className="mt-[0.4em] h-[0.8em] w-4/5" /></div>
-                </div>
-              ))}
+          <div className={hero.totalsArea}>
+            <div className={totals.panel}>
+              <div className={totals.readings}>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className={i ? totals.reading : `${totals.reading} ${totals.lead}`}>
+                    <div className={`${totals.label} flex items-center sm:min-h-[1.4em] lg:max-[1179px]:min-h-[2.8em]`}><Sk className="h-2.5 w-20" /></div>
+                    <div className={`${totals.figure} flex items-center justify-end sm:justify-start`}><Sk className={i ? "h-4 w-16 sm:h-5" : "h-6 w-32 sm:h-8 sm:w-44 lg:h-10 lg:w-36"} /></div>
+                    <div className={`${totals.note} ${i ? "min-h-[3em]" : "min-h-[1.5em]"}`}><Sk className="mt-[0.4em] h-[0.8em] w-4/5" /></div>
+                  </div>
+                ))}
+              </div>
+              <div className={`${totals.breakdown} flex min-h-11 items-center lg:min-h-9`}><Sk className="h-3 w-64 max-w-full" /></div>
             </div>
-            <div className={`${totals.breakdown} flex min-h-11 items-center lg:min-h-9`}><Sk className="h-3 w-64 max-w-full" /></div>
           </div>
         </div>
+        <div className={HERO.ticker}><Sk className="h-10 w-full rounded-xl" /></div>
       </section>
       {/* Trending: the board's grid (TrendingStrip.tsx), a leader and four runners at the heights its cards have today */}
       <section className="min-w-0">
