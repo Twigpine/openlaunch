@@ -124,3 +124,7 @@ Found something? Open an issue or reach out on X: [@openlaunch_lol](https://x.co
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+## Quote-only creator fees
+
+New launches can use the optional quote-only suite: zero LP fees plus an immutable hook charging the quote asset on buys and sells. Existing deployments keep their fee behavior. See [contracts and deployment guide](contracts/docs/QUOTE_FEES.md).
