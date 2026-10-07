@@ -1,5 +1,5 @@
 import "server-only";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { isAddress, recoverMessageAddress, type Address, type Hex } from "viem";
 import { publicClient } from "@/lib/chain";
 import { CHAIN_KEYS, CHAIN_LABELS, DEFAULT_CHAIN, isChainKey, type ChainKey } from "@/lib/chainPublic";
@@ -29,6 +29,7 @@ import { fetchPostFacts } from "./xFetch";
  */
 
 type Fail = { ok: false; error: string; status: number };
+/** A failed result with its HTTP status. */
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
 
 const DAY = 86_400_000;
@@ -73,12 +74,15 @@ export type PublicProfile = {
 /** One entry of the names map that rides along with trades, holders and posts. */
 export type NameEntry = { u: string; d: string; a: string | null; v: boolean };
 
-export type XCodeView = { code: string; handle: string; expires_at: string; text: string; intent: string };
+/** The code to post, plus `secret`: the private verify key that never goes in the post (only this browser has it). */
+export type XCodeView = { code: string; handle: string; expires_at: string; text: string; intent: string; secret: string };
 
+/** The public X state for a stored status. */
 function xState(s: Row["x_status"]): PublicProfile["x_state"] {
   return s === "verified" ? "verified" : s === "pending_review" ? "pending" : s === "post_missing" ? "reverify" : "none";
 }
 
+/** A stored profile as everyone sees it. */
 function shape(r: Row): PublicProfile {
   return {
     wallet: r.wallet,
@@ -98,6 +102,7 @@ async function rowByWallet(db: Db, wallet: string): Promise<Row | null> {
   return rows[0] ?? null;
 }
 
+/** The visible profile for a wallet or a username, or null (hidden and deleted profiles never show). */
 export async function getProfile(by: { wallet: string } | { username: string }): Promise<PublicProfile | null> {
   const db = maybeDb();
   if (!db) return null;
@@ -112,6 +117,7 @@ export async function getProfile(by: { wallet: string } | { username: string }):
 const nameCache = new Map<string, { at: number; v: NameEntry | null }>();
 const NAME_TTL_MS = 30_000;
 
+/** Drop a wallet from this machine's names cache (after it changes). */
 export function forgetName(wallet: string): void {
   nameCache.delete(wallet.toLowerCase());
 }
@@ -203,6 +209,7 @@ async function verifySig(wallet: string, message: string, signature: unknown, si
   return "bad";
 }
 
+/** Spend a profile nonce; false when it was already used (a replay). */
 async function consumeNonce(db: Db, nonce: string, wallet: string): Promise<boolean> {
   try {
     await db`INSERT INTO bb_profile_nonces (nonce, wallet) VALUES (${nonce}, ${wallet})`;
@@ -233,11 +240,13 @@ async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: 
   return { ok: true, wallet, ts };
 }
 
+/** Random lowercase letters and digits without look-alikes. */
 function randomSuffix(n: number): string {
   const a = "abcdefghjkmnpqrstuvwxyz23456789";
   return Array.from(randomBytes(n), (b) => a[b % a.length]).join("");
 }
 
+/** A fresh one-time X code. */
 function newXCode(): string {
   for (;;) {
     const c = makeXCode(randomBytes(32));
@@ -245,9 +254,18 @@ function newXCode(): string {
   }
 }
 
-export function codeView(code: string, handle: string, expiresAt: string, username: string): XCodeView {
+/** The post text and intent link for a code, with the private verify key that goes with it. */
+export function codeView(code: string, handle: string, expiresAt: string, username: string, secret: string): XCodeView {
   const text = postTextFor(username, code, BRAND_X, BRAND_DOMAIN);
-  return { code, handle, expires_at: expiresAt, text, intent: intentUrl(text) };
+  return { code, handle, expires_at: expiresAt, text, intent: intentUrl(text), secret };
+}
+
+/** Hex sha256 of a string. */
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+/** Constant-time check of a presented verify key against the stored hash. */
+function secretMatches(secret: unknown, hash: string | null): boolean {
+  if (typeof secret !== "string" || !/^[0-9a-f]{32}$/.test(secret) || !hash || !/^[0-9a-f]{64}$/.test(hash)) return false;
+  return timingSafeEqual(Buffer.from(sha256(secret), "hex"), Buffer.from(hash, "hex"));
 }
 
 /** A dropped name is held for its wallet only if it was really theirs (kept a day or more): no farming of holds. */
@@ -260,6 +278,7 @@ function holdable(r: Row, now: number): boolean {
 // ── save ─────────────────────────────────────────────────────────────────────
 export type SaveRequest = Signed & { fields: Record<string, unknown> };
 
+/** Save a signed profile: name rules, holds and the rename clock, the X claim, and a fresh code + verify key when the claim needs verifying. */
 export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: PublicProfile; code: XCodeView | null; renamed?: string } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
@@ -330,9 +349,10 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
       if (f.x_handle && !verified) {
         await t`UPDATE bb_x_codes SET used_at = now() WHERE wallet = ${me} AND used_at IS NULL AND review IS NULL`;
         const c = newXCode();
+        const secret = randomBytes(16).toString("hex");
         const expires = new Date(now + X_CODE_TTL_MS).toISOString();
-        await t`INSERT INTO bb_x_codes (code, wallet, x_handle, expires_at) VALUES (${c}, ${me}, ${f.x_handle}, ${expires})`;
-        code = codeView(c, f.x_handle, expires, f.username);
+        await t`INSERT INTO bb_x_codes (code, wallet, x_handle, expires_at, secret_hash) VALUES (${c}, ${me}, ${f.x_handle}, ${expires}, ${sha256(secret)})`;
+        code = codeView(c, f.x_handle, expires, f.username, secret);
       }
       const row = await rowByWallet(t, me);
       return { ok: true as const, profile: shape(row!), code, renamed };
@@ -349,11 +369,12 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
 const NO_CODE = "that code is not open for this wallet; save your profile again for a new one";
 
 /**
- * Check a post against the wallet's open code. The request carries the code (only its owner was shown it), and
- * nothing happens for a code that does not match: no rate-limit bucket is spent, no lookup is made, nothing is said
- * about the claimed handle, and nothing can be pushed into the review queue by a stranger.
+ * Check a post against the wallet's open code. The code itself is public once posted, so the request must also carry
+ * the private verify key that was returned only to the signer at save time. Without both, nothing happens: no
+ * rate-limit bucket is spent, no lookup is made, nothing is said about the claimed handle, and nothing can be pushed
+ * into the review queue. A stranger who read the post holds the code and the wallet, never the key.
  */
-export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: unknown }): Promise<{ ok: true; status: "verified" | "pending_review"; profile: PublicProfile | null } | Fail> {
+export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: unknown; secret: unknown }): Promise<{ ok: true; status: "verified" | "pending_review"; profile: PublicProfile | null } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   if (typeof r.wallet !== "string" || !isAddress(r.wallet)) return fail("bad wallet", 400);
@@ -361,8 +382,8 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
   const me = r.wallet.toLowerCase();
   const post = parsePostUrl(r.postUrl);
   if (!post) return fail("paste the link to your post (x.com/you/status/…)", 400);
-  const [code] = await db<CodeRow[]>`SELECT code, x_handle, expires_at, used_at FROM bb_x_codes WHERE wallet = ${me} AND code = ${r.code} AND used_at IS NULL AND review IS NULL`;
-  if (!code) return fail(NO_CODE, 400);
+  const [code] = await db<(CodeRow & { secret_hash: string | null })[]>`SELECT code, x_handle, expires_at, used_at, secret_hash FROM bb_x_codes WHERE wallet = ${me} AND code = ${r.code} AND used_at IS NULL AND review IS NULL`;
+  if (!code || !secretMatches(r.secret, code.secret_hash)) return fail(NO_CODE, 400);
   if (rateLimited(`xverify:wallet:${me}`, 10, 60 * 60_000)) return fail("too many tries, wait a bit", 429);
   const prof = await rowByWallet(db, me);
   if (!prof || prof.deleted_at || prof.x_handle !== code.x_handle) return fail(NO_CODE, 400);
@@ -464,6 +485,7 @@ export async function listProfilesForReview(r: Signed, limit = 100): Promise<{ o
   return { ok: true, pending, recent };
 }
 
+/** Apply one admin-signed moderation action to a profile. */
 export async function moderateProfile(r: Signed & { action: unknown; target: unknown; reason?: unknown }): Promise<{ ok: true } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);

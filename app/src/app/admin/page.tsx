@@ -5,6 +5,7 @@ import ProfileQueue from "@/components/profile/ProfileQueue";
 export const metadata: Metadata = { title: "Moderation", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
+/** The moderation page: reported posts and the profiles queue, each action an admin-wallet signature. */
 export default function AdminPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 pt-8 sm:pt-10 pb-16 space-y-6">

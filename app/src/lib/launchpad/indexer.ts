@@ -156,6 +156,7 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
 
 type Swap = { id: Hex; sender: Address; amount0: bigint; amount1: bigint; sqrtPriceX96: bigint; liquidity: bigint; tick: number; fee: number };
 
+/** Record one PoolManager swap of a launched token (credited to its trader via traderOf) and roll the launch's totals forward, atomically. */
 async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>): Promise<boolean> {
   const a = log.args;
   const poolId = a.id.toLowerCase();
@@ -572,6 +573,7 @@ async function backfillHoldersLocked(db: Db, chain: ChainKey): Promise<{ tokens:
 // ── poller ───────────────────────────────────────────────────────────────────
 const inFlight = new Map<ChainKey, Promise<LaunchSyncResult>>();
 
+/** One sync pass for a chain, deduplicated: a call while one is running shares its result. */
 export async function pollLaunches(chain: ChainKey): Promise<LaunchSyncResult> {
   const cur = inFlight.get(chain);
   if (cur) return cur;
@@ -749,6 +751,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
 // ── receipt apply ────────────────────────────────────────────────────────────
 export type ApplyLaunchTxResult = { status: "applied" | "not_found" | "reverted" | "skipped"; reason?: string; launches?: number; swaps?: number; fees?: number; tokens?: string[] };
 
+/** Apply one transaction's launches, swaps and fee events straight from its receipt (right after a wallet returns). */
 export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLaunchTxResult> {
   const reason = skipReason(chain);
   if (reason) return { status: "skipped", reason };

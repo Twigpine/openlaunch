@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { avatarKeyOf, avatarUrl, checkUsername, cleanBio, cleanDisplayName, validateProfile } from "./validate.ts";
 import { buildProfileMessage, buildProfileModMessage, isNonce, tsFresh } from "./auth.ts";
+import { readJson } from "./http.ts";
 import { X_CODE_ALPHABET, containsCode, decodeEntities, handleFromAuthorUrl, intentUrl, isXCode, judgePost, makeXCode, oembedText, parsePostUrl, pointsEligible, postTextFor, postTexts, syndicationToken, type CodeRow, type PostFacts } from "./xpost.ts";
 
 // ── usernames ────────────────────────────────────────────────────────────────
@@ -160,4 +161,25 @@ test("points eligibility: verified, public, old enough, enough followers, not fl
   assert.ok(!pointsEligible({ ...p, x_account_created: new Date(now - 5 * 86_400_000).toISOString() }, now, cfg));
   assert.ok(!pointsEligible({ ...p, points_flag: "excluded" }, now, cfg));
   assert.ok(!pointsEligible({ ...p, x_account_created: null }, now, cfg), "unknown age = not yet");
+});
+
+test("oEmbed text can never carry markup, however the input is shaped", () => {
+  for (const html of ['<p><scr<script>ipt>alert(1)</p>', '<p>&lt;script&gt;x&lt;/script&gt; OL-7K2QXM9A</p>', '<p>a <b>b</b> <<img src=x>>c</p>']) {
+    const t = oembedText(html) ?? "";
+    assert.doesNotMatch(t, /[<>]/, html);
+  }
+  assert.ok(containsCode(oembedText("<p>&lt;script&gt; code: OL-7K2QXM9A</p>"), "OL-7K2QXM9A"), "the code is still found");
+});
+
+test("readJson: the size cap holds before buffering, with or without a declared length", async () => {
+  const ok = await readJson(new Request("http://x/", { method: "POST", body: JSON.stringify({ a: 1 }) }));
+  assert.deepEqual(ok, { a: 1 });
+  const declared = await readJson(new Request("http://x/", { method: "POST", headers: { "content-length": "999999" }, body: "{}" }));
+  assert.equal(declared, null);
+  const big = "x".repeat(20_000);
+  const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(`{"a":"${big}"}`)); c.close(); } });
+  const streamed = await readJson(new Request("http://x/", { method: "POST", body: stream, duplex: "half" } as RequestInit));
+  assert.equal(streamed, null, "no content-length: cut off while reading");
+  assert.equal(await readJson(new Request("http://x/", { method: "POST", body: "[1,2]" })), null, "arrays are not objects");
+  assert.equal(await readJson(new Request("http://x/", { method: "POST", body: "{bad" })), null);
 });

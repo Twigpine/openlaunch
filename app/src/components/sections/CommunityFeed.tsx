@@ -20,6 +20,7 @@ import styles from "./CommunityFeed.module.css";
 /** A post's standing on its token, worded and coloured as on the home page's posts. */
 const ROLE: Record<NonNullable<PostRow["tag"]>, string> = { creator: "Creator", whale: "Whale", holder: "Holder" };
 
+/** The community page's post stream, each author shown by their profile name and picture. */
 export default function CommunityFeed({ initial, loadError = false }: { initial: PostRow[]; loadError?: boolean }) {
   const router = useRouter();
   const { subscribe } = useLive();

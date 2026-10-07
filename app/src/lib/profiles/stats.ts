@@ -4,6 +4,7 @@ import { maybeDb } from "@/lib/db";
 /** On-chain facts for one wallet, across every chain: what it launched, how many trades it made, who holds its tokens. */
 export type WalletFacts = { launches: number; trades: number; holders: number };
 
+/** Launches, holders of those launches, and trades for one wallet, across every chain. */
 export async function walletFacts(wallet: string): Promise<WalletFacts> {
   const db = maybeDb();
   if (!db) return { launches: 0, trades: 0, holders: 0 };

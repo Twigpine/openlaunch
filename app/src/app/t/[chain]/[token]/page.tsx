@@ -57,6 +57,7 @@ const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: 
 
 export const dynamic = "force-dynamic";
 
+/** Title, description and link-card metadata for a token page. */
 export async function generateMetadata({ params }: { params: Promise<{ chain: string; token: string }> }): Promise<Metadata> {
   const { chain, token } = await params;
   const l = isChainKey(chain) && isAddress(token) ? await getLaunch(chain, token) : null;
@@ -74,6 +75,7 @@ export async function generateMetadata({ params }: { params: Promise<{ chain: st
   };
 }
 
+/** A token's page: market, chart, trades, holders and comments, with every wallet named by its profile where it has one. */
 export default async function TokenPage({ params }: { params: Promise<{ chain: string; token: string }> }) {
   const { chain, token } = await params;
   if (!isChainKey(chain) || !isAddress(token)) notFound();

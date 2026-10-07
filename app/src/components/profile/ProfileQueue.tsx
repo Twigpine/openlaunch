@@ -12,6 +12,7 @@ import { CHAINS, DEFAULT_CHAIN, shortAddr, type ChainKey } from "@/lib/chainPubl
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
 
+/** A random single-use nonce for an admin signature (32 hex characters). */
 function nonce(): string {
   const b = new Uint8Array(16);
   crypto.getRandomValues(b);

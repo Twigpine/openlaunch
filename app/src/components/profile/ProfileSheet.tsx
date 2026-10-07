@@ -15,6 +15,7 @@ import { BIO_MAX, DISPLAY_NAME_MAX, USERNAME_MAX, validateProfile } from "@/lib/
 import { forgetCachedName } from "@/lib/profiles/names-client";
 import type { PublicProfile, XCodeView } from "@/lib/profiles/server";
 
+/** The localStorage key that remembers this wallet's open X code in this browser. */
 const codeKey = (w: string) => `ol:xcode:${w.toLowerCase()}`;
 
 /** The open X code for this wallet, remembered in this browser only (a convenience: saving again issues a new one). */
@@ -23,11 +24,13 @@ export function loadCode(wallet: string): XCodeView | null {
     const raw = localStorage.getItem(codeKey(wallet));
     if (!raw) return null;
     const c = JSON.parse(raw) as XCodeView;
-    return c && typeof c.code === "string" && Date.parse(c.expires_at) > Date.now() ? c : null;
+    // a code saved before verify keys existed cannot verify: saving again issues both
+    return c && typeof c.code === "string" && typeof c.secret === "string" && Date.parse(c.expires_at) > Date.now() ? c : null;
   } catch {
     return null;
   }
 }
+/** Remember (or forget) the open X code for this wallet in this browser; private mode just does not remember. */
 function storeCode(wallet: string, c: XCodeView | null) {
   try {
     if (c) localStorage.setItem(codeKey(wallet), JSON.stringify(c));
@@ -37,12 +40,14 @@ function storeCode(wallet: string, c: XCodeView | null) {
   }
 }
 
+/** A random single-use nonce for the profile signature (32 hex characters). */
 function nonce(): string {
   const b = new Uint8Array(16);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+/** The chain key the connected wallet is on, or the default chain when it is on one we do not support. */
 function chainKeyOf(id: number | undefined): ChainKey {
   const hit = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === id);
   return hit ?? DEFAULT_CHAIN;
@@ -135,7 +140,7 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
     setNote(null);
     setPhase("check");
     try {
-      const r = await fetch("/api/profile/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: address, code: code?.code, postUrl }) });
+      const r = await fetch("/api/profile/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: address, code: code?.code, secret: code?.secret, postUrl }) });
       const d = (await r.json()) as { ok?: boolean; error?: string; status?: string; profile?: PublicProfile | null };
       if (!r.ok || !d.ok) throw new Error(d.error ?? "could not verify");
       if (d.profile) {

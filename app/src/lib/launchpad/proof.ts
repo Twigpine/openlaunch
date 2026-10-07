@@ -11,10 +11,14 @@ export type ProofKey = "lock" | "creator" | "spread" | "launch" | "fees";
 export type ProofFact = { key: ProofKey; tone: "good" | "info" | "warn"; title: string; detail: string };
 export type FeeMode = "free" | "burn" | "creator" | "split";
 
+/** A short address for proof lines. */
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+/** `n thing` or `n things`. */
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+/** `once`, `twice` or `n times`. */
 const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n.toLocaleString("en-US")} times`);
 
+/** The proof panel's facts for a token (lock, fees, creator holdings, snipers), naming the creator by username when they have a profile. */
 export function proofFacts({ holders, symbol, launcher, launcherName, lpFee, mode, recipients }: {
   holders: Pick<HolderPanel, "synced" | "holders" | "top10Bps" | "poolBps" | "creator" | "sniper"> | null;
   symbol: string;

@@ -13,10 +13,12 @@ const listeners = new Set<() => void>();
 let queued = new Set<string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 
+/** Tell every subscribed component the store changed. */
 function notify() {
   for (const l of listeners) l();
 }
 
+/** Subscribe to name changes (useSyncExternalStore); returns the unsubscribe. */
 export function subscribeNames(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
@@ -30,11 +32,13 @@ export function cachedName(wallet: string): NameEntry | null | undefined {
   return cache.get(wallet.toLowerCase())?.v;
 }
 
+/** Whether the store holds an answer for this wallet younger than the TTL. */
 function fresh(k: string): boolean {
   const hit = cache.get(k);
   return Boolean(hit && Date.now() - hit.at < TTL_MS);
 }
 
+/** Put server-known names into the store (and refresh their age) without a request. */
 export function seedNames(names: Record<string, NameEntry | null>): void {
   const at = Date.now();
   let changed = false;
@@ -57,6 +61,7 @@ export function forgetCachedName(wallet: string): void {
   requestName(wallet);
 }
 
+/** Queue a wallet for the next batched lookup unless a fresh answer is already held. */
 export function requestName(wallet: string): void {
   if (typeof window === "undefined") return;
   const k = wallet.toLowerCase();
@@ -65,6 +70,7 @@ export function requestName(wallet: string): void {
   if (!timer) timer = setTimeout(() => void flush(), 40);
 }
 
+/** Send the queued wallets as batched /api/profile/names requests and store every answer, misses included. */
 async function flush() {
   timer = null;
   // a provider may have seeded some of these since they were queued (child effects run before the parent's)

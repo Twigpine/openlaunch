@@ -47,6 +47,7 @@ export default function MeDashboard() {
   return <WalletDashboard key={address?.toLowerCase() ?? "disconnected"} address={address} isConnected={isConnected} />;
 }
 
+/** The dashboard for one connected wallet: its profile card, figures, launches, holdings and trades. */
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
   const config = useConfig();
   const [me, setMe] = useState<Me | null>(null);

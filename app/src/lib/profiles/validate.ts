@@ -30,10 +30,12 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
 /** Substrings that make a name read as the brand anywhere in it ("openlaunch_team", "real_twigpine"). */
 export const RESERVED_FRAGMENTS: readonly string[] = ["openlaunch", "twigpine", "gitlawb"];
 
+/** A username as typed, trimmed, without a leading @, lowercase. */
 export function normalizeUsername(raw: unknown): string {
   return typeof raw === "string" ? raw.trim().replace(/^@/, "").toLowerCase() : "";
 }
 
+/** Whether a username is allowed (shape, underscores, not address-like, not reserved). */
 export function checkUsername(raw: unknown): { ok: true; username: string } | { ok: false; error: string } {
   const u = normalizeUsername(raw);
   if (!USERNAME_RE.test(u)) return { ok: false, error: "username: 3–20 letters, numbers or _" };
@@ -62,6 +64,7 @@ export function cleanText(raw: unknown, max: number, opts: { multiline?: boolean
   return [...s.trim()].slice(0, max).join("").trim();
 }
 
+/** A display name with invisible characters and ticks removed; required, no HTML, never says verified. */
 export function cleanDisplayName(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
   const v = cleanText(raw, DISPLAY_NAME_MAX);
   if (!v) return { ok: false, error: "name: required" };
@@ -70,6 +73,7 @@ export function cleanDisplayName(raw: unknown): { ok: true; value: string } | { 
   return { ok: true, value: v };
 }
 
+/** A bio with invisible characters removed, single blank lines kept, at most 160 characters, no HTML. */
 export function cleanBio(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
   const v = cleanText(raw, BIO_MAX, { multiline: true });
   if (/<[a-z!/]/i.test(v)) return { ok: false, error: "bio: no HTML" };

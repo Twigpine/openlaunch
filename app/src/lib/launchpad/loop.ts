@@ -6,6 +6,7 @@ import { recheckProfiles } from "@/lib/profiles/server";
 const DEFAULT_MS = 15_000;
 type G = typeof globalThis & { __launchSyncLoop?: NodeJS.Timeout };
 
+/** Start the in-process sync loop once per process: indexing every interval, plus the profile post re-check. */
 export function startLaunchSyncLoop(): boolean {
   const g = globalThis as G;
   if (g.__launchSyncLoop) return false;

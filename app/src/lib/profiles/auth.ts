@@ -12,10 +12,12 @@ import type { ProfileFields } from "./validate.ts";
 export const PROFILE_DOMAIN = "openlaunch.lol";
 export const PROFILE_TS_SKEW_MS = 5 * 60_000;
 
+/** A client nonce: exactly 32 lowercase hex characters. */
 export function isNonce(v: unknown): v is string {
   return typeof v === "string" && /^[0-9a-f]{32}$/.test(v);
 }
 
+/** A signed timestamp within ±5 minutes of now (the replay window). */
 export function tsFresh(ts: unknown, now: number): boolean {
   const n = Number(ts);
   return Number.isFinite(n) && Math.abs(now - n) <= PROFILE_TS_SKEW_MS;
@@ -23,6 +25,7 @@ export function tsFresh(ts: unknown, now: number): boolean {
 
 const footer = `It costs nothing and moves no funds.`;
 
+/** The message a wallet signs to save its profile: every field spelled out, plus wallet, nonce and time. */
 export function buildProfileMessage(p: { wallet: string; nonce: string; ts: number; fields: ProfileFields }): string {
   return [
     `${PROFILE_DOMAIN} wants you to save your public profile.`,
@@ -41,12 +44,14 @@ export function buildProfileMessage(p: { wallet: string; nonce: string; ts: numb
   ].join("\n");
 }
 
+/** The message a wallet signs to delete its profile. */
 export function buildProfileDeleteMessage(p: { wallet: string; nonce: string; ts: number }): string {
   return [`${PROFILE_DOMAIN} wants you to delete your public profile.`, ``, `Wallet: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`, ``, `Your trades stay on-chain; only the name next to them goes. ${footer}`].join("\n");
 }
 
 export const PROFILE_MOD_ACTIONS = ["approve_x", "reject_x", "remove_x", "hide", "unhide", "exclude_points", "include_points", "reset_username"] as const;
 export type ProfileModAction = (typeof PROFILE_MOD_ACTIONS)[number];
+/** One of the admin actions on a profile. */
 export function isProfileModAction(v: unknown): v is ProfileModAction {
   return typeof v === "string" && (PROFILE_MOD_ACTIONS as readonly string[]).includes(v);
 }
@@ -56,6 +61,7 @@ export function buildProfileAdminListMessage(p: { wallet: string; nonce: string;
   return [`${PROFILE_DOMAIN} moderation`, ``, `Action: list profiles`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
 }
 
+/** The message an admin wallet signs for one moderation action on one profile. */
 export function buildProfileModMessage(p: { action: ProfileModAction; target: string; wallet: string; nonce: string; ts: number; reason?: string }): string {
   return [`${PROFILE_DOMAIN} moderation`, ``, `Action: ${p.action}`, `Profile: ${p.target.toLowerCase()}`, `Reason: ${p.reason ?? ""}`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
 }

@@ -21,12 +21,14 @@ import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
+/** The profile behind a /u/<username> path (normalized; 5 s memo), or null. */
 async function load(raw: string) {
   const username = normalizeUsername(decodeURIComponent(raw));
   if (!/^[a-z0-9_]{3,20}$/.test(username)) return null;
   return memo(`u:${username}`, 5_000, () => getProfile({ username }));
 }
 
+/** Title and link-card metadata for a profile; unverified profiles stay out of search. */
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
   const { username } = await params;
   const p = await load(username);
@@ -44,6 +46,7 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
   };
 }
 
+/** A public profile: name, verified X account, on-chain counts, launches and recent trades. */
 export default async function ProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
   const p = await load(username);

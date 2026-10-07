@@ -19,12 +19,14 @@ import ConnectWallet from "@/components/ConnectWallet";
 import { ArrowUpRight, ChevronDown, MessageSquare } from "lucide-react";
 import { MagicCard } from "@/components/vendor/magic-card";
 
+/** A random single-use nonce for a signed post, report or mute (32 hex characters). */
 function nonce(): string {
   const b = new Uint8Array(16);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+/** The holder tag shown beside a post's author (creator, whale, holder). */
 function TagChip({ tag }: { tag: PostRow["tag"] }) {
   if (!tag) return null;
   const cls = tag === "creator" ? "bg-brand-soft text-brand border-brand/20" : tag === "whale" ? "bg-warm-soft text-warm-ink border-warm/30" : "bg-up-soft text-up border-up/20";
@@ -220,6 +222,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   );
 }
 
+/** One comment: author (name and avatar from their profile), tag, age, body and the reply / report controls. */
 function PostItem({ p, now, canReply, onReply, onReport }: { p: PostRow; now: number; canReply: boolean; onReply?: () => void; onReport?: (r: ReportReason) => void }) {
   const [menu, setMenu] = useState(false);
   return (
@@ -276,6 +279,7 @@ const TAG_BADGE: Record<Exclude<PostRow["tag"], null>, { label: string; classNam
   holder: { label: "Holder", className: "bg-up-soft text-up" },
 };
 
+/** The latest posts across all tokens, compact on the home page, each author shown by their profile name. */
 export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; compact?: boolean }) {
   const { subscribe } = useLive();
   const [posts, setPosts] = useState<PostRow[]>(initial);

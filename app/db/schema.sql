@@ -367,7 +367,8 @@ CREATE TABLE IF NOT EXISTS bb_profile_nonces (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 -- One-time X verification codes: bound to the wallet AND the handle the wallet signed for, so a copied code is
--- useless from any other account. review: NULL until a post is submitted while every lookup is down.
+-- useless from any other account. The code goes into a public post, so verifying also needs a private key that was
+-- returned only to the signer (kept here as a hash). review: NULL until a post is submitted while every lookup is down.
 CREATE TABLE IF NOT EXISTS bb_x_codes (
   code         text PRIMARY KEY,                           -- OL-XXXXXXXX
   wallet       text NOT NULL,
@@ -377,8 +378,10 @@ CREATE TABLE IF NOT EXISTS bb_x_codes (
   used_at      timestamptz,
   post_id      text,
   submitted_at timestamptz,
-  review       text CHECK (review IN ('pending','approved','rejected'))
+  review       text CHECK (review IN ('pending','approved','rejected')),
+  secret_hash  text                                        -- sha256 of the private verify key only the signer was given
 );
+ALTER TABLE bb_x_codes ADD COLUMN IF NOT EXISTS secret_hash text;
 CREATE INDEX IF NOT EXISTS bb_x_codes_wallet_idx ON bb_x_codes (wallet, issued_at DESC);
 
 -- ── swap attribution (2026-10-07) ───────────────────────────────────────────

@@ -21,6 +21,7 @@ const TAG_STYLE: Record<string, string> = {
 const TAG_LABEL: Record<string, string> = { creator: "Creator", pool: "Pool", burn: "Burn", sniper: "Sniper", whale: "Whale" };
 const NOTE_STYLE = { warn: "border-warm/40 bg-warm-soft text-warm-ink", info: "border-line bg-card text-body", good: "border-holder-good-line bg-holder-good-bg text-up" } as const;
 
+/** Holder distribution and the top holders of a token, each named by their profile where they have one. */
 export default function HoldersPanel({ chain, symbol, p, embedded = false }: { chain: ChainKey; symbol: string; p: HolderPanel | null; embedded?: boolean }) {
   if (!p || !holderFactsAvailable(p)) return <section aria-label="holders" className={embedded ? "p-5" : "rounded-2xl border border-line bg-paper p-5"}><div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-ink">Supply distribution</h2><span className="text-[11px] text-muted">Awaiting transfer history</span></div><div className="flex min-h-44 flex-col items-center justify-center gap-2 text-center"><UsersRound size={24} strokeWidth={1.4} className="mb-1 text-muted" /><h3 className="text-sm font-medium text-ink">The holder picture is not ready yet.</h3><p className="max-w-sm text-xs leading-relaxed text-muted text-pretty">Concentration, creator holdings and early buyers appear after transfer history is indexed. Missing data is not a clean bill of health.</p></div></section>;
   const supply = Number(BigInt(p.supply)) / 1e18;

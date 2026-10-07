@@ -15,6 +15,7 @@ const UA = "openlaunch.lol profile verification (+https://openlaunch.lol/rules)"
 
 type Res = { status: "ok"; data: unknown } | { status: "missing" } | { status: "error" };
 
+/** GET a JSON URL with a timeout and no redirects: ok with data, missing (404) or error. */
 async function getJson(url: string): Promise<Res> {
   try {
     const r = await fetch(url, { headers: { accept: "application/json", "user-agent": UA }, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
@@ -26,16 +27,20 @@ async function getJson(url: string): Promise<Res> {
   }
 }
 
+/** A non-empty string or null. */
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 /** X account ids are decimal; anything else from a source is ignored rather than stored as the binding key. */
 const xid = (v: unknown): string | null => (typeof v === "string" || typeof v === "number" ? (/^\d{1,25}$/.test(String(v)) ? String(v) : null) : null);
+/** A finite number or null. */
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/** A parseable date as ISO-8601, or null. */
 const iso = (v: unknown): string | null => {
   if (typeof v !== "string") return null;
   const t = Date.parse(v);
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 };
 
+/** Read one public post from the three sources and merge what they say (author, account id, text, account age and followers). */
 export async function fetchPostFacts(handle: string, id: string): Promise<PostFacts> {
   if (!/^[A-Za-z0-9_]{1,15}$/.test(handle) || !/^\d{1,20}$/.test(id)) return { found: false, handle: null, userId: null, text: null, accountCreated: null, followers: null, protected: null, sources: [] };
   const postUrl = `https://x.com/${handle}/status/${id}`;

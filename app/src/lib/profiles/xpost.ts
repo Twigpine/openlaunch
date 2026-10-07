@@ -27,6 +27,7 @@ export function makeXCode(rand: Uint8Array): string | null {
   return null;
 }
 
+/** Whether a value is a well-formed X code. */
 export function isXCode(v: unknown): v is string {
   return typeof v === "string" && new RegExp(`^${X_CODE_PREFIX}[${X_CODE_ALPHABET}]{${X_CODE_LEN}}$`).test(v);
 }
@@ -76,6 +77,7 @@ export function postTextFor(username: string, code: string, brandX: string, doma
   return texts[h % texts.length];
 }
 
+/** X's compose link with the post text filled in. */
 export function intentUrl(text: string): string {
   return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
 }
@@ -86,6 +88,7 @@ export function syndicationToken(id: string): string {
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", mdash: "—", ndash: "–", hellip: "…" };
+/** Decode the HTML entities oEmbed uses (named ones it emits, and numeric ones). */
 export function decodeEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
     if (e[0] === "#") {
@@ -96,11 +99,17 @@ export function decodeEntities(s: string): string {
   });
 }
 
-/** The post text inside X's oEmbed HTML (`<blockquote><p>…</p>— name (@handle) <a>date</a></blockquote>`), as plain text. */
+/**
+ * The post text inside X's oEmbed HTML (`<blockquote><p>…</p>— name (@handle) <a>date</a></blockquote>`), as plain
+ * text. It is only ever searched for the code, never rendered; still, after the tags are dropped and the entities
+ * decoded, every remaining angle bracket goes too, so no markup can survive in it however the input is shaped.
+ */
 export function oembedText(html: string): string | null {
   const m = /<p\b[^>]*>([\s\S]*?)<\/p>/i.exec(html);
   if (!m) return null;
-  return decodeEntities(m[1].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).trim();
+  return decodeEntities(m[1].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, ""))
+    .replace(/[<>]/g, "")
+    .trim();
 }
 
 /** Handle from an oEmbed author_url (https://x.com/<handle>). */
