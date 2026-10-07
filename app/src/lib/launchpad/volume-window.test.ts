@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { SELECT, VOLUME_COLUMN_SQL, VOLUME_WINDOWS } from "./queries.ts";
 
 /**
@@ -28,3 +29,11 @@ test("every volume window orders by columns the query defines", () => {
     }
   }
 });
+
+test("listLaunchesPage ranks by that table, not by aliases of its own", () => {
+  const source = readFileSync(new URL("./queries.ts", import.meta.url), "utf8");
+  assert.match(source, /const volCol = db\.unsafe\(VOLUME_COLUMN_SQL\[win\]\);/);
+  // the two aliases the query never defined: the 502 came back the day someone typed them again
+  assert.doesNotMatch(source, /\bw1\.v\b|\bw24\.v\b/);
+});
+
