@@ -57,7 +57,7 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /suggestion\.reason === "unknown-balance"/);
   assert.match(source, /Other traders can buy before you/);
   assert.match(source, /First-buy slippage tolerance: \{FIRST_BUY_SLIPPAGE_BPS \/ 100\}%/);
-  assert.match(source, /Network gas and pool fees apply/);
+  assert.match(source, /Network gas and trading fees apply/);
   assert.doesNotMatch(source, /first holder/i);
   // (no em-dash policing: the site copy voice is the maintainers' call)
 });
@@ -73,12 +73,15 @@ for (const status of ["success", "reverted"]) {
     assert.ok(declaration);
     let encodedMinimum: bigint | undefined;
     let sentValue: bigint | undefined;
+    const key = { currency0: "zero", currency1: "token", fee: 0, tickSpacing: 200, hooks: "quote-hook" };
+    let quotedKey: unknown;
+    let encodedKey: unknown;
     const { outputText } = ts.transpileModule(`(${declaration})`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } });
     // Inert wallet/RPC dependencies: no connection, signature or network request.
     const firstBuy = runInNewContext(outputText, {
       TICK_SPACING: 200, zeroAddress: "zero", V4_QUOTER_ABI: [], UNIVERSAL_ROUTER_ABI: [], ERC20_TRANSFER_EVENT: {},
       FIRST_BUY_SLIPPAGE_BPS: 300, BUILDER_DATA_SUFFIX: "0x", minOut,
-      encodeV4ExactInSingle: (input: { minOut: bigint }) => { encodedMinimum = input.minOut; return { commands: "0x10", inputs: [] }; },
+      encodeV4ExactInSingle: (input: { minOut: bigint; key: unknown }) => { encodedMinimum = input.minOut; encodedKey = input.key; return { commands: "0x10", inputs: [] }; },
       parseEventLogs: () => [
         { address: "token", args: { to: "wallet", value: 975n } },
         { address: "other-token", args: { to: "wallet", value: 500n } },
@@ -87,8 +90,8 @@ for (const status of ["success", "reverted"]) {
     }) as (ctx: unknown, token: string, hash: string, amount: bigint) => Promise<{ hash: string; out: bigint; exact: boolean }>;
     const result = firstBuy({
       pub: {
-        simulateContract: async (input: { functionName: string; value?: bigint }) => {
-          if (input.functionName === "quoteExactInputSingle") return { result: [1_000n] };
+        simulateContract: async (input: { functionName: string; value?: bigint; args?: { poolKey: unknown }[] }) => {
+          if (input.functionName === "quoteExactInputSingle") { quotedKey = input.args?.[0].poolKey; return { result: [1_000n] }; }
           sentValue = input.value;
           return { request: {} };
         },
@@ -96,7 +99,7 @@ for (const status of ["success", "reverted"]) {
       },
       wallet: { writeContract: async () => "buy-hash" }, address: "wallet",
       V4: { quoter: "quoter", universalRouter: "router", swapLayout: "v1" }, quote: { key: "eth", address: "zero" },
-      feePips: 0, CHAIN: { id: 8453 }, setPhase: () => {},
+      key, CHAIN: { id: 8453 }, setPhase: () => {},
     }, "token", "launch-hash", 100n);
     if (status === "success") {
       const bought = await result;
@@ -108,6 +111,8 @@ for (const status of ["success", "reverted"]) {
     }
     assert.equal(encodedMinimum, 970n);
     assert.equal(sentValue, 100n);
+    assert.equal(quotedKey, key);
+    assert.equal(encodedKey, key, "First buy preserves the factory's hook and zero LP fee");
   });
 }
 
@@ -132,7 +137,7 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
   assert.match(source, /setQuoteKey\(cfg\.quotes\[0\]\?\.key \?\? "eth"\);\s*setStock\(null\);\s*setStockQ\(""\);\s*setMcapPick\(null\);\s*setCustomMcap\(""\);/);
   // switching chains drops the picked stock: a registry address from one chain must never become the other chain's quote
   // ...but re-clicking the active chain is a no-op, so it cannot wipe the picked stock
-  assert.match(source, /if \(k === chain\) return;[^}]*setChain\(k\);\s*setQuoteKey\(launchpad\(k\)\.quotes\[0\]\.key\);[^}]*setStock\(null\);\s*setStockQ\(""\);\s*setStockHits\(\[\]\);/);
+  assert.match(source, /if \(k === chain\) return;[^}]*setChain\(k\);[^}]*setQuoteKey\(launchpad\(k\)\.quotes\[0\]\.key\);[^}]*setStock\(null\);\s*setStockQ\(""\);\s*setStockHits\(\[\]\);/);
   // the issuer disclaimer is rendered from the per-chain copy table (a Record<ChainKey, …>: a new chain must write its own)
   assert.match(source, /const CHAIN_COPY: Record<ChainKey, \{/);
   assert.match(source, /<p className=\{helper\}>\{CHAIN_COPY\[chain\]\.stock\?\.issuer\}<\/p>/);
@@ -167,6 +172,11 @@ test("custom market-cap entry clears the preset pick when sanitization rejects t
 test("a rejected first-buy entry is ignored, never read as declining the first buy", () => {
   assert.match(source, /const next = resolveFirstBuyInput\(e\.target\.value\); if \(next\.kind === "choose"\) chooseFirstBuy\(next\.value\); else if \(next\.kind === "decline"\) declineFirstBuy\(\);/);
   assert.doesNotMatch(source, /sanitizeDecimalInput\(e\.target\.value\); if \(v\) chooseFirstBuy\(v\); else declineFirstBuy\(\)/);
+});
+
+test("the first buy takes its pool key from the suite, not from a poolKeyOf read a lagging node can revert", () => {
+  assert.doesNotMatch(source, /functionName: "poolKeyOf"/);
+  assert.match(source, /const key = poolKeyForLaunch\(\{ suite_id: suiteId, quote: quote\.address, token: ev\.args\.token,/);
 });
 
 test("the preview draws the real board card from the form, with no link and nothing sent", () => {

@@ -15,7 +15,7 @@ export const metadata: Metadata = pageMetadata({ path: "/rules", title: "How it 
 
 const STEPS = [
   { title: "Your token is deployed", description: "A plain ERC-20 with EIP-2612 permit. Fixed supply, 1 billion by default. No mint, no pause, no blacklist, no transfer tax, no owner.", value: "1B", label: "default supply" },
-  { title: "A market opens", description: "A Uniswap v4 pool pairs your token with ETH, TWIG on Base, GITLAWB or USDG on Robinhood Chain, a tokenized stock (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDC on Arc. No hook. The pool starts at the market cap you pick.", value: "v4", label: "Uniswap pool" },
+  { title: "A market opens", description: "A Uniswap v4 pool pairs your token with ETH, TWIG on Base, GITLAWB or USDG on Robinhood Chain, a tokenized stock (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDC on Arc. Choose fees in both tokens or only the quote asset where available. The pool starts at the market cap you pick.", value: "v4", label: "Uniswap pool" },
   { title: "The liquidity position is locked", description: "100% of the supply goes into one single-sided position at launch. Its NFT is minted to an ownerless locker that has no function to withdraw, transfer or shrink it. Ever.", value: "100%", label: "deposited at launch" },
   { title: "Fee routing is written in", description: "The trading fee you choose (0%, 1% or 3%) goes 100% to the beneficiaries you name, or is burned if you name none. Fixed at launch, unchangeable.", value: "0 / 1 / 3%", label: "your trading fee" },
 ] as const;

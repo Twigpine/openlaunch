@@ -67,6 +67,28 @@ test("zero fee hides recipient controls and keeps permanence, gas, and price-imp
   assert.doesNotMatch(text(output), /Claimable by|100% of fees/);
 });
 
+test("the fee asset choice appears only where the quote-only suite can launch", () => {
+  const hidden = render(defaults);
+  assert.equal(elements(hidden).filter((node) => node.props.name === "fees-asset").length, 0);
+  assert.doesNotMatch(text(hidden), /Receive fees in|Coming soon|fee asset/);
+
+  let mode = "";
+  const shown = render({ ...defaults, quoteAvailable: true, quoteSymbol: "ETH", onFeeAssetChange: (next: string) => { mode = next; } });
+  const assets = elements(shown).filter((node) => node.type === "input" && node.props.name === "fees-asset");
+  assert.deepEqual(assets.map((node) => [node.props.checked, node.props.disabled]), [[true, false], [false, false]]);
+  assert.match(text(shown), /Receive fees in/);
+  assert.match(text(shown), /ETH only/);
+  assert.match(text(shown), /fee asset, rate\s+cannot be changed later/);
+  change(assets[1]);
+  assert.equal(mode, "quote");
+
+  // A chain with only the quote-only suite keeps the legacy option visible but unselectable.
+  const quoteOnlyChain = render({ ...defaults, quoteAvailable: true, bothAvailable: false, feeAssetMode: "quote" });
+  const only = elements(quoteOnlyChain).filter((node) => node.type === "input" && node.props.name === "fees-asset");
+  assert.deepEqual(only.map((node) => [node.props.checked, node.props.disabled]), [[false, true], [true, false]]);
+  assert.match(text(quoteOnlyChain), /Unavailable on this chain/);
+});
+
 test("each routing choice is controlled and never presents an unfinished split as complete", () => {
   for (const value of ["burn", "me", "custom"]) {
     let chosen = "";

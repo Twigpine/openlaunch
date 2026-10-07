@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
-import { maxUint160, maxUint256, parseEventLogs, parseUnits, zeroAddress, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { maxUint160, maxUint256, parseEventLogs, parseUnits, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import LaunchPreview from "./LaunchPreview";
 import { previewLaunch } from "@/lib/launchpad/launch-preview";
 import ImageUpload from "./ImageUpload";
@@ -21,7 +21,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
-import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, GAS_RESERVE_WEI, MAX_RECIPIENTS, STOCK_SOURCE, TICK_SPACING, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
+import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, GAS_RESERVE_WEI, MAX_RECIPIENTS, STOCK_SOURCE, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { bpsToPct, buildRecipients, describeShares, emptyRow, isBurnAddress, type Recipient, type RecipientRow } from "@/lib/launchpad/recipients";
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { uppercaseInPlace } from "@/lib/launchpad/symbol-input";
@@ -30,6 +30,8 @@ import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUnitsExact, fmtUsd, init
 import { BUY_PRESETS, defaultFirstBuy, gasReserveInQuote, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
+import { poolKeyForLaunch, suiteFor, type SuiteId } from "@/lib/launchpad/suites";
+import { SUITE_KINDS } from "@/lib/launchpad/suite-kinds";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import { TWIG_WRAP_URL, gitlawbLinkedUsd } from "@/lib/launchpad/twig";
 import { parseXHandle } from "@/lib/launchpad/xHandle";
@@ -102,7 +104,7 @@ const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock
   },
 };
 
-type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
+type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; key: PoolKey; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
 
 function parseBuyAmount(v: string, decimals: number): bigint | null | undefined {
   try {
@@ -118,9 +120,7 @@ function parseBuyAmount(v: string, decimals: number): bigint | null | undefined 
 /** Buy `amountIn` of the freshly launched token through the Universal Router — same path as the token page's trade panel. */
 /** Resolves with what the wallet actually received (from the receipt's Transfer logs); `exact` is false only if no such log was found and the quote is returned instead. */
 async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, amountIn: bigint): Promise<{ hash: Hex; out: bigint; exact: boolean }> {
-  const { pub, wallet, address, V4, quote, feePips, CHAIN, setPhase } = ctx;
-  // the factory guarantees the token sorts above the quote, so the quote is always currency0
-  const key: PoolKey = { currency0: quote.address, currency1: tokenAddr, fee: feePips, tickSpacing: TICK_SPACING, hooks: zeroAddress };
+  const { pub, wallet, address, V4, quote, key, CHAIN, setPhase } = ctx;
   setPhase({ k: "buying", hash: launchHash, step: "quote" });
   // public nodes can lag the launch block by one: retry the quote a few times before giving up
   let out: bigint | null = null;
@@ -172,10 +172,16 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
   return received > 0n ? { hash: h, out: received, exact: true } : { hash: h, out, exact: false };
 }
 
+/** The suite a chain launches with by default: the original one, unless the quote-only suite is the only one that can launch there. */
+const defaultSuite = (k: ChainKey): SuiteId => (!suiteFor(k, "lp-v1") && suiteFor(k, "quote-v2")?.launchEnabled ? "quote-v2" : "lp-v1");
+
 export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = DEFAULT_CHAIN }: { ethUsd: number | null; gitlawbUsd?: number | null; initialChain?: ChainKey }) {
   const router = useRouter();
   const [chain, setChain] = useState<ChainKey>(initialChain);
   const cfg = launchpad(chain);
+  const [suiteId, setSuiteId] = useState<SuiteId>(defaultSuite(initialChain));
+  const suite = suiteFor(chain, suiteId);
+  const quoteSuite = suiteFor(chain, "quote-v2");
   const CHAIN = CHAINS[chain];
   const CHAIN_LABEL = CHAIN_LABELS[chain];
   const [quoteKey, setQuoteKey] = useState<Quote["key"]>(launchpad(initialChain).quotes[0].key);
@@ -253,6 +259,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   // kept across attempts so an identical retry is idempotent; when the details changed since the key was registered
   // the server answers 409 and launch() rotates BOTH (a key is locked to the details it was first registered with).
   const metaKeyRef = useRef<Hex | null>(null);
+  const attemptSuiteRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
 
   // Starting cap: entered in dollars whenever the quote has a USD price, else in quote units (lib/launchpad/market-cap.ts).
@@ -335,7 +342,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   // An unfinished split (or "Me" before a wallet connects) has no recipients yet; that must preview as the routing being set up,
   // never as a burn. Launching stays blocked by the validation errors until the list is complete.
   const feeMode = feePips > 0 && beneficiary !== "burn" && recipients.length === 0 ? (beneficiary === "custom" && rows.length > 1 ? "split" : "creator") : feeModeOf(feePips, recipients);
-  const feeRouteSub = feeMode === "free" ? "free pool" : feeMode === "burn" ? "burned" : feeMode === "split" ? `split ${recipients.length || rows.length} ways` : "to beneficiary";
+  const feeAssetSub = suiteId === "quote-v2" ? `${quote.symbol} only · ` : "";
+  const feeRouteSub = feeAssetSub + (feeMode === "free" ? "free pool" : feeMode === "burn" ? "burned" : feeMode === "split" ? `split ${recipients.length || rows.length} ways` : "to beneficiary");
   const setRow = (i: number, patch: Partial<RecipientRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const addRow = (payout = "") => setRows((rs) => (rs.length >= MAX_RECIPIENTS ? rs : [...rs, { payout, pct: rs.length === 0 ? "100" : "" }]));
   const removeRow = (i: number) => setRows((rs) => (rs.length <= 1 ? [emptyRow()] : rs.filter((_, j) => j !== i)));
@@ -348,15 +356,17 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const hasRow = (payout: string) => rows.some((r) => r.payout.trim().toLowerCase() === payout.toLowerCase());
 
   async function launch() {
-    if (!valid || !address || !cfg.factory || startTick === null) return;
-    const FACTORY_ADDRESS = cfg.factory;
+    if (!valid || !address || !suite?.launchEnabled || startTick === null) return;
+    const FACTORY_ADDRESS = suite.factory;
+    const attemptSuite = `${chain}:${suiteId}`;
+    if (attemptSuiteRef.current !== attemptSuite) { saltRef.current = null; metaKeyRef.current = null; attemptSuiteRef.current = attemptSuite; }
     let salt = saltRef.current ?? (saltRef.current = randomSalt());
     let metaKey = metaKeyRef.current ?? (metaKeyRef.current = randomSalt());
     const register = async (s: Hex) => {
       const res = await fetch("/api/launch/meta", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chain, launcher: address, salt: s, meta_key: metaKey, name: name.trim(), symbol: symbolClean, description, image_url: image, banner_url: banner, website, x_handle: x }),
+        body: JSON.stringify({ chain, suite_id: suiteId, launcher: address, salt: s, meta_key: metaKey, name: name.trim(), symbol: symbolClean, description, image_url: image, banner_url: banner, website, x_handle: x }),
       });
       const j = (await res.json()) as { uri?: string; token?: string; error?: string };
       return { status: res.status, ...j };
@@ -406,14 +416,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
         salt,
         recipients,
       };
-      const { request } = await pub.simulateContract({
-        address: FACTORY_ADDRESS,
-        abi: LAUNCH_FACTORY_ABI,
-        functionName: "launch",
-        args: [params],
-        account: address,
-        dataSuffix: BUILDER_DATA_SUFFIX,
-      });
+      // each suite's factory names the creator's rate differently in the same tuple
+      const kind = SUITE_KINDS[suiteId];
+      const { request } = await pub.simulateContract({ address: FACTORY_ADDRESS, abi: kind.factoryAbi, functionName: "launch", args: [{ ...params, [kind.rateField]: feePips }], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
 
       setPhase({ k: "signing" });
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
@@ -421,7 +426,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
       setPhase({ k: "sent", hash });
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
-      const [ev] = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs });
+      const factoryLogs = receipt.logs.filter((l) => l.address.toLowerCase() === FACTORY_ADDRESS.toLowerCase());
+      const [ev] = parseEventLogs({ abi: kind.factoryAbi, eventName: kind.launchedEvent.name, logs: factoryLogs }) as unknown as { args: { token: Address } }[];
       const token = (ev?.args.token ?? meta.token ?? "").toLowerCase();
 
       // Optional first buy. The launch is already on-chain: whatever happens here must not read as a launch failure.
@@ -430,7 +436,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
       let bought: { out: bigint; exact: boolean } | null = null;
       if (initialBuyRaw && ev?.args.token) {
         try {
-          const r = await firstBuy({ pub, wallet, address, V4: cfg.v4, quote, feePips, CHAIN, setPhase }, ev.args.token, hash, initialBuyRaw);
+          // Built from the suite, not read back with poolKeyOf: a node that lags the launch block would revert the read.
+          const key = poolKeyForLaunch({ suite_id: suiteId, quote: quote.address, token: ev.args.token, lp_fee: feePips, pool_fee_pips: suite.feeAssetMode === "quote" ? 0 : feePips, hook_address: suite.hook });
+          const r = await firstBuy({ pub, wallet, address, V4: cfg.v4, quote, key, CHAIN, setPhase }, ev.args.token, hash, initialBuyRaw);
           buyHash = r.hash;
           bought = { out: r.out, exact: r.exact };
         } catch (err) {
@@ -474,7 +482,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
       ) : null}
       <SubmitButton
         chainLabel={CHAIN_LABEL}
-        configured={cfg.configured}
+        configured={Boolean(suite?.launchEnabled)}
         connected={isConnected}
         onChain={onChain}
         connecting={switching}
@@ -520,6 +528,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                       onClick={() => {
                         if (k === chain) return; // the active chain: nothing to switch, nothing to reset
                         setChain(k);
+                        setSuiteId(defaultSuite(k));
                         setQuoteKey(launchpad(k).quotes[0].key);
                         // a stock belongs to one chain's registry: never carry a Base pick over to Robinhood (or back)
                         setStock(null);
@@ -807,6 +816,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           {/* 4 · fees */}
           <Step n={4} done={done.fees}>
             <LaunchFeeSettings
+              feeAssetMode={suiteId === "quote-v2" ? "quote" : "both"}
+              quoteAvailable={Boolean(quoteSuite?.launchEnabled)}
+              bothAvailable={Boolean(suiteFor(chain, "lp-v1")?.launchEnabled)}
+              quoteSymbol={quote.symbol}
+              onFeeAssetChange={(mode) => setSuiteId(mode === "quote" ? "quote-v2" : "lp-v1")}
               feePips={feePips}
               beneficiary={beneficiary}
               address={address}
@@ -914,7 +928,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                       </dd>
                     </div>
                   </dl>
-                  <p className={helper}>Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.</p>
+                  <p className={helper}>Includes price impact and the trading fee; the exact amount is quoted on-chain right before the buy.</p>
                 </div>
               ) : suggestion.reason === "insufficient" ? (
                 <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet {sharedGas ? `does not hold enough ${quote.symbol} for the buy plus its gas` : "holds only gas"}. The launch stays free; you can buy on the token page later.</p>
@@ -926,7 +940,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 <p className={helper}>No first buy. The launch stays free.{defaultFirstBuy(quote) ? <> <button type="button" onClick={suggestAgain} className="font-medium text-brand underline underline-offset-4 hover:text-ink">Suggest {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol} again</button></> : null}</p>
               ) : null}
               <p className={helper}>A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.</p>
-              <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and pool fees apply.</p>
+              <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and trading fees apply.</p>
             </section>
           </Step>
 
@@ -940,7 +954,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <ul className="space-y-2.5 text-[13px] text-body">
                 {[
                   ["Deploys a plain ERC-20", "no mint, no pause, no blacklist, no tax"],
-                  ["Opens a Uniswap v4 pool", `${quote.symbol} / your token on ${CHAIN_LABELS[chain]}, no hook`],
+                  ["Opens a Uniswap v4 pool", `${quote.symbol} / your token on ${CHAIN_LABELS[chain]}${suiteId === "quote-v2" ? ", quote fees on buys and sells" : ", no hook"}`],
                   ["Locks 100% of supply as liquidity", "the position NFT lives in an ownerless locker, forever"],
                   ["Routes trading fees", feePips === 0 ? "nothing to route at 0%" : feeMode === "burn" ? "burned at collect time" : recipients.length === 0 ? "to the beneficiaries you name, claimable any time" : `${describeShares(recipients, shortAddr)}, claimable any time`],
                   ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuyLabel} right after the launch confirms, with a second wallet prompt`]] : []),

@@ -1,10 +1,10 @@
 import { ArrowUpRight } from "lucide-react";
-import { launchpad } from "@/lib/launchpad/config";
+import type { Address } from "viem";
 import { explorerAddress, explorerTx, type ChainKey } from "@/lib/chainPublic";
 
 /** A receipt of the launch mechanics, not a claim about current wallet balances. Set like one: dotted leaders, mono figures. */
-export default function LaunchReceipt({ chain, symbol, supply, txHash }: { chain: ChainKey; symbol: string; supply: string; txHash: string }) {
-  const locker = launchpad(chain).locker;
+/** `locker` is the contract holding this launch's position NFT (each suite deploys its own); null links to the rules instead. */
+export default function LaunchReceipt({ chain, symbol, supply, txHash, locker }: { chain: ChainKey; symbol: string; supply: string; txHash: string; locker: Address | null }) {
   return <section className="overflow-hidden rounded-2xl border border-line bg-card" aria-labelledby="receipt-title">
     <div className="flex items-center justify-between gap-3 px-5 pt-4">
       <h2 id="receipt-title" className="text-sm font-semibold text-ink">The launch receipt</h2>

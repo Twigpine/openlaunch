@@ -12,6 +12,11 @@ import styles from "./LaunchFeeSettings.module.css";
 export type FeeBeneficiary = "burn" | "me" | "custom";
 
 type Props = {
+  feeAssetMode?: "both" | "quote";
+  quoteAvailable?: boolean;
+  bothAvailable?: boolean;
+  quoteSymbol?: string;
+  onFeeAssetChange?: (mode: "both" | "quote") => void;
   feePips: number;
   beneficiary: FeeBeneficiary;
   address?: string;
@@ -21,7 +26,7 @@ type Props = {
   onBeneficiaryChange: (value: FeeBeneficiary) => void;
 };
 
-export default function LaunchFeeSettings({ feePips, beneficiary, address, split, children, onFeeChange, onBeneficiaryChange }: Props) {
+export default function LaunchFeeSettings({ feeAssetMode = "both", quoteAvailable = false, bothAvailable = true, quoteSymbol = "quote asset", onFeeAssetChange, feePips, beneficiary, address, split, children, onFeeChange, onBeneficiaryChange }: Props) {
   const id = useId();
   const feePerHundred = feePips / 10_000;
   const custom = beneficiary === "custom";
@@ -40,6 +45,20 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
         <span className={styles.platform}>0% platform fee</span>
       </div>
       <p className={styles.intro}>Choose what traders pay on each buy and sell.</p>
+
+      {/* Offered only where the quote-only suite can launch; otherwise the form is the original one. */}
+      {quoteAvailable ? (
+        <fieldset className={styles.fieldset}>
+          <legend>Receive fees in</legend>
+          <div className={styles.rates}>
+            {(["both", "quote"] as const).map((mode) => <label key={mode} className={styles.rate} data-selected={feeAssetMode === mode}>
+              <input type="radio" name={`${id}-asset`} checked={feeAssetMode === mode} disabled={mode === "both" && !bothAvailable} onChange={() => onFeeAssetChange?.(mode)} />
+              <span className={styles.rateValue}>{mode === "quote" ? `${quoteSymbol} only` : "Both tokens"}</span>
+              <span className={styles.rateCaption}>{mode === "quote" ? "Quote fees on buys and sells" : bothAvailable ? "Quote on buys, token on sells" : "Unavailable on this chain"}</span>
+            </label>)}
+          </div>
+        </fieldset>
+      ) : null}
 
       <fieldset className={styles.fieldset}>
         <legend className="sr-only">Trading fee rate</legend>
@@ -125,7 +144,7 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
 
       <p className={styles.permanent}>
         <LockKeyhole size={14} strokeWidth={1.8} aria-hidden="true" />
-        <span>Fixed at launch. The fee rate{feePips > 0 ? " and allocation" : ""} cannot be changed later.</span>
+        <span>Fixed at launch. The {quoteAvailable ? "fee asset, rate" : "fee rate"}{feePips > 0 ? " and allocation" : ""} cannot be changed later.</span>
       </p>
     </section>
   );

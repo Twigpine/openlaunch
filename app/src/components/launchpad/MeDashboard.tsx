@@ -16,15 +16,17 @@ import FeeChip, { feeModeOf } from "./FeeChip";
 import EditTokenSheet from "./EditTokenSheet";
 import { toast } from "./TxToasts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/vendor/tabs";
-import { LAUNCH_LOCKER_ABI, ERC20_MIN_ABI } from "@/lib/launchpad/abi";
-import { VISIBLE_CHAINS, launchpad } from "@/lib/launchpad/config";
+import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
+import { feeContractForLaunch, isQuoteFeeLaunch } from "@/lib/launchpad/suites";
+import { collectRequest, pendingFees } from "@/lib/launchpad/fee-actions";
+import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import { earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, isBurnOnly, type FeeSides } from "@/lib/launchpad/creator";
 import { fmtCompact, fmtQuote, fmtTokens, fmtUsd } from "@/lib/launchpad/math";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
 import type { EditFields } from "@/lib/launchpad/editAuth";
 import { ago } from "@/lib/launchpad/time";
-import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
@@ -88,15 +90,14 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       const p: Pending = {};
       await Promise.all(
         me.launches.map(async (l) => {
-          const cfg = launchpad(l.chain);
-          if (!cfg.locker || l.lp_fee === 0) {
+          const feeContract = feeContractForLaunch(l);
+          if (!feeContract || l.lp_fee === 0) {
             p[key(l)] = { quote: 0n, token: 0n };
             return;
           }
           try {
             const pub = getPublicClient(config, { chainId: CHAINS[l.chain].id })!;
-            const { result } = await pub.simulateContract({ address: cfg.locker, abi: LAUNCH_LOCKER_ABI, functionName: "collect", args: [BigInt(l.token_id)], account: address });
-            p[key(l)] = { quote: result[0], token: result[1] };
+            p[key(l)] = await pendingFees(pub, { launch: l, feeContract, tokenId: BigInt(l.token_id) }, address);
           } catch {
             p[key(l)] = null;
           }
@@ -126,18 +127,18 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   }, [me, address, config]);
 
   async function collect(l: LaunchRow) {
-    const cfg = launchpad(l.chain);
-    if (!cfg.locker || !address) return;
+    const feeContract = feeContractForLaunch(l);
+    if (!feeContract || !address) return;
     setBusy(key(l));
     try {
       const pub = getPublicClient(config, { chainId: CHAINS[l.chain].id })!;
       const wallet = await getWalletClient(config, { chainId: CHAINS[l.chain].id });
-      const { request } = await pub.simulateContract({ address: cfg.locker, abi: LAUNCH_LOCKER_ABI, functionName: "collect", args: [BigInt(l.token_id)], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
+      const request = await collectRequest(pub, { launch: l, feeContract, tokenId: BigInt(l.token_id) }, address);
       const hash = await wallet.writeContract(request);
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
       await fetch(`/api/launch/sync?chain=${l.chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
-      toast({ kind: "collect", title: `Fees collected for ${l.symbol}`, sub: isBurnOnly(l.recipients) ? "Burned on the spot" : "Paid to the beneficiaries", chain: l.chain, token: l.token, symbol: l.symbol });
+      toast({ kind: "collect", title: `Fees collected for ${l.symbol}`, sub: isBurnOnly(l.recipients) ? "Burned on the spot" : "Allocated to the beneficiaries", chain: l.chain, token: l.token, symbol: l.symbol });
       await load();
     } catch (e) {
       toast({ kind: "info", title: `Collect failed for ${l.symbol}`, sub: friendlyError(e) });
@@ -262,9 +263,9 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     </div>
                   </Link>
                   <div className={styles.figure}>
-                    <div className="text-up font-bold" title={`${fmtQuote(earned.quote, l.quote_decimals, l.quote_symbol)} + ${fmtTokens(earned.token)} ${l.symbol}`}>{earnedUsdRow !== null ? `${earned.token > 0n ? "≈ " : ""}${fmtUsd(earnedUsdRow)}` : fmtQuote(earned.quote, l.quote_decimals, l.quote_symbol)}</div>
+                    <div className="text-up font-bold" title={isQuoteFeeLaunch(l) ? fmtQuote(earned.quote, l.quote_decimals, l.quote_symbol) : `${fmtQuote(earned.quote, l.quote_decimals, l.quote_symbol)} + ${fmtTokens(earned.token)} ${l.symbol}`}>{earnedUsdRow !== null ? `${earned.token > 0n ? "≈ " : ""}${fmtUsd(earnedUsdRow)}` : fmtQuote(earned.quote, l.quote_decimals, l.quote_symbol)}</div>
                     {earnedUsdRow === null && earned.token > 0n ? <div className="text-up font-bold">{fmtTokens(earned.token)} {l.symbol}</div> : null}
-                    <div className="text-[11px] text-muted">earned · {share / 100}% share</div>
+                    <div className="text-[11px] text-muted">{isQuoteFeeLaunch(l) ? "paid" : "earned"} · {share / 100}% share</div>
                   </div>
                   <div className={styles.figure}>
                     <div className={hasFees(p) ? "text-warm-ink font-bold" : "text-muted"}>{p === undefined ? "…" : p === null ? "—" : fmtQuote(p.quote, l.quote_decimals, l.quote_symbol)}</div>

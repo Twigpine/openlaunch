@@ -6,6 +6,8 @@ const source = readFileSync(new URL("./MeDashboard.tsx", import.meta.url), "utf8
 const css = readFileSync(new URL("./MeDashboard.module.css", import.meta.url), "utf8");
 const page = readFileSync(new URL("../../app/me/page.tsx", import.meta.url), "utf8");
 const edit = readFileSync(new URL("./EditTokenSheet.tsx", import.meta.url), "utf8");
+// collect and the pending-fee read are shared with the token page's fee panel
+const actions = readFileSync(new URL("../../lib/launchpad/fee-actions.ts", import.meta.url), "utf8");
 
 // Source contracts complement the disconnected responsive browser review.
 // They do not simulate a connected wallet or sign transactions.
@@ -50,7 +52,8 @@ test("unavailable RPC values remain distinct from a zero balance or zero pending
 });
 
 test("fee collection and full signed metadata editing keep their existing transaction paths", () => {
-  assert.match(source, /functionName: "collect", args: \[BigInt\(l\.token_id\)\], account: address, dataSuffix: BUILDER_DATA_SUFFIX/);
+  assert.match(source, /collectRequest\(pub, \{ launch: l, feeContract, tokenId: BigInt\(l\.token_id\) \}, address\)/);
+  assert.match(actions, /functionName: "collect", args: \[t\.tokenId\], account, dataSuffix: BUILDER_DATA_SUFFIX/);
   assert.match(source, /wallet\.writeContract\(request\)/);
   assert.match(source, /waitForTransactionReceipt\(\{ hash \}\)/);
   assert.match(source, /\/api\/launch\/sync\?chain=\$\{l\.chain\}&tx=\$\{hash\}/);
@@ -80,7 +83,8 @@ test("dashboard controls, tables and responsive styling remain accessible and th
 
 test("dashboard fees cover both pool sides: quote and the launched token", () => {
   // collect() returns (quoteOut, tokenOut); a sells-only pool must still count as collectable.
-  assert.match(source, /p\[key\(l\)\] = \{ quote: result\[0\], token: result\[1\] \}/);
+  assert.match(source, /p\[key\(l\)\] = await pendingFees\(pub, /);
+  assert.match(actions, /return \{ quote: result\[0\], token: result\[1\] \}/);
   assert.match(source, /filter\(\(l\) => hasFees\(pending\[key\(l\)\]\)\)/);
   assert.match(source, /disabled=\{busy !== null \|\| !hasFees\(p\)\}/);
   // earned (total and per row) prices the token share too, and marks it as an estimate
