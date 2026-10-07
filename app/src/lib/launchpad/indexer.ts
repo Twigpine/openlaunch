@@ -101,7 +101,7 @@ const receiptLogs = new Map<string, ReceiptLog[]>();
 
 /**
  * A swap in a transaction sent to an EntryPoint whose receipt could not be read yet. Its credit can only come from
- * that receipt, so the backlog pass retries it and its transfer shortcut never settles it on the bundler.
+ * that receipt, so the backlog pass retries it until the receipt is read (or retires it as 'unread').
  */
 const RECEIPT_PENDING = "receipt_pending";
 
@@ -316,19 +316,17 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
 const attributionTries = new Map<string, { n: number; at: number }>();
 const ATTRIBUTION_MAX_TRIES = 3;
 const ATTRIBUTION_TRY_GAP_MS = 10 * 60_000; // tries this far apart: a short RPC outage never freezes a row
+const ATTRIBUTION_PASS_BUDGET_MS = 5_000; // chain reads per pass stop here, so a long backlog never holds up indexing
 
 /**
- * Swaps not checked yet (trader_via IS NULL) get checked a batch per poll: always for the last day (a live lookup
- * that failed is retried), and for all history only with LAUNCH_ATTRIBUTE_BACKLOG=1, so that pass is switched on
- * deliberately after a deploy. Two steps:
- *   1. cheap and set-based: a swap whose sender itself moved the token in that transaction (bb_token_transfers) is the
- *      common case and is marked checked without any RPC (a missing transfer never marks anything);
- *      Rows known to be EntryPoint calls (RECEIPT_PENDING) never take this step: token transfers are not evidence.
- *   2. the rest get the evidence read from the chain (traderOf): only an EntryPoint operation moves the trade. A row
- *      whose evidence cannot be read on three tries at least ten minutes apart is kept on its sender and marked
- *      'unread', so unreadable rows never pile up at the head of the queue.
- * Only blocks the cursor has passed (their transfers are in). UPDATEs re-test that the row is still open, so two
- * machines running the same batch change each row once.
+ * Swaps not checked yet (trader_via NULL, or RECEIPT_PENDING) get checked a batch per poll: always for the last day
+ * (a live lookup that failed is retried), and for all history only with LAUNCH_ATTRIBUTE_BACKLOG=1, so that pass is
+ * switched on deliberately after a deploy. Every row is settled from the chain (traderOf): only an EntryPoint operation
+ * moves the trade, and token transfers are never the evidence, so there is no shortcut for rows that look ordinary.
+ * Chain reads stop after a few seconds per pass (the rest wait for the next poll), so a long history never holds up
+ * indexing. A row whose evidence cannot be read on three tries at least ten minutes apart is kept on its sender and
+ * marked 'unread', so unreadable rows never pile up at the head of the queue. Only blocks the cursor has passed.
+ * UPDATEs re-test that the row is still open, so two machines running the same batch change each row once.
  */
 export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<number> {
   const db = maybeDb();
@@ -345,32 +343,28 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
     if (d?.b === null || d?.b === undefined) return 0;
     fromBlock = BigInt(d.b);
   }
-  await db`
-    UPDATE bb_launch_swaps s SET trader_via = 'tx_from', tx_from = COALESCE(s.tx_from, s.trader)
-      FROM (SELECT tx_hash, log_index FROM bb_launch_swaps
-             WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
-             ORDER BY block_number DESC LIMIT 5000) b
-     WHERE s.chain_id = ${cid} AND s.tx_hash = b.tx_hash AND s.log_index = b.log_index AND s.trader_via IS NULL
-       AND EXISTS (SELECT 1 FROM bb_token_transfers t WHERE t.chain_id = s.chain_id AND t.tx_hash = s.tx_hash AND t.token = s.token AND (t.from_addr = s.trader OR t.to_addr = s.trader))`;
   const rows = await db<{ tx_hash: string; log_index: number; trader: string }[]>`
     SELECT tx_hash, log_index, trader FROM bb_launch_swaps
      WHERE chain_id = ${cid} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING}) AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
      ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
   let moved = 0;
+  const stopAt = Date.now() + ATTRIBUTION_PASS_BUDGET_MS;
   for (const r of rows) {
+    if (Date.now() > stopAt) break;
     const key = `${chain}:${r.tx_hash}:${r.log_index}`;
+    // a row whose evidence was unreadable is not read again until the gap has passed: unreadable rows at the head of
+    // the queue never spend the pass's budget, so the rows behind them keep moving
+    const prev = attributionTries.get(key);
+    if (prev && Date.now() - prev.at < ATTRIBUTION_TRY_GAP_MS) continue;
     const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
     if (!who.via || !who.trader || who.via === RECEIPT_PENDING) {
       // evidence unreadable right now (RPC refusal, a transaction the node no longer has): a few tries spaced at least
       // ten minutes apart, then give up, so a short outage never freezes a smart wallet's trade on its bundler. An
-      // EntryPoint call learned of here is marked so, which takes it out of the transfer shortcut for good.
+      // EntryPoint call learned of here is marked so.
       if (who.via === RECEIPT_PENDING) await db`UPDATE bb_launch_swaps SET trader_via = ${RECEIPT_PENDING}, tx_from = COALESCE(tx_from, ${who.tx_from}) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL`;
-      const prev = attributionTries.get(key);
-      const now = Date.now();
-      if (prev && now - prev.at < ATTRIBUTION_TRY_GAP_MS) continue;
       const n = (prev?.n ?? 0) + 1;
       if (attributionTries.size > 20_000) attributionTries.clear();
-      attributionTries.set(key, { n, at: now });
+      attributionTries.set(key, { n, at: Date.now() });
       if (n >= ATTRIBUTION_MAX_TRIES) {
         await db`UPDATE bb_launch_swaps SET trader_via = 'unread', tx_from = COALESCE(tx_from, trader) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING})`;
         attributionTries.delete(key);

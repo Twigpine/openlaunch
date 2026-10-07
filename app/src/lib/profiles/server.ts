@@ -510,53 +510,56 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
   const reason = typeof r.reason === "string" ? r.reason.trim().slice(0, 200) : "";
   const a = await admit(db, r, (wallet, nonce, ts) => buildProfileModMessage({ action, target, wallet, nonce, ts, reason }));
   if (!a.ok) return a;
-  const prof = await rowByWallet(db, target);
-  if (!prof) return fail("no such profile", 404);
-  switch (action) {
-    case "approve_x":
-    case "reject_x": {
-      const [code] = await db<{ code: string; x_handle: string; post_id: string | null }[]>`SELECT code, x_handle, post_id FROM bb_x_codes WHERE wallet = ${target} AND review = 'pending' ORDER BY submitted_at DESC LIMIT 1`;
-      if (!code) return fail("nothing to review", 404);
-      if (action === "reject_x") {
-        await db`UPDATE bb_x_codes SET review = 'rejected', used_at = now() WHERE code = ${code.code}`;
-        await db`UPDATE bb_profiles SET x_status = 'none', x_post_id = NULL, updated_at = now() WHERE wallet = ${target} AND x_status = 'pending_review'`;
-        break;
-      }
-      // only the claim that is pending, for the handle this code was issued for
-      if (prof.x_status !== "pending_review" || prof.x_handle !== code.x_handle) return fail("this claim changed since it was submitted; reject it", 409);
-      // a handle another wallet has verified is not handed out by hand
-      const [taken] = await db`SELECT 1 FROM bb_profiles WHERE wallet <> ${target} AND deleted_at IS NULL AND x_handle = ${code.x_handle} AND x_status IN ('verified', 'post_missing')`;
-      if (taken) return fail(`@${code.x_handle} is already verified by another wallet; reject this one`, 409);
-      await db.begin(async (tx) => {
-        const t = tx as unknown as Db;
+  // every action runs under the profile lock that save, delete and verify take first, and judges the profile and its
+  // pending code as they are now: an owner's save between an admin's look and the write can never be overridden
+  // (approving @a after the claim moved to @b refuses instead of marking @b verified)
+  const refused = await db.begin(async (tx): Promise<Fail | null> => {
+    const t = tx as unknown as Db;
+    await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${target}`}))`;
+    const prof = await rowByWallet(t, target);
+    if (!prof) return fail("no such profile", 404);
+    switch (action) {
+      case "approve_x":
+      case "reject_x": {
+        const [code] = await t<{ code: string; x_handle: string; post_id: string | null }[]>`SELECT code, x_handle, post_id FROM bb_x_codes WHERE wallet = ${target} AND review = 'pending' ORDER BY submitted_at DESC LIMIT 1`;
+        if (!code) return fail("nothing to review", 404);
+        if (action === "reject_x") {
+          await t`UPDATE bb_x_codes SET review = 'rejected', used_at = now() WHERE code = ${code.code}`;
+          await t`UPDATE bb_profiles SET x_status = 'none', x_post_id = NULL, updated_at = now() WHERE wallet = ${target} AND x_status = 'pending_review'`;
+          return null;
+        }
+        // only the claim that is pending, for the handle this code was issued for
+        if (prof.deleted_at || prof.x_status !== "pending_review" || prof.x_handle !== code.x_handle) return fail("this claim changed since it was submitted; reject it", 409);
+        // a handle another wallet has verified is not handed out by hand
+        const [taken] = await t`SELECT 1 FROM bb_profiles WHERE wallet <> ${target} AND deleted_at IS NULL AND x_handle = ${code.x_handle} AND x_status IN ('verified', 'post_missing')`;
+        if (taken) return fail(`@${code.x_handle} is already verified by another wallet; reject this one`, 409);
         await t`UPDATE bb_x_codes SET review = 'approved', used_at = now() WHERE code = ${code.code}`;
         await t`UPDATE bb_profiles SET x_status = 'verified', x_user_id = COALESCE(x_user_id, ${`h:${code.x_handle}`}), x_post_id = ${code.post_id}, x_verified_at = now(), x_checked_at = NULL, updated_at = now() WHERE wallet = ${target}`;
-      });
-      break;
-    }
-    case "remove_x":
-      await db`UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now() WHERE wallet = ${target}`;
-      await db`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${target} AND used_at IS NULL`;
-      break;
-    case "hide":
-    case "unhide":
-      await db`UPDATE bb_profiles SET hidden = ${action === "hide"}, updated_at = now() WHERE wallet = ${target}`;
-      break;
-    case "exclude_points":
-    case "include_points":
-      await db`UPDATE bb_profiles SET points_flag = ${action === "exclude_points" ? "excluded" : null}, points_flag_reason = ${action === "exclude_points" ? reason || null : null}, updated_at = now() WHERE wallet = ${target}`;
-      break;
-    case "reset_username":
-      if (prof.deleted_at) return fail("a deleted profile has no username to retire", 409);
-      // the old name is retired (held by nobody, effectively for good) and the rename clock starts again
-      await db.begin(async (tx) => {
-        const t = tx as unknown as Db;
+        return null;
+      }
+      case "remove_x":
+        await t`UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now() WHERE wallet = ${target}`;
+        await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${target} AND used_at IS NULL`;
+        return null;
+      case "hide":
+      case "unhide":
+        await t`UPDATE bb_profiles SET hidden = ${action === "hide"}, updated_at = now() WHERE wallet = ${target}`;
+        return null;
+      case "exclude_points":
+      case "include_points":
+        await t`UPDATE bb_profiles SET points_flag = ${action === "exclude_points" ? "excluded" : null}, points_flag_reason = ${action === "exclude_points" ? reason || null : null}, updated_at = now() WHERE wallet = ${target}`;
+        return null;
+      case "reset_username":
+        if (prof.deleted_at) return fail("a deleted profile has no username to retire", 409);
+        // the old name is retired (held by nobody, effectively for good) and the rename clock starts again
         await t`INSERT INTO bb_username_holds (username, wallet, released_at) VALUES (${prof.username}, ${RETIRED}, now() + interval '100 years')
                 ON CONFLICT (username) DO UPDATE SET wallet = EXCLUDED.wallet, released_at = EXCLUDED.released_at`;
         await t`UPDATE bb_profiles SET username = ${`user_${randomSuffix(8)}`}, username_changed_at = now(), updated_at = now() WHERE wallet = ${target}`;
-      });
-      break;
-  }
+        return null;
+    }
+    return null;
+  });
+  if (refused) return refused;
   forgetName(target);
   return { ok: true };
 }
