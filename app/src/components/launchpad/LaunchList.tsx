@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowDownWideNarrow, ArrowRight, LayoutGrid, Rows3, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import LaunchRow, { LaunchListHeader, type RowHighlight } from "./LaunchRow";
+import { usePauseOffscreen } from "./usePauseOffscreen";
 import LaunchCard from "./LaunchCard";
 import { useLive } from "./LiveProvider";
 import WatchButton from "./WatchButton";
@@ -82,6 +83,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const pendingOrder = useRef<L[] | null>(null);
   const interaction = useRef({ pointer: false, focus: false, at: 0 });
   const listRef = useRef<HTMLUListElement>(null);
+  const section = usePauseOffscreen<HTMLElement>(); // a beacon pulses on every live row: not while the list is far off screen
 
   useEffect(() => {
     // the watchlist reads its own endpoint; the shared poll only carries the market list while it is on screen
@@ -254,7 +256,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const firstQuiet = ranked ? shown.findIndex((row) => liveTier(row, now) === "quiet") : -1; // one divider, where the database's order enters the quiet tier
 
   return (
-    <section id="launches" aria-labelledby="launches-heading" className={`min-w-0 scroll-mt-24 ${bare ? "" : `overflow-hidden ${frame}`}`}>
+    <section ref={section} id="launches" aria-labelledby="launches-heading" className={`min-w-0 scroll-mt-24 ${bare ? "" : `overflow-hidden ${frame}`}`}>
       <div className={`space-y-4 ${pad} ${bare ? "pt-2" : "pt-5"}`}>
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div>

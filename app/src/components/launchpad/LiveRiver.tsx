@@ -9,6 +9,7 @@ import TokenAvatar from "./TokenAvatar";
 import { TapeList } from "./LaunchTape";
 import RiverFeed from "./RiverFeed";
 import LiveBubbles from "./LiveBubbles";
+import { usePauseOffscreen } from "./usePauseOffscreen";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import type { FeedItem } from "@/lib/launchpad/queries";
 import { RIVER_TICKS, RIVER_WINDOW_MS, feedKey, inRiverWindow, initialRiver, layoutRiver, mergeRiver, pruneRiver, riverFlow, riverSummary, type RiverMark } from "@/lib/launchpad/river";
@@ -49,6 +50,7 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
   const [lastAt, setLastAt] = useState(() => newestAt(initial, lastActivityAt));
   const [width, setWidth] = useState<number | null>(null);
   const [view, setView] = useState<"bubbles" | "river" | "list">("bubbles");
+  const section = usePauseOffscreen<HTMLElement>(view !== "river"); // the bubbles float and the border shines only while seen; the river's marks are a real-time clock
   const [hover, setHover] = useState<Hover | null>(null);
   const field = useRef<HTMLDivElement>(null);
   const lane = useRef<HTMLDivElement>(null);
@@ -112,7 +114,7 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
   const sameToken = hovered ? entries.filter((e) => e.item.kind === "swap" && e.item.token === hovered.item.token && e.item.chain === hovered.item.chain).length : 0;
 
   return (
-    <section aria-labelledby="river-heading" className="relative rounded-3xl border border-line bg-card/70 p-4 shadow-card backdrop-blur-xl sm:p-6">
+    <section ref={section} aria-labelledby="river-heading" className="relative rounded-3xl border border-line bg-card/70 p-4 shadow-card backdrop-blur-xl sm:p-6">
       <ShineBorder duration={18} />
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">

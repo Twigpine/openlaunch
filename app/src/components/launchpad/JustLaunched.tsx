@@ -16,6 +16,7 @@ import { feedKey } from "@/lib/launchpad/river";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
 import { JUST_LAUNCHED_SIZE } from "@/lib/launchpad/paging";
 import { ChainCorner } from "./ChainLogo";
+import { usePauseOffscreen } from "./usePauseOffscreen";
 
 /** At most one refetch per this window; a burst of trades on a fresh token costs one request, not one per poll. */
 const MIN_GAP_MS = 10_000;
@@ -28,6 +29,7 @@ const FRESH_MS = 10 * 60_000;
  */
 export default function JustLaunched({ initial, serverNow }: { initial: L[]; serverNow: number }) {
   const { subscribe } = useLive();
+  const section = usePauseOffscreen<HTMLElement>(); // a ping runs on every fresh row: not while the column is off screen
   const [rows, setRows] = useState(initial);
   const [now, setNow] = useState(serverNow);
   const shown = useRef(initial);
@@ -77,7 +79,7 @@ export default function JustLaunched({ initial, serverNow }: { initial: L[]; ser
 
   return (
     <MagicCard className="rounded-2xl">
-    <section aria-labelledby="fresh-heading" className="overflow-hidden rounded-[inherit]">
+    <section ref={section} aria-labelledby="fresh-heading" className="overflow-hidden rounded-[inherit]">
       <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line px-4">
         <h2 id="fresh-heading" className="flex items-center gap-2 text-sm font-semibold text-ink">
           {/* the list follows the shared live poll */}
