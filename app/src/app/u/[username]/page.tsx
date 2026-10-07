@@ -10,7 +10,7 @@ import NamesProvider from "@/components/profile/NamesProvider";
 import { VerifiedTick, WhoAvatar } from "@/components/profile/Who";
 import { getProfile, namesFor } from "@/lib/profiles/server";
 import { walletFacts } from "@/lib/profiles/stats";
-import { normalizeUsername } from "@/lib/profiles/validate";
+import { usernameFromPath } from "@/lib/profiles/validate";
 import { getWalletTrades, listLaunches } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { memo } from "@/lib/launchpad/memo";
@@ -23,8 +23,8 @@ export const dynamic = "force-dynamic";
 
 /** The profile behind a /u/<username> path (normalized; 5 s memo), or null. */
 async function load(raw: string) {
-  const username = normalizeUsername(decodeURIComponent(raw));
-  if (!/^[a-z0-9_]{3,20}$/.test(username)) return null;
+  const username = usernameFromPath(raw);
+  if (!username) return null;
   return memo(`u:${username}`, 5_000, () => getProfile({ username }));
 }
 

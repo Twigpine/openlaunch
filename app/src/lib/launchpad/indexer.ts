@@ -100,9 +100,15 @@ async function txOf(chain: ChainKey, hash: Hex): Promise<{ from: string; to: str
 const receiptLogs = new Map<string, ReceiptLog[]>();
 
 /**
+ * A swap in a transaction sent to an EntryPoint whose receipt could not be read yet. Its credit can only come from
+ * that receipt, so the backlog pass retries it and its transfer shortcut never settles it on the bundler.
+ */
+const RECEIPT_PENDING = "receipt_pending";
+
+/**
  * Who to credit for one swap (attribution.ts): the sender, or with proof the smart wallet behind an EntryPoint call.
- * `via` null = the proof could not be read right now (the receipt lookup failed): the row stays unchecked and the
- * backlog pass tries again later.
+ * `via` null = the transaction itself could not be read; RECEIPT_PENDING = it went to an EntryPoint but the receipt
+ * could not be read. Either way the backlog pass tries again later.
  */
 async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
   const tx = await txOf(chain, hash);
@@ -116,7 +122,7 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number): Promi
         const r = await publicClient(chain).getTransactionReceipt({ hash });
         logs = r.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) }));
       } catch {
-        return { trader: tx.from, tx_from: tx.from, via: null };
+        return { trader: tx.from, tx_from: tx.from, via: RECEIPT_PENDING };
       }
       if (receiptLogs.size > 500) receiptLogs.clear();
       receiptLogs.set(k, logs);
@@ -317,11 +323,12 @@ const ATTRIBUTION_TRY_GAP_MS = 10 * 60_000; // tries this far apart: a short RPC
  * deliberately after a deploy. Two steps:
  *   1. cheap and set-based: a swap whose sender itself moved the token in that transaction (bb_token_transfers) is the
  *      common case and is marked checked without any RPC (a missing transfer never marks anything);
+ *      Rows known to be EntryPoint calls (RECEIPT_PENDING) never take this step: token transfers are not evidence.
  *   2. the rest get the evidence read from the chain (traderOf): only an EntryPoint operation moves the trade. A row
  *      whose evidence cannot be read on three tries at least ten minutes apart is kept on its sender and marked
  *      'unread', so unreadable rows never pile up at the head of the queue.
- * Only blocks the cursor has passed (their transfers are in). UPDATEs re-test trader_via IS NULL, so two machines
- * running the same batch change each row once.
+ * Only blocks the cursor has passed (their transfers are in). UPDATEs re-test that the row is still open, so two
+ * machines running the same batch change each row once.
  */
 export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<number> {
   const db = maybeDb();
@@ -347,15 +354,17 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
        AND EXISTS (SELECT 1 FROM bb_token_transfers t WHERE t.chain_id = s.chain_id AND t.tx_hash = s.tx_hash AND t.token = s.token AND (t.from_addr = s.trader OR t.to_addr = s.trader))`;
   const rows = await db<{ tx_hash: string; log_index: number; trader: string }[]>`
     SELECT tx_hash, log_index, trader FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
+     WHERE chain_id = ${cid} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING}) AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
      ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
   let moved = 0;
   for (const r of rows) {
     const key = `${chain}:${r.tx_hash}:${r.log_index}`;
     const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
-    if (!who.via || !who.trader) {
+    if (!who.via || !who.trader || who.via === RECEIPT_PENDING) {
       // evidence unreadable right now (RPC refusal, a transaction the node no longer has): a few tries spaced at least
-      // ten minutes apart, then give up, so a short outage never freezes a smart wallet's trade on its bundler
+      // ten minutes apart, then give up, so a short outage never freezes a smart wallet's trade on its bundler. An
+      // EntryPoint call learned of here is marked so, which takes it out of the transfer shortcut for good.
+      if (who.via === RECEIPT_PENDING) await db`UPDATE bb_launch_swaps SET trader_via = ${RECEIPT_PENDING}, tx_from = COALESCE(tx_from, ${who.tx_from}) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL`;
       const prev = attributionTries.get(key);
       const now = Date.now();
       if (prev && now - prev.at < ATTRIBUTION_TRY_GAP_MS) continue;
@@ -363,7 +372,7 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
       if (attributionTries.size > 20_000) attributionTries.clear();
       attributionTries.set(key, { n, at: now });
       if (n >= ATTRIBUTION_MAX_TRIES) {
-        await db`UPDATE bb_launch_swaps SET trader_via = 'unread', tx_from = COALESCE(tx_from, trader) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL`;
+        await db`UPDATE bb_launch_swaps SET trader_via = 'unread', tx_from = COALESCE(tx_from, trader) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING})`;
         attributionTries.delete(key);
       }
       continue;
@@ -371,7 +380,7 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
     attributionTries.delete(key);
     const up = await db<{ trader: string }[]>`
       UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}
-       WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL
+       WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING})
        RETURNING trader`;
     if (up.length && who.via !== "tx_from") moved++;
   }

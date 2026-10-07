@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { avatarKeyOf, avatarUrl, checkUsername, cleanBio, cleanDisplayName, validateProfile } from "./validate.ts";
+import { avatarKeyOf, avatarUrl, checkUsername, cleanBio, cleanDisplayName, validateProfile, usernameFromPath } from "./validate.ts";
 import { buildProfileMessage, buildProfileModMessage, isNonce, tsFresh } from "./auth.ts";
 import { readJson } from "./http.ts";
 import { X_CODE_ALPHABET, containsCode, decodeEntities, handleFromAuthorUrl, intentUrl, isXCode, judgePost, makeXCode, oembedText, parsePostUrl, pointsEligible, postTextFor, postTexts, syndicationToken, type CodeRow, type PostFacts } from "./xpost.ts";
@@ -182,4 +182,13 @@ test("readJson: the size cap holds before buffering, with or without a declared 
   assert.equal(streamed, null, "no content-length: cut off while reading");
   assert.equal(await readJson(new Request("http://x/", { method: "POST", body: "[1,2]" })), null, "arrays are not objects");
   assert.equal(await readJson(new Request("http://x/", { method: "POST", body: "{bad" })), null);
+});
+
+test("usernameFromPath: a malformed or double-encoded path is an unknown profile, never a throw", () => {
+  assert.equal(usernameFromPath("Kev_1"), "kev_1");
+  assert.equal(usernameFromPath("%40kev_1"), "kev_1", "a double-encoded @ still resolves");
+  assert.equal(usernameFromPath("%E0%A4%A"), null, "malformed escape after Next's one decode");
+  assert.equal(usernameFromPath("%"), null);
+  assert.equal(usernameFromPath("ab"), null, "too short");
+  assert.equal(usernameFromPath("kev%2F..%2Fadmin"), null);
 });

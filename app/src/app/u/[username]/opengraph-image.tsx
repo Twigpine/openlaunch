@@ -5,7 +5,7 @@ import { memo } from "@/lib/launchpad/memo";
 import { readImage } from "@/lib/launchpad/imageStore";
 import { getProfile } from "@/lib/profiles/server";
 import { walletFacts } from "@/lib/profiles/stats";
-import { normalizeUsername } from "@/lib/profiles/validate";
+import { usernameFromPath } from "@/lib/profiles/validate";
 import { BRAND, BRAND_DOMAIN, BRAND_TLD } from "@/lib/brand";
 import { walletHue, walletMark } from "@/lib/wallet-mark";
 
@@ -38,8 +38,8 @@ async function avatarPng(url: string | null): Promise<string | null> {
 /** The link card under every profile link, including the X verification post: name, ✓, and three on-chain facts. */
 export default async function ProfileOg({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
-  const u = normalizeUsername(decodeURIComponent(username));
-  const [fonts, p] = await Promise.all([loadOgFonts(), /^[a-z0-9_]{3,20}$/.test(u) ? memo(`og-u:${u}`, 30_000, () => getProfile({ username: u })) : Promise.resolve(null)]);
+  const u = usernameFromPath(username);
+  const [fonts, p] = await Promise.all([loadOgFonts(), u ? memo(`og-u:${u}`, 30_000, () => getProfile({ username: u })) : Promise.resolve(null)]);
   const facts = p ? await memo(`u-facts:${p.wallet}`, 10_000, () => walletFacts(p.wallet)) : null;
   const avatar = p ? await memo(`og-u-avatar:${p.wallet}:${p.avatar_url ?? ""}`, 60_000, () => avatarPng(p.avatar_url)) : null;
   // no picture: the same wallet mark the site draws (WalletAvatar), so the card and the page look like one person

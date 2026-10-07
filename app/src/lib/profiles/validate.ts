@@ -35,6 +35,22 @@ export function normalizeUsername(raw: unknown): string {
   return typeof raw === "string" ? raw.trim().replace(/^@/, "").toLowerCase() : "";
 }
 
+/**
+ * The username a /u/<username> path asks for, or null when it cannot be one. The path segment arrives decoded once;
+ * a second decode undoes a client's double encoding, and a malformed escape left after that is an unknown profile
+ * rather than a thrown URIError.
+ */
+export function usernameFromPath(segment: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  const u = normalizeUsername(decoded);
+  return /^[a-z0-9_]{3,20}$/.test(u) ? u : null;
+}
+
 /** Whether a username is allowed (shape, underscores, not address-like, not reserved). */
 export function checkUsername(raw: unknown): { ok: true; username: string } | { ok: false; error: string } {
   const u = normalizeUsername(raw);

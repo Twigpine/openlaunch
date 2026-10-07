@@ -393,14 +393,27 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
   if (!j.ok) {
     // X answered nobody: a person checks it against this code (only for a link that at least names the right account)
     if (j.review && post.handle.toLowerCase() === code.x_handle) {
-      await db`UPDATE bb_x_codes SET post_id = ${post.id}, submitted_at = now(), review = 'pending' WHERE code = ${code.code} AND used_at IS NULL AND review IS NULL`;
-      await db`UPDATE bb_profiles SET x_status = 'pending_review', x_post_id = ${post.id}, updated_at = now() WHERE wallet = ${me} AND x_status <> 'verified'`;
+      // code and profile change together, under the profile lock that save, delete and moderate take first: a save
+      // in between can never leave the profile waiting for review with no code behind it
+      const queued = await db.begin(async (tx) => {
+        const t = tx as unknown as Db;
+        await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${me}`}))`;
+        const current = await rowByWallet(t, me);
+        if (!current || current.deleted_at || current.x_status === "verified" || current.x_handle !== code.x_handle) return false;
+        const queuedCode = await t`UPDATE bb_x_codes SET post_id = ${post.id}, submitted_at = now(), review = 'pending' WHERE code = ${code.code} AND used_at IS NULL AND review IS NULL RETURNING code`;
+        if (queuedCode.length === 0) return false;
+        await t`UPDATE bb_profiles SET x_status = 'pending_review', x_post_id = ${post.id}, updated_at = now() WHERE wallet = ${me}`;
+        return true;
+      });
+      if (!queued) return fail(NO_CODE, 400);
       return { ok: true, status: "pending_review", profile: await getProfile({ wallet: me }) };
     }
     return fail(j.error, j.review ? 503 : 400);
   }
   const done = await db.begin(async (tx) => {
     const t = tx as unknown as Db;
+    // the profile lock first, as save and delete take it: the same rows are never locked in opposite orders
+    await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${me}`}))`;
     const used = await t`UPDATE bb_x_codes SET used_at = now(), post_id = ${post.id}, submitted_at = now() WHERE code = ${code.code} AND used_at IS NULL RETURNING code`;
     if (used.length === 0) return false;
     // one X account, one wallet: verifying here releases it from any other wallet (only the account owner could post the code)
