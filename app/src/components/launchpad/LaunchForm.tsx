@@ -873,7 +873,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                     const active = initialBuy.trim() === v;
                     return (
                       <button type="button" key={v} onClick={() => (active ? declineFirstBuy() : chooseFirstBuy(v))} aria-pressed={active} className={`${choice} ${active ? choiceOn : choiceOff}`}>
-                        <span className="block truncate font-mono text-[15px] font-bold tnum">{Number(v) >= 100_000 ? fmtCompact(Number(v), 0) : fmtQuoteUnits(Number(v), quote.decimals)} {quote.symbol}</span>
+                        <span className="block truncate font-mono text-[15px] font-bold tnum">{fmtQuoteUnits(Number(v), quote.decimals)} {quote.symbol}</span>
                         {quoteUsd ? <span className={`mt-0.5 block truncate font-mono text-[11px] tnum ${active ? "text-brand" : "text-muted"}`}>≈ {fmtUsd(Number(v) * quoteUsd)}</span> : null}
                       </button>
                     );

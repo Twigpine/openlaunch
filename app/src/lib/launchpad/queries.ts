@@ -251,7 +251,7 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
 // bb_launches.last_trade_at also moves on the launcher's own swaps.
 const OUTSIDE = `s.trader <> l.launcher AND s.block_number > l.block_number + ${SNIPER_BLOCKS}`;
 const HOUR = `s.block_time > now() - interval '1 hour'`;
-const SELECT = `SELECT l.*, m.description, m.image_url, m.banner_url, m.website, m.x_handle,
+export const SELECT = `SELECT l.*, m.description, m.image_url, m.banner_url, m.website, m.x_handle,
   w.n1 AS trades_1h, w.t1 AS traders_1h, w.t1_ex AS traders_1h_ex, w.v1 AS volume_1h, w.n24 AS trades_24h, w.t24_ex AS traders_24h_ex, w.v24 AS volume_24h, w.last_outside_at AS last_outside_trade_at
   FROM bb_launches l
   LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token
@@ -273,6 +273,8 @@ export function parseSort<F extends LaunchSort | null>(raw: string | null | unde
   return LAUNCH_SORTS.includes(raw as LaunchSort) ? (raw as LaunchSort) : fallback;
 }
 export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
+/** The raw-quote volume a Volume sort ranks by, per window: the lateral `w` in SELECT carries v1 and v24; "all" is the launch's own total. */
+export const VOLUME_COLUMN_SQL: Record<VolumeWindow, string> = { "1h": "w.v1::numeric", "24h": "w.v24::numeric", all: "l.volume_quote" };
 
 export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
 const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
@@ -341,7 +343,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const qd = db`(CASE ${stableDecCase} ${decCase} ELSE 18 END)`;
-  const volCol = win === "1h" ? db`w1.v::numeric` : win === "24h" ? db`w24.v::numeric` : db`l.volume_quote`;
+  const volCol = db.unsafe(VOLUME_COLUMN_SQL[win]);
   const volUsd = db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
   // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
   const mcapUsd = db`((1.0 / (power(1.0001, COALESCE(l.tick, l.start_tick)::double precision) * power(10, ${qd} - 18))) * (l.supply / 1e18) * ${usdPerUnit})`;
@@ -443,7 +445,11 @@ async function pictureCopies(db: NonNullable<ReturnType<typeof maybeDb>>, launch
   const keys = [...new Set(launches.map((r) => pictureKey(r.image_url)).filter((k): k is string => k !== null))];
   if (keys.length === 0) return new Set();
   try {
-    const all = await db<PictureUse[]>`SELECT chain_id, token, created_at, image_url FROM bb_launch_meta WHERE image_url ILIKE ANY(${keys.map((k) => `%/${k}%`)}::text[])`;
+    // a scan of bb_launch_meta (about 30 ms at 5,000 rows), and the home page asks on every render: read it once per half minute for a
+    // given set of pictures. Stale is safe: a copy is judged against the earliest registration, which is older than any copy and
+    // already in the answer, and a launch with a new picture changes the set, so it is read fresh.
+    const sorted = [...keys].sort();
+    const all = await memo(`picture-owners:${sorted.join(",")}`, 30_000, () => db<PictureUse[]>`SELECT chain_id, token, created_at, image_url FROM bb_launch_meta WHERE image_url ILIKE ANY(${sorted.map((k) => `%/${k}%`)}::text[])`);
     return reusedPictures(launches, all);
   } catch (error) {
     console.warn("[feed] picture ownership read failed:", error instanceof Error ? error.message : error);

@@ -178,3 +178,8 @@ test("the preview draws the real board card from the form, with no link and noth
   assert.match(preview, /col-start-1 row-start-1/);
   assert.doesNotMatch(preview, /\bfetch\s*\(/);
 });
+
+test("a first-buy chip is labelled by the one formatter, so its label never rounds away from its value", () => {
+  assert.match(source, /\{fmtQuoteUnits\(Number\(v\), quote\.decimals\)\} \{quote\.symbol\}<\/span>/);
+  assert.doesNotMatch(source, /fmtCompact\(Number\(v\), 0\)/);
+});

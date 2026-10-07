@@ -157,6 +157,15 @@ test("fmtQuoteUnits: stables 2dp, 18-dec ETH-style below 100K, compact above wit
   assert.equal(fmtQuoteUnits(594_540_000, 18), "594.54M");
 });
 
+test("fmtQuoteUnits labels a first-buy chip with the amount it sets", () => {
+  assert.equal(fmtQuoteUnits(1_000_000, 18), "1M");
+  assert.equal(fmtQuoteUnits(2_500_000, 18), "2.5M", "the middle TWIG chip once read 3M");
+  assert.equal(fmtQuoteUnits(5_000_000, 18), "5M");
+  assert.equal(fmtQuoteUnits(750_000, 18), "750K");
+  assert.equal(fmtQuoteUnits(100_000, 18), "100K");
+  assert.equal(fmtQuoteUnits(12_345_678, 18), "12.35M");
+});
+
 test("fmtUnitsExact keeps every digit of a raw amount: no float, no rounding, trailing zeros trimmed", () => {
   assert.equal(fmtUnitsExact("0", 18), "0");
   assert.equal(fmtUnitsExact("1", 18), "0.000000000000000001");

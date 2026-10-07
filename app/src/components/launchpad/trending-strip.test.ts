@@ -44,6 +44,8 @@ test("the home page survives a failed tape read, and the feed marks launches tha
   assert.match(queries, /return tape \? \{ \.\.\.snap, tape \} : snap;/);
   assert.match(queries, /const reused = await pictureCopies\(db, launches\);/);
   assert.match(queries, /image_reused: true as const/);
+  // the ownership read is a scan of bb_launch_meta that every home render would repeat: it is cached per set of pictures (a failure is not cached: memo clears it)
+  assert.match(queries, /const all = await memo\(`picture-owners:\$\{sorted\.join\(","\)\}`, 30_000, \(\) => db<PictureUse\[\]>/);
   // a failed ownership read must not take the feed down, and must not let a picture through unchecked: every stored picture counts as a copy
   assert.match(queries.slice(queries.indexOf("async function pictureCopies")), /catch \(error\) \{\n\s*console\.warn\("\[feed\] picture ownership read failed:"[^\n]*\n\s*return new Set\(launches\.filter\(\(r\) => pictureKey\(r\.image_url\) !== null\)/);
 });
