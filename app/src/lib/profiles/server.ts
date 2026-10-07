@@ -1,8 +1,8 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { isAddress, type Address, type Hex } from "viem";
+import { isAddress, recoverMessageAddress, type Address, type Hex } from "viem";
 import { publicClient } from "@/lib/chain";
-import { CHAIN_KEYS, DEFAULT_CHAIN, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_KEYS, CHAIN_LABELS, DEFAULT_CHAIN, isChainKey, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, type Db } from "@/lib/db";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { rateLimited } from "@/lib/launchpad/editServer";
@@ -15,8 +15,9 @@ import { fetchPostFacts } from "./xFetch";
 /**
  * Server half of profiles. Rules, all enforced here regardless of the client:
  *   - every write is a wallet signature (auth.ts) checked BEFORE its single-use nonce is spent, so an RPC blip or
- *     a bad signature never burns a nonce; EOAs, ERC-1271 and ERC-6492 wallets verify, on the chain where the
- *     wallet's code lives (so an old owner of a smart wallet cannot sign through an undeployed copy elsewhere)
+ *     a bad signature never burns a nonce; a plain wallet is recovered locally, a smart wallet (ERC-1271 / 6492) is
+ *     checked on the chain it signed on, and only if it is deployed there or nowhere yet (an old owner cannot sign
+ *     through an undeployed copy on another chain; a wallet deployed elsewhere is asked to switch)
  *   - usernames are unique, reserved names are refused (validate.ts), a name kept a day or more is held 30 days for
  *     its old wallet when dropped, and a name changes once per 30 days (free in the first day, and always to claim
  *     your own verified X handle); deleting keeps the row (flags and the rename clock survive a re-create)
@@ -142,36 +143,49 @@ export async function namesFor(wallets: readonly (string | null | undefined)[]):
 }
 
 // ── signatures ───────────────────────────────────────────────────────────────
-const codeHome = new Map<string, { chain: ChainKey; at: number }>();
+const deployedOn = new Map<string, { chains: ChainKey[]; at: number }>();
 
-/**
- * The chain to check a wallet's signature on: the default chain unless the wallet's code lives only elsewhere. A
- * plain wallet has no code anywhere (any chain recovers it the same); a smart wallet is checked where it is deployed,
- * against its current owners, never through an ERC-6492 "deploy me" wrapper an old owner could still sign.
- */
-async function verifyChain(wallet: string): Promise<ChainKey> {
-  const hit = codeHome.get(wallet);
-  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.chain;
-  let chain: ChainKey = DEFAULT_CHAIN;
-  for (const c of [DEFAULT_CHAIN, ...CHAIN_KEYS.filter((k) => k !== DEFAULT_CHAIN)]) {
+/** Chains where the wallet has code (cached 10 min). Null when no chain could be read at all. */
+async function codeChains(wallet: string, first: ChainKey): Promise<ChainKey[] | null> {
+  const hit = deployedOn.get(wallet);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.chains;
+  const order = [first, ...CHAIN_KEYS.filter((k) => k !== first)];
+  const chains: ChainKey[] = [];
+  let read = 0;
+  for (const c of order) {
     try {
       const code = await publicClient(c).getCode({ address: wallet as Address });
-      if (code && code !== "0x") {
-        chain = c;
-        break;
-      }
+      read++;
+      if (code && code !== "0x") chains.push(c);
+      if (c === first && chains.length) break; // deployed where it signed: that is all we need
     } catch {
-      /* a chain we cannot read: keep looking */
+      /* a chain we cannot read */
     }
   }
-  if (codeHome.size > 10_000) codeHome.clear();
-  codeHome.set(wallet, { chain, at: Date.now() });
-  return chain;
+  if (read === 0) return null;
+  if (deployedOn.size > 10_000) deployedOn.clear();
+  deployedOn.set(wallet, { chains, at: Date.now() });
+  return chains;
 }
 
-async function verifySig(wallet: string, message: string, signature: unknown): Promise<"ok" | "bad" | "down"> {
+type SigCheck = "ok" | "bad" | "down" | { switchTo: ChainKey };
+
+/**
+ * A plain wallet's signature is recovered locally (no RPC). A smart wallet's is checked on the chain it signed on
+ * (Coinbase Smart Wallet and Safe bind the chain id into what they sign), and only where it is deployed or, if it is
+ * deployed nowhere yet, through its ERC-6492 wrapper. Deployed only elsewhere → ask the person to switch chains.
+ */
+async function verifySig(wallet: string, message: string, signature: unknown, signedOn: unknown): Promise<SigCheck> {
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) return "bad";
-  const chain = await verifyChain(wallet);
+  try {
+    if ((await recoverMessageAddress({ message, signature: signature as Hex })).toLowerCase() === wallet) return "ok";
+  } catch {
+    /* not a plain 65-byte signature: a smart wallet's */
+  }
+  const chain: ChainKey = isChainKey(signedOn) ? signedOn : DEFAULT_CHAIN;
+  const home = await codeChains(wallet, chain);
+  if (home === null) return "down";
+  if (home.length > 0 && !home.includes(chain)) return { switchTo: home.includes(DEFAULT_CHAIN) ? DEFAULT_CHAIN : home[0] };
   let valid = false;
   try {
     valid = await publicClient(chain).verifyMessage({ address: wallet as Address, message, signature: signature as Hex });
@@ -208,9 +222,10 @@ async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: 
   if (!tsFresh(s.ts, now)) return fail("signature expired, try again", 400);
   const wallet = s.wallet.toLowerCase();
   const ts = Number(s.ts);
-  const v = await verifySig(wallet, message(wallet, s.nonce, ts), s.signature);
+  const v = await verifySig(wallet, message(wallet, s.nonce, ts), s.signature, s.chain);
   if (v === "down") return fail("signature check unavailable, try again", 503);
   if (v === "bad") return fail("signature does not match", 401);
+  if (typeof v === "object") return fail(`your wallet lives on ${CHAIN_LABELS[v.switchTo]}: switch your wallet to ${CHAIN_LABELS[v.switchTo]} and sign again`, 409);
   // the wallet bucket is spent only after the wallet is proven (a stranger cannot freeze someone's edits)
   if (rateLimited(`profile:wallet:${wallet}`, 12)) return fail("slow down", 429);
   if (!(await consumeNonce(db, s.nonce, wallet))) return fail("nonce already used", 401);
@@ -300,7 +315,7 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
         VALUES (${me}, ${f.username}, ${f.display_name}, ${f.bio || null}, ${f.avatar_key}, ${f.x_handle || null})
         ON CONFLICT (wallet) DO UPDATE SET
           username = EXCLUDED.username, display_name = EXCLUDED.display_name, bio = EXCLUDED.bio, avatar_key = EXCLUDED.avatar_key,
-          username_changed_at = CASE WHEN bb_profiles.username <> EXCLUDED.username AND bb_profiles.deleted_at IS NULL THEN now() ELSE bb_profiles.username_changed_at END,
+          username_changed_at = CASE WHEN bb_profiles.username <> EXCLUDED.username THEN now() ELSE bb_profiles.username_changed_at END,
           deleted_at = NULL, updated_at = now()`;
       // a different X handle (or none) drops the old verification and any pending review: the tick is earned again
       const xChanged = !existing || Boolean(existing.deleted_at) || (existing.x_handle ?? "") !== f.x_handle;
@@ -385,7 +400,8 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
 // ── delete ───────────────────────────────────────────────────────────────────
 /**
  * Delete = the profile disappears everywhere and its name is released, but the row stays: moderation flags,
- * created_at and the rename clock survive, so deleting and re-creating is not a way around either.
+ * created_at and the rename clock survive, so deleting and re-creating is not a way around either. Coming back
+ * follows the same clock as a rename (your own held name is always free to take back).
  */
 export async function deleteProfile(r: Signed): Promise<{ ok: true } | Fail> {
   const db = maybeDb();
@@ -405,7 +421,7 @@ export async function deleteProfile(r: Signed): Promise<{ ok: true } | Fail> {
     await t`
       UPDATE bb_profiles SET deleted_at = now(), username = ${`~del_${randomSuffix(12)}`}, display_name = '', bio = NULL, avatar_key = NULL,
              x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL,
-             x_status = 'none', username_changed_at = now(), updated_at = now()
+             x_status = 'none', updated_at = now()
        WHERE wallet = ${a.wallet}`;
     await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${a.wallet} AND used_at IS NULL`;
   });
@@ -459,7 +475,7 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
   const a = await admit(db, r, (wallet, nonce, ts) => buildProfileModMessage({ action, target, wallet, nonce, ts, reason }));
   if (!a.ok) return a;
   const prof = await rowByWallet(db, target);
-  if (!prof || prof.deleted_at) return fail("no such profile", 404);
+  if (!prof) return fail("no such profile", 404);
   switch (action) {
     case "approve_x":
     case "reject_x": {

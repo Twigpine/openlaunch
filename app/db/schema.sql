@@ -383,8 +383,8 @@ CREATE INDEX IF NOT EXISTS bb_x_codes_wallet_idx ON bb_x_codes (wallet, issued_a
 
 -- ── swap attribution (2026-10-07) ───────────────────────────────────────────
 -- trader is tx.from, except with proof another account authorized the call (lib/launchpad/attribution.ts): an ERC-4337
--- EntryPoint transaction credits the sender of the user operation that contains the swap ('userop'), a relayed
--- EIP-7702 call credits the delegating account ('7702'). tx_from keeps the sender; trader_via NULL = not checked yet.
+-- EntryPoint transaction credits the sender of the user operation whose execution contains the swap ('userop').
+-- tx_from keeps the sender; trader_via NULL = not checked yet, 'unread' = the evidence could not be read (sender kept).
 ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_via text;
 ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS tx_from text;
 -- the unchecked set: every swap until the history drain reaches it, then only the newest few (partial index stays small)

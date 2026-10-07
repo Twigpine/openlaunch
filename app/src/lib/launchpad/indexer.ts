@@ -10,7 +10,7 @@ import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
-import { ENTRY_POINTS, attributeSwap, needsCode, type ReceiptLog } from "./attribution";
+import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -98,42 +98,31 @@ async function txOf(chain: ChainKey, hash: Hex): Promise<{ from: string; to: str
   return null;
 }
 const receiptLogs = new Map<string, ReceiptLog[]>();
-const codeAt = new Map<string, string>();
 
 /**
- * Who to credit for one swap (attribution.ts): the sender, or with proof the smart wallet / 7702 account behind it.
- * `via` null = the proof could not be read right now (receipt or code lookup failed): the row stays unchecked and the
+ * Who to credit for one swap (attribution.ts): the sender, or with proof the smart wallet behind an EntryPoint call.
+ * `via` null = the proof could not be read right now (the receipt lookup failed): the row stays unchecked and the
  * backlog pass tries again later.
  */
 async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
   const tx = await txOf(chain, hash);
   if (!tx) return { trader: null, tx_from: null, via: null };
-  const system = systemAddresses(chain);
   let logs: ReceiptLog[] | null = null;
-  let toCode: string | null = null;
-  try {
-    if (tx.to && ENTRY_POINTS.has(tx.to)) {
-      const k = `${chain}:${hash}`;
-      logs = receiptLogs.get(k) ?? null;
-      if (!logs) {
+  if (tx.to && ENTRY_POINTS.has(tx.to)) {
+    const k = `${chain}:${hash}`;
+    logs = receiptLogs.get(k) ?? null;
+    if (!logs) {
+      try {
         const r = await publicClient(chain).getTransactionReceipt({ hash });
         logs = r.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) }));
-        if (receiptLogs.size > 500) receiptLogs.clear();
-        receiptLogs.set(k, logs);
+      } catch {
+        return { trader: tx.from, tx_from: tx.from, via: null };
       }
-    } else if (needsCode(tx.from, tx.to, system)) {
-      const k = `${chain}:${tx.to}`;
-      toCode = codeAt.get(k) ?? null;
-      if (toCode === null) {
-        toCode = (await publicClient(chain).getCode({ address: tx.to as Address })) ?? "0x";
-        if (codeAt.size > 5000) codeAt.clear();
-        codeAt.set(k, toCode);
-      }
+      if (receiptLogs.size > 500) receiptLogs.clear();
+      receiptLogs.set(k, logs);
     }
-  } catch {
-    return { trader: tx.from, tx_from: tx.from, via: null };
   }
-  const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs, toCode, system });
+  const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs });
   return { trader: a.trader, tx_from: tx.from, via: a.via };
 }
 
@@ -317,44 +306,63 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
 }
 
 // ── swap attribution backlog ─────────────────────────────────────────────────
+const attributionTries = new Map<string, number>();
+const ATTRIBUTION_MAX_TRIES = 3;
+
 /**
- * Swaps indexed before attribution existed (trader_via IS NULL) are checked a batch per poll, behind
- * LAUNCH_ATTRIBUTE_BACKLOG=1 so the history pass is switched on deliberately after a deploy. Two steps:
+ * Swaps not checked yet (trader_via IS NULL) get checked a batch per poll: always for the last day (a live lookup
+ * that failed is retried), and for all history only with LAUNCH_ATTRIBUTE_BACKLOG=1, so that pass is switched on
+ * deliberately after a deploy. Two steps:
  *   1. cheap and set-based: a swap whose sender itself moved the token in that transaction (bb_token_transfers) is the
  *      common case and is marked checked without any RPC (a missing transfer never marks anything);
- *   2. the rest (a sender that never touched the token: bundlers, relayers, or a buy sent to another wallet) get the
- *      evidence read from the chain (traderOf): only an EntryPoint operation or a 7702 delegation moves the trade.
+ *   2. the rest get the evidence read from the chain (traderOf): only an EntryPoint operation moves the trade. A row
+ *      whose evidence cannot be read after a few tries is kept on its sender and marked 'unread', so unreadable rows
+ *      never pile up at the head of the queue.
  * Only blocks the cursor has passed (their transfers are in). UPDATEs re-test trader_via IS NULL, so two machines
  * running the same batch change each row once.
  */
 export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<number> {
   const db = maybeDb();
-  if (!db || skipReason(chain) || process.env.LAUNCH_ATTRIBUTE_BACKLOG !== "1") return 0;
+  if (!db || skipReason(chain)) return 0;
+  const history = process.env.LAUNCH_ATTRIBUTE_BACKLOG === "1";
   const cid = chainIdOf(chain);
   const [cur] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
   if (!cur || cur.cursor_block <= 0n) return 0;
+  const since = new Date(history ? 0 : Date.now() - 86_400_000).toISOString(); // history: every row; otherwise the last day
   await db`
     UPDATE bb_launch_swaps s SET trader_via = 'tx_from', tx_from = COALESCE(s.tx_from, s.trader)
       FROM (SELECT tx_hash, log_index FROM bb_launch_swaps
-             WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block}
+             WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block} AND block_time > ${since}::timestamptz
              ORDER BY block_number DESC LIMIT 5000) b
      WHERE s.chain_id = ${cid} AND s.tx_hash = b.tx_hash AND s.log_index = b.log_index AND s.trader_via IS NULL
        AND EXISTS (SELECT 1 FROM bb_token_transfers t WHERE t.chain_id = s.chain_id AND t.tx_hash = s.tx_hash AND t.token = s.token AND (t.from_addr = s.trader OR t.to_addr = s.trader))`;
-  const rows = await db<{ tx_hash: string; log_index: number }[]>`
-    SELECT tx_hash, log_index FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block}
+  const rows = await db<{ tx_hash: string; log_index: number; trader: string }[]>`
+    SELECT tx_hash, log_index, trader FROM bb_launch_swaps
+     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block} AND block_time > ${since}::timestamptz
      ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
   let moved = 0;
   for (const r of rows) {
+    const key = `${chain}:${r.tx_hash}:${r.log_index}`;
     const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
-    if (!who.via || !who.trader) continue; // evidence unreadable right now: try again on a later poll
+    if (!who.via || !who.trader) {
+      // evidence unreadable right now (RPC refusal, a transaction the node no longer has): a few tries, then give up
+      const n = (attributionTries.get(key) ?? 0) + 1;
+      if (attributionTries.size > 20_000) attributionTries.clear();
+      attributionTries.set(key, n);
+      if (n >= ATTRIBUTION_MAX_TRIES) {
+        await db`UPDATE bb_launch_swaps SET trader_via = 'unread', tx_from = COALESCE(tx_from, trader) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL`;
+        attributionTries.delete(key);
+      }
+      continue;
+    }
+    attributionTries.delete(key);
     const up = await db<{ trader: string }[]>`
       UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}
        WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL
        RETURNING trader`;
     if (up.length && who.via !== "tx_from") moved++;
   }
-  if (moved) console.log(`[launch-sync] credited ${moved} swap(s) to the smart wallet / 7702 account behind them on ${chain}`);
+  if (moved) console.log(`[launch-sync] credited ${moved} swap(s) to the smart wallet behind them on ${chain}`);
   return moved;
 }
 

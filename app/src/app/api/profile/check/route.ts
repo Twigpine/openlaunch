@@ -19,7 +19,8 @@ export async function GET(req: Request) {
   try {
     const [owner] = await db<{ wallet: string }[]>`SELECT wallet FROM bb_profiles WHERE username = ${c.username}`;
     const [held] = await db<{ wallet: string }[]>`SELECT wallet FROM bb_username_holds WHERE username = ${c.username} AND released_at > now() - interval '30 days'`;
-    const mine = (w: string | undefined) => Boolean(w && isAddress(wallet) && w === wallet);
+    // the zero address holds retired names: nobody is it
+    const mine = (w: string | undefined) => Boolean(w && isAddress(wallet) && w === wallet && !/^0x0{40}$/.test(w));
     const available = (!owner || mine(owner.wallet)) && (!held || mine(held.wallet));
     return NextResponse.json(available ? { available: true } : { available: false, error: "that username is taken" }, { headers: { "cache-control": "no-store" } });
   } catch {

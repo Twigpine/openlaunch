@@ -53,6 +53,9 @@ const t0 = Date.now();
 let exitCode = 0;
 try {
   const { changed, history, tables } = await sql.begin(async (tx) => {
+    // an ALTER TABLE takes an exclusive lock even when the column exists: never queue behind a long read (and block
+    // every read behind us) for more than a few seconds; a failed release just fails the deploy, which can be retried
+    await tx`SET LOCAL lock_timeout = '10s'`;
     await tx.unsafe(text);
     const [last] = await tx`select schema_sha256 from bb_migrations order by id desc limit 1`;
     const changed = last?.schema_sha256 !== hash;
