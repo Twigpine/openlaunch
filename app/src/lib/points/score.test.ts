@@ -17,7 +17,7 @@ const tokensFor = (ethIn: number) => BigInt(Math.round((ethIn * 2000) / 0.001)) 
 type Move = ScoreInput["moves"][number];
 
 function input(over: Partial<ScoreInput> = {}): ScoreInput {
-  return { seasonStart: START, seasonEnd: START + 28 * DAY, now: NOW, launches: [L], swaps: [], firstBuys: [], moves: [], launcherBought: new Map(), linked: new Map(), system: new Set(["0xpool"]), eligible: new Set(), flagged: new Set(), ...over };
+  return { seasonStart: START, seasonEnd: START + 28 * DAY, now: NOW, launches: [L], swaps: [], firstBuys: [], moves: [], launcherBuys: new Map(), linked: new Map(), system: new Set(["0xpool"]), eligible: new Set(), flagged: new Set(), ...over };
 }
 let n = 0;
 /** a wallet that bought `ethIn` at `t` (the swap, then its token transfer in) and later sold all but `keep` of it */
@@ -25,10 +25,11 @@ function buyer(wallet: string, t: number, ethIn: number, keep = 1, launch: Score
   n++;
   const tokenRaw = tokensFor(ethIn);
   const li = n * 10;
-  const swap: ScoreSwap = { key: launch.key, trader: wallet, isBuy: true, quoteRaw: eth(ethIn), tokenRaw, block, logIndex: li, time: t };
-  const first: FirstBuy = { key: launch.key, wallet, block, logIndex: li, time: t, quoteRaw: eth(ethIn), tokenRaw };
-  const moves: Move[] = [{ key: launch.key, wallet, block, logIndex: li + 1, delta: tokenRaw }];
-  if (keep < 1) moves.push({ key: launch.key, wallet, block: block + 50_000, logIndex: 0, delta: -((tokenRaw * BigInt(Math.round((1 - keep) * 1000))) / 1000n) });
+  const tx = `0xbuy${n}`;
+  const swap: ScoreSwap = { key: launch.key, trader: wallet, isBuy: true, quoteRaw: eth(ethIn), tokenRaw, block, logIndex: li, time: t, tx };
+  const first: FirstBuy = { key: launch.key, wallet, block, logIndex: li, time: t, quoteRaw: eth(ethIn), tokenRaw, tx };
+  const moves: Move[] = [{ key: launch.key, wallet, block, logIndex: li + 1, tx, delta: tokenRaw }];
+  if (keep < 1) moves.push({ key: launch.key, wallet, block: block + 50_000, logIndex: n, tx: `0xsell${n}`, delta: -((tokenRaw * BigInt(Math.round((1 - keep) * 1000))) / 1000n) });
   return { swap, first, moves };
 }
 function build(buyers: ReturnType<typeof buyer>[], over: Partial<ScoreInput> = {}) {
@@ -88,14 +89,14 @@ test("only the best 3 tokens a wallet launched on one day count, and each holder
 
 test("dump: sold this season and dropped below half of what was bought → 0; selling only the fee tokens is fine", () => {
   const b = buyer(w(1), START + DAY, 0.01);
-  const sell: ScoreSwap = { key: L.key, trader: CREATOR, isBuy: false, quoteRaw: eth(0.1), tokenRaw: 600_000n * E18, block: 3000, logIndex: 10, time: START + 2 * DAY };
-  const bought = new Map([[L.key, 1_000_000n * E18]]);
-  const boughtIn: Move = { key: L.key, wallet: CREATOR, block: 50, logIndex: 1, delta: 1_000_000n * E18 };
-  const sold: Move = { key: L.key, wallet: CREATOR, block: 3000, logIndex: 11, delta: -600_000n * E18 };
-  const dumped = scoreSeason(build([b], { swaps: [b.swap, sell], launcherBought: bought, moves: [...b.moves, boughtIn, sold] }));
+  const sell: ScoreSwap = { key: L.key, trader: CREATOR, isBuy: false, quoteRaw: eth(0.1), tokenRaw: 600_000n * E18, block: 3000, logIndex: 10, time: START + 2 * DAY, tx: "0xcs" };
+  const bought = new Map([[L.key, [{ tx: "0xcb", tokenRaw: 1_000_000n * E18 }]]]);
+  const boughtIn: Move = { key: L.key, wallet: CREATOR, block: 50, logIndex: 1, tx: "0xcb", delta: 1_000_000n * E18 };
+  const sold: Move = { key: L.key, wallet: CREATOR, block: 3000, logIndex: 11, tx: "0xcs", delta: -600_000n * E18 };
+  const dumped = scoreSeason(build([b], { swaps: [b.swap, sell], launcherBuys: bought, moves: [...b.moves, boughtIn, sold] }));
   assert.equal(dumped.wallets.get(CREATOR)?.creator ?? 0, 0);
-  const feeIn: Move = { key: L.key, wallet: CREATOR, block: 2000, logIndex: 1, delta: 600_000n * E18 }; // fee tokens paid by the locker
-  const feeSale = scoreSeason(build([b], { swaps: [b.swap, sell], launcherBought: bought, moves: [...b.moves, boughtIn, feeIn, sold] }));
+  const feeIn: Move = { key: L.key, wallet: CREATOR, block: 2000, logIndex: 1, tx: "0xfee", delta: 600_000n * E18 }; // fee tokens paid by the locker
+  const feeSale = scoreSeason(build([b], { swaps: [b.swap, sell], launcherBuys: bought, moves: [...b.moves, boughtIn, feeIn, sold] }));
   assert.ok((feeSale.wallets.get(CREATOR)?.creator ?? 0) > 0, "sold the fee tokens, kept everything bought");
 });
 
@@ -126,13 +127,13 @@ test("holds: first buy ≥ $5 this season, half held throughout for a day; 20 to
 test("scout fees: held buys on tokens with 20+ real holders (5+ eligible), at most 200 a day; round trips earn nothing", () => {
   const holders = Array.from({ length: 20 }, (_, i) => buyer(w(100 + i), START + DAY, 0.003));
   const eligible = new Set(holders.slice(0, 5).map((h) => h.first.wallet));
-  const buys: ScoreSwap[] = Array.from({ length: 30 }, (_, i) => ({ key: L.key, trader: w(1), isBuy: true, quoteRaw: eth(1), tokenRaw: tokensFor(1), block: 6000 + i, logIndex: 10, time: START + 2 * DAY + i }));
-  const ins: Move[] = buys.map((b) => ({ key: L.key, wallet: w(1), block: b.block, logIndex: 11, delta: b.tokenRaw }));
+  const buys: ScoreSwap[] = Array.from({ length: 30 }, (_, i) => ({ key: L.key, trader: w(1), isBuy: true, quoteRaw: eth(1), tokenRaw: tokensFor(1), block: 6000 + i, logIndex: 10, time: START + 2 * DAY + i, tx: `0xsb${i}` }));
+  const ins: Move[] = buys.map((b) => ({ key: L.key, wallet: w(1), block: b.block, logIndex: 11, tx: b.tx, delta: b.tokenRaw }));
   const base = { swaps: [...holders.map((h) => h.swap), ...buys], firstBuys: holders.map((h) => h.first), moves: [...holders.flatMap((h) => h.moves), ...ins], eligible };
   const kept = scoreSeason(input(base)).wallets.get(w(1))!;
   assert.ok(kept.scoutWhy.feesUsd > 0);
   assert.ok(kept.scout <= RULES.scoutFeeCapPerDay + RULES.hold);
-  const roundTrip = scoreSeason(input({ ...base, moves: [...base.moves, { key: L.key, wallet: w(1), block: 9000, logIndex: 0, delta: -tokensFor(1) * 30n }] }));
+  const roundTrip = scoreSeason(input({ ...base, moves: [...base.moves, { key: L.key, wallet: w(1), block: 9000, logIndex: 0, tx: "0xsellall", delta: -tokensFor(1) * 30n }] }));
   assert.equal(roundTrip.wallets.get(w(1))?.scoutWhy.feesUsd ?? 0, 0, "sold it all again: no fee points for any of those buys");
   assert.equal(scoreSeason(input({ ...base, eligible: new Set() })).wallets.get(w(1))?.scoutWhy.feesUsd ?? 0, 0, "fewer than 5 eligible holders");
   assert.equal(scoreSeason(input({ swaps: buys, moves: ins })).wallets.get(w(1))?.scoutWhy.feesUsd ?? 0, 0, "no real holders");
@@ -147,7 +148,7 @@ test("farm: an unpriced quote (a farmer's own ERC-20) earns nothing at all", () 
 
 test("farm: dust sent to 50 wallets makes none of them holders and unlocks nothing", () => {
   const scout = buyer(w(1), START + DAY, 0.0025, 0.0001);
-  const dust: Move[] = Array.from({ length: 50 }, (_, i) => ({ key: L.key, wallet: w(1000 + i), block: 70_000, logIndex: i, delta: 1n }));
+  const dust: Move[] = Array.from({ length: 50 }, (_, i) => ({ key: L.key, wallet: w(1000 + i), block: 70_000, logIndex: i, tx: `0xdust${i}`, delta: 1n }));
   const r = scoreSeason(build([scout], { moves: [...scout.moves, ...dust], eligible: new Set([w(1)]) }));
   assert.equal(r.realHolders.get(L.key) ?? 0, 0);
   assert.equal(r.wallets.get(w(1))?.scout ?? 0, 0);
@@ -158,8 +159,8 @@ test("farm: wash trading earns nothing, verified or not; a verified buyer holdin
   const moves: Move[] = [];
   for (let i = 0; i < 100; i++) {
     const buy = i % 2 === 0;
-    swaps.push({ key: L.key, trader: "0xpuppet", isBuy: buy, quoteRaw: eth(10), tokenRaw: tokensFor(10), block: 1000 + i, logIndex: 10, time: START + 2 * DAY + i * 1000 });
-    moves.push({ key: L.key, wallet: "0xpuppet", block: 1000 + i, logIndex: 11, delta: buy ? tokensFor(10) : -tokensFor(10) });
+    swaps.push({ key: L.key, trader: "0xpuppet", isBuy: buy, quoteRaw: eth(10), tokenRaw: tokensFor(10), block: 1000 + i, logIndex: 10, time: START + 2 * DAY + i * 1000, tx: `0xw${i}` });
+    moves.push({ key: L.key, wallet: "0xpuppet", block: 1000 + i, logIndex: 11, tx: `0xw${i}`, delta: buy ? tokensFor(10) : -tokensFor(10) });
   }
   assert.equal(scoreSeason(input({ swaps, moves })).wallets.get(CREATOR)?.creator ?? 0, 0);
   assert.equal(scoreSeason(input({ swaps, moves, eligible: new Set(["0xpuppet"]) })).wallets.get(CREATOR)?.creator ?? 0, 0, "round trips by a verified wallet");
@@ -170,7 +171,7 @@ test("farm: wash trading earns nothing, verified or not; a verified buyer holdin
 test("farm: topping a wallet back up by transfer before the final count restores nothing", () => {
   // bought $5, sold out, then another wallet sends tokens back just before the count
   const b = buyer(w(1), START + DAY, 0.0025, 0);
-  const topUp: Move = { key: L.key, wallet: w(1), block: 900_000, logIndex: 0, delta: tokensFor(0.0025) * 10n };
+  const topUp: Move = { key: L.key, wallet: w(1), block: 900_000, logIndex: 0, tx: "0xtopup", delta: tokensFor(0.0025) * 10n };
   const r = scoreSeason(build([b], { moves: [...b.moves, topUp], eligible: new Set([w(1)]) }));
   assert.equal(r.realHolders.get(L.key) ?? 0, 0);
   assert.equal(r.wallets.get(CREATOR)?.creator ?? 0, 0);
@@ -181,12 +182,36 @@ test("farm: $5 passed from puppet to puppet counts for none of them", () => {
   const puppets = Array.from({ length: 30 }, (_, i) => {
     const b = buyer(w(200 + i), START + DAY + i * 1000, 0.0025);
     // each puppet hands its tokens on to a collector right after buying
-    b.moves.push({ key: L.key, wallet: w(200 + i), block: b.swap.block + 1, logIndex: 0, delta: -b.swap.tokenRaw });
+    b.moves.push({ key: L.key, wallet: w(200 + i), block: b.swap.block + 1, logIndex: 0, tx: `0xrelay${i}`, delta: -b.swap.tokenRaw });
     return b;
   });
   const r = scoreSeason(build(puppets));
   assert.equal(r.realHolders.get(L.key) ?? 0, 0);
   assert.equal(r.wallets.get(CREATOR)?.creator ?? 0, 0);
+});
+
+test("farm: a small base position held all season does not cover later round trips", () => {
+  // $5 bought and held, then 50 same-day round trips of $5 each: each sell uses up the lot it just bought
+  const holders = Array.from({ length: 20 }, (_, i) => buyer(w(100 + i), START + DAY, 0.003));
+  const eligible = new Set([w(1), ...holders.slice(0, 5).map((h) => h.first.wallet)]);
+  const base = buyer(w(1), START + DAY, 0.0025);
+  const swaps: ScoreSwap[] = [];
+  const moves: Move[] = [];
+  for (let i = 0; i < 100; i++) {
+    const buy = i % 2 === 0;
+    swaps.push({ key: L.key, trader: w(1), isBuy: buy, quoteRaw: eth(0.0025), tokenRaw: tokensFor(0.0025), block: 20_000 + i, logIndex: 10, time: START + 2 * DAY + i * 1000, tx: `0xrt${i}` });
+    moves.push({ key: L.key, wallet: w(1), block: 20_000 + i, logIndex: 11, tx: `0xrt${i}`, delta: buy ? tokensFor(0.0025) : -tokensFor(0.0025) });
+  }
+  const r = scoreSeason(build([...holders, base], { swaps: [...holders.map((h) => h.swap), base.swap, ...swaps], moves: [...holders.flatMap((h) => h.moves), ...base.moves, ...moves], eligible }));
+  assert.ok((r.wallets.get(w(1))?.scoutWhy.feesUsd ?? 0) <= 0.06, `only the base buy's fee may count, got ${r.wallets.get(w(1))?.scoutWhy.feesUsd}`);
+});
+
+test("a buy whose token transfer is logged before its swap (router takes first) still counts", () => {
+  const b = buyer(w(1), START + DAY, 0.01);
+  b.moves[0] = { ...b.moves[0], logIndex: b.swap.logIndex - 1 };
+  const r = scoreSeason(build([b]));
+  assert.equal(r.realHolders.get(L.key), 1);
+  assert.equal(r.wallets.get(w(1))!.scoutWhy.holds, 1);
 });
 
 test("farm: a wallet kept off points (deleted profile or not) scores nothing and counts for no one", () => {
