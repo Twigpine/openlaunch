@@ -10,7 +10,7 @@ import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
-import { attributeSwap, type Leg } from "./attribution";
+import { ENTRY_POINTS, attributeSwap, needsCode, type ReceiptLog } from "./attribution";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -78,24 +78,63 @@ async function timeOf(chain: ChainKey, block: bigint): Promise<string> {
   blockTime.set(k, iso);
   return iso;
 }
-const txFrom = new Map<string, string>();
-/** Transaction sender, lower-cased. Null when the RPC fails twice; the swap is then stored without a trader and `healSwapTraders` retries later. */
-async function fromOf(chain: ChainKey, hash: Hex): Promise<string | null> {
+const txFacts = new Map<string, { from: string; to: string | null }>();
+/** Transaction sender and target, lower-cased. Null when the RPC fails twice; the swap is then stored without a trader and `healSwapTraders` retries later. */
+async function txOf(chain: ChainKey, hash: Hex): Promise<{ from: string; to: string | null } | null> {
   const k = `${chain}:${hash}`;
-  const hit = txFrom.get(k);
+  const hit = txFacts.get(k);
   if (hit) return hit;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const tx = await publicClient(chain).getTransaction({ hash });
-      const f = tx.from.toLowerCase();
-      if (txFrom.size > 5000) txFrom.clear();
-      txFrom.set(k, f);
+      const f = { from: tx.from.toLowerCase(), to: tx.to ? tx.to.toLowerCase() : null };
+      if (txFacts.size > 5000) txFacts.clear();
+      txFacts.set(k, f);
       return f;
     } catch {
       // a busy launch block can rate-limit the node; one more try before giving up
     }
   }
   return null;
+}
+const receiptLogs = new Map<string, ReceiptLog[]>();
+const codeAt = new Map<string, string>();
+
+/**
+ * Who to credit for one swap (attribution.ts): the sender, or with proof the smart wallet / 7702 account behind it.
+ * `via` null = the proof could not be read right now (receipt or code lookup failed): the row stays unchecked and the
+ * backlog pass tries again later.
+ */
+async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
+  const tx = await txOf(chain, hash);
+  if (!tx) return { trader: null, tx_from: null, via: null };
+  const system = systemAddresses(chain);
+  let logs: ReceiptLog[] | null = null;
+  let toCode: string | null = null;
+  try {
+    if (tx.to && ENTRY_POINTS.has(tx.to)) {
+      const k = `${chain}:${hash}`;
+      logs = receiptLogs.get(k) ?? null;
+      if (!logs) {
+        const r = await publicClient(chain).getTransactionReceipt({ hash });
+        logs = r.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) }));
+        if (receiptLogs.size > 500) receiptLogs.clear();
+        receiptLogs.set(k, logs);
+      }
+    } else if (needsCode(tx.from, tx.to, system)) {
+      const k = `${chain}:${tx.to}`;
+      toCode = codeAt.get(k) ?? null;
+      if (toCode === null) {
+        toCode = (await publicClient(chain).getCode({ address: tx.to as Address })) ?? "0x";
+        if (codeAt.size > 5000) codeAt.clear();
+        codeAt.set(k, toCode);
+      }
+    }
+  } catch {
+    return { trader: tx.from, tx_from: tx.from, via: null };
+  }
+  const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs, toCode, system });
+  return { trader: a.trader, tx_from: tx.from, via: a.via };
 }
 
 // ── apply ────────────────────────────────────────────────────────────────────
@@ -136,7 +175,7 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const cid = chainIdOf(chain);
   const isBuy = a.amount0 < 0n; // swapper paid quote (currency0)
   const absQuote = a.amount0 < 0n ? -a.amount0 : a.amount0;
-  const [time, trader] = await Promise.all([timeOf(chain, log.blockNumber!), fromOf(chain, log.transactionHash!)]);
+  const [time, who] = await Promise.all([timeOf(chain, log.blockNumber!), traderOf(chain, log.transactionHash!, log.logIndex!)]);
   const bn = log.blockNumber!;
   const li = log.logIndex!;
   // One transaction: the swap row and the launch totals commit together or not at all (a failure between
@@ -144,8 +183,8 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
     const inserted = await t`
-    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
-    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${trader}, ${trader}, ${a.amount0.toString()}, ${a.amount1.toString()},
+    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
+    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${a.amount0.toString()}, ${a.amount1.toString()},
             ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time})
     ON CONFLICT DO NOTHING
     RETURNING tx_hash`;
@@ -274,72 +313,49 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
   const tokens = [...new Set([...poolToToken.values()])];
   if (tokens.length > 0) await applyTransfers(db, chain, tokens, from, to);
-  // the range's transfers are in now: credit smart-wallet / relayed swaps to the wallet that moved the token
-  if (swaps > 0) await attributeSwaps(db, chain, { from, to });
   return { launches, swaps, fees };
 }
 
-// ── swap attribution ─────────────────────────────────────────────────────────
-type UnattributedSwap = { tx_hash: string; log_index: number; token: string; is_buy: boolean; trader: string };
-
+// ── swap attribution backlog ─────────────────────────────────────────────────
 /**
- * Check swaps not yet checked (trader_via IS NULL): keep the sender when it moved the token itself, otherwise credit
- * the wallet that did (attribution.ts). With a range, the swaps of that block range (the live path, right after its
- * transfers were applied); without one, a bounded batch of the newest unchecked swaps (history, drained a batch per
- * poll). Every checked row is marked, so nothing is checked twice; the UPDATEs re-test trader_via IS NULL so two
- * machines running the same batch change each row once.
+ * Swaps indexed before attribution existed (trader_via IS NULL) are checked a batch per poll, behind
+ * LAUNCH_ATTRIBUTE_BACKLOG=1 so the history pass is switched on deliberately after a deploy. Two steps:
+ *   1. cheap and set-based: a swap whose sender itself moved the token in that transaction (bb_token_transfers) is the
+ *      common case and is marked checked without any RPC (a missing transfer never marks anything);
+ *   2. the rest (a sender that never touched the token: bundlers, relayers, or a buy sent to another wallet) get the
+ *      evidence read from the chain (traderOf): only an EntryPoint operation or a 7702 delegation moves the trade.
+ * Only blocks the cursor has passed (their transfers are in). UPDATEs re-test trader_via IS NULL, so two machines
+ * running the same batch change each row once.
  */
-export async function attributeSwaps(db: Db, chain: ChainKey, range: { from: bigint; to: bigint } | null, limit = 1000): Promise<{ checked: number; moved: number }> {
-  const cid = chainIdOf(chain);
-  const rows = range
-    ? await db<UnattributedSwap[]>`
-        SELECT tx_hash, log_index, token, is_buy, trader FROM bb_launch_swaps
-         WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${range.from} AND ${range.to} LIMIT ${limit}`
-    : await db<UnattributedSwap[]>`
-        SELECT tx_hash, log_index, token, is_buy, trader FROM bb_launch_swaps
-         WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL ORDER BY block_number DESC LIMIT ${limit}`;
-  if (rows.length === 0) return { checked: 0, moved: 0 };
-  const txs = [...new Set(rows.map((r) => r.tx_hash))];
-  const legRows = await db<{ tx_hash: string; token: string; log_index: number; from_addr: string; to_addr: string }[]>`
-    SELECT tx_hash, token, log_index, from_addr, to_addr FROM bb_token_transfers WHERE chain_id = ${cid} AND tx_hash = ANY(${txs}::text[])`;
-  const legs = new Map<string, Leg[]>();
-  for (const l of legRows) {
-    const k = `${l.tx_hash}:${l.token}`;
-    const list = legs.get(k) ?? [];
-    list.push({ log_index: Number(l.log_index), from_addr: l.from_addr, to_addr: l.to_addr });
-    legs.set(k, list);
-  }
-  const pm = launchpad(chain).v4.poolManager;
-  const system = systemAddresses(chain);
-  const kept: UnattributedSwap[] = [];
-  const moved: (UnattributedSwap & { to: string })[] = [];
-  for (const r of rows) {
-    const who = attributeSwap({ legs: legs.get(`${r.tx_hash}:${r.token}`) ?? [], txFrom: r.trader, isBuy: r.is_buy, swapLogIndex: Number(r.log_index), poolManager: pm, system });
-    if (who) moved.push({ ...r, to: who });
-    else kept.push(r);
-  }
-  if (kept.length > 0) {
-    await db`
-      UPDATE bb_launch_swaps s SET trader_via = 'tx_from', tx_from = COALESCE(s.tx_from, s.trader)
-        FROM unnest(${kept.map((r) => r.tx_hash)}::text[], ${kept.map((r) => Number(r.log_index))}::int[]) AS u(tx, li)
-       WHERE s.chain_id = ${cid} AND s.tx_hash = u.tx AND s.log_index = u.li AND s.trader_via IS NULL`;
-  }
-  if (moved.length > 0) {
-    await db`
-      UPDATE bb_launch_swaps s SET tx_from = COALESCE(s.tx_from, s.trader), trader = u.who, trader_via = 'transfers'
-        FROM unnest(${moved.map((r) => r.tx_hash)}::text[], ${moved.map((r) => Number(r.log_index))}::int[], ${moved.map((r) => r.to)}::text[]) AS u(tx, li, who)
-       WHERE s.chain_id = ${cid} AND s.tx_hash = u.tx AND s.log_index = u.li AND s.trader_via IS NULL`;
-  }
-  return { checked: rows.length, moved: moved.length };
-}
-
-/** History drain for the poller: one batch of the newest unchecked swaps per call. */
-export async function attributeBacklog(chain: ChainKey): Promise<number> {
+export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<number> {
   const db = maybeDb();
-  if (!db || skipReason(chain)) return 0;
-  const r = await attributeSwaps(db, chain, null);
-  if (r.moved) console.log(`[launch-sync] attributed ${r.moved} of ${r.checked} swap(s) to the wallet that moved the token on ${chain}`);
-  return r.moved;
+  if (!db || skipReason(chain) || process.env.LAUNCH_ATTRIBUTE_BACKLOG !== "1") return 0;
+  const cid = chainIdOf(chain);
+  const [cur] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
+  if (!cur || cur.cursor_block <= 0n) return 0;
+  await db`
+    UPDATE bb_launch_swaps s SET trader_via = 'tx_from', tx_from = COALESCE(s.tx_from, s.trader)
+      FROM (SELECT tx_hash, log_index FROM bb_launch_swaps
+             WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block}
+             ORDER BY block_number DESC LIMIT 5000) b
+     WHERE s.chain_id = ${cid} AND s.tx_hash = b.tx_hash AND s.log_index = b.log_index AND s.trader_via IS NULL
+       AND EXISTS (SELECT 1 FROM bb_token_transfers t WHERE t.chain_id = s.chain_id AND t.tx_hash = s.tx_hash AND t.token = s.token AND (t.from_addr = s.trader OR t.to_addr = s.trader))`;
+  const rows = await db<{ tx_hash: string; log_index: number }[]>`
+    SELECT tx_hash, log_index FROM bb_launch_swaps
+     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number <= ${cur.cursor_block}
+     ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
+  let moved = 0;
+  for (const r of rows) {
+    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
+    if (!who.via || !who.trader) continue; // evidence unreadable right now: try again on a later poll
+    const up = await db<{ trader: string }[]>`
+      UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}
+       WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL
+       RETURNING trader`;
+    if (up.length && who.via !== "tx_from") moved++;
+  }
+  if (moved) console.log(`[launch-sync] credited ${moved} swap(s) to the smart wallet / 7702 account behind them on ${chain}`);
+  return moved;
 }
 
 // ── holders ──────────────────────────────────────────────────────────────────
@@ -655,18 +671,18 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
   const db = maybeDb();
   if (!db || skipReason(chain)) return 0;
   const cid = chainIdOf(chain);
-  const rows = await db<{ tx_hash: string }[]>`
-    SELECT tx_hash FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND trader IS NULL GROUP BY tx_hash ORDER BY max(block_number) DESC LIMIT 20`;
+  const rows = await db<{ tx_hash: string; log_index: number }[]>`
+    SELECT tx_hash, log_index FROM bb_launch_swaps
+     WHERE chain_id = ${cid} AND trader IS NULL ORDER BY block_number DESC LIMIT 20`;
   if (rows.length === 0) return 0;
   let healed = 0;
   for (const r of rows) {
-    const trader = await fromOf(chain, r.tx_hash as Hex);
-    if (!trader) continue;
-    await db`UPDATE bb_launch_swaps SET trader = ${trader} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND trader IS NULL`;
+    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
+    if (!who.trader) continue;
+    await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
     healed++;
   }
-  if (healed) console.log(`[launch-sync] healed traders on ${healed} swap tx(s) on ${chain}`);
+  if (healed) console.log(`[launch-sync] healed traders on ${healed} swap(s) on ${chain}`);
   return healed;
 }
 

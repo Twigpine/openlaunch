@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card } from "@/components/ui";
-import { buildProfileModMessage, type ProfileModAction } from "@/lib/profiles/auth";
+import { buildProfileAdminListMessage, buildProfileModMessage, type ProfileModAction } from "@/lib/profiles/auth";
 import type { ReviewRow } from "@/lib/profiles/server";
 import { shortAddr } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
@@ -19,45 +19,59 @@ function nonce(): string {
 }
 
 /**
- * Profiles for an admin: X posts waiting for a person (X did not answer when they were submitted) and the newest
- * profiles, with hide / keep-off-points / reset-name. Every action is an admin-wallet signature.
+ * Profiles for an admin: X posts waiting for a person (X did not answer when they were submitted), each shown with
+ * the exact code that was issued for it, and the newest profiles. Loading the queue and every action is an
+ * admin-wallet signature (the queue lists claimed, unverified handles).
  */
 export default function ProfileQueue() {
   const { address } = useHydratedAccount();
   const config = useConfig();
   const [data, setData] = useState<{ pending: ReviewRow[]; recent: ReviewRow[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    if (!address) return;
-    const res = await fetch(`/api/profile/admin?wallet=${address}`, { cache: "no-store" });
-    const d = (await res.json()) as { pending?: ReviewRow[]; recent?: ReviewRow[]; error?: string };
-    if (!res.ok) return setErr(d.error ?? "not allowed");
-    setErr(null);
-    setData({ pending: d.pending ?? [], recent: d.recent ?? [] });
-  }, [address]);
-  useEffect(() => {
-    const id = setTimeout(() => void load(), 0);
-    return () => clearTimeout(id);
-  }, [load]);
+  const [busy, setBusy] = useState(false);
 
-  async function act(target: string, action: ProfileModAction) {
+  async function signed(message: (n: string, ts: number) => string) {
+    const n = nonce();
+    const ts = nowMs();
+    const wallet = await getWalletClient(config);
+    return { nonce: n, ts, signature: await wallet.signMessage({ message: message(n, ts) }) };
+  }
+
+  async function load() {
     if (!address) return;
+    setBusy(true);
     try {
-      const reason = "";
-      const n = nonce();
-      const ts = nowMs();
-      const wallet = await getWalletClient(config);
-      const signature = await wallet.signMessage({ message: buildProfileModMessage({ action, target, wallet: address, nonce: n, ts, reason }) });
-      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, wallet: address, nonce: n, ts, signature }) });
-      const d = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(d.error ?? "failed");
-      await load();
+      const s = await signed((n, ts) => buildProfileAdminListMessage({ wallet: address, nonce: n, ts }));
+      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "list", wallet: address, ...s }) });
+      const d = (await res.json()) as { pending?: ReviewRow[]; recent?: ReviewRow[]; error?: string };
+      if (!res.ok) throw new Error(d.error ?? "not allowed");
+      setErr(null);
+      setData({ pending: d.pending ?? [], recent: d.recent ?? [] });
     } catch (e) {
       setErr(friendlyError(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  if (!address || err === "not an admin") return null;
+  async function act(target: string, action: ProfileModAction) {
+    if (!address) return;
+    setBusy(true);
+    try {
+      const reason = "";
+      const s = await signed((n, ts) => buildProfileModMessage({ action, target, wallet: address, nonce: n, ts, reason }));
+      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, wallet: address, ...s }) });
+      const d = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(d.error ?? "failed");
+      setBusy(false);
+      await load();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setBusy(false);
+    }
+  }
+
+  if (!address) return null;
   const row = (p: ReviewRow, pending: boolean) => (
     <div key={`${pending ? "p" : "r"}:${p.wallet}`} className={`${card} space-y-2 p-4`}>
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
@@ -68,34 +82,46 @@ export default function ProfileQueue() {
         {p.hidden ? <span className="text-down-ink">hidden</span> : null}
         {p.points_flag ? <span className="text-warm-ink">no points</span> : null}
       </div>
-      {pending && p.x_handle && p.x_post_id ? (
-        <p className="text-sm">
-          Claims <strong>@{p.x_handle}</strong> ·{" "}
-          <a href={`https://x.com/${p.x_handle}/status/${p.x_post_id}`} target="_blank" rel="noopener noreferrer" className="text-brand underline underline-offset-4">open the post</a>{" "}
-          (check the author and that the post contains a code starting OL-)
-        </p>
+      {pending && p.x_handle && p.post_id && p.code ? (
+        <div className="space-y-1 text-sm">
+          <p>
+            Claims <strong>@{p.x_handle}</strong> ·{" "}
+            <a href={`https://x.com/${p.x_handle}/status/${p.post_id}`} target="_blank" rel="noopener noreferrer" className="text-brand underline underline-offset-4">open the post</a>
+          </p>
+          <p className="text-[13px] text-body">
+            Approve only if the post is by @{p.x_handle} and contains exactly <code className="rounded bg-paper px-1.5 py-0.5 font-mono text-ink">{p.code}</code>. Any other code means reject.
+          </p>
+        </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
         {pending ? (
           <>
-            <button type="button" className={btn.primarySm} onClick={() => void act(p.wallet, "approve_x")}>Approve ✓</button>
-            <button type="button" className={btn.secondarySm} onClick={() => void act(p.wallet, "reject_x")}>Reject</button>
+            <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void act(p.wallet, "approve_x")}>Approve ✓</button>
+            <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, "reject_x")}>Reject</button>
           </>
         ) : null}
-        <button type="button" className={btn.secondarySm} onClick={() => void act(p.wallet, p.hidden ? "unhide" : "hide")}>{p.hidden ? "Unhide" : "Hide"}</button>
-        <button type="button" className={btn.secondarySm} onClick={() => void act(p.wallet, p.points_flag ? "include_points" : "exclude_points")}>{p.points_flag ? "Allow points" : "Keep off points"}</button>
-        <button type="button" className={btn.secondarySm} onClick={() => void act(p.wallet, "reset_username")}>Reset username</button>
+        {!pending && p.x_status !== "none" ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, "remove_x")}>Remove ✓</button> : null}
+        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, p.hidden ? "unhide" : "hide")}>{p.hidden ? "Unhide" : "Hide"}</button>
+        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, p.points_flag ? "include_points" : "exclude_points")}>{p.points_flag ? "Allow points" : "Keep off points"}</button>
+        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, "reset_username")}>Retire username</button>
       </div>
     </div>
   );
   return (
     <section className="space-y-3" aria-labelledby="profile-queue">
-      <h2 id="profile-queue" className="text-lg font-semibold text-ink">Profiles</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="profile-queue" className="text-lg font-semibold text-ink">Profiles</h2>
+        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void load()}>{data ? "Reload" : "Load profiles"} (signature)</button>
+      </div>
       {err ? <p className={`${card} p-4 text-sm text-down-ink`}>{err}</p> : null}
-      <h3 className="text-sm font-medium text-body">X posts waiting for a person</h3>
-      {data?.pending.length === 0 ? <p className={`${card} p-4 text-sm text-muted`}>None.</p> : data?.pending.map((p) => row(p, true))}
-      <h3 className="pt-2 text-sm font-medium text-body">Newest profiles</h3>
-      {data?.recent.map((p) => row(p, false))}
+      {data ? (
+        <>
+          <h3 className="text-sm font-medium text-body">X posts waiting for a person</h3>
+          {data.pending.length === 0 ? <p className={`${card} p-4 text-sm text-muted`}>None.</p> : data.pending.map((p) => row(p, true))}
+          <h3 className="pt-2 text-sm font-medium text-body">Newest profiles</h3>
+          {data.recent.map((p) => row(p, false))}
+        </>
+      ) : null}
     </section>
   );
 }

@@ -1,65 +1,64 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { attributeSwap } from "./attribution.ts";
+import { USER_OPERATION_EVENT, attributeSwap, isDelegationCode, needsCode, userOpSender, type ReceiptLog } from "./attribution.ts";
 
-const PM = "0x00000000000000000000000000000000000000aa";
+const EP7 = "0x0000000071727de22e5e9d8baf0edac6f37da032";
 const UR = "0x00000000000000000000000000000000000000bb";
-const PERMIT2 = "0x00000000000000000000000000000000000000cc";
+const PM = "0x00000000000000000000000000000000000000aa";
 const USER = "0x1111111111111111111111111111111111111111";
 const BUNDLER = "0x2222222222222222222222222222222222222222";
-const SMART = "0x3333333333333333333333333333333333333333";
-const BOT = "0x4444444444444444444444444444444444444444";
-const system = [PM, UR, PERMIT2];
+const SMART_A = "0x3333333333333333333333333333333333333333";
+const SMART_B = "0x4444444444444444444444444444444444444444";
+const VICTIM = "0x5555555555555555555555555555555555555555";
+const system = [UR, PM];
+const word = (a: string) => `0x${"0".repeat(24)}${a.slice(2)}`;
+const uoe = (logIndex: number, sender: string, ep = EP7): ReceiptLog => ({ address: ep, logIndex, topics: [USER_OPERATION_EVENT, `0x${"ab".repeat(32)}`, word(sender), word("0x0000000000000000000000000000000000000000")] });
 
-test("an EOA buy keeps the sender", () => {
-  assert.equal(attributeSwap({ legs: [{ log_index: 5, from_addr: PM, to_addr: USER }], txFrom: USER, isBuy: true, swapLogIndex: 4, poolManager: PM, system }), null);
+test("the event selector is the ERC-4337 UserOperationEvent", () => {
+  assert.equal(USER_OPERATION_EVENT, "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f");
 });
 
-test("an EOA sell keeps the sender", () => {
-  assert.equal(attributeSwap({ legs: [{ log_index: 6, from_addr: USER, to_addr: PM }], txFrom: USER, isBuy: false, swapLogIndex: 4, poolManager: PM, system }), null);
+test("an EOA swap through the router keeps the sender", () => {
+  assert.deepEqual(attributeSwap({ from: USER, to: UR, swapLogIndex: 4, system }), { trader: USER, via: "tx_from" });
 });
 
-test("a 4337 buy credits the smart wallet, not the bundler", () => {
-  assert.equal(attributeSwap({ legs: [{ log_index: 9, from_addr: PM, to_addr: SMART }], txFrom: BUNDLER, isBuy: true, swapLogIndex: 8, poolManager: PM, system }), SMART);
+test("buying for someone else's wallet never puts the trade under their name", () => {
+  // the attacker routes the output to a victim: the only evidence is a token transfer, which is not evidence
+  assert.deepEqual(attributeSwap({ from: BUNDLER, to: UR, swapLogIndex: 4, toCode: "0x6080", system }), { trader: BUNDLER, via: "tx_from" });
 });
 
-test("a 4337 sell credits the smart wallet", () => {
-  assert.equal(attributeSwap({ legs: [{ log_index: 11, from_addr: SMART, to_addr: PM }], txFrom: BUNDLER, isBuy: false, swapLogIndex: 10, poolManager: PM, system }), SMART);
+test("a 4337 swap is credited to the sender of the operation that contains it", () => {
+  const logs = [uoe(9, SMART_A)];
+  assert.deepEqual(attributeSwap({ from: BUNDLER, to: EP7, swapLogIndex: 5, logs, system }), { trader: SMART_A, via: "userop" });
 });
 
-test("a buy routed through a contract that forwards to the user credits the user", () => {
-  const legs = [
-    { log_index: 3, from_addr: PM, to_addr: BOT },
-    { log_index: 4, from_addr: BOT, to_addr: SMART },
-  ];
-  assert.equal(attributeSwap({ legs, txFrom: BUNDLER, isBuy: true, swapLogIndex: 2, poolManager: PM, system }), SMART);
+test("in a bundle of two operations each swap goes to its own operation's sender", () => {
+  const logs = [uoe(6, SMART_A), uoe(14, SMART_B)];
+  assert.equal(userOpSender(logs, EP7, 3), SMART_A);
+  assert.equal(userOpSender(logs, EP7, 10), SMART_B);
+  assert.equal(userOpSender(logs, EP7, 20), null, "no operation closes after it: no proof");
 });
 
-test("a sell pulled through Permit2 and the router walks back to the owner", () => {
-  const legs = [
-    { log_index: 7, from_addr: SMART, to_addr: UR },
-    { log_index: 8, from_addr: UR, to_addr: PM },
-  ];
-  assert.equal(attributeSwap({ legs, txFrom: BUNDLER, isBuy: false, swapLogIndex: 6, poolManager: PM, system }), SMART);
+test("a UserOperationEvent from another contract is ignored", () => {
+  assert.deepEqual(attributeSwap({ from: BUNDLER, to: EP7, swapLogIndex: 5, logs: [uoe(9, VICTIM, "0x9999999999999999999999999999999999999999")], system }), { trader: BUNDLER, via: "tx_from" });
 });
 
-test("dust left on the router never becomes the trader", () => {
-  assert.equal(attributeSwap({ legs: [{ log_index: 3, from_addr: PM, to_addr: UR }], txFrom: BUNDLER, isBuy: true, swapLogIndex: 2, poolManager: PM, system }), null);
+test("an EntryPoint transaction whose receipt could not be read keeps the sender", () => {
+  assert.deepEqual(attributeSwap({ from: BUNDLER, to: EP7, swapLogIndex: 5, logs: null, system }), { trader: BUNDLER, via: "tx_from" });
 });
 
-test("no legs (transfers not indexed) keeps the sender", () => {
-  assert.equal(attributeSwap({ legs: [], txFrom: BUNDLER, isBuy: true, swapLogIndex: 2, poolManager: PM, system }), null);
+test("a relayed 7702 call is credited to the delegating account", () => {
+  const code = `0xef0100${"c".repeat(40)}`;
+  assert.ok(isDelegationCode(code));
+  assert.deepEqual(attributeSwap({ from: BUNDLER, to: SMART_A, swapLogIndex: 5, toCode: code, system }), { trader: SMART_A, via: "7702" });
+  assert.ok(!isDelegationCode("0x6080604052"));
+  assert.ok(!isDelegationCode("0x"));
 });
 
-test("two swaps in one transaction each take the transfer nearest to their own swap", () => {
-  const legs = [
-    { log_index: 3, from_addr: PM, to_addr: SMART },
-    { log_index: 9, from_addr: PM, to_addr: BOT },
-  ];
-  assert.equal(attributeSwap({ legs, txFrom: BUNDLER, isBuy: true, swapLogIndex: 2, poolManager: PM, system }), SMART);
-  assert.equal(attributeSwap({ legs, txFrom: BUNDLER, isBuy: true, swapLogIndex: 8, poolManager: PM, system }), BOT);
-});
-
-test("addresses are compared case-insensitively", () => {
-  assert.equal(attributeSwap({ legs: [{ log_index: 5, from_addr: PM.toUpperCase().replace("0X", "0x"), to_addr: USER }], txFrom: USER.toUpperCase().replace("0X", "0x"), isBuy: true, swapLogIndex: 4, poolManager: PM, system }), null);
+test("code is only read for plain targets, never for the router, the EntryPoint or a self-call", () => {
+  assert.equal(needsCode(USER, UR, system), false);
+  assert.equal(needsCode(BUNDLER, EP7, system), false);
+  assert.equal(needsCode(USER, USER, system), false);
+  assert.equal(needsCode(USER, null, system), false);
+  assert.equal(needsCode(BUNDLER, SMART_A, system), true);
 });

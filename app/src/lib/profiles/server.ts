@@ -2,25 +2,29 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { isAddress, type Address, type Hex } from "viem";
 import { publicClient } from "@/lib/chain";
-import { DEFAULT_CHAIN, isChainKey, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_KEYS, DEFAULT_CHAIN, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, type Db } from "@/lib/db";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { adminWallets } from "@/lib/launchpad/postsServer";
-import { buildProfileDeleteMessage, buildProfileMessage, buildProfileModMessage, isNonce, isProfileModAction, tsFresh } from "./auth";
+import { buildProfileAdminListMessage, buildProfileDeleteMessage, buildProfileMessage, buildProfileModMessage, isNonce, isProfileModAction, tsFresh } from "./auth";
 import { avatarUrl, validateProfile } from "./validate";
-import { X_CODE_TTL_MS, intentUrl, judgePost, makeXCode, parsePostUrl, postTextFor, type CodeRow } from "./xpost";
+import { X_CODE_TTL_MS, intentUrl, isXCode, judgePost, makeXCode, parsePostUrl, postTextFor, type CodeRow } from "./xpost";
 import { fetchPostFacts } from "./xFetch";
 
 /**
  * Server half of profiles. Rules, all enforced here regardless of the client:
  *   - every write is a wallet signature (auth.ts) checked BEFORE its single-use nonce is spent, so an RPC blip or
- *     a bad signature never burns a nonce; EOAs, ERC-1271 and ERC-6492 wallets all verify
- *   - usernames are unique, reserved names are refused (validate.ts), a dropped name is held 30 days for its old
- *     wallet, and a name changes once per 30 days (free in the first day, and always to claim your verified X handle)
- *   - the X tick needs a post carrying a one-time code bound to the wallet and the handle (xpost.ts); one X account
- *     belongs to one wallet; the claimed handle is never public before it is verified
- *   - admins (ADMIN_WALLETS) can approve a post X would not show us, hide a profile, or keep it off points boards
+ *     a bad signature never burns a nonce; EOAs, ERC-1271 and ERC-6492 wallets verify, on the chain where the
+ *     wallet's code lives (so an old owner of a smart wallet cannot sign through an undeployed copy elsewhere)
+ *   - usernames are unique, reserved names are refused (validate.ts), a name kept a day or more is held 30 days for
+ *     its old wallet when dropped, and a name changes once per 30 days (free in the first day, and always to claim
+ *     your own verified X handle); deleting keeps the row (flags and the rename clock survive a re-create)
+ *   - the X tick needs a post carrying a one-time code bound to the wallet and the handle (xpost.ts); verifying needs
+ *     that code, so nobody else can probe or spend someone's attempt; one X account belongs to one wallet; the
+ *     claimed handle is never public before it is verified
+ *   - admins (ADMIN_WALLETS) sign every read and action: approve a post X would not show us (only against the code
+ *     that was issued), remove a tick, hide a profile, keep it off points boards, retire a username
  */
 
 type Fail = { ok: false; error: string; status: number };
@@ -29,6 +33,8 @@ const fail = (error: string, status: number): Fail => ({ ok: false, error, statu
 const DAY = 86_400_000;
 const RENAME_COOLDOWN_MS = 30 * DAY;
 const RENAME_GRACE_MS = DAY;
+/** Names a moderator retired are held by this placeholder, effectively for good. */
+const RETIRED = "0x0000000000000000000000000000000000000000";
 
 type Row = {
   wallet: string;
@@ -47,6 +53,7 @@ type Row = {
   points_flag: string | null;
   username_changed_at: string | null;
   created_at: string;
+  deleted_at: string | null;
 };
 
 /** What a profile looks like to everyone. The X handle shows only once verified. */
@@ -84,8 +91,9 @@ function shape(r: Row): PublicProfile {
   };
 }
 
+/** The row for a wallet, deleted or not (saving decides what a deleted row means). */
 async function rowByWallet(db: Db, wallet: string): Promise<Row | null> {
-  const rows = await db<Row[]>`SELECT wallet, username, display_name, bio, avatar_key, x_handle, x_user_id, x_post_id, x_status, x_verified_at, x_account_created, x_followers, hidden, points_flag, username_changed_at, created_at FROM bb_profiles WHERE wallet = ${wallet}`;
+  const rows = await db<Row[]>`SELECT wallet, username, display_name, bio, avatar_key, x_handle, x_user_id, x_post_id, x_status, x_verified_at, x_account_created, x_followers, hidden, points_flag, username_changed_at, created_at, deleted_at FROM bb_profiles WHERE wallet = ${wallet}`;
   return rows[0] ?? null;
 }
 
@@ -94,8 +102,8 @@ export async function getProfile(by: { wallet: string } | { username: string }):
   if (!db) return null;
   const rows =
     "wallet" in by
-      ? await db<Row[]>`SELECT wallet, username, display_name, bio, avatar_key, x_handle, x_user_id, x_post_id, x_status, x_verified_at, x_account_created, x_followers, hidden, points_flag, username_changed_at, created_at FROM bb_profiles WHERE wallet = ${by.wallet.toLowerCase()} AND NOT hidden`
-      : await db<Row[]>`SELECT wallet, username, display_name, bio, avatar_key, x_handle, x_user_id, x_post_id, x_status, x_verified_at, x_account_created, x_followers, hidden, points_flag, username_changed_at, created_at FROM bb_profiles WHERE username = ${by.username.toLowerCase()} AND NOT hidden`;
+      ? await db<Row[]>`SELECT wallet, username, display_name, bio, avatar_key, x_handle, x_user_id, x_post_id, x_status, x_verified_at, x_account_created, x_followers, hidden, points_flag, username_changed_at, created_at, deleted_at FROM bb_profiles WHERE wallet = ${by.wallet.toLowerCase()} AND NOT hidden AND deleted_at IS NULL`
+      : await db<Row[]>`SELECT wallet, username, display_name, bio, avatar_key, x_handle, x_user_id, x_post_id, x_status, x_verified_at, x_account_created, x_followers, hidden, points_flag, username_changed_at, created_at, deleted_at FROM bb_profiles WHERE username = ${by.username.toLowerCase()} AND NOT hidden AND deleted_at IS NULL`;
   return rows[0] ? shape(rows[0]) : null;
 }
 
@@ -122,7 +130,7 @@ export async function namesFor(wallets: readonly (string | null | undefined)[]):
   const db = maybeDb();
   if (miss.length === 0 || !db) return out;
   const rows = await db<{ wallet: string; username: string; display_name: string; avatar_key: string | null; x_status: string }[]>`
-    SELECT wallet, username, display_name, avatar_key, x_status FROM bb_profiles WHERE wallet = ANY(${miss}::text[]) AND NOT hidden`;
+    SELECT wallet, username, display_name, avatar_key, x_status FROM bb_profiles WHERE wallet = ANY(${miss}::text[]) AND NOT hidden AND deleted_at IS NULL`;
   if (nameCache.size > 50_000) nameCache.clear();
   const found = new Map(rows.map((r) => [r.wallet, { u: r.username, d: r.display_name, a: avatarUrl(r.avatar_key), v: r.x_status === "verified" } satisfies NameEntry]));
   for (const w of miss) {
@@ -134,8 +142,36 @@ export async function namesFor(wallets: readonly (string | null | undefined)[]):
 }
 
 // ── signatures ───────────────────────────────────────────────────────────────
-async function verifySig(chain: ChainKey, wallet: string, message: string, signature: unknown): Promise<"ok" | "bad" | "down"> {
+const codeHome = new Map<string, { chain: ChainKey; at: number }>();
+
+/**
+ * The chain to check a wallet's signature on: the default chain unless the wallet's code lives only elsewhere. A
+ * plain wallet has no code anywhere (any chain recovers it the same); a smart wallet is checked where it is deployed,
+ * against its current owners, never through an ERC-6492 "deploy me" wrapper an old owner could still sign.
+ */
+async function verifyChain(wallet: string): Promise<ChainKey> {
+  const hit = codeHome.get(wallet);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.chain;
+  let chain: ChainKey = DEFAULT_CHAIN;
+  for (const c of [DEFAULT_CHAIN, ...CHAIN_KEYS.filter((k) => k !== DEFAULT_CHAIN)]) {
+    try {
+      const code = await publicClient(c).getCode({ address: wallet as Address });
+      if (code && code !== "0x") {
+        chain = c;
+        break;
+      }
+    } catch {
+      /* a chain we cannot read: keep looking */
+    }
+  }
+  if (codeHome.size > 10_000) codeHome.clear();
+  codeHome.set(wallet, { chain, at: Date.now() });
+  return chain;
+}
+
+async function verifySig(wallet: string, message: string, signature: unknown): Promise<"ok" | "bad" | "down"> {
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) return "bad";
+  const chain = await verifyChain(wallet);
   let valid = false;
   try {
     valid = await publicClient(chain).verifyMessage({ address: wallet as Address, message, signature: signature as Hex });
@@ -162,7 +198,7 @@ async function consumeNonce(db: Db, nonce: string, wallet: string): Promise<bool
   }
 }
 
-type Signed = { chain: unknown; wallet: unknown; nonce: unknown; ts: unknown; signature: unknown };
+type Signed = { chain?: unknown; wallet: unknown; nonce: unknown; ts: unknown; signature: unknown };
 
 /** Shared front of every signed write: shapes, freshness, signature, then (only then) the nonce. */
 async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: number) => string): Promise<{ ok: true; wallet: string; ts: number } | Fail> {
@@ -170,10 +206,9 @@ async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: 
   if (!isNonce(s.nonce)) return fail("bad nonce", 400);
   const now = Date.now();
   if (!tsFresh(s.ts, now)) return fail("signature expired, try again", 400);
-  const chain: ChainKey = isChainKey(s.chain) ? s.chain : DEFAULT_CHAIN;
   const wallet = s.wallet.toLowerCase();
   const ts = Number(s.ts);
-  const v = await verifySig(chain, wallet, message(wallet, s.nonce, ts), s.signature);
+  const v = await verifySig(wallet, message(wallet, s.nonce, ts), s.signature);
   if (v === "down") return fail("signature check unavailable, try again", 503);
   if (v === "bad") return fail("signature does not match", 401);
   // the wallet bucket is spent only after the wallet is proven (a stranger cannot freeze someone's edits)
@@ -199,6 +234,13 @@ export function codeView(code: string, handle: string, expiresAt: string, userna
   return { code, handle, expires_at: expiresAt, text, intent: intentUrl(text) };
 }
 
+/** A dropped name is held for its wallet only if it was really theirs (kept a day or more): no farming of holds. */
+function holdable(r: Row, now: number): boolean {
+  if (r.deleted_at || r.username.startsWith("~")) return false;
+  const since = new Date(r.username_changed_at ?? r.created_at).getTime();
+  return now - since >= DAY;
+}
+
 // ── save ─────────────────────────────────────────────────────────────────────
 export type SaveRequest = Signed & { fields: Record<string, unknown> };
 
@@ -221,30 +263,35 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
       await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${me}`}))`;
       const existing = await rowByWallet(t, me);
       const nameChange = !existing || existing.username !== f.username;
-      const claimingOwnX = Boolean(existing && existing.x_status === "verified" && existing.x_handle === f.username);
+      const claimingOwnX = Boolean(existing && !existing.deleted_at && existing.x_status === "verified" && existing.x_handle === f.username);
       let renamed: string | undefined;
       if (nameChange) {
-        if (existing && !claimingOwnX && now - new Date(existing.created_at).getTime() > RENAME_GRACE_MS && existing.username_changed_at && now - new Date(existing.username_changed_at).getTime() < RENAME_COOLDOWN_MS) {
+        const [held] = await t<{ wallet: string }[]>`SELECT wallet FROM bb_username_holds WHERE username = ${f.username} AND released_at > now() - interval '30 days'`;
+        const restoringOwn = Boolean(held && held.wallet === me);
+        // the rename clock: free in the first day of the profile, to take back your own held name, or to claim your verified X handle
+        if (existing && !claimingOwnX && !restoringOwn && now - new Date(existing.created_at).getTime() > RENAME_GRACE_MS && existing.username_changed_at && now - new Date(existing.username_changed_at).getTime() < RENAME_COOLDOWN_MS) {
           return fail("you can change your username once every 30 days", 429);
         }
-        const [held] = await t<{ wallet: string }[]>`SELECT wallet FROM bb_username_holds WHERE username = ${f.username} AND released_at > now() - interval '30 days'`;
-        if (held && held.wallet !== me) return fail("that username is taken", 409);
+        // holds yield only to the verified owner of the same X handle (a retired name never does)
+        if (held && held.wallet !== me && (!claimingOwnX || held.wallet === RETIRED)) return fail("that username is taken", 409);
         const [holder] = await t<{ wallet: string; x_status: string }[]>`SELECT wallet, x_status FROM bb_profiles WHERE username = ${f.username}`;
         if (holder && holder.wallet !== me) {
           // a verified X owner takes their own handle back from an unverified profile; everyone else waits
           if (!claimingOwnX || holder.x_status === "verified") return fail("that username is taken", 409);
+          const base = f.username.slice(0, 15).replace(/_+$/, "").padEnd(3, "x");
           for (let i = 0; i < 8 && !renamed; i++) {
-            const candidate = `${f.username.slice(0, 15)}_${randomSuffix(4)}`;
+            const candidate = `${base}_${randomSuffix(4)}`;
             const [clash] = await t`SELECT 1 FROM bb_profiles WHERE username = ${candidate}`;
             if (!clash) renamed = candidate;
           }
           if (!renamed) return fail("could not free that username, try again", 503);
-          await t`UPDATE bb_profiles SET username = ${renamed}, updated_at = now() WHERE wallet = ${holder.wallet}`;
+          const moved = await t`UPDATE bb_profiles SET username = ${renamed}, updated_at = now() WHERE wallet = ${holder.wallet} AND username = ${f.username} RETURNING wallet`;
+          if (moved.length === 0) return fail("that username just changed hands, try again", 409);
           forgetName(holder.wallet);
         }
-        if (existing) {
+        if (existing && holdable(existing, now)) {
           await t`INSERT INTO bb_username_holds (username, wallet, released_at) VALUES (${existing.username}, ${me}, now())
-                  ON CONFLICT (username) DO UPDATE SET wallet = EXCLUDED.wallet, released_at = now()`;
+                  ON CONFLICT (username) DO UPDATE SET wallet = EXCLUDED.wallet, released_at = now() WHERE bb_username_holds.wallet <> ${RETIRED}`;
         }
         await t`DELETE FROM bb_username_holds WHERE username = ${f.username} AND wallet = ${me}`;
       }
@@ -253,13 +300,14 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
         VALUES (${me}, ${f.username}, ${f.display_name}, ${f.bio || null}, ${f.avatar_key}, ${f.x_handle || null})
         ON CONFLICT (wallet) DO UPDATE SET
           username = EXCLUDED.username, display_name = EXCLUDED.display_name, bio = EXCLUDED.bio, avatar_key = EXCLUDED.avatar_key,
-          username_changed_at = CASE WHEN bb_profiles.username <> EXCLUDED.username THEN now() ELSE bb_profiles.username_changed_at END,
-          updated_at = now()`;
-      // a different X handle (or none) drops the old verification; the tick has to be earned again for the new one
-      const xChanged = !existing || (existing.x_handle ?? "") !== f.x_handle;
+          username_changed_at = CASE WHEN bb_profiles.username <> EXCLUDED.username AND bb_profiles.deleted_at IS NULL THEN now() ELSE bb_profiles.username_changed_at END,
+          deleted_at = NULL, updated_at = now()`;
+      // a different X handle (or none) drops the old verification and any pending review: the tick is earned again
+      const xChanged = !existing || Boolean(existing.deleted_at) || (existing.x_handle ?? "") !== f.x_handle;
       if (xChanged) {
         await t`UPDATE bb_profiles SET x_handle = ${f.x_handle || null}, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL,
                 x_followers = NULL, x_checked_at = NULL, x_status = 'none' WHERE wallet = ${me}`;
+        await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${me} AND used_at IS NULL`;
       }
       let code: XCodeView | null = null;
       const verified = !xChanged && existing?.x_status === "verified";
@@ -282,25 +330,33 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
 }
 
 // ── verify X ─────────────────────────────────────────────────────────────────
-export async function verifyXPost(r: { wallet: unknown; postUrl: unknown }): Promise<{ ok: true; status: "verified" | "pending_review"; profile: PublicProfile | null } | Fail> {
+const NO_CODE = "that code is not open for this wallet; save your profile again for a new one";
+
+/**
+ * Check a post against the wallet's open code. The request carries the code (only its owner was shown it), and
+ * nothing happens for a code that does not match: no rate-limit bucket is spent, no lookup is made, nothing is said
+ * about the claimed handle, and nothing can be pushed into the review queue by a stranger.
+ */
+export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: unknown }): Promise<{ ok: true; status: "verified" | "pending_review"; profile: PublicProfile | null } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   if (typeof r.wallet !== "string" || !isAddress(r.wallet)) return fail("bad wallet", 400);
+  if (!isXCode(r.code)) return fail(NO_CODE, 400);
   const me = r.wallet.toLowerCase();
   const post = parsePostUrl(r.postUrl);
   if (!post) return fail("paste the link to your post (x.com/you/status/…)", 400);
+  const [code] = await db<CodeRow[]>`SELECT code, x_handle, expires_at, used_at FROM bb_x_codes WHERE wallet = ${me} AND code = ${r.code} AND used_at IS NULL AND review IS NULL`;
+  if (!code) return fail(NO_CODE, 400);
   if (rateLimited(`xverify:wallet:${me}`, 10, 60 * 60_000)) return fail("too many tries, wait a bit", 429);
-  const [code] = await db<CodeRow[]>`SELECT code, x_handle, expires_at, used_at FROM bb_x_codes WHERE wallet = ${me} AND used_at IS NULL AND review IS NULL ORDER BY issued_at DESC LIMIT 1`;
-  if (!code) return fail("save your profile with your X handle first; that gives you a code to post", 400);
   const prof = await rowByWallet(db, me);
-  if (!prof || prof.x_handle !== code.x_handle) return fail("your X handle changed since this code; save your profile again for a new one", 400);
+  if (!prof || prof.deleted_at || prof.x_handle !== code.x_handle) return fail(NO_CODE, 400);
 
   const facts = await fetchPostFacts(post.handle, post.id);
   const j = judgePost({ code, facts, now: Date.now() });
   if (!j.ok) {
-    // X answered nobody: a person checks it (only for a link that at least names the right account)
+    // X answered nobody: a person checks it against this code (only for a link that at least names the right account)
     if (j.review && post.handle.toLowerCase() === code.x_handle) {
-      await db`UPDATE bb_x_codes SET post_id = ${post.id}, submitted_at = now(), review = 'pending' WHERE code = ${code.code} AND used_at IS NULL`;
+      await db`UPDATE bb_x_codes SET post_id = ${post.id}, submitted_at = now(), review = 'pending' WHERE code = ${code.code} AND used_at IS NULL AND review IS NULL`;
       await db`UPDATE bb_profiles SET x_status = 'pending_review', x_post_id = ${post.id}, updated_at = now() WHERE wallet = ${me} AND x_status <> 'verified'`;
       return { ok: true, status: "pending_review", profile: await getProfile({ wallet: me }) };
     }
@@ -313,7 +369,7 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown }): Pro
     // one X account, one wallet: verifying here releases it from any other wallet (only the account owner could post the code)
     const others = await t<{ wallet: string }[]>`
       UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_status = 'none', updated_at = now()
-       WHERE wallet <> ${me} AND (x_user_id = ${j.userId} OR x_user_id = ${`h:${j.handle}`}) RETURNING wallet`;
+       WHERE wallet <> ${me} AND (x_user_id = ${j.userId} OR x_user_id = ${`h:${j.handle}`} OR (x_handle = ${j.handle} AND x_status IN ('verified', 'post_missing'))) RETURNING wallet`;
     for (const o of others) forgetName(o.wallet);
     await t`
       UPDATE bb_profiles SET x_status = 'verified', x_handle = ${j.handle}, x_user_id = ${j.userId}, x_post_id = ${post.id}, x_verified_at = now(), x_checked_at = now(),
@@ -327,32 +383,68 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown }): Pro
 }
 
 // ── delete ───────────────────────────────────────────────────────────────────
+/**
+ * Delete = the profile disappears everywhere and its name is released, but the row stays: moderation flags,
+ * created_at and the rename clock survive, so deleting and re-creating is not a way around either.
+ */
 export async function deleteProfile(r: Signed): Promise<{ ok: true } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   const a = await admit(db, r, (wallet, nonce, ts) => buildProfileDeleteMessage({ wallet, nonce, ts }));
   if (!a.ok) return a;
+  const now = Date.now();
   await db.begin(async (tx) => {
     const t = tx as unknown as Db;
-    const [gone] = await t<{ username: string }[]>`DELETE FROM bb_profiles WHERE wallet = ${a.wallet} RETURNING username`;
-    if (gone) await t`INSERT INTO bb_username_holds (username, wallet, released_at) VALUES (${gone.username}, ${a.wallet}, now()) ON CONFLICT (username) DO UPDATE SET wallet = EXCLUDED.wallet, released_at = now()`;
-    await t`UPDATE bb_x_codes SET used_at = now() WHERE wallet = ${a.wallet} AND used_at IS NULL`;
+    await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${a.wallet}`}))`;
+    const existing = await rowByWallet(t, a.wallet);
+    if (!existing || existing.deleted_at) return;
+    if (holdable(existing, now)) {
+      await t`INSERT INTO bb_username_holds (username, wallet, released_at) VALUES (${existing.username}, ${a.wallet}, now())
+              ON CONFLICT (username) DO UPDATE SET wallet = EXCLUDED.wallet, released_at = now() WHERE bb_username_holds.wallet <> ${RETIRED}`;
+    }
+    await t`
+      UPDATE bb_profiles SET deleted_at = now(), username = ${`~del_${randomSuffix(12)}`}, display_name = '', bio = NULL, avatar_key = NULL,
+             x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL,
+             x_status = 'none', username_changed_at = now(), updated_at = now()
+       WHERE wallet = ${a.wallet}`;
+    await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${a.wallet} AND used_at IS NULL`;
   });
   forgetName(a.wallet);
   return { ok: true };
 }
 
 // ── moderation ───────────────────────────────────────────────────────────────
-export type ReviewRow = { wallet: string; username: string; display_name: string; x_handle: string | null; x_status: string; x_post_id: string | null; hidden: boolean; points_flag: string | null; created_at: string };
+export type ReviewRow = {
+  wallet: string;
+  username: string;
+  display_name: string;
+  x_handle: string | null;
+  x_status: string;
+  hidden: boolean;
+  points_flag: string | null;
+  created_at: string;
+  /** pending only: the code that was issued for this claim and the post that was submitted */
+  code: string | null;
+  post_id: string | null;
+};
 
-export async function listProfilesForReview(limit = 100): Promise<{ pending: ReviewRow[]; recent: ReviewRow[] }> {
+/** The review queue, for a signed admin read (it lists claimed, not yet verified handles). */
+export async function listProfilesForReview(r: Signed, limit = 100): Promise<{ ok: true; pending: ReviewRow[]; recent: ReviewRow[] } | Fail> {
   const db = maybeDb();
-  if (!db) return { pending: [], recent: [] };
+  if (!db) return fail("db unconfigured", 503);
+  if (typeof r.wallet !== "string" || !adminWallets().has(r.wallet.toLowerCase())) return fail("not an admin", 403);
+  const a = await admit(db, r, (wallet, nonce, ts) => buildProfileAdminListMessage({ wallet, nonce, ts }));
+  if (!a.ok) return a;
   const [pending, recent] = await Promise.all([
-    db<ReviewRow[]>`SELECT wallet, username, display_name, x_handle, x_status, x_post_id, hidden, points_flag, created_at FROM bb_profiles WHERE x_status = 'pending_review' ORDER BY updated_at DESC LIMIT ${limit}`,
-    db<ReviewRow[]>`SELECT wallet, username, display_name, x_handle, x_status, x_post_id, hidden, points_flag, created_at FROM bb_profiles ORDER BY created_at DESC LIMIT ${limit}`,
+    db<ReviewRow[]>`
+      SELECT p.wallet, p.username, p.display_name, p.x_handle, p.x_status, p.hidden, p.points_flag, p.created_at, c.code, c.post_id
+        FROM bb_profiles p JOIN LATERAL (SELECT code, post_id FROM bb_x_codes WHERE wallet = p.wallet AND review = 'pending' ORDER BY submitted_at DESC LIMIT 1) c ON true
+       WHERE p.x_status = 'pending_review' AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT ${limit}`,
+    db<ReviewRow[]>`
+      SELECT wallet, username, display_name, x_handle, x_status, hidden, points_flag, created_at, NULL::text AS code, x_post_id AS post_id
+        FROM bb_profiles WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ${limit}`,
   ]);
-  return { pending, recent };
+  return { ok: true, pending, recent };
 }
 
 export async function moderateProfile(r: Signed & { action: unknown; target: unknown; reason?: unknown }): Promise<{ ok: true } | Fail> {
@@ -367,7 +459,7 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
   const a = await admit(db, r, (wallet, nonce, ts) => buildProfileModMessage({ action, target, wallet, nonce, ts, reason }));
   if (!a.ok) return a;
   const prof = await rowByWallet(db, target);
-  if (!prof) return fail("no such profile", 404);
+  if (!prof || prof.deleted_at) return fail("no such profile", 404);
   switch (action) {
     case "approve_x":
     case "reject_x": {
@@ -378,15 +470,22 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
         await db`UPDATE bb_profiles SET x_status = 'none', x_post_id = NULL, updated_at = now() WHERE wallet = ${target} AND x_status = 'pending_review'`;
         break;
       }
+      // only the claim that is pending, for the handle this code was issued for
+      if (prof.x_status !== "pending_review" || prof.x_handle !== code.x_handle) return fail("this claim changed since it was submitted; reject it", 409);
+      // a handle another wallet has verified is not handed out by hand
+      const [taken] = await db`SELECT 1 FROM bb_profiles WHERE wallet <> ${target} AND deleted_at IS NULL AND x_handle = ${code.x_handle} AND x_status IN ('verified', 'post_missing')`;
+      if (taken) return fail(`@${code.x_handle} is already verified by another wallet; reject this one`, 409);
       await db.begin(async (tx) => {
         const t = tx as unknown as Db;
         await t`UPDATE bb_x_codes SET review = 'approved', used_at = now() WHERE code = ${code.code}`;
-        const key = `h:${code.x_handle}`;
-        await t`UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_status = 'none', updated_at = now() WHERE wallet <> ${target} AND x_user_id = ${key}`;
-        await t`UPDATE bb_profiles SET x_status = 'verified', x_handle = ${code.x_handle}, x_user_id = COALESCE(x_user_id, ${key}), x_post_id = ${code.post_id}, x_verified_at = now(), x_checked_at = NULL, updated_at = now() WHERE wallet = ${target}`;
+        await t`UPDATE bb_profiles SET x_status = 'verified', x_user_id = COALESCE(x_user_id, ${`h:${code.x_handle}`}), x_post_id = ${code.post_id}, x_verified_at = now(), x_checked_at = NULL, updated_at = now() WHERE wallet = ${target}`;
       });
       break;
     }
+    case "remove_x":
+      await db`UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now() WHERE wallet = ${target}`;
+      await db`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${target} AND used_at IS NULL`;
+      break;
     case "hide":
     case "unhide":
       await db`UPDATE bb_profiles SET hidden = ${action === "hide"}, updated_at = now() WHERE wallet = ${target}`;
@@ -396,7 +495,13 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
       await db`UPDATE bb_profiles SET points_flag = ${action === "exclude_points" ? "excluded" : null}, points_flag_reason = ${action === "exclude_points" ? reason || null : null}, updated_at = now() WHERE wallet = ${target}`;
       break;
     case "reset_username":
-      await db`UPDATE bb_profiles SET username = ${`user_${randomSuffix(8)}`}, updated_at = now() WHERE wallet = ${target}`;
+      // the old name is retired (held by nobody, effectively for good) and the rename clock starts again
+      await db.begin(async (tx) => {
+        const t = tx as unknown as Db;
+        await t`INSERT INTO bb_username_holds (username, wallet, released_at) VALUES (${prof.username}, ${RETIRED}, now() + interval '100 years')
+                ON CONFLICT (username) DO UPDATE SET wallet = EXCLUDED.wallet, released_at = EXCLUDED.released_at`;
+        await t`UPDATE bb_profiles SET username = ${`user_${randomSuffix(8)}`}, username_changed_at = now(), updated_at = now() WHERE wallet = ${target}`;
+      });
       break;
   }
   forgetName(target);
@@ -409,8 +514,10 @@ const RECHECK_EVERY_MS = 10 * 60_000;
 
 /**
  * Re-read verified posts older than a week, a small batch at a time (claimed with SKIP LOCKED so two machines never
- * read the same one). A post X says is gone pauses the tick ("reverify"); a post that answers refreshes the account
- * facts points use (age, followers) and upgrades a handle-only binding to the account id. No answer changes nothing.
+ * read the same one). The post must still be there AND still be by the bound account: a post X says is gone, or one
+ * now attributed to a different account, pauses the tick ("reverify"). The same account under a new handle (a rename
+ * on X) updates the handle. A post that answers refreshes the facts points use (account age, followers) and upgrades
+ * a handle-only binding to the account id. No answer changes nothing.
  */
 export async function recheckProfiles(batch = 20): Promise<number> {
   const db = maybeDb();
@@ -419,29 +526,44 @@ export async function recheckProfiles(batch = 20): Promise<number> {
   lastRecheck = now;
   const rows = await db<{ wallet: string; x_handle: string | null; x_post_id: string | null; x_user_id: string | null; x_status: string }[]>`
     UPDATE bb_profiles p SET x_checked_at = now()
-      FROM (SELECT wallet FROM bb_profiles WHERE x_status IN ('verified', 'post_missing') AND x_post_id IS NOT NULL AND x_handle IS NOT NULL
+      FROM (SELECT wallet FROM bb_profiles WHERE x_status IN ('verified', 'post_missing') AND deleted_at IS NULL AND x_post_id IS NOT NULL AND x_handle IS NOT NULL
              AND (x_checked_at IS NULL OR x_checked_at < now() - interval '7 days') ORDER BY x_checked_at NULLS FIRST LIMIT ${batch} FOR UPDATE SKIP LOCKED) due
      WHERE p.wallet = due.wallet
      RETURNING p.wallet, p.x_handle, p.x_post_id, p.x_user_id, p.x_status`;
   let changed = 0;
+  const pause = async (wallet: string) => {
+    const up = await db`UPDATE bb_profiles SET x_status = 'post_missing', updated_at = now() WHERE wallet = ${wallet} AND x_status = 'verified' RETURNING wallet`;
+    changed += up.length;
+  };
   for (const r of rows) {
     if (!r.x_handle || !r.x_post_id) continue;
     const facts = await fetchPostFacts(r.x_handle, r.x_post_id);
     if (facts.found === null) continue;
-    if (facts.found === false) {
-      if (r.x_status !== "post_missing") {
-        await db`UPDATE bb_profiles SET x_status = 'post_missing', updated_at = now() WHERE wallet = ${r.wallet} AND x_status = 'verified'`;
-        changed++;
-      }
+    if (facts.found === false || !facts.handle) {
+      await pause(r.wallet);
       continue;
     }
-    const upgrade = facts.userId && r.x_user_id?.startsWith("h:") ? facts.userId : null;
+    const boundId = r.x_user_id && !r.x_user_id.startsWith("h:") ? r.x_user_id : null;
+    // the post now reads as another account's: never keep a tick we cannot tie to the bound account
+    if (boundId && facts.userId && facts.userId !== boundId) {
+      await pause(r.wallet);
+      continue;
+    }
+    const sameHandle = facts.handle.toLowerCase() === r.x_handle;
+    if (!sameHandle && !(boundId && facts.userId === boundId)) {
+      await pause(r.wallet);
+      continue;
+    }
+    const upgrade = !boundId && facts.userId ? facts.userId : null;
     if (upgrade) {
       const [taken] = await db`SELECT 1 FROM bb_profiles WHERE x_user_id = ${upgrade} AND wallet <> ${r.wallet}`;
-      if (taken) continue; // another wallet already holds the account id: leave both for a person
+      if (taken) {
+        await pause(r.wallet); // another wallet holds the account id: leave this one for a person
+        continue;
+      }
     }
     await db`
-      UPDATE bb_profiles SET x_status = 'verified', x_user_id = COALESCE(${upgrade}, x_user_id),
+      UPDATE bb_profiles SET x_status = 'verified', x_handle = ${facts.handle.toLowerCase()}, x_user_id = COALESCE(${upgrade}, x_user_id),
              x_account_created = COALESCE(${facts.accountCreated}, x_account_created), x_followers = COALESCE(${facts.followers}::int, x_followers), updated_at = now()
        WHERE wallet = ${r.wallet} AND x_status IN ('verified', 'post_missing')`;
     if (r.x_status === "post_missing") changed++;

@@ -347,6 +347,7 @@ CREATE TABLE IF NOT EXISTS bb_profiles (
   points_flag         text,                                -- admin: 'excluded' keeps the wallet off any points board
   points_flag_reason  text,
   username_changed_at timestamptz,
+  deleted_at          timestamptz,                         -- deleted by its owner: the row stays (flags, created_at and the rename clock survive a re-create)
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
@@ -381,9 +382,9 @@ CREATE TABLE IF NOT EXISTS bb_x_codes (
 CREATE INDEX IF NOT EXISTS bb_x_codes_wallet_idx ON bb_x_codes (wallet, issued_at DESC);
 
 -- ── swap attribution (2026-10-07) ───────────────────────────────────────────
--- trader is tx.from, except when the sender neither received nor sent the token in that transaction (ERC-4337
--- smart wallets: tx.from is the bundler; relayed EIP-7702 calls: the relayer). Then the indexer credits the wallet
--- that actually took or paid the token (lib/launchpad/attribution.ts) and marks the row 'transfers'.
+-- trader is tx.from, except with proof another account authorized the call (lib/launchpad/attribution.ts): an ERC-4337
+-- EntryPoint transaction credits the sender of the user operation that contains the swap ('userop'), a relayed
+-- EIP-7702 call credits the delegating account ('7702'). tx_from keeps the sender; trader_via NULL = not checked yet.
 ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_via text;
 ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS tx_from text;
 -- the unchecked set: every swap until the history drain reaches it, then only the newest few (partial index stays small)

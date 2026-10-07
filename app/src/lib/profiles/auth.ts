@@ -45,10 +45,15 @@ export function buildProfileDeleteMessage(p: { wallet: string; nonce: string; ts
   return [`${PROFILE_DOMAIN} wants you to delete your public profile.`, ``, `Wallet: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`, ``, `Your trades stay on-chain; only the name next to them goes. ${footer}`].join("\n");
 }
 
-export const PROFILE_MOD_ACTIONS = ["approve_x", "reject_x", "hide", "unhide", "exclude_points", "include_points", "reset_username"] as const;
+export const PROFILE_MOD_ACTIONS = ["approve_x", "reject_x", "remove_x", "hide", "unhide", "exclude_points", "include_points", "reset_username"] as const;
 export type ProfileModAction = (typeof PROFILE_MOD_ACTIONS)[number];
 export function isProfileModAction(v: unknown): v is ProfileModAction {
   return typeof v === "string" && (PROFILE_MOD_ACTIONS as readonly string[]).includes(v);
+}
+
+/** Admin read of the review queue (it lists claimed, not yet verified X handles, so it is signed too). */
+export function buildProfileAdminListMessage(p: { wallet: string; nonce: string; ts: number }): string {
+  return [`${PROFILE_DOMAIN} moderation`, ``, `Action: list profiles`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
 }
 
 export function buildProfileModMessage(p: { action: ProfileModAction; target: string; wallet: string; nonce: string; ts: number; reason?: string }): string {

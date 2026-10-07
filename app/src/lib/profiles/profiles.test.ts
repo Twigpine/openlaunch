@@ -90,6 +90,8 @@ test("codes: a whole word in the post, any case; longer codes do not count", () 
   assert.ok(containsCode("ol-7k2qxm9a", "OL-7K2QXM9A"));
   assert.ok(!containsCode("OL-7K2QXM9AB", "OL-7K2QXM9A"));
   assert.ok(!containsCode("XOL-7K2QXM9A", "OL-7K2QXM9A"));
+  assert.ok(!containsCode("see evil.xyz/OL-7K2QXM9A", "OL-7K2QXM9A"), "inside a link it does not count");
+  assert.ok(containsCode("my code is OL-7K2QXM9A.", "OL-7K2QXM9A"), "sentence punctuation after it is fine");
   assert.ok(!containsCode(null, "OL-7K2QXM9A"));
 });
 

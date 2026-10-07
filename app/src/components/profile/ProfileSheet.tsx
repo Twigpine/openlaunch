@@ -64,7 +64,8 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
     display_name: initial?.display_name ?? "",
     bio: initial?.bio ?? "",
     avatar: initial?.avatar_url ? `${origin}${initial.avatar_url}` : "",
-    x_handle: initial?.x?.handle ?? "",
+    // a verified handle is public; a pending claim is known only to this browser (from the code it was given)
+    x_handle: initial?.x?.handle ?? (initial && initial.x_state !== "none" ? (loadCode(address)?.handle ?? "") : ""),
   });
   const [profile, setProfile] = useState<PublicProfile | null>(initial);
   const [code, setCode] = useState<XCodeView | null>(() => (startOnVerify ? loadCode(address) : null));
@@ -134,7 +135,7 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
     setNote(null);
     setPhase("check");
     try {
-      const r = await fetch("/api/profile/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: address, postUrl }) });
+      const r = await fetch("/api/profile/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: address, code: code?.code, postUrl }) });
       const d = (await r.json()) as { ok?: boolean; error?: string; status?: string; profile?: PublicProfile | null };
       if (!r.ok || !d.ok) throw new Error(d.error ?? "could not verify");
       if (d.profile) {
@@ -210,7 +211,7 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
         <div>
           <label className={label} htmlFor="p-x">X account <span className="font-normal text-muted">(optional, for the ✓)</span></label>
           <input id="p-x" className={input} autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="@yourhandle" value={f.x_handle} onChange={(e) => setF({ ...f, x_handle: e.target.value })} />
-          <p className={helper}>After saving you post a short code from this account. The handle stays hidden until it is verified.</p>
+          <p className={helper}>{profile && profile.x_state !== "none" && profile.x_state !== "verified" && !f.x_handle ? "Your X claim is waiting: enter the handle again to keep it, or leave it empty to drop it." : "After saving you post a short code from this account. The handle stays hidden until it is verified."}</p>
         </div>
         <div>
           <span className={label}>Picture <span className="font-normal text-muted">(optional)</span></span>

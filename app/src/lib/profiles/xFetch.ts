@@ -27,6 +27,8 @@ async function getJson(url: string): Promise<Res> {
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+/** X account ids are decimal; anything else from a source is ignored rather than stored as the binding key. */
+const xid = (v: unknown): string | null => (typeof v === "string" || typeof v === "number" ? (/^\d{1,25}$/.test(String(v)) ? String(v) : null) : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const iso = (v: unknown): string | null => {
   if (typeof v !== "string") return null;
@@ -60,7 +62,7 @@ export async function fetchPostFacts(handle: string, id: string): Promise<PostFa
     const h = str(d.user?.screen_name);
     if (str(d.id_str) === id && h) {
       handles.push(h);
-      facts.userId = str(d.user?.id_str);
+      facts.userId = xid(d.user?.id_str);
       facts.text ??= str(d.text);
       facts.sources.push("syndication");
     }
@@ -71,7 +73,7 @@ export async function fetchPostFacts(handle: string, id: string): Promise<PostFa
     const h = str(a?.screen_name);
     if (d.code === 200 && String(d.tweet?.id ?? "") === id && h) {
       handles.push(h);
-      facts.userId ??= str(a?.id);
+      facts.userId ??= xid(a?.id);
       facts.text ??= str(d.tweet?.text);
       facts.followers = num(a?.followers);
       facts.accountCreated = iso(a?.joined);

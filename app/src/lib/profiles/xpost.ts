@@ -31,10 +31,13 @@ export function isXCode(v: unknown): v is string {
   return typeof v === "string" && new RegExp(`^${X_CODE_PREFIX}[${X_CODE_ALPHABET}]{${X_CODE_LEN}}$`).test(v);
 }
 
-/** The code as a whole word in the post (case-insensitive; a longer code that merely contains it does not count). */
+/**
+ * The code as its own word in the post (case-insensitive): whitespace or the start before it, whitespace, the end or
+ * sentence punctuation after it. Inside a link ("site.xyz/OL-…") or a longer code it does not count.
+ */
 export function containsCode(text: string | null | undefined, code: string): boolean {
   if (!text || !isXCode(code)) return false;
-  return new RegExp(`(^|[^A-Za-z0-9-])${code.replace("-", "\\-")}($|[^A-Za-z0-9])`, "i").test(text);
+  return new RegExp(`(^|\\s)${code.replace("-", "\\-")}(?=$|\\s|[.,!?;:)])`, "i").test(text);
 }
 
 /** A post link as people paste it (x.com, twitter.com, mobile, with ?s= or /photo/1 tails). Null for anything else. */
