@@ -97,7 +97,8 @@ test("the watchlist star sits outside the row link, and the tab survives a back 
   assert.match(list, /if \(v === "watchlist"\) p\.set\("view", "watchlist"\);/);
   assert.match(home, /initialView=\{sp\.view === "watchlist" \? "watchlist" : "market"\}/);
   assert.match(list, /setListParams\(view === "market" \? \{ \.\.\.selection, limit \} : null\)/, "the shared poll skips the market list while the watchlist is open");
-  assert.match(list, /request\.delete\("view"\);/, "the list API never receives the view");
+  assert.match(list, /const request = new URLSearchParams\(\{ sort: next\.sort, window: next\.window, limit: String\(PAGE_SIZE\) \}\);/, "the list API request is built from the selection, so it never receives the view");
+  assert.doesNotMatch(list.slice(list.indexOf("function loadSelection"), list.indexOf("const nq = normalizeQuery(q);")), /request\.set\("view"/);
 });
 
 test("the bubble map lays out once per update with no animation timer, and stays decorative like the river", () => {

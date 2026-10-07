@@ -84,6 +84,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const interaction = useRef({ pointer: false, focus: false, at: 0 });
   const listRef = useRef<HTMLUListElement>(null);
   const section = usePauseOffscreen<HTMLElement>(); // a beacon pulses on every live row: not while the list is far off screen
+  const failedLoad = useRef<"view" | "more">("view");
 
   useEffect(() => {
     // the watchlist reads its own endpoint; the shared poll only carries the market list while it is on screen
@@ -138,7 +139,11 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     }
   }), [subscribe]);
 
-  /** The URL carries the view as well as the selection, so going back to the page reopens the same tab. */
+  /**
+   * The URL carries the view as well as the selection, so going back to the page reopens the same tab. On the home page
+   * the list already holds the data, so only the address changes (history.replaceState syncs with the Next router):
+   * router.replace would re-render the whole page on the server, and a failing render there unmounts the page.
+   */
   function syncUrl(next: Selection, v: ListView): URLSearchParams {
     const p = new URLSearchParams();
     if (next.sort !== "live") p.set("sort", next.sort);
@@ -146,7 +151,9 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     if (next.chain) p.set("chain", next.chain);
     if (next.filter) p.set("filter", next.filter);
     if (v === "watchlist") p.set("view", "watchlist");
-    router.replace(p.size ? `/?${p}` : "/", { scroll: false });
+    const href = p.size ? `/?${p}` : "/";
+    if (window.location.pathname === "/") window.history.replaceState(null, "", href);
+    else router.replace(href, { scroll: false }); // a chain page hands over to the home page
     return p;
   }
 
@@ -158,22 +165,27 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     }
     setView(v);
     selectionRef.current = next;
-    const version = ++generation.current;
-    selectionRequest.current?.abort();
-    const controller = new AbortController();
-    selectionRequest.current = controller;
     pendingOrder.current = null;
     setHolding(false);
     setSelection(next);
     limitRef.current = PAGE_SIZE;
     setLimit(PAGE_SIZE);
     setLoadingMore(false);
+    syncUrl(next, v);
+    loadSelection(next);
+  }
+
+  /** Fetches the first page of a selection. A failure leaves the rows on screen and offers a retry; it never throws into render. */
+  function loadSelection(next: Selection) {
+    const version = ++generation.current;
+    selectionRequest.current?.abort();
+    const controller = new AbortController();
+    selectionRequest.current = controller;
     setUpdating(true);
     setLoadError(null);
-    const request = syncUrl(next, v);
-    request.delete("view");
-    request.set("sort", s); // the URL omits the default sort, but the API defaults to "new": the request must always carry it
-    request.set("limit", String(PAGE_SIZE));
+    const request = new URLSearchParams({ sort: next.sort, window: next.window, limit: String(PAGE_SIZE) }); // the API defaults the sort to "new": the request must always carry it
+    if (next.chain) request.set("chain", next.chain);
+    if (next.filter) request.set("filter", next.filter);
     void fetch(`/api/launch/list?${request}`, { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error("List unavailable");
@@ -185,7 +197,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         setHasMore(data.has_more);
         setHl(new Map());
       })
-      .catch(() => { if (!controller.signal.aborted && generation.current === version) setLoadError("Could not refresh this view. Live updates will retry."); })
+      .catch(() => { if (!controller.signal.aborted && generation.current === version) { failedLoad.current = "view"; setLoadError("Could not refresh this view."); } })
       .finally(() => { if (generation.current === version) setUpdating(false); });
   }
 
@@ -233,7 +245,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
       limitRef.current = Math.min(200, merged.length);
       setLimit(limitRef.current);
     } catch {
-      if (generation.current === version) setLoadError("Could not load more launches. Please try again.");
+      if (generation.current === version) { failedLoad.current = "more"; setLoadError("Could not load more launches."); }
     } finally {
       if (generation.current === version) setLoadingMore(false);
     }
@@ -342,7 +354,10 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
           {nq || filter || chain ? <button type="button" onClick={reset} className={btn.secondarySm}>Clear search & filters</button> : <Link href="/launch" className={btn.secondarySm}>Launch the first token <ArrowRight size={13} aria-hidden="true" /></Link>}
         </li> : null}
       </ul>
-      {loadError || searchResult?.error ? <p role="alert" className={`py-3 text-xs text-warm-ink ${pad}`}>{loadError || "Search is unavailable. Showing matches from loaded launches."}</p> : null}
+      {loadError || searchResult?.error ? <p role="alert" className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-xs text-warm-ink ${pad}`}>
+        {loadError || "Search is unavailable. Showing matches from loaded launches."}
+        {loadError ? <button type="button" onClick={() => void (failedLoad.current === "more" ? loadMore() : loadSelection(selectionRef.current))} disabled={loadingMore || updating} className="font-medium underline underline-offset-2 hover:text-ink disabled:opacity-60">Try again</button> : null}
+      </p> : null}
       <div className={`flex min-h-14 items-center justify-center py-3 ${pad}`}>
         {!nq && hasMore && rows.length < 200 ? <button type="button" onClick={() => void loadMore()} disabled={loadingMore || updating} className={btn.secondarySm}>{loadingMore ? <><Spinner size={13} /> Loading…</> : <>Load more <ArrowRight size={13} aria-hidden="true" /></>}</button> : <p className="text-center text-[11px] text-muted">{nq ? "Search includes older launches." : rows.length >= 200 && hasMore ? "Showing the first 200. Search or filter to narrow the list." : shown.length ? "You're all caught up." : "One transaction. Zero platform fee."}</p>}
       </div>
