@@ -100,6 +100,27 @@ export function decodeEntities(s: string): string {
 }
 
 /**
+ * Markup → text in one pass: everything from a `<` to the next `>` is dropped (a `<br>` becomes a line break), and an
+ * unclosed `<` drops the rest. A single scan, so no tag can be rebuilt from the pieces of another.
+ */
+function stripTags(html: string): string {
+  let out = "";
+  let tag: string | null = null;
+  for (const ch of html) {
+    if (tag === null) {
+      if (ch === "<") tag = "";
+      else out += ch;
+    } else if (ch === ">") {
+      if (/^br\s*\/?$/i.test(tag)) out += "\n";
+      tag = null;
+    } else {
+      tag += ch;
+    }
+  }
+  return out;
+}
+
+/**
  * The post text inside X's oEmbed HTML (`<blockquote><p>…</p>— name (@handle) <a>date</a></blockquote>`), as plain
  * text. It is only ever searched for the code, never rendered; still, after the tags are dropped and the entities
  * decoded, every remaining angle bracket goes too, so no markup can survive in it however the input is shaped.
@@ -107,9 +128,7 @@ export function decodeEntities(s: string): string {
 export function oembedText(html: string): string | null {
   const m = /<p\b[^>]*>([\s\S]*?)<\/p>/i.exec(html);
   if (!m) return null;
-  return decodeEntities(m[1].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, ""))
-    .replace(/[<>]/g, "")
-    .trim();
+  return decodeEntities(stripTags(m[1])).replace(/[<>]/g, "").trim();
 }
 
 /** Handle from an oEmbed author_url (https://x.com/<handle>). */
