@@ -19,6 +19,4 @@ export const HERO = {
       the page. From 640px the row never wraps, as before: the two-column hero at tablet widths is laid out around one row. */
   actions: "mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:flex-nowrap sm:gap-4 lg:mt-6",
   proofs: "mt-5 flex flex-wrap gap-2 lg:mt-4",
-  /** the live ticker that closes the hero */
-  ticker: "mt-4 sm:mt-5",
 } as const;

@@ -1,16 +1,26 @@
 /* The hero's grid, in three arrangements. Phones: copy, the locker, then the totals. From 768px the text sits left of the
    locker and the totals run under both. From 1024px the totals move up into the left column under the text, and the locker
    takes the whole height beside them: copy hugs the bottom of its row and the totals the top of theirs, so the pair stays
-   together however tall the locker is. */
-.layout { display: grid; align-items: center; column-gap: 2.5rem; row-gap: 1.25rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "copy" "stage" "totals"; }
+   together however tall the locker is. The live line is the grid's last row up to 1023px (full width). From 1024px it moves
+   into the locker's column, right under the frame as its caption, and the pair centers together (two renderings of the
+   line, one shown at each size: the hidden one is display:none, so nothing reads or tabs through it twice). */
+.layout { display: grid; align-items: center; column-gap: 2.5rem; row-gap: 1.25rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "copy" "stage" "totals" "ticker"; }
 .copyArea { grid-area: copy; min-width: 0; }
 .totalsArea { grid-area: totals; min-width: 0; }
-@media (min-width: 640px) { .layout { row-gap: 2rem; } }
-@media (min-width: 768px) { .layout { grid-template-columns: minmax(0, 1.06fr) minmax(0, 1fr); grid-template-areas: "copy stage" "totals totals"; } }
+/* the line used to sit outside the grid, 16px (phones) or 20px under it: the negative margin keeps that spacing against the row gap */
+.tickerArea { grid-area: ticker; min-width: 0; margin-top: -0.25rem; }
+/* the locker's column: below 1024px it only wraps the stage (display: contents leaves the stage a grid item, as before) */
+.stageCol { display: contents; }
+.layout .tickerStage { display: none; }
+@media (min-width: 640px) { .layout { row-gap: 2rem; } .tickerArea { margin-top: -0.75rem; } }
+@media (min-width: 768px) { .layout { grid-template-columns: minmax(0, 1.06fr) minmax(0, 1fr); grid-template-areas: "copy stage" "totals totals" "ticker ticker"; } }
 @media (min-width: 1024px) {
   .layout { grid-template-areas: "copy stage" "totals stage"; row-gap: 1.25rem; }
   .copyArea { align-self: end; }
   .totalsArea { align-self: start; }
+  .layout .tickerArea { display: none; }
+  .stageCol { display: flex; flex-direction: column; gap: 0.875rem; grid-area: stage; align-self: center; min-width: 0; }
+  .layout .tickerStage { display: flex; }
 }
 @media (min-width: 1280px) { .layout { column-gap: 3.5rem; } }
 

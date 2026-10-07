@@ -74,16 +74,21 @@ export default function LaunchHero({ configured }: { configured: boolean }) {
           ) : null}
         </div>
         {/* the stage: a faint plotting grid and four corner marks frame the mechanism like a drawing on a bench */}
-        <div className={styles.stage}>
-          <span className={styles.grid} aria-hidden="true" />
-          {["tl", "tr", "bl", "br"].map((corner) => <span key={corner} className={styles.corner} data-corner={corner} aria-hidden="true" />)}
-          <div className="relative"><HeroLocker imageBase={coinPicturesEnabled() ? imagePublicBase() : null} /></div>
+        <div className={styles.stageCol}>
+          <div className={styles.stage}>
+            <span className={styles.grid} aria-hidden="true" />
+            {["tl", "tr", "bl", "br"].map((corner) => <span key={corner} className={styles.corner} data-corner={corner} aria-hidden="true" />)}
+            <div className="relative"><HeroLocker imageBase={coinPicturesEnabled() ? imagePublicBase() : null} /></div>
+          </div>
+          {/* from 1024px the live line is the locker's caption, right under its frame */}
+          <LiveTicker className={styles.tickerStage} />
         </div>
         <div className={styles.totalsArea}>
           <LaunchMechanism />
         </div>
+        {/* below 1024px the line is the grid's last row, full width */}
+        <LiveTicker className={styles.tickerArea} />
       </div>
-      <LiveTicker className={HERO.ticker} />
     </section>
   );
 }
