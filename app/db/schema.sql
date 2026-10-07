@@ -423,5 +423,9 @@ CREATE TABLE IF NOT EXISTS bb_points (
   computed_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (season_id, wallet)
 );
+-- added after the table was first written (a database built from the first draft lacks them)
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS computed_at timestamptz;
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS computed_until timestamptz;   -- the data cut-off of the last compute
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS published_at timestamptz;     -- first publish: the season's clock starts here
 CREATE INDEX IF NOT EXISTS bb_points_creator_idx ON bb_points (season_id, rank_creator) WHERE rank_creator IS NOT NULL;
 CREATE INDEX IF NOT EXISTS bb_points_scout_idx ON bb_points (season_id, rank_scout) WHERE rank_scout IS NOT NULL;

@@ -6,7 +6,7 @@ import NamesProvider from "@/components/profile/NamesProvider";
 import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import YourStanding from "@/components/points/YourStanding";
 import { memo } from "@/lib/launchpad/memo";
-import { boardRows, currentSeason, seasonEnded, type Board } from "@/lib/points/server";
+import { boardRows, publicSeason, seasonEnded, type Board } from "@/lib/points/server";
 import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +19,9 @@ function daysLeft(endsAt: string): number {
 export default async function LeaderboardPage({ searchParams }: { searchParams: Promise<{ board?: string }> }) {
   const { board: raw } = await searchParams;
   const board: Board = raw === "scout" ? "scout" : "creator";
-  const season = await memo("points:season", 10_000, currentSeason);
+  const season = await memo("points:public-season", 10_000, publicSeason);
 
-  if (!season?.public) {
+  if (!season) {
     return (
       <main className={shell.page}>
         <section className="rounded-2xl border border-line bg-card p-6 sm:p-10">

@@ -12,7 +12,7 @@ import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
 
 type Row = { rank: number; wallet: string; points: number; eligible: boolean; why: string };
-type Preview = { season: { name: string; starts_at: string; ends_at: string; public: boolean } | null; creator?: Row[]; scout?: Row[]; names?: Record<string, NameEntry>; computed_at?: string | null; wallets?: number; eligible?: number; at: number };
+type Preview = { season: { name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null } | null; creator?: Row[]; scout?: Row[]; names?: Record<string, NameEntry>; computed_at?: string | null; wallets?: number; eligible?: number; at: number };
 
 function nonce(): string {
   const b = new Uint8Array(16);
@@ -102,7 +102,7 @@ export default function PointsAdmin() {
             )}
             <div className="flex flex-wrap gap-2">
               {!running ? <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void run("start", { days: 28 })}>Start a 28-day season</button> : null}
-              {s && !s.public ? <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void run("publish")}>Publish: {s.name} starts now</button> : null}
+              {s && !s.public ? <button type="button" disabled={busy} className={!s.published_at && running ? btn.primarySm : btn.secondarySm} onClick={() => void run("publish")}>{!s.published_at && running ? `Publish: ${s.name} starts now` : "Show boards"}</button> : null}
               {s && s.public ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("unpublish")}>Hide boards</button> : null}
               {s ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("recompute")}>Recompute now</button> : null}
               {running ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("end")}>End season now</button> : null}

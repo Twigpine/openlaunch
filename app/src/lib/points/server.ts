@@ -18,16 +18,24 @@ import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type Creat
  * season on the next run. A run whose prices are incomplete writes nothing: the last board stays.
  */
 
-export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null };
+export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null };
 export type Board = "creator" | "scout";
 export type BoardRow = { rank: number; wallet: string; points: number; why: string };
 export type WalletPoints = { creator: number; scout: number; total: number; eligible: boolean; rank_creator: number | null; rank_scout: number | null; why_creator: string; why_scout: string; computed_at: string };
 
-/** The current season: the latest one that has started (a finished one stays as the final standings until the next). */
+/** The current season: the latest one that has started, public or not (the admin's and the compute's season). */
 export async function currentSeason(): Promise<Season | null> {
   const db = maybeDb();
   if (!db) return null;
-  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at FROM bb_seasons WHERE starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
+  return s ?? null;
+}
+
+/** The season everyone sees: the latest public one (an ended one keeps showing its final standings while the next is in its shadow run). */
+export async function publicSeason(): Promise<Season | null> {
+  const db = maybeDb();
+  if (!db) return null;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE public AND starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
   return s ?? null;
 }
 
@@ -35,9 +43,9 @@ export function seasonEnded(s: Pick<Season, "ends_at">, now = Date.now()): boole
   return new Date(s.ends_at).getTime() <= now;
 }
 
-/** The final standings are fixed once a compute has run after the season's end. */
+/** The final standings are fixed once a compute has read the data through the season's end. */
 function isFinal(s: Season): boolean {
-  return Boolean(s.computed_at && seasonEnded(s) && new Date(s.computed_at).getTime() > new Date(s.ends_at).getTime());
+  return Boolean(s.computed_until && new Date(s.computed_until).getTime() >= new Date(s.ends_at).getTime());
 }
 
 // ── compute ──────────────────────────────────────────────────────────────────
@@ -68,6 +76,10 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const cids = [...scope.values()].map((x) => x.cid);
   const toks = [...scope.values()].map((x) => x.token);
 
+  // ETH, GITLAWB and TWIG price most of the board: without them the run would be wrong everywhere, so it writes
+  // nothing. Any other quote without a price (a stock, MUSEWORLD) only takes its own tokens out of this run.
+  const MAIN_QUOTES = new Set(["eth", "gitlawb", "twig"]);
+  let dropped = 0;
   const launchRows = await read<LaunchRowRaw[]>`
     SELECT l.chain_id, l.token, l.launcher, l.recipients, l.block_number, l.block_time, l.lp_fee, l.quote, l.sqrt_price_x96
       FROM bb_launches l JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON l.chain_id = u.cid AND l.token = u.tok`;
@@ -75,8 +87,11 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   for (const l of launchRows) {
     const chain = chainKeyOf(l.chain_id) as ChainKey;
     const q = price(chain, l.quote);
-    // a listed quote (ETH, TWIG, GITLAWB, USDG, a stock…) without a price right now = an outage: keep the last board
-    if (q.usd === null && q.key !== "other") return { skipped: `no price for ${q.key}` };
+    if (q.usd === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
+    if (q.usd === null) {
+      dropped++;
+      continue;
+    }
     const perToken = l.sqrt_price_x96 ? quotePerToken(BigInt(l.sqrt_price_x96), q.decimals) : 0;
     launches.push({
       key: keyOf(l.chain_id, l.token),
@@ -179,8 +194,9 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
                       ${part.map((r) => JSON.stringify(r.breakdown))}::text[])
                AS u(w, c, s, tot, e, rc, rs, b)`; // booleans and nullable ints travel as text: the driver does not type those arrays
     }
-    await t`UPDATE bb_seasons SET computed_at = now() WHERE id = ${season.id}`;
+    await t`UPDATE bb_seasons SET computed_at = now(), computed_until = ${until} WHERE id = ${season.id}`;
   });
+  if (dropped) console.log(`[points] ${season.slug}: ${dropped} token(s) without a price left out of this run`);
   return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0 };
 }
 
@@ -275,21 +291,29 @@ export async function startSeason(days = 28): Promise<Season> {
   const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM bb_seasons`;
   const [s] = await db<Season[]>`
     INSERT INTO bb_seasons (slug, name, starts_at, ends_at, public) VALUES (${`s${n + 1}`}, ${`Season ${n + 1}`}, now(), now() + make_interval(days => ${days}), false)
-    RETURNING id, slug, name, starts_at, ends_at, public, computed_at`;
+    RETURNING id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at`;
   return s;
 }
 
 /**
- * Publishing starts the season for everyone: its clock restarts now with the same length, and the shadow run's points
- * are dropped (they were for tuning). Hiding again keeps the clock.
+ * The FIRST publish starts the season for everyone: its clock restarts now with the same length and the shadow run's
+ * points are dropped (they were for tuning). Any later publish (after hiding the boards, or of an ended season) only
+ * shows the boards again: the clock and the points stay as they are.
  */
-export async function publishSeason(id: number): Promise<void> {
+export async function publishSeason(id: number): Promise<"started" | "shown"> {
   const db = maybeDb()!;
-  await db.begin(async (tx) => {
+  return db.begin(async (tx) => {
     const t = tx as unknown as Db;
-    await t`UPDATE bb_seasons SET public = true, ends_at = now() + (ends_at - starts_at), starts_at = now(), computed_at = NULL WHERE id = ${id} AND NOT public`;
-    await t`DELETE FROM bb_points WHERE season_id = ${id}`;
-  });
+    const first = await t`
+      UPDATE bb_seasons SET public = true, published_at = now(), ends_at = now() + (ends_at - starts_at), starts_at = now(), computed_at = NULL, computed_until = NULL
+       WHERE id = ${id} AND published_at IS NULL AND ends_at > now() RETURNING id`;
+    if (first.length) {
+      await t`DELETE FROM bb_points WHERE season_id = ${id}`;
+      return "started" as const;
+    }
+    await t`UPDATE bb_seasons SET public = true WHERE id = ${id}`;
+    return "shown" as const;
+  }) as Promise<"started" | "shown">;
 }
 
 export async function hideSeason(id: number): Promise<void> {
@@ -302,9 +326,14 @@ export async function endSeasonNow(id: number): Promise<void> {
   await db`UPDATE bb_seasons SET ends_at = LEAST(ends_at, now()) WHERE id = ${id}`;
 }
 
-/** The final standings of an ended season, before another one starts (so starting never skips them). */
-export async function finalizeIfEnded(season: Season): Promise<void> {
-  if (seasonEnded(season) && !isFinal(season)) await computeLocked(season);
+/** The final standings of an ended season, before another one starts (so starting never skips them). True = final. */
+export async function finalizeIfEnded(season: Season): Promise<boolean> {
+  if (!seasonEnded(season)) return false;
+  if (isFinal(season)) return true;
+  await computeLocked(season);
+  const db = maybeDb()!;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE id = ${season.id}`;
+  return Boolean(s && isFinal(s));
 }
 
 /** The shadow view for admins: top wallets on each board, eligible or not, with why lines (the trial-week review). */

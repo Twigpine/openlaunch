@@ -25,17 +25,18 @@ export async function POST(req: Request) {
     switch (action) {
       case "start": {
         if (season && !seasonEnded(season)) return NextResponse.json({ error: `${season.name} is still running` }, { status: 409 });
-        if (season) await finalizeIfEnded(season);
+        if (season && !(await finalizeIfEnded(season))) return NextResponse.json({ error: `${season.name}'s final standings could not be computed yet; try again in a minute` }, { status: 409 });
         const days = Math.min(90, Math.max(1, Math.trunc(Number(b.days) || 28)));
         const s = await startSeason(days);
         void recomputeNow().catch(() => {});
         return NextResponse.json({ ok: true, season: s });
       }
-      case "publish":
+      case "publish": {
         if (!season) return NextResponse.json({ error: "no season" }, { status: 404 });
-        await publishSeason(season.id);
-        void recomputeNow().catch(() => {});
-        return NextResponse.json({ ok: true });
+        const r = await publishSeason(season.id);
+        if (r === "started") void recomputeNow().catch(() => {});
+        return NextResponse.json({ ok: true, result: r });
+      }
       case "unpublish":
         if (!season) return NextResponse.json({ error: "no season" }, { status: 404 });
         await hideSeason(season.id);

@@ -18,7 +18,7 @@ import { fmtUsd } from "@/lib/launchpad/math";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAIN_SHORT, SITE_URL, explorerTx } from "@/lib/chainPublic";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
-import { currentSeason, walletPoints } from "@/lib/points/server";
+import { publicSeason, walletPoints } from "@/lib/points/server";
 import { Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -63,8 +63,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   const ownName = { u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" };
   // season points, once the season is public, for a wallet that qualifies
   // fails soft: a points hiccup never takes the profile page down
-  const season = await memo("points:season", 10_000, currentSeason).catch(() => null);
-  const pts = season?.public ? await memo(`points:me:${season.id}:${p.wallet}`, 10_000, () => walletPoints(season.id, p.wallet)).catch(() => null) : null;
+  const season = await memo("points:public-season", 10_000, publicSeason).catch(() => null);
+  const pts = season ? await memo(`points:me:${season.id}:${p.wallet}`, 10_000, () => walletPoints(season.id, p.wallet)).catch(() => null) : null;
   const showPts = Boolean(season && pts && pts.eligible && pts.total > 0);
   const now = nowMs();
   const joined = new Date(p.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });

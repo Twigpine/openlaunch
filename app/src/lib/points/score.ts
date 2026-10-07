@@ -14,14 +14,16 @@
  *   Creator (any token the wallet launched; only activity inside the season counts)
  *     - each real holder whose first buy was in the season, a day or more ago: 30 if their profile is points-eligible,
  *       else 5; a week or more ago: half again. A holder counts once per creator (their best token).
- *     - 10 per $1 of fees from trades ≥ $5 by points-eligible outside traders; at most 50 per trader per creator per day
+ *     - 10 per $1 of fees on buys ≥ $5 by points-eligible outside traders who still hold half of what they bought this
+       season (net buyers: a round trip earns nothing); at most 50 per trader per creator per day
  *     - a token scores 0 if its creator sold during the season and now keeps less than half of what they bought
  *     - of the tokens a wallet launched on one UTC day, only the best 3 count
  *   Scout (traders)
  *     - one of the first 25 real buyers of a token that now has 50+ real holders, buying in the season: 100, and 50
  *       more while still holding half of that first buy
  *     - 5 per token first bought in the season (≥ $5) and still half-held a day later; at most 20 tokens per UTC day
- *     - 10 per $1 of fees paid (trades ≥ $5) on other people's tokens with 20+ real holders; at most 200 a day
+ *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ real holders (5+ of them eligible), while
+       still holding half of what you bought of it this season; at most 200 a day
  *
  * Only points-eligible wallets rank; everyone else sees what is waiting for them.
  */
@@ -48,6 +50,7 @@ export const RULES = {
   scoutFeePointsPerUsd: 10,
   scoutFeeCapPerDay: 200,
   scoutFeeMinHolders: 20,
+  scoutFeeMinEligibleHolders: 5,
   // points-eligible profile: X-verified on an account this old with this many followers
   eligibleMinAgeDays: 30,
   eligibleMinFollowers: 20,
@@ -153,6 +156,14 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     outside.push(s);
   }
 
+  // net buyers: a trader's buys of a token earn fee points only while they hold half of what they bought this season,
+  // so a round trip (the fees coming back to a farmer's own token) earns nothing and washing ties up real capital
+  const seasonBought = new Map<string, bigint>();
+  for (const s of outside) if (s.isBuy) seasonBought.set(`${s.key}|${s.trader}`, (seasonBought.get(`${s.key}|${s.trader}`) ?? 0n) + s.tokenRaw);
+  const netBuyer = (key: string, w: string) => halfHeld(key, w, seasonBought.get(`${key}|${w}`) ?? 0n);
+  const eligibleHolders = new Map<string, number>();
+  for (const [key, list] of realHolders) eligibleHolders.set(key, list.filter((f) => input.eligible.has(f.wallet)).length);
+
   // ── creator points ──
   type TokenCreator = { l: ScoreLaunch; holders: { wallet: string; pts: number; eligible: boolean }[]; fees: { trader: string; day: number; usd: number }[]; dumped: boolean };
   const perToken = new Map<string, TokenCreator>();
@@ -174,7 +185,8 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     }
   }
   for (const s of outside) {
-    if (!input.eligible.has(s.trader)) continue; // fees count only from points-eligible traders: wash trades need real accounts
+    // fees count only on buys by points-eligible traders who are net buyers: wash trades need real accounts and capital
+    if (!s.isBuy || !input.eligible.has(s.trader) || !netBuyer(s.key, s.trader)) continue;
     const l = launches.get(s.key)!;
     const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
@@ -197,19 +209,34 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     const value = new Map<TokenCreator, number>();
     const counted = new Set<string>();
     const feeUsed = new Map<string, number>();
-    // holders: assign each holder to the token where they are worth the most (ties: first)
-    const holderBest = new Map<string, { t: TokenCreator; pts: number; eligible: boolean }>();
-    for (const t of tokens) {
-      if (t.dumped) continue;
-      for (const h of t.holders) {
-        const cur = holderBest.get(h.wallet);
-        if (!cur || h.pts > cur.pts) holderBest.set(h.wallet, { t, pts: h.pts, eligible: h.eligible });
+    // holders: each holder once, on the token where they are worth the most. Two passes: pick each launch day's best
+    // tokens with every holder on their best token, then put each holder on their best token among those that count,
+    // so a holder whose favourite token was cut still counts on another
+    const assign = (allowed: (t: TokenCreator) => boolean) => {
+      const best = new Map<string, { t: TokenCreator; pts: number; eligible: boolean }>();
+      for (const t of tokens) {
+        if (t.dumped || !allowed(t)) continue;
+        for (const h of t.holders) {
+          const cur = best.get(h.wallet);
+          if (!cur || h.pts > cur.pts) best.set(h.wallet, { t, pts: h.pts, eligible: h.eligible });
+        }
       }
+      return best;
+    };
+    const firstPass = new Map<TokenCreator, number>();
+    for (const [, h] of assign(() => true)) firstPass.set(h.t, (firstPass.get(h.t) ?? 0) + h.pts);
+    const kept = new Set<TokenCreator>();
+    const daysFirst = new Map<number, TokenCreator[]>();
+    for (const t of tokens) {
+      const d = utcDay(t.l.launchTime);
+      daysFirst.set(d, [...(daysFirst.get(d) ?? []), t]);
     }
+    for (const list of daysFirst.values()) for (const t of [...list].sort((a, b) => (firstPass.get(b) ?? 0) + b.fees.length - ((firstPass.get(a) ?? 0) + a.fees.length)).slice(0, RULES.bestTokensPerDay)) kept.add(t);
+    const holderBest = assign((t) => kept.has(t));
     for (const [, h] of holderBest) value.set(h.t, (value.get(h.t) ?? 0) + h.pts);
     const feeUsd = new Map<TokenCreator, number>();
     for (const t of tokens) {
-      if (t.dumped) continue;
+      if (t.dumped || !kept.has(t)) continue;
       for (const f of t.fees) {
         const k = `${f.trader}|${f.day}`;
         const used = feeUsed.get(k) ?? 0;
@@ -276,7 +303,8 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   }
   const scoutFeeUsed = new Map<string, number>();
   for (const s of outside) {
-    if (holderCount(s.key) < RULES.scoutFeeMinHolders) continue;
+    if (!s.isBuy || !netBuyer(s.key, s.trader)) continue;
+    if (holderCount(s.key) < RULES.scoutFeeMinHolders || (eligibleHolders.get(s.key) ?? 0) < RULES.scoutFeeMinEligibleHolders) continue;
     const l = launches.get(s.key)!;
     const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;
     if (fee <= 0) continue;

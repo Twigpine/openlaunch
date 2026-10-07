@@ -117,14 +117,21 @@ test("holds: first buy ≥ $5 this season, half still held a day later; 20 token
   assert.equal(soldDown.wallets.get(w(2))?.scoutWhy.holds ?? 0, 0, "sold down to 40%: no hold");
 });
 
-test("scout fees: 20+ real holders, ≥ $5 trades, at most 200 a day across all tokens", () => {
+test("scout fees: net buyers on tokens with 20+ real holders (5+ eligible), at most 200 a day; round trips earn nothing", () => {
   const holders = Array.from({ length: 20 }, (_, i) => buyer(w(100 + i), START + DAY, 0.003));
-  const trades: ScoreSwap[] = Array.from({ length: 60 }, (_, i) => ({ key: L.key, trader: w(1), isBuy: i % 2 === 0, quoteRaw: eth(1), tokenRaw: E18, block: 6000 + i, logIndex: i, time: START + 2 * DAY + i }));
-  const r = scoreSeason(build(holders, { swaps: [...holders.map((h) => h.swap), ...trades] }));
-  assert.equal(Math.round(r.wallets.get(w(1))!.scoutWhy.feesUsd * 10) <= RULES.scoutFeeCapPerDay * 10, true);
-  assert.equal(r.wallets.get(w(1))!.scout, RULES.scoutFeeCapPerDay);
-  const thin = scoreSeason(input({ swaps: trades }));
-  assert.equal(thin.wallets.get(w(1))?.scout ?? 0, 0, "no real holders: no scout fee points");
+  const eligible = new Set(holders.slice(0, 5).map((h) => h.first.wallet));
+  // w(1) buys 1 ETH 30 times and keeps all of it: $20 fees each → capped at 200 points that day
+  const buys: ScoreSwap[] = Array.from({ length: 30 }, (_, i) => ({ key: L.key, trader: w(1), isBuy: true, quoteRaw: eth(1), tokenRaw: tokensFor(1), block: 6000 + i, logIndex: i, time: START + 2 * DAY + i }));
+  const kept = { key: L.key, wallet: w(1), balanceRaw: tokensFor(1) * 30n };
+  const base = { swaps: [...holders.map((h) => h.swap), ...buys], firstBuys: holders.map((h) => h.first), holders: [...holders.map((h) => h.holder), kept], eligible };
+  assert.equal(scoreSeason(input(base)).wallets.get(w(1))!.scoutWhy.feesUsd > 0, true);
+  assert.equal(scoreSeason(input(base)).wallets.get(w(1))!.scout <= RULES.scoutFeeCapPerDay + RULES.hold, true);
+  const roundTrip = scoreSeason(input({ ...base, holders: holders.map((h) => h.holder) })); // sold it all again
+  assert.equal(roundTrip.wallets.get(w(1))?.scoutWhy.feesUsd ?? 0, 0, "a round trip earns no fee points");
+  const fewEligible = scoreSeason(input({ ...base, eligible: new Set() }));
+  assert.equal(fewEligible.wallets.get(w(1))?.scoutWhy.feesUsd ?? 0, 0, "a token without 5 eligible holders earns no scout fees");
+  const thin = scoreSeason(input({ swaps: buys, holders: [kept] }));
+  assert.equal(thin.wallets.get(w(1))?.scoutWhy.feesUsd ?? 0, 0, "no real holders: no scout fee points");
 });
 
 // ── the exploits the review found, as regressions ────────────────────────────
@@ -144,11 +151,14 @@ test("exploit: dust sent to 50 wallets makes none of them holders and unlocks no
   assert.equal(r.wallets.get(w(1))?.scoutWhy.holds ?? 0, 0);
 });
 
-test("exploit: wash trading by an unverified wallet earns the creator nothing; by a verified one, at most 50 a day", () => {
-  const wash: ScoreSwap[] = Array.from({ length: 100 }, (_, i) => ({ key: L.key, trader: "0xpuppet", isBuy: i % 2 === 0, quoteRaw: eth(10), tokenRaw: E18, block: 1000 + i, logIndex: i, time: START + 2 * DAY + i * 1000 }));
+test("exploit: wash trading earns nothing, verified or not; a verified net buyer gives the creator at most 50 a day", () => {
+  const wash: ScoreSwap[] = Array.from({ length: 100 }, (_, i) => ({ key: L.key, trader: "0xpuppet", isBuy: i % 2 === 0, quoteRaw: eth(10), tokenRaw: tokensFor(10), block: 1000 + i, logIndex: i, time: START + 2 * DAY + i * 1000 }));
   assert.equal(scoreSeason(input({ swaps: wash })).wallets.get(CREATOR)?.creator ?? 0, 0);
-  const capped = scoreSeason(input({ swaps: wash, eligible: new Set(["0xpuppet"]) }));
-  assert.equal(capped.wallets.get(CREATOR)!.creator, RULES.creatorFeeCapPerTraderDay);
+  assert.equal(scoreSeason(input({ swaps: wash, eligible: new Set(["0xpuppet"]) })).wallets.get(CREATOR)?.creator ?? 0, 0, "round trips by a verified wallet: the fees come back, no points");
+  const buys = wash.filter((x) => x.isBuy);
+  const holding = { key: L.key, wallet: "0xpuppet", balanceRaw: tokensFor(10) * 50n };
+  const net = scoreSeason(input({ swaps: buys, holders: [holding], eligible: new Set(["0xpuppet"]) }));
+  assert.equal(net.wallets.get(CREATOR)!.creator, RULES.creatorFeeCapPerTraderDay, "$500 of buys still held: capital at stake, capped");
 });
 
 test("exploit: a wallet kept off points (deleted profile or not) scores nothing and counts for no one", () => {

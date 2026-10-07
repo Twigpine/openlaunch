@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { memo } from "@/lib/launchpad/memo";
-import { currentSeason, seasonEnded, walletPoints, walletReason } from "@/lib/points/server";
+import { publicSeason, seasonEnded, walletPoints, walletReason } from "@/lib/points/server";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +12,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const w = (new URL(req.url).searchParams.get("wallet") ?? "").toLowerCase();
   try {
-    const season = await memo("points:season", 10_000, currentSeason);
-    if (!season?.public) return NextResponse.json({ season: null, me: null, reason: null }, { headers: { "cache-control": "no-store" } });
-    const [me, reason] = isAddress(w) ? await Promise.all([memo(`points:me:${season.id}:${w}`, 10_000, () => walletPoints(season.id, w)), memo(`points:why:${w}`, 10_000, () => walletReason(w))]) : [null, null];
+    const season = await memo("points:public-season", 10_000, publicSeason);
+    if (!season) return NextResponse.json({ season: null, me: null, reason: null }, { headers: { "cache-control": "no-store" } });
+    const [me, raw] = isAddress(w) ? await Promise.all([memo(`points:me:${season.id}:${w}`, 10_000, () => walletPoints(season.id, w)), memo(`points:why:${w}`, 10_000, () => walletReason(w))]) : [null, null];
+    // anyone can ask about any wallet: never say whether a moderator hid it or kept it off the boards
+    const reason = raw === "kept_off" || raw === "hidden" ? null : raw;
     return NextResponse.json({ season: { name: season.name, starts_at: season.starts_at, ends_at: season.ends_at, ended: seasonEnded(season) }, me, reason }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     console.error("[points] read failed:", err instanceof Error ? err.message : err);
