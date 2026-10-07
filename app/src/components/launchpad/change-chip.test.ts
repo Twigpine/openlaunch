@@ -6,7 +6,7 @@ import ts from "typescript";
 import { fmtCompact } from "../../lib/launchpad/math.ts";
 import { marketChange } from "../../lib/launchpad/market-format.ts";
 
-type ChipProps = { v: number; plain?: boolean; context?: string; className?: string };
+type ChipProps = { v: number; plain?: boolean; roll?: boolean; context?: string; className?: string };
 type Element = { type: string; props: { className: string; title?: string; children: Element | string } };
 
 // Execute the actual component with an inert JSX runtime and its real pure
@@ -19,6 +19,7 @@ const imports: Record<string, unknown> = {
   "react/jsx-runtime": { jsx: (type: string, props: Element["props"]) => ({ type, props }) },
   "@/lib/launchpad/math": { fmtCompact },
   "@/lib/launchpad/market-format": { marketChange },
+  "./Roll": { default: "Roll" },
 };
 const exported = {} as { default: (props: ChipProps) => Element };
 runInNewContext(compiled, {
@@ -67,3 +68,15 @@ for (const plain of [false, true]) {
     }
   });
 }
+
+test("a chip that rolls hands its text to Roll and shows the same words as one that does not", () => {
+  for (const plain of [false, true]) {
+    for (const v of [0.014, -0.034, 18.7, NaN]) {
+      const still = label(render({ v, plain }));
+      const rolling = label(render({ v, plain, roll: true })) as unknown as { type: string; props: { text: string } };
+      assert.equal(rolling.type, "Roll");
+      assert.equal(rolling.props.text, still);
+    }
+  }
+});
+

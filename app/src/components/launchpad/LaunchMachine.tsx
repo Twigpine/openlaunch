@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { Pause, Play, ArrowUpRight, LockKeyhole } from "lucide-react";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_SHORT, explorerAddress } from "@/lib/chainPublic";
@@ -27,8 +27,12 @@ const motionSnapshot = () => window.matchMedia(MOTION_QUERY).matches;
 const visibilitySnapshot = () => !document.hidden;
 const serverSnapshot = () => false;
 
-/** Original SVG/CSS illustration. The browser owns its clock; React never ticks per frame. */
-export default function LaunchMachine() {
+/**
+ * Original SVG/CSS illustration. The browser owns its clock; React never ticks per frame.
+ * A host may put a picture on the coin's face (`coin`, an already vetted URL) and change the caption (`eyebrow`); with neither it is the drawing /rules shows.
+ */
+export default function LaunchMachine({ coin = null, eyebrow }: { coin?: { key: string; src: string } | null; eyebrow?: string }) {
+  const clip = `coin-clip-${useId().replace(/:/g, "")}`;
   const root = useRef<HTMLDivElement>(null);
   const scene = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState(2);
@@ -74,7 +78,7 @@ export default function LaunchMachine() {
 
   return <div ref={root} className={styles.machine} data-stage={stage} data-loop={looping} data-playing={playing}>
     <div className={styles.heading}>
-      <span className={styles.eyebrow}><span className={styles.crosshair} aria-hidden /> One transaction. Built to stay.</span>
+      <span className={styles.eyebrow}><span className={styles.crosshair} aria-hidden /> {eyebrow ?? "One transaction. Built to stay."}</span>
       <button type="button" onClick={togglePlayback} className={styles.playback} disabled={!motionAllowed} aria-label={!motionAllowed ? "Animation disabled by reduced motion" : paused || inspecting ? "Play launch animation" : "Pause launch animation"}>
         {!motionAllowed ? <span>Motion off</span> : <>{paused || inspecting ? <Play size={12} aria-hidden /> : <Pause size={12} aria-hidden />}<span>{paused || inspecting ? "Play" : "Pause"}</span></>}
       </button>
@@ -123,6 +127,17 @@ export default function LaunchMachine() {
             <ellipse cx="280" cy="88" rx="52" ry="23" className={styles.tokenTop} />
             <ellipse cx="280" cy="88" rx="43" ry="18" className={styles.tokenRing} />
             <g transform="matrix(.86 .38 -.86 .38 280 87)"><path d="M-22 -14H-4V14H-22ZM6 -14V14H24" className={styles.tokenMark} /></g>
+            {/* a real launch's picture, upright and foreshortened to the coin's inner ring (43 x 18); it rides the coin down into the pool */}
+            {coin ? (
+              <g transform="translate(280 88) scale(1 .4186)">
+                <g key={coin.key} className={styles.coinFace}>
+                  <clipPath id={clip}><circle r={43} /></clipPath>
+                  <circle r={43} className={styles.coinDisc} />
+                  <image href={coin.src} x={-43} y={-43} width={86} height={86} preserveAspectRatio="xMidYMid slice" clipPath={`url(#${clip})`} />
+                  <circle r={43} className={styles.coinRing} />
+                </g>
+              </g>
+            ) : null}
           </g>
           </g>
           <g className={styles.callouts}>

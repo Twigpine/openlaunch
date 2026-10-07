@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BANNER_MAX_BYTES, IMAGE_KEY_BYTES, IMAGE_MAX_BYTES, canonicalImageUrl, checkUpload, imageRole, maxBytesFor, imageKey, imageUrlFor, isOwnImageUrl, isWalletParam, randomImageKey, sniffImage } from "./images.ts";
+import { BANNER_MAX_BYTES, IMAGE_KEY_BYTES, IMAGE_MAX_BYTES, canonicalImageUrl, checkUpload, imageRole, maxBytesFor, imageKey, imageUrlFor, isOwnImageUrl, isWalletParam, pictureKey, randomImageKey, reusedPictures, sniffImage } from "./images.ts";
 
 const pad = (head: number[], len = 64) => new Uint8Array([...head, ...new Array(Math.max(0, len - head.length)).fill(0)]);
 const PNG = pad([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -105,4 +105,35 @@ test("a banner is the only other role, and gets a larger upload cap than the log
   big.set(PNG.slice(0, 8));
   assert.equal(checkUpload(big).ok, false, "over the logo cap");
   assert.equal(checkUpload(big, BANNER_MAX_BYTES).ok, true, "within the banner cap");
+});
+
+const KEY = `t/${"ab".repeat(24)}.webp`;
+test("pictureKey finds our key in any URL that points at it and nothing else", () => {
+  assert.equal(pictureKey(`https://openlaunch.lol/api/launch/image/${KEY}`), KEY);
+  assert.equal(pictureKey(`https://old.example/img/${KEY}?x=1#y`), KEY, "another host, a query and a fragment");
+  assert.equal(pictureKey(`https://x/${KEY.toUpperCase().replace("T/", "t/").replace(".WEBP", ".webp")}`), KEY, "upper-case hex is the same key");
+  for (const no of [null, undefined, "", "https://x/a.png", `https://x/${KEY}.png`, `https://x/${KEY}x`, `https://x/t/${"ab".repeat(23)}.webp`, "https://avatars.githubusercontent.com/u/1"]) assert.equal(pictureKey(no), null, String(no));
+});
+
+test("a picture belongs to the first token that registered it: the same key on a later token is a copy", () => {
+  const tok = (n: number) => "0x" + n.toString(16).padStart(40, "0");
+  const url = `https://openlaunch.lol/api/launch/image/${KEY}`;
+  const other = `https://openlaunch.lol/api/launch/image/t/${"cd".repeat(24)}.webp`;
+  const all = [
+    { chain_id: 8453, token: tok(2), created_at: "2026-10-07T10:00:05Z", image_url: url },
+    { chain_id: 8453, token: tok(1), created_at: new Date("2026-10-07T10:00:00Z"), image_url: `${url}?v=2` },
+    { chain_id: 8453, token: tok(3), created_at: "2026-10-07T10:00:09Z", image_url: other },
+    { chain_id: 4663, token: tok(4), created_at: "2026-10-07T10:00:09Z", image_url: null },
+  ];
+  const rows = all.map(({ chain_id, token, image_url }) => ({ chain_id, token, image_url }));
+  assert.deepEqual([...reusedPictures(rows, all)], [`8453:${tok(2)}`], "tok(1) registered it first; tok(2) copied it; the others have their own or none");
+  // a tie goes to the lower address, whatever order the rows arrive in
+  const tie = [{ chain_id: 8453, token: tok(9), created_at: "2026-10-07T10:00:00Z", image_url: url }, { chain_id: 8453, token: tok(7), created_at: "2026-10-07T10:00:00Z", image_url: url }];
+  assert.deepEqual([...reusedPictures(tie, tie)], [`8453:${tok(9)}`]);
+  assert.deepEqual([...reusedPictures(tie, [...tie].reverse())], [`8453:${tok(9)}`]);
+  // an unreadable date is never "first" over a real one, and the same token is never a copy of itself
+  const bad = [{ chain_id: 1, token: tok(5), created_at: "not a date", image_url: url }, { chain_id: 1, token: tok(6), created_at: "2026-10-07T10:00:00Z", image_url: url }];
+  assert.deepEqual([...reusedPictures(bad, bad)], [`1:${tok(5)}`]);
+  assert.equal(reusedPictures([bad[1]], [bad[1]]).size, 0);
+  assert.equal(reusedPictures([], all).size, 0);
 });

@@ -74,7 +74,7 @@ export default function RulesPage() {
               <div><p className={styles.eyebrow}><Rocket size={14} aria-hidden="true" />The launch</p><h2 id="launch-heading">One signature.<br />Four things happen.</h2></div>
               <p>All in the same transaction. <br />No separate setup. No platform fee.</p>
             </div>
-            {/* the animated walk-through that used to open the home page: token, pool, lock */}
+            {/* the animated walk-through that also opens the home page: token, pool, lock */}
             <div className={styles.machine}><LaunchMachine /></div>
             <ol className={styles.steps}>
               {STEPS.map(({ title, description, value, label }, i) => (

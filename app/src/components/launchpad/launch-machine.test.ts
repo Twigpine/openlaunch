@@ -40,9 +40,9 @@ test("hero metrics preserve shared live totals without inventing per-chain dolla
   assert.match(metrics, /fmtUnitsExact\(t\.gitlawb_burned, GITLAWB_DECIMALS\)/, "the title carries every digit of the raw amount (no float, no rounding)");
   assert.doesNotMatch(metrics, /fmtUsd\([^)]*gitlawb/i, "the GITLAWB burn is never priced in USD");
   assert.doesNotMatch(metrics, /by_chain\.\w+\.gitlawb_burned/, "no per-chain split for the GITLAWB burn");
-  // the breakdown opens as a popover over the page (no layout shift); the GITLAWB burn stays inside it
-  const popup = metrics.indexOf("<Popover.Popup");
-  assert.ok(popup >= 0 && metrics.indexOf(">GITLAWB burned<") > popup, "the GITLAWB burn stays behind the breakdown toggle");
+  // the breakdown opens in place, under the strip (a disclosure that works without a pointer); the GITLAWB burn stays inside it
+  const details = metrics.indexOf("<details");
+  assert.ok(details >= 0 && metrics.indexOf(">GITLAWB burned<") > details, "the GITLAWB burn stays behind the breakdown toggle");
   assert.match(metrics, /All-time volume/);
   assert.match(metrics, /Fees to recipients/);
   assert.doesNotMatch(metrics, /volume_quote_eth|volume_quote_usdg|\bfetch\s*\(|\bsetInterval\s*\(/);
@@ -107,4 +107,23 @@ test("step selection and copy follow CSS phase events, including the loop seam",
   }
   assert.match(css, /\.stageProgress\[data-phase\] \{ animation-play-state: var\(--motion-state\); \}/);
   assert.match(css, /:is\(\.stageProgress\[data-phase\], \.detailContent\[aria-hidden\]\) \{ animation: none; \}/);
+});
+
+test("the home hero shows the looping locker and points to the rules guide", () => {
+  // the hero's locker is the same drawing /rules shows, wrapped so a real launch can put its picture on the coin
+  assert.match(hero, /<div className="relative"><HeroLocker imageBase=\{coinPicturesEnabled\(\) \? imagePublicBase\(\) : null\} \/><\/div>/);
+  assert.doesNotMatch(hero, /<LaunchMachine/, "the hero never draws the machine itself");
+  assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works"/);
+  assert.doesNotMatch(hero, /See what&apos;s trending/);
+  assert.match(hero, /Launch a token\.\s*<br \/>\s*We take <span className="text-brand">nothing\.<\/span>/);
+});
+
+test("a host can tighten the locker's size without touching its clocks", () => {
+  assert.match(css, /\.machine \{[^}]*max-width: var\(--machine-max, 560px\);/);
+  assert.match(css, /\.detail \{[^}]*min-height: var\(--detail-min, 105px\); \}/);
+  assert.ok(css.includes("@media (min-width: 1024px) { .detail { min-height: var(--detail-min, 84px); } }"), "two lines of copy from 1024px, so less height is held");
+  const phone = css.slice(css.indexOf("@media (max-width: 639px)"));
+  assert.match(phone, /\.detail \{ min-height: 80px; padding: 12px 6px 0; \}/);
+  // the three step texts share one grid cell, so a lower minimum can never make the block jump between steps
+  assert.match(css, /\.detailContent \{ grid-area: 1 \/ 1; \}/);
 });

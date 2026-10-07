@@ -371,6 +371,8 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .bb-beacon::after { content: ""; position: absolute; inset: 0; border-radius: 9999px; background: var(--color-up); opacity: 0.55; animation: bb-beacon 2s cubic-bezier(0.2, 0.7, 0.3, 1) infinite; }
 @keyframes bb-beacon { 0% { transform: scale(1); opacity: 0.55; } 70% { transform: scale(2.8); opacity: 0; } 100% { transform: scale(2.8); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .bb-beacon::after { animation: none; opacity: 0; } }
+/* a container marked by usePauseOffscreen holds all of its animations while it is off screen, and resumes them where they were */
+[data-offscreen="true"], [data-offscreen="true"] *, [data-offscreen="true"] *::before, [data-offscreen="true"] *::after { animation-play-state: paused !important; }
 
 /* One finite entry reaction for a real activity event. */
 .bb-tape-enter { animation: bb-tape-enter 240ms ease-out both; }
