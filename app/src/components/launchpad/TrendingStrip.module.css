@@ -82,3 +82,14 @@
   .sweep { display: none; }
 }
 
+/* Below 1024px the board is a row to swipe: cards 280px wide, so the next one peeks out, snapping at the left edge. The scroller
+   runs to the page's edges (its padding is the page's) and has room above and below, so a reaction's figure and a rank chip, which
+   sit on a card's edge, are not clipped by it. From 1024px it is the grid it always was. */
+.board { display: flex; gap: 12px; margin-inline: calc(var(--page-pad, 1rem) * -1); padding: 12px var(--page-pad, 1rem) 14px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: var(--page-pad, 1rem); scrollbar-width: none; }
+.board::-webkit-scrollbar { display: none; }
+.board > li { flex: none; width: 280px; scroll-snap-align: start; }
+@media (min-width: 1024px) {
+  .board { display: grid; margin-inline: 0; padding: 0; overflow: visible; scroll-snap-type: none; }
+  .board > li { width: auto; }
+}
+

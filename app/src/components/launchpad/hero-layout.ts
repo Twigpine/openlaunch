@@ -13,7 +13,7 @@ export const HERO = {
   headline: "font-display text-[34px] font-bold leading-[1.02] tracking-[-0.04em] text-ink min-[400px]:text-[40px] min-[480px]:text-[48px] sm:mt-5 sm:text-[60px] md:text-[44px] lg:text-[56px] xl:text-[68px] [@media(min-width:1024px)_and_(max-height:700px)]:text-[52px]",
   /** 16px again beside the locker (768 to 1023px), where the headline is 34px and 18px copy would outweigh it, and on a laptop's shortest
       browser window (about 657px under the toolbars), where the totals have to stay in view */
-  copy: "mt-5 max-w-[34rem] text-pretty text-base leading-relaxed text-body sm:mt-6 sm:text-lg md:text-base lg:text-lg [@media(min-width:1024px)_and_(max-height:700px)]:text-base",
+  copy: "mt-5 max-w-[34rem] text-pretty text-[15px] leading-relaxed text-body sm:mt-6 sm:text-lg md:text-base lg:text-lg [@media(min-width:1024px)_and_(max-height:700px)]:text-base",
   /** phones: the two buttons share one row, so the first screen keeps its room */
   actions: "mt-6 flex items-center gap-2.5 sm:mt-8 sm:gap-4 lg:mt-6",
   proofs: "mt-5 flex flex-wrap gap-2 lg:mt-4",

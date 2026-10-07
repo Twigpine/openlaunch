@@ -179,6 +179,6 @@
   .stageButton { gap: 6px; padding-inline: 6px; font-size: 11px; }
   .stageButton::after, .stageProgress { left: 6px; right: 6px; }
   .stageDot { display: none; }
-  .detail { min-height: 88px; padding-inline: 6px; }
+  .detail { min-height: 80px; padding: 12px 6px 0; }
   .proof { padding-inline: 6px; }
 }

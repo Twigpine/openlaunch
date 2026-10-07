@@ -45,7 +45,9 @@ test("reduced motion holds the river still and drops the arrival ping", () => {
 test("the latest column is real links in a fixed-height list, so an arrival never resizes the section", () => {
   // the column reads the day-long history in both drawings, so a quiet half hour never empties it
   assert.equal((river.match(/<RiverFeed entries=\{recent\} now=\{now\} \/>/g) ?? []).length, 2);
-  assert.match(feed, /<AnimatedList aria-label="Latest trades and launches" className="[^"]*\bh-\[7\.25rem\][^"]*\boverflow-hidden\b[^"]*\blg:h-\[15rem\]/);
+  // phones show one card (the hero's live line carries the newest event), tablets a row of two, the desktop column four
+  assert.match(feed, /<AnimatedList aria-label="Latest trades and launches" className="[^"]*\bh-\[3\.375rem\][^"]*\boverflow-hidden\b[^"]*\blg:h-\\?\[15rem\]/);
+  assert.match(feed, /max-sm:\[&>li:nth-child\(n\+2\)\]:hidden max-lg:\[&>li:nth-child\(n\+3\)\]:hidden/);
   assert.match(feed, /prefetch=\{false\}/);
 });
 
@@ -163,7 +165,8 @@ test("the board carries no decoration, and the ranking's own figure shows on eve
   // a bare `hidden` class hides on phones; only the header caption, the open spot, the closed rule panel and the
   // leader's "Last trades" label (the tape beside it says it all) may use one
   const hidden = board.split("\n").filter((line) => /(?<![\w:-])hidden(?![\w-])/.test(line));
-  assert.equal(hidden.length, 4);
+  assert.equal(hidden.length, 5, "+ the big leader card, which only exists from 1024px (the swipe row has the compact one)");
+  assert.ok(hidden.some((line) => line.includes("<Leader ")));
   assert.ok(hidden.some((line) => line.includes("Last trades")));
   assert.ok(hidden.some((line) => line.includes("Ranked by wallets trading, trades and volume")));
   assert.ok(hidden.some((line) => line.includes("Open spot.")));
@@ -276,5 +279,30 @@ test("a figure that rolls keeps real text in the page, and its ghost is hidden a
   assert.match(css, /@keyframes out \{ to \{ opacity: 0;/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.in \{ animation: none; \} \.out \{ display: none; \} \}/);
   assert.doesNotMatch(roll, /setTimeout|setInterval|requestAnimationFrame|fetch\(/, "no clock of its own");
+});
+
+test("below 1024px the board is a row to swipe, led by a compact leader; the big card is for 1024px and up", () => {
+  const css = read("./TrendingStrip.module.css");
+  // 280px cards that snap at the left edge, running to the page's edges, with room for a chip on a card's edge; the grid from 1024px
+  assert.match(css, /\.board \{ display: flex; gap: 12px; margin-inline: calc\(var\(--page-pad, 1rem\) \* -1\); padding: 12px var\(--page-pad, 1rem\) 14px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory;/);
+  assert.match(css, /\.board > li \{ flex: none; width: 280px; scroll-snap-align: start; \}/);
+  assert.match(css, /@media \(min-width: 1024px\) \{\n\s*\.board \{ display: grid; margin-inline: 0; padding: 0; overflow: visible; scroll-snap-type: none; \}\n\s*\.board > li \{ width: auto; \}/);
+  assert.match(board, /className=\{`\$\{styles\.board\} lg:grid-cols-10 lg:grid-rows-2`\}/);
+  assert.doesNotMatch(board, /SPAN_SM|sm:grid-cols-2|sm:col-span-2/, "no two-column tablet grid any more");
+  // both leaders are always in the page and CSS shows one, so nothing differs between the server and the browser
+  assert.match(board, /<div className="hidden h-full lg:block"><Leader key=\{launchKey\(first\)\}/);
+  assert.match(board, /<div className="h-full lg:hidden"><Runner key=\{launchKey\(first\)\} lead row=\{first\} rank=\{1\}/);
+  // the compact leader says "New leader" for a few seconds, as the big card does, and focus never returns to the hidden twin
+  assert.match(board, /const handover = lead && from !== null && now - from\.since < HANDOVER_LIFE_MS;/);
+  assert.match(board, /styles\.move\}>New leader</);
+  assert.match(board, /\.filter\(\(card\) => card\.getClientRects\(\)\.length > 0\);/);
+});
+
+test("on phones the live panel says what it is in one line and shows less, without losing its name for assistive tech", () => {
+  assert.match(river, /<span aria-hidden="true" className="sm:hidden">Live now<\/span><span className="sr-only sm:not-sr-only">Live on \{WHERE\}<\/span>/);
+  assert.match(river, /<li className="max-sm:hidden">Bigger bubble, more dollars traded<\/li>/, "the legend fits one row");
+  const bubbles = read("./LiveBubbles.module.css");
+  assert.match(bubbles, /\.field \{\n\s*position: relative;\n\s*height: 250px;/);
+  assert.match(bubbles, /@media \(min-width: 640px\) \{\n\s*\.field \{ height: 320px; \}/);
 });
 

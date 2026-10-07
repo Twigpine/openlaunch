@@ -32,6 +32,17 @@
 /* a label that wraps ("Robinhood Chain launches") must not push its value below its neighbours' */
 .breakdown dl > div { display: flex; flex-direction: column; justify-content: space-between; }
 
+/* phones: Trades keeps its row (label left, figure right); the other four are a 2x2 of label-over-figure cells, each pair borrowing
+   two rows so the figures of a pair line up. That is a third shorter than five rows. */
+@media (max-width: 639.98px) {
+  .readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lead { grid-column: 1 / -1; }
+  .reading:not(.lead) { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: subgrid; grid-row: span 2; align-items: start; gap: 0; padding: 9px 16px 8px; }
+  .reading:not(.lead) .label { white-space: normal; line-height: 1.4; }
+  .reading:not(.lead) .label::before { content: none; }
+  .reading:not(.lead) .figure { margin-top: 4px; text-align: left; }
+}
+
 /* from 640px: columns. Each reading borrows the strip's three rows (label, figure, note), so they line up across readings
    however a label or a note wraps. Trades takes the first row whole, the other four share the second. */
 @media (min-width: 640px) {

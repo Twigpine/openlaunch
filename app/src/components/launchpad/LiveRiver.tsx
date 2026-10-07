@@ -118,7 +118,8 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
         <div className="min-w-0">
           <h2 id="river-heading" className="group flex items-start gap-2.5 text-[15px] font-semibold leading-snug tracking-tight text-ink">
             <span className="mt-0.5"><ChainLogoStack chains={VISIBLE_CHAINS} size={17} /></span>
-            <span className="text-pretty">Live on {WHERE}</span>
+            {/* phones read "Live now" (the full name wrapped to three lines); the heading keeps its full name for assistive tech */}
+            <span className="text-pretty"><span aria-hidden="true" className="sm:hidden">Live now</span><span className="sr-only sm:not-sr-only">Live on {WHERE}</span></span>
           </h2>
           <p className="mt-1 text-xs text-muted tnum">{view === "river" ? riverSummary(entries, complete) : bubbleSummary(tokens, windowMs, bubblesComplete)}</p>
           <Flow bought={flow.bought} sold={flow.sold} unpriced={flow.unpriced} className="mt-2.5 flex w-full lg:hidden" />
@@ -138,12 +139,12 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
         </div>
       </div>
       {view === "bubbles" ? (
-        <div ref={body} className="grid gap-x-6 gap-y-5 pt-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+        <div ref={body} className="grid gap-x-6 gap-y-4 pt-4 sm:gap-y-5 sm:pt-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
           <div className="min-w-0">
             <p className="sr-only">A bubble for each token traded or launched in the last {bubbleWindowLabel(windowMs)}, sized by the dollars traded. Choose Show as a list for the same events as links.</p>
             <LiveBubbles tokens={tokens} entries={recent} now={now} complete={bubblesComplete} />
             <ul aria-hidden="true" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-              <li>Bigger bubble, more dollars traded</li>
+              <li className="max-sm:hidden">Bigger bubble, more dollars traded</li>
               <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-up" />More bought</li>
               <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-down" />More sold</li>
               <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brand" />Launched, no trades yet</li>

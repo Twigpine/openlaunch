@@ -40,7 +40,6 @@ const hint = (row: LaunchRow) => `${row.name} on ${CHAIN_LABELS[row.chain]}, pai
 const open = (row: LaunchRow) => () => setPendingToken({ chain: row.chain, token: row.token, name: row.name, symbol: row.symbol, image: row.image_url });
 
 // whole strings: Tailwind only ships the classes it can read in the source
-const SPAN_SM: Record<BoardCell["sm"], string> = { half: "", wide: "sm:col-span-2" };
 const SPAN_LG: Record<BoardCell["lg"], string> = { half: "lg:col-span-3", wide: "lg:col-span-6", block: "lg:col-span-6 lg:row-span-2" };
 const NO_HOLD: BoardHold = { pointer: false, focus: false, focusPolls: 0 };
 
@@ -166,7 +165,7 @@ export default function TrendingStrip({ initial, serverNow }: { initial: Snap; s
     const was = focused.current;
     focused.current = null;
     if (!was || document.activeElement !== document.body) return;
-    const cards = [...(list.current?.querySelectorAll("a") ?? [])];
+    const cards = [...(list.current?.querySelectorAll("a") ?? [])].filter((card) => card.getClientRects().length > 0);
     (cards.find((card) => card.getAttribute("href") === was) ?? cards[0])?.focus({ preventScroll: true });
   }, [order]);
 
@@ -198,7 +197,7 @@ export default function TrendingStrip({ initial, serverNow }: { initial: Snap; s
           ref={list}
           aria-label="Trending tokens"
           aria-describedby="trending-note"
-          className="grid gap-3 sm:grid-cols-2 lg:grid-cols-10 lg:grid-rows-2"
+          className={`${styles.board} lg:grid-cols-10 lg:grid-rows-2`}
           onPointerEnter={(e) => { if (e.pointerType === "mouse") hold.current = { ...hold.current, pointer: true }; }}
           onPointerLeave={() => { hold.current = { ...hold.current, pointer: false }; release(); }}
           // a click focuses a card too, but only keyboard focus (:focus-visible) may hold the order
@@ -207,15 +206,18 @@ export default function TrendingStrip({ initial, serverNow }: { initial: Snap; s
         >
           {/* `relative`: the cards hold sr-only (absolutely positioned) labels; without a positioned ancestor they
               resolve against <main> and stretch the whole page sideways on phones */}
-          <li className="relative min-w-0 sm:col-span-2 lg:col-span-4 lg:row-span-2">
-            <Leader key={launchKey(first)} row={first} window={snap.window} now={now} top={top} pips={cards.tape[launchKey(first)] ?? []} fx={cards.fx[launchKey(first)]} from={board.from} />
+          {/* below 1024px the board is a row to swipe and the leader is its first card, drawn like the others; from 1024px the big card.
+              Both are always in the page and CSS shows one, so nothing differs between the server and the browser */}
+          <li className="relative min-w-0 lg:col-span-4 lg:row-span-2">
+            <div className="hidden h-full lg:block"><Leader key={launchKey(first)} row={first} window={snap.window} now={now} top={top} pips={cards.tape[launchKey(first)] ?? []} fx={cards.fx[launchKey(first)]} from={board.from} /></div>
+            <div className="h-full lg:hidden"><Runner key={launchKey(first)} lead row={first} rank={1} window={snap.window} top={top} now={now} pips={cards.tape[launchKey(first)] ?? []} fx={cards.fx[launchKey(first)]} move={undefined} from={board.from} /></div>
           </li>
           {cells.map((cell, index) => {
             const row = rest[index];
-            const span = `${SPAN_SM[cell.sm]} ${SPAN_LG[cell.lg]}`;
+            const span = SPAN_LG[cell.lg];
             if (cell.kind === "open" || !row) {
               // a filler for sighted layout only: the list a screen reader counts holds tokens
-              return <li key="open" aria-hidden="true" className={`hidden min-w-0 items-center rounded-2xl border border-dashed border-line-strong px-5 py-4 text-xs leading-relaxed text-muted sm:flex ${span} ${cell.lg === "block" ? "justify-center text-center" : ""}`}><p className="text-pretty"><span className="font-medium text-body">Open spot.</span> Tokens join the board as different wallets trade them.</p></li>;
+              return <li key="open" aria-hidden="true" className={`hidden min-w-0 items-center rounded-2xl border border-dashed border-line-strong px-5 py-4 text-xs leading-relaxed text-muted lg:flex ${span} ${cell.lg === "block" ? "justify-center text-center" : ""}`}><p className="text-pretty"><span className="font-medium text-body">Open spot.</span> Tokens join the board as different wallets trade them.</p></li>;
             }
             return (
               <motion.li key={launchKey(row)} layout={reduced ? false : "position"} layoutDependency={order} transition={{ layout: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } }} className={`relative min-w-0 ${span}`}>
@@ -339,16 +341,19 @@ function Leader({ row, window, now, top, pips, fx, from }: { row: LaunchRow; win
 }
 
 /** A runner's card. The visible marks are terse, so sr-only words make the link read as one sentence. */
-function Runner({ row, rank, window, top, now, pips, fx, move }: { row: LaunchRow; rank: number; window: Snap["window"]; top: number; now: number; pips: readonly TapePip[]; fx: CardFx | undefined; move: Board["moves"][string] | undefined }) {
+function Runner({ row, rank, window, top, now, pips, fx, move, lead = false, from = null }: { row: LaunchRow; rank: number; window: Snap["window"]; top: number; now: number; pips: readonly TapePip[]; fx: CardFx | undefined; move: Board["moves"][string] | undefined; lead?: boolean; from?: Board["from"] }) {
   const a = activity(row, window);
   const c = cap(row);
   const last = lastTradeAt(row, pips);
+  // `lead`: the leader's card below 1024px, where it is drawn like a runner. It says "New leader" for a few seconds, as the big card does
+  const handover = lead && from !== null && now - from.since < HANDOVER_LIFE_MS;
   return (
-    <Link href={href(row)} onClick={open(row)} title={hint(row)} style={fxStyle(fx, false)} className={`flex h-full min-w-0 flex-col justify-between rounded-2xl border border-line bg-card px-4 py-3.5 transition-colors hover:border-muted motion-reduce:transition-none sm:py-4 ${styles.card} ${fxClass(fx)}`}>
+    <Link href={href(row)} onClick={open(row)} title={hint(row)} style={fxStyle(fx, false)} className={`flex h-full min-w-0 flex-col justify-between rounded-2xl border ${lead ? "border-line-strong" : "border-line"} bg-card px-4 py-3.5 transition-colors hover:border-muted motion-reduce:transition-none sm:py-4 ${styles.card} ${fxClass(fx)}`}>
       {fx ? <FxNodes fx={fx} place="runner" /> : null}
+      {handover ? <><span aria-hidden="true" className={styles.sweep} /><span aria-hidden="true" className={`${styles.edge} ${styles.edgeLead}`} /><span aria-hidden="true" className={styles.move}>New leader</span></> : null}
       {move && move.delta !== 0 && now - move.since < MOVE_LIFE_MS ? <span aria-hidden="true" title={move.delta > 0 ? `Up ${move.delta}` : `Down ${-move.delta}`} className={`${styles.move} ${move.delta < 0 ? styles.moveDown : ""}`}>{move.delta > 0 ? "▲" : "▼"}{Math.abs(move.delta)}</span> : null}
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="w-5 shrink-0 font-mono text-[11px] text-muted tnum"><span className="sr-only">Number </span>{String(rank).padStart(2, "0")}<span className="sr-only">: </span></span>
+        <span className={`w-5 shrink-0 font-mono text-[11px] tnum ${lead ? "text-brand" : "text-muted"}`}><span className="sr-only">Number </span>{String(rank).padStart(2, "0")}<span className="sr-only">: </span></span>
         <span className="relative shrink-0"><TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={38} className="rounded-xl" /><ChainCorner chain={row.chain} size={14} /></span>
         {/* the name column keeps a floor and the cap gives way first, so a long quote figure never erases the name */}
         <div className="min-w-16 flex-1">

@@ -122,7 +122,7 @@ test("a host can tighten the locker's size without touching its clocks", () => {
   assert.match(css, /\.detail \{[^}]*min-height: var\(--detail-min, 105px\); \}/);
   assert.ok(css.includes("@media (min-width: 1024px) { .detail { min-height: var(--detail-min, 84px); } }"), "two lines of copy from 1024px, so less height is held");
   const phone = css.slice(css.indexOf("@media (max-width: 639px)"));
-  assert.match(phone, /\.detail \{ min-height: 88px;/);
+  assert.match(phone, /\.detail \{ min-height: 80px; padding: 12px 6px 0; \}/);
   // the three step texts share one grid cell, so a lower minimum can never make the block jump between steps
   assert.match(css, /\.detailContent \{ grid-area: 1 \/ 1; \}/);
 });

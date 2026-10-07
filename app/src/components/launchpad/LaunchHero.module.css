@@ -2,7 +2,7 @@
    locker and the totals run under both. From 1024px the totals move up into the left column under the text, and the locker
    takes the whole height beside them: copy hugs the bottom of its row and the totals the top of theirs, so the pair stays
    together however tall the locker is. */
-.layout { display: grid; align-items: center; column-gap: 2.5rem; row-gap: 1.5rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "copy" "stage" "totals"; }
+.layout { display: grid; align-items: center; column-gap: 2.5rem; row-gap: 1.25rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "copy" "stage" "totals"; }
 .copyArea { grid-area: copy; min-width: 0; }
 .totalsArea { grid-area: totals; min-width: 0; }
 @media (min-width: 640px) { .layout { row-gap: 2rem; } }

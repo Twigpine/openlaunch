@@ -76,12 +76,18 @@ test("the hero and its loading skeleton render the same layout strings", () => {
 });
 
 test("the skeleton follows the page order: hero with its totals, Trending, live panel, list", () => {
-  const at = ["hero.layout", "totals.panel", "sm:grid-cols-2 lg:grid-cols-10 lg:grid-rows-2", "relative h-[687px] rounded-3xl border border-line bg-card/70 p-4 shadow-card sm:h-[463px] sm:p-6", "<SkRow "].map((mark) => skeleton.indexOf(mark));
+  const at = ["hero.layout", "totals.panel", "trend.board", "relative h-[510px] rounded-3xl border border-line bg-card/70 p-4 shadow-card sm:h-[588px] sm:p-6 lg:h-[463px]", "<SkRow "].map((mark) => skeleton.indexOf(mark));
   assert.ok(at.every((i) => i >= 0), `every block is there: ${at}`);
   assert.deepEqual([...at].sort((a, b) => a - b), at);
-  // the board's own grid: a leader over two rows and four runners
-  assert.match(skeleton, /sm:col-span-2 [^"]*lg:col-span-4 lg:row-span-2/);
-  assert.match(skeleton, /\{\[0, 1, 2, 3\]\.map\(\(i\) => \(\n\s*<div key=\{i\} className="[^"]*lg:col-span-3/);
+  // the board is drawn with the real row's own class: a row to swipe below 1024px, a leader over two rows and four runners from there
+  assert.match(skeleton, /import trend from "@\/components\/launchpad\/TrendingStrip\.module\.css"/);
+  assert.match(skeleton, /<ol className=\{`\$\{trend\.board\} lg:grid-cols-10 lg:grid-rows-2`\}>/);
+  assert.match(skeleton, /<li className="lg:col-span-4 lg:row-span-2">/);
+  assert.match(skeleton, /\{\[0, 1, 2, 3\]\.map\(\(i\) => <li key=\{i\} className="lg:col-span-3"><SkBoardCard \/><\/li>\)\}/);
+  // one compact card at the real heights: 138px on phones, 144px from 640px, 156px from 1024px
+  assert.match(skeleton, /flex h-\[138px\] flex-col justify-between rounded-2xl border border-line bg-card px-4 py-3\.5 sm:h-\[144px\] sm:py-4 lg:h-\[156px\]/);
+  // the page's section gap is the skeleton's too
+  assert.match(skeleton, /<main className="bb-mid bb-page relative space-y-6 pb-16 sm:space-y-8"/);
 });
 
 test("short laptop screens get a smaller locker and tighter gaps", () => {
@@ -167,3 +173,16 @@ test("the strip is one hairline panel with a registered grid and no decoration",
   // design tokens only; the one literal is the opaque stop of the stage's fade mask, which is not a colour on screen
   assert.doesNotMatch(totalsCss + heroCss.replace(/mask-image:[^;]+;/g, ""), /#[0-9a-f]{3,8}\b/i, "no raw hex colours");
 });
+
+test("on phones Trades keeps its row and the other four are a 2x2 of label-over-figure cells", () => {
+  const phone = totalsCss.slice(totalsCss.indexOf("@media (max-width: 639.98px)"), totalsCss.indexOf("/* from 640px: columns."));
+  assert.match(phone, /\.readings \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+  assert.match(phone, /\.lead \{ grid-column: 1 \/ -1; \}/);
+  // each pair borrows two rows (label, figure) so the figures of a pair line up however a label wraps
+  assert.match(phone, /\.reading:not\(\.lead\) \{[^}]*grid-template-rows: subgrid; grid-row: span 2;/);
+  assert.match(phone, /\.reading:not\(\.lead\) \.label::before \{ content: none; \}/);
+  assert.match(phone, /\.reading:not\(\.lead\) \.figure \{ margin-top: 4px; text-align: left; \}/);
+  // and the phone paragraph is 15px, as production's, so the first screen keeps its room
+  assert.ok(HERO.copy.split(" ").includes("text-[15px]") && HERO.copy.split(" ").includes("sm:text-lg"));
+});
+

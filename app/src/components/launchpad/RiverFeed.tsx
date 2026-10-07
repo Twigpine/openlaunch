@@ -21,10 +21,10 @@ export default function RiverFeed({ entries, now }: { entries: readonly RiverEnt
     <div className="min-w-0">
       <h3 className="text-xs font-medium text-muted">Latest</h3>
       {latest.length === 0 ? (
-        <p className="mt-2 grid h-[7.25rem] place-content-center rounded-xl border border-dashed border-line-strong px-4 text-center text-xs text-muted sm:h-[3.375rem] lg:h-[15rem]">New trades and launches show up here as they happen.</p>
+        <p className="mt-2 grid h-[3.375rem] place-content-center rounded-xl border border-dashed border-line-strong px-4 text-center text-xs text-muted lg:h-[15rem]">New trades and launches show up here as they happen.</p>
       ) : (
-        // phones show two, tablets one row of two, the desktop column four
-        <AnimatedList aria-label="Latest trades and launches" className="mt-2 h-[7.25rem] overflow-hidden sm:grid sm:h-[3.375rem] sm:grid-cols-2 lg:flex lg:h-[15rem] max-lg:[&>li:nth-child(n+3)]:hidden">
+        // phones show one (the hero's live line already carries the newest event), tablets one row of two, the desktop column four
+        <AnimatedList aria-label="Latest trades and launches" className="mt-2 h-[3.375rem] overflow-hidden sm:grid sm:grid-cols-2 lg:flex lg:h-[15rem] max-sm:[&>li:nth-child(n+2)]:hidden max-lg:[&>li:nth-child(n+3)]:hidden">
           {latest.map(({ item }) => (
             <AnimatedListItem key={feedKey(item)}>
               <FeedCard item={item} now={now} />
