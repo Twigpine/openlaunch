@@ -69,8 +69,9 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
     display_name: initial?.display_name ?? "",
     bio: initial?.bio ?? "",
     avatar: initial?.avatar_url ? `${origin}${initial.avatar_url}` : "",
-    // a verified handle is public; a pending claim is known only to this browser (from the code it was given)
-    x_handle: initial?.x?.handle ?? (initial && initial.x_state !== "none" ? (loadCode(address)?.handle ?? "") : ""),
+    // a verified handle is public; an unverified claim (x_state "none" until a post is submitted) is known only to this
+    // browser, from the code it was given. Every save rewrites or clears that code, so it always matches the claim.
+    x_handle: initial?.x?.handle ?? (initial ? (loadCode(address)?.handle ?? "") : ""),
   });
   const [profile, setProfile] = useState<PublicProfile | null>(initial);
   const [code, setCode] = useState<XCodeView | null>(() => (startOnVerify ? loadCode(address) : null));
