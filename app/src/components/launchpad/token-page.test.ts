@@ -53,3 +53,10 @@ test("the About card sits under the trade box and links only checked socials", (
   assert.match(about, /const \{ x, site, host \} = safeSocials\(\{ website, x_handle \}\);/);
   assert.match(about, /rel="noopener noreferrer nofollow"/);
 });
+
+test("the trades scroller is the containing block for its sr-only labels, so a long tape adds no blank page height", () => {
+  const trades = read("./TokenTrades.tsx");
+  // every row carries an absolutely positioned sr-only label; without a positioned scroller they escape its clipping and stretch the page
+  assert.match(trades, /<span className="sr-only">View transaction, <\/span>/);
+  assert.match(trades, /<div className="relative max-h-\[480px\] overflow-auto bb-scroll"/);
+});
