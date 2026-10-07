@@ -159,10 +159,12 @@ test("a card's tooltip is a sentence, so it names the chain in full", () => {
 
 test("the board carries no decoration, and the ranking's own figure shows on every width", () => {
   assert.doesNotMatch(board, /blur-/, "no glow behind the leader");
-  assert.equal((board.match(/\{count\(a\.wallets\)\}/g) ?? []).length, 2, "wallets trading on the leader and on a runner");
-  // a bare `hidden` class hides on phones; only the header caption, the open spot and the closed rule panel may use one
+  assert.equal((board.match(/text=\{count\(a\.wallets\)\}/g) ?? []).length, 2, "wallets trading on the leader and on a runner");
+  // a bare `hidden` class hides on phones; only the header caption, the open spot, the closed rule panel and the
+  // leader's "Last trades" label (the tape beside it says it all) may use one
   const hidden = board.split("\n").filter((line) => /(?<![\w:-])hidden(?![\w-])/.test(line));
-  assert.equal(hidden.length, 3);
+  assert.equal(hidden.length, 4);
+  assert.ok(hidden.some((line) => line.includes("Last trades")));
   assert.ok(hidden.some((line) => line.includes("Ranked by wallets trading, trades and volume")));
   assert.ok(hidden.some((line) => line.includes("Open spot.")));
   assert.ok(hidden.some((line) => line.includes("peer-open:block")));
@@ -173,26 +175,34 @@ test("the board carries no decoration, and the ranking's own figure shows on eve
 
 test("the board re-sorts on the shared poll alone, and holds only under a mouse or a keyboard focus", () => {
   assert.match(board, /useEffect\(\(\) => subscribe\(\(live\) =>/);
-  assert.doesNotMatch(board, /setInterval\(|setTimeout\(|\bfetch\s*\(/, "no clock or request of its own");
+  assert.doesNotMatch(board, /setInterval\(|\bfetch\s*\(/, "no clock or request of its own");
+  // the one timer is the wait for a poll's reactions to land before the order changes; it is cleared when a poll replaces it and on unmount
+  assert.equal((board.match(/setTimeout\(/g) ?? []).length, 1);
+  assert.match(board, /window\.clearTimeout\(settle\.current\);\n\s*if \(settling && !held\) settle\.current = window\.setTimeout\(release, cascadeMs\(plan\.hits\)\);/);
+  assert.match(board, /useEffect\(\(\) => \(\) => window\.clearTimeout\(settle\.current\), \[\]\);/);
   assert.match(board, /holdOnPoll\(hold\.current\)/);
   assert.match(board, /if \(e\.pointerType === "mouse"\) hold\.current = \{ \.\.\.hold\.current, pointer: true \};/);
   assert.match(board, /if \(e\.target\.matches\(":focus-visible"\)\)/, "a click focuses a card too and must not hold");
   assert.match(board, /refreshInPlace\(cur\.snap\.items, next\.items\)/, "held figures stay fresh");
   // a hold keeps the order only: a changed window or a token that left the ranking still moves the board on
-  assert.match(board, /held && sameBoard\(cur\.snap, next\) \? \{ \.\.\.cur, snap: \{ \.\.\.cur\.snap, items: refreshInPlace\(cur\.snap\.items, next\.items\) \} \} : advance\(cur, next\)/);
-  assert.match(board, /setBoard\(\(cur\) => \(cur\.snap === next \? cur : advance\(cur, next\)\)\);/, "a release never counts one poll twice");
+  assert.match(board, /\(held \|\| settling\) && sameBoard\(cur\.snap, next\) \? \{ \.\.\.cur, snap: \{ \.\.\.cur\.snap, items: refreshInPlace\(cur\.snap\.items, next\.items\) \} \} : advance\(cur, next, live\.at\)/);
+  assert.match(board, /setBoard\(\(cur\) => \(cur\.snap === next \? cur : advance\(cur, next, at\)\)\);/, "a release never counts one poll twice");
+  assert.match(board, /const settling = !reduced && plan\.hits\.length > 0;/, "reduced motion has no reactions to wait for");
   assert.match(board, /stickyKing\(board\.crown\.king,/);
   assert.match(board, /layout=\{reduced \? false : "position"\}/);
   assert.match(board, /boardCells\(rest\.length\)/);
   assert.match(board, /key=\{launchKey\(row\)\}/, "chain-scoped identity");
 });
 
-test("every bar is on one scale, and the leader's entrance is for a new leader only", () => {
+test("every bar is on one scale, and the leader's hand-over is for a new leader only", () => {
   assert.match(board, /const top = barScale\(items\.map\(\(row\) => activity\(row, snap\.window\)\.wallets\)\);/);
   assert.equal((board.match(/barWidth\(a\.wallets, top\)/g) ?? []).length, 2, "the leader's bar and a runner's");
-  assert.match(board, /\$\{enter \? "bb-tape-enter " : ""\}/);
-  assert.match(board, /enter=\{board\.swapped\}/);
-  assert.match(board, /swapped: false \}\);/, "not on page load");
+  assert.match(board, /moves: \{\}, from: null \}\);/, "not on page load");
+  assert.match(board, /const handed = was\.length > 0 && shown\.length > 0 && launchKey\(shown\[0\]\) !== launchKey\(was\[0\]\);/);
+  assert.match(board, /from: handed \? \{ name: was\[0\]\.name, since: at \} : board\.from/);
+  assert.match(board, /const handover = from !== null && now - from\.since < HANDOVER_LIFE_MS;/, "it lasts a few seconds, measured on the poll's clock");
+  assert.match(board, /from=\{board\.from\}/);
+  assert.doesNotMatch(board, /bb-tape-enter|swapped/, "the old one-line entrance is gone");
 });
 
 test("a re-sort that unmounts the focused card hands focus back to a card, without scrolling", () => {
@@ -207,6 +217,64 @@ test("the leader's ages start from the server's clock and tick with the poll", (
   assert.match(board, /setNow\(live\.at\);/);
   assert.match(board, /suppressHydrationWarning>\{facts\}/);
   // "last trade" is the latest swap by anyone, as the Trades figure beside it counts everyone
-  assert.match(board, /const lastTrade = \[row\.last_trade_at, row\.last_outside_trade_at\]\.reduce/);
-  assert.match(board, /lastTrade \? `last trade \$\{ago\(lastTrade, now\)\} ago` : null/);
+  assert.match(board, /const lastTrade = lastTradeAt\(row, pips\);/, "the later of the row's times and the newest trade on the tape");
+  assert.match(board, /now - lastTrade < 10_000 \? "last trade just now" : `last trade \$\{ago\(new Date\(lastTrade\)\.toISOString\(\), now\)\} ago`/);
 });
+
+test("the Trending heading says what its window is", () => {
+  assert.match(board, /\{snap\.window === "1h" \? "Trending this hour" : "Trending today"\}/);
+});
+
+test("the cards' tapes start from the page's seed, and the seed's trades are never announced again", () => {
+  assert.match(home, /const trending = await withBoardTape\(fetchedTrending \?\? trendingFrom\(page\.items\)\);/);
+  assert.match(board, /const seedTape = \(snap: Snap\): Record<string, TapePip\[\]> =>/);
+  assert.match(board, /seen\.current = new Set\(Object\.values\(seedTape\(initial\)\)\.flatMap\(\(pips\) => pips\.map\(\(p\) => p\.key\)\)\);/);
+  assert.match(board, /planHits\(\{ feed: live\.feed, seen: seen\.current \?\? new Set\(\), board: onBoard, at: live\.at \}\);/);
+  assert.match(board, /setCards\(\(cur\) => applyPlan\(cur, plan, live\.at, onBoard\)\);/, "tokens that left the board are forgotten");
+});
+
+test("a reaction is decorative, keyed per reaction, and replays only when a new trade lands", () => {
+  const nodes = board.slice(board.indexOf("function FxNodes"), board.indexOf("/** A card's last trades"));
+  assert.equal((nodes.match(/aria-hidden="true"/g) ?? []).length, 2, "the edge and the figure are hidden from assistive tech");
+  assert.match(nodes, /key=\{`e:\$\{fx\.id\}`\}/);
+  assert.match(nodes, /key=\{`c:\$\{fx\.id\}`\}/);
+  assert.match(board, /const fxClass = \(fx: CardFx \| undefined\) => \(fx \? \(fx\.parity === 0 \? styles\.hitA : styles\.hitB\) : ""\);/, "two identical keyframes, swapped per hit");
+  // the leader's hand-over pieces are inert too
+  assert.match(board, /<span aria-hidden="true" className=\{styles\.sweep\} \/><span aria-hidden="true" className=\{`\$\{styles\.edge\} \$\{styles\.edgeLead\}`\} \/>/);
+  assert.match(board, /<span aria-hidden="true" title=\{move\.delta > 0/, "the rank-move chip is inert");
+});
+
+test("every effect ends invisible and reduced motion moves nothing", () => {
+  const css = read("./TrendingStrip.module.css");
+  // one keyframes block: from its name to the next line that starts something else
+  const frames = (name: string) => new RegExp(`@keyframes ${name} \\{[\\s\\S]*?\\n(?=[@./])`).exec(css)?.[0] ?? "";
+  assert.match(frames("edge"), /100% \{ opacity: 0; \}/);
+  assert.match(frames("chipFloat"), /100% \{ opacity: 0;/);
+  assert.match(frames("sweep"), /100% \{ transform: scaleX\(1\); opacity: 0; \}/);
+  assert.match(css, /\.edge \{[^}]*opacity: 0;[^}]*animation: edge [^}]*backwards;/, "at rest, and before its turn");
+  assert.match(css, /\.chip \{[^}]*opacity: 0;[^}]*animation: chipFloat [^}]*backwards;/);
+  const still = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.match(still, /\.hitA, \.hitB, \.pipFresh > i, \.handover \.row, \.move, \.streak \{ animation: none; \}/, "nothing moves");
+  assert.match(still, /\.chip \{ animation-name: chipFade; \}/, "the figure still shows, as a fade in place");
+  assert.match(still, /\.sweep \{ display: none; \}/);
+  assert.doesNotMatch(css.slice(css.indexOf("@keyframes chipFade"), css.indexOf("@media (prefers-reduced-motion: reduce)")), /transform|translate|scale/, "the fade has no movement");
+});
+
+test("the rank-move chip and the hand-over are measured on the poll's clock, and the order waits for a poll's reactions", () => {
+  assert.match(board, /now - move\.since < MOVE_LIFE_MS/);
+  assert.match(board, /for \(const \[token, m\] of Object\.entries\(board\.moves\)\) if \(at - m\.since < MOVE_LIFE_MS\) moves\[token\] = m;/);
+  assert.match(board, /const settling = !reduced && plan\.hits\.length > 0;/);
+  assert.match(board, /pending\.current = held \|\| settling \? next : null;/);
+});
+
+test("a figure that rolls keeps real text in the page, and its ghost is hidden and rests invisible", () => {
+  const roll = read("./Roll.tsx");
+  const css = read("./Roll.module.css");
+  assert.match(roll, /<span key=\{`i\$\{shown\.n\}`\} className=\{rolled \? styles\.in : undefined\}>\{text\}<\/span>/, "the current text is plain text, animated only after a change");
+  assert.match(roll, /<span key=\{`o\$\{shown\.n\}`\} aria-hidden="true" className=\{styles\.out\}>\{shown\.from\}<\/span>/);
+  assert.match(css, /\.out \{[^}]*position: absolute;[^}]*animation: out [^}]*both;/, "out of the flow, and it stays at its end state");
+  assert.match(css, /@keyframes out \{ to \{ opacity: 0;/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.in \{ animation: none; \} \.out \{ display: none; \} \}/);
+  assert.doesNotMatch(roll, /setTimeout|setInterval|requestAnimationFrame|fetch\(/, "no clock of its own");
+});
+

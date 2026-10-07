@@ -6,7 +6,7 @@ import LiveRiver from "@/components/launchpad/LiveRiver";
 import JustLaunched from "@/components/launchpad/JustLaunched";
 import { PostsFeed } from "@/components/launchpad/Posts";
 import { listFeed } from "@/lib/launchpad/postsServer";
-import { VOLUME_WINDOWS, getLaunchFeed, getTrending, isTrendingSource, listLaunchesPage, parseSort, trendingFrom, type VolumeWindow } from "@/lib/launchpad/queries";
+import { VOLUME_WINDOWS, getLaunchFeed, getTrending, isTrendingSource, listLaunchesPage, parseSort, trendingFrom, withBoardTape, type VolumeWindow } from "@/lib/launchpad/queries";
 import { JUST_LAUNCHED_SIZE, PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { LAUNCHPAD_CONFIGURED, visibleChainOr } from "@/lib/launchpad/config";
@@ -42,7 +42,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
     listFeed(30),
     isTrendingSource(listOpts) ? null : getTrending(usd),
   ]);
-  const trending = fetchedTrending ?? trendingFrom(page.items); // the default view's first page doubles as the strip's candidates
+  const trending = await withBoardTape(fetchedTrending ?? trendingFrom(page.items)); // the default view's first page doubles as the strip's candidates; the tapes are the cards' recent trades
   const now = nowMs();
 
   return (

@@ -8,3 +8,77 @@
 
 /* The site-wide focus ring (globals.css) squares any focused element to 6px corners; a card keeps its own shape under the ring. */
 .card:focus-visible { border-radius: 1rem; }
+
+/* A card's tape: its last trades, buys above a hairline and sells below, taller for more dollars, the newest at the right. */
+.tape { position: relative; display: flex; align-items: stretch; justify-content: flex-end; gap: 2px; height: 22px; min-width: 0; overflow: hidden; --pu: 2px; }
+.tape::before { content: ""; position: absolute; inset-inline: 0; top: 50%; height: 1px; margin-top: -.5px; background: var(--color-line); }
+.tapeBig { height: 28px; gap: 3px; --pu: 2.6px; }
+.pip { position: relative; flex: none; width: 3px; opacity: .5; }
+.tapeBig .pip { width: 4px; }
+.pip:nth-last-child(-n+4) { opacity: 1; }
+.pip > i { position: absolute; inset-inline: 0; height: calc(2px + var(--m) * var(--pu)); border-radius: 1px; background: currentColor; }
+.buy { color: var(--color-up); }
+.sell { color: var(--color-down); }
+.pip.buy > i { bottom: calc(50% + 1px); transform-origin: bottom; }
+.pip.sell > i { top: calc(50% + 1px); transform-origin: top; }
+.streak { flex: none; padding: 0 4px; border-radius: 4px; font: 700 10px/14px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent); animation: tagIn 460ms var(--spring) backwards; }
+
+/* ══ A trade lands on a card ══════════════════════════════════════════════════════════════════════════════════════
+   The board sets, on the card's link, when its turn is (--st), which way it leans (--dir: -1 for a buy) and how hard
+   (--bump); every effect below reads them. Each effect node rests invisible when it ends, so nothing ever lingers. */
+.card { position: relative; --spring: cubic-bezier(.34, 1.56, .64, 1); --st: 0ms; --dir: -1; --bump: .006; }
+@supports (animation-timing-function: linear(0, 1)) {
+  .card { --spring: linear(0, .009, .035 2.1%, .141 4.4%, .723 12.9%, .938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, .991, .977 51%, .974 53.8%, .975 57.1%, .997 69.8%, 1.003 76.9%, 1.004 83.8%, 1); }
+}
+
+/* the card takes the hit: a little up for a buy, down for a sell, more for more dollars. Two identical keyframes, swapped per hit, so a second trade replays it at once */
+.hitA { animation: bumpA 620ms ease-out var(--st) 1; }
+.hitB { animation: bumpB 620ms ease-out var(--st) 1; }
+@keyframes bumpA { 0% { transform: none; } 18% { transform: translateY(calc(var(--dir) * 3px)) scale(calc(1 + var(--bump))); } 46% { transform: translateY(calc(var(--dir) * -1px)) scale(calc(1 - var(--bump) * .3)); } 72% { transform: translateY(calc(var(--dir) * .5px)) scale(calc(1 + var(--bump) * .12)); } 100% { transform: none; } }
+@keyframes bumpB { 0% { transform: none; } 18% { transform: translateY(calc(var(--dir) * 3px)) scale(calc(1 + var(--bump))); } 46% { transform: translateY(calc(var(--dir) * -1px)) scale(calc(1 - var(--bump) * .3)); } 72% { transform: translateY(calc(var(--dir) * .5px)) scale(calc(1 + var(--bump) * .12)); } 100% { transform: none; } }
+
+/* its edge lights once in the trade's colour: a hairline, not a wash */
+.edge { position: absolute; inset: -1px; z-index: 1; border-radius: inherit; border: 1.5px solid currentColor; opacity: 0; pointer-events: none; animation: edge 1300ms cubic-bezier(.2, .7, .3, 1) var(--st) backwards; }
+.edgeLead { color: var(--color-brand); animation-duration: 2200ms; animation-delay: 0ms; }
+@keyframes edge { 0% { opacity: 0; } 9% { opacity: 1; } 100% { opacity: 0; } }
+
+/* "Buy $45" lifts off the card: up for a buy, down for a sell. A runner's sits on the edge that lit up (top for a buy,
+   bottom for a sell) and drifts less, so it stays inside the gap between cards */
+.chip { position: absolute; z-index: 2; padding: 0 5px; border-radius: 5px; background: var(--color-card); font: 700 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; opacity: 0; box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 40%, transparent); animation: chipFloat 1700ms linear var(--st) backwards; }
+.chip.sell { color: var(--color-down-ink); }
+.chipLead { top: 16px; right: 20px; --travel: 10px; }
+.chipTop { top: -9px; right: 14px; --travel: 5px; }
+.chipBottom { bottom: -9px; right: 14px; --travel: 5px; }
+@keyframes chipFloat {
+  0% { opacity: 0; transform: translateY(calc(var(--dir) * -9px)) scale(.6); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  13% { opacity: 1; transform: translateY(0) scale(1.14); }
+  24% { transform: translateY(0) scale(1); }
+  74% { opacity: 1; transform: translateY(calc(var(--dir) * var(--travel) * .3)) scale(1); }
+  100% { opacity: 0; transform: translateY(calc(var(--dir) * var(--travel))) scale(1); }
+}
+
+/* a trade's tick springs out of the line on its card's turn (--pst: the pip's own slot) */
+.pipFresh > i { animation: pipIn 520ms var(--spring) var(--pst) backwards; }
+@keyframes pipIn { from { transform: scaleY(0); } }
+@keyframes tagIn { from { scale: 0; opacity: 0; } 40% { opacity: 1; } }
+
+/* ▲1 / ▼1 on the corner of a card that changed place; the board drops it after a few seconds */
+.move { position: absolute; z-index: 3; left: -6px; top: -9px; padding: 0 4px; border-radius: 4px; background: var(--color-brand-soft); color: var(--color-brand); font: 700 9.5px/13px var(--font-mono); font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand) 30%, transparent); animation: tagIn 520ms var(--spring) 260ms backwards; }
+.moveDown { background: var(--color-paper); color: var(--color-muted); box-shadow: 0 0 0 1px var(--color-line-strong); }
+
+/* leader hand-over: the new leader's rows arrive from where its runner card was, one after another, and a line sweeps its top edge */
+.handover { --hx: 0px; --hy: 16px; }
+@media (min-width: 1024px) { .handover { --hx: 26px; --hy: 0px; } }
+.handover .row { animation: rowIn 620ms var(--spring) calc(var(--k) * 45ms) backwards; }
+@keyframes rowIn { from { opacity: 0; transform: translate(var(--hx), var(--hy)); } 35% { opacity: 1; } }
+.sweep { position: absolute; z-index: 2; left: 16px; right: 16px; top: -1px; height: 2px; border-radius: 2px; background: var(--color-brand); transform-origin: left; opacity: 0; pointer-events: none; animation: sweep 1500ms cubic-bezier(.2, .8, .2, 1) backwards; }
+@keyframes sweep { 0% { transform: scaleX(0); opacity: 1; } 45% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1); opacity: 0; } }
+
+/* reduced motion: nothing moves. The edge and the figure still show, as a fade in place; ticks and numbers just change */
+@keyframes chipFade { 0% { opacity: 0; } 13% { opacity: 1; } 74% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .hitA, .hitB, .pipFresh > i, .handover .row, .move, .streak { animation: none; }
+  .chip { animation-name: chipFade; }
+  .sweep { display: none; }
+}
+

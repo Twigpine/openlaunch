@@ -11,10 +11,12 @@ import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
 import { gitlawbLinkedUsd } from "./twig";
 import { canonicalImageUrl } from "./images";
-import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
+import { GRACE_HOURS, LIVE_WINDOW_HOURS, STRIP_SIZE, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
 import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
+import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, type Pip } from "./trending-live";
+import { launchKey } from "./list-state";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
 import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSearchHitByHolders, type LaunchFilter } from "./search";
@@ -693,7 +695,8 @@ export async function getWalletTrades(wallet: string, ethUsd: number | null = nu
   });
 }
 
-export type TrendingSnap = { window: "1h" | "24h"; items: LaunchRow[] };
+/** `tape`: each board token's recent trades (oldest first), keyed by launchKey. Only the page's seed carries it: the live poll adds trades itself. */
+export type TrendingSnap = { window: "1h" | "24h"; items: LaunchRow[]; tape?: Record<string, Pip[]> };
 
 export const TRENDING_CANDIDATES = 40;
 
@@ -708,6 +711,47 @@ export function trendingFrom(rows: LaunchRow[]): TrendingSnap {
 /** True when a list request's first page doubles as the trending candidate set, so callers can skip `getTrending`. */
 export function isTrendingSource(opts: ListOpts): boolean {
   return opts.sort === "live" && !opts.chain && !opts.filter && (opts.window ?? "all") === "all" && !opts.offset && (opts.limit ?? 0) >= TRENDING_CANDIDATES;
+}
+
+/**
+ * Each board token's recent trades, oldest first, for the Trending cards' tapes: as many as its card has room for (the
+ * first row is the leader, the rest are runners). One read for the whole board:
+ * the newest swaps of each token off its (token, block_time) index, in the feed's own order. Dust is dropped after the read, as the feed does
+ * it, so twice the rows are read; dollars use the price the board row already carries.
+ */
+export async function getBoardTapes(rows: readonly LaunchRow[]): Promise<Record<string, Pip[]>> {
+  const db = maybeDb();
+  if (!db || rows.length === 0) return {};
+  const byId = new Map(rows.map((r) => [`${r.chain_id}:${r.token.toLowerCase()}`, r]));
+  const found = await db<{ chain_id: number; token: string; tx_hash: string; log_index: number; is_buy: boolean; quote_wei: string; at: Date; trader: string | null }[]>`
+    SELECT t.chain_id, t.token, s.tx_hash, s.log_index, s.is_buy, abs(s.amount0)::text AS quote_wei, s.block_time AS at, s.trader
+      FROM unnest(${rows.map((r) => r.chain_id)}::int[], ${rows.map((r) => r.token.toLowerCase())}::text[]) AS t(chain_id, token)
+      CROSS JOIN LATERAL (
+        SELECT tx_hash, log_index, is_buy, amount0, block_time, trader FROM bb_launch_swaps
+         WHERE chain_id = t.chain_id AND token = t.token
+         ORDER BY block_time DESC, log_index DESC LIMIT ${PIPS_LEADER * 2}
+      ) s`;
+  const tape: Record<string, Pip[]> = {};
+  for (const r of found) {
+    const row = byId.get(`${r.chain_id}:${r.token}`);
+    if (!row) continue;
+    const pip = pipFromSwapRow({ chain: row.chain, token: row.token, tx_hash: r.tx_hash, log_index: r.log_index, is_buy: r.is_buy, quote_wei: r.quote_wei, at: r.at, trader: r.trader }, row);
+    if (pip) (tape[launchKey(row)] ??= []).push(pip);
+  }
+  rows.forEach((row, i) => {
+    const key = launchKey(row);
+    if (tape[key]) tape[key] = tape[key].sort((a, b) => a.at - b.at).slice(-(i === 0 ? PIPS_LEADER : PIPS_RUNNER));
+  });
+  return tape;
+}
+
+/** A snapshot with its tapes: the page seeds the board with it; a quiet burst of page loads shares one read. */
+export async function withBoardTape(snap: TrendingSnap): Promise<TrendingSnap> {
+  if (snap.items.length === 0) return snap;
+  // the board shows STRIP_SIZE cards (the ranking returns no more); the cap keeps a larger snapshot from fetching history nobody draws
+  const shown = snap.items.slice(0, STRIP_SIZE + 1);
+  const key = `board-tape:${shown.map((r) => `${r.chain_id}:${r.token}`).join(",")}`;
+  return { ...snap, tape: await memo(key, 3_000, () => getBoardTapes(shown)) };
 }
 
 /** "Hot right now": the top of the live sort, ranked for the strip by lib/launchpad/ranking.ts. */

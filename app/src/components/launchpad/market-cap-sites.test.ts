@@ -31,9 +31,9 @@ test("the token page leads with dollars and keeps the quote detail; the phone ba
 test("the Trending board leads with the main figure and keeps the mark in sight on every card", () => {
   const board = read("./TrendingStrip.tsx");
   assert.match(board, /const cap = \(row: LaunchRow\) => capDisplay\(row\.fdv_quote, row\.quote_usd/);
-  assert.equal((board.match(/<\/span>\{c\.main\}/g) ?? []).length, 2, "the leader's figure and a runner's");
-  assert.match(board, /Market cap\{c\.usd === null \? ` \(\$\{c\.detail\}\)` : ""\}, and the change since launch/, "the leader's caption carries the mark");
-  assert.match(board, /\{a\.volume\}<\/span>\{c\.usd === null \? <> · \{c\.detail\}<\/> : null\}/, "a runner carries it beside its volume, which shows on every width");
+  assert.equal((board.match(/<\/span><Roll text=\{c\.main\} \/>/g) ?? []).length, 2, "the leader's figure and a runner's");
+  assert.match(board, /`Market cap\$\{c\.usd === null \? ` \(\$\{c\.detail\}\)` : ""\}, and the change since launch`/, "the leader's caption carries the mark");
+  assert.match(board, /<Roll text=\{a\.volume\} \/><\/span>\{c\.usd === null \? <> · \{c\.detail\}<\/> : null\}/, "a runner carries it beside its volume, which shows on every width");
   assert.equal((board.match(/title=\{`Market cap \$\{c\.main\} · \$\{c\.detail\}`\}/g) ?? []).length, 2, "both figures keep the other denomination on hover");
   assert.doesNotMatch(board, /\.compact\b/, "the one-string form pushed the token's name out of a runner card");
 });

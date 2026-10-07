@@ -55,12 +55,12 @@ export default function Loading() {
       <section className="min-w-0">
         <div className="mb-3 flex h-8 items-center gap-3"><Sk className="h-4 w-20" /><Sk className="h-5 w-24 rounded-full" /></div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-10 lg:grid-rows-2">
-          <div className="flex h-80 flex-col justify-between rounded-2xl border border-line bg-card p-5 sm:col-span-2 sm:h-[197px] lg:col-span-4 lg:row-span-2 lg:h-80">
+          <div className="flex h-[324px] flex-col justify-between rounded-2xl border border-line bg-card p-5 sm:col-span-2 sm:h-[197px] lg:col-span-4 lg:row-span-2 lg:h-[324px]">
             <div className="space-y-4"><Sk className="h-3 w-40" /><div className="flex items-center gap-3.5"><Sk className="h-[52px] w-[52px] shrink-0 rounded-2xl" /><div className="min-w-0 flex-1 space-y-2"><Sk className="h-4 w-2/3" /><Sk className="h-3 w-20" /></div></div></div>
             <div className="space-y-3"><Sk className="h-4 w-36" /><Sk className="h-1.5 w-full rounded-full" /><Sk className="h-3 w-3/4" /></div>
           </div>
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="flex h-[116px] flex-col justify-between rounded-2xl border border-line bg-card px-4 py-3.5 sm:h-[143px] sm:py-4 lg:col-span-3 lg:h-[154px]">
+            <div key={i} className="flex h-[138px] flex-col justify-between rounded-2xl border border-line bg-card px-4 py-3.5 sm:h-[144px] sm:py-4 lg:col-span-3 lg:h-[156px]">
               <div className="flex items-center gap-2.5"><Sk className="h-[38px] w-[38px] shrink-0 rounded-xl" /><div className="min-w-0 flex-1 space-y-2"><Sk className="h-3.5 w-2/3" /><Sk className="h-2.5 w-20" /></div><Sk className="h-3.5 w-14" /></div>
               <div className="space-y-2.5"><Sk className="h-[3px] w-full rounded-full" /><Sk className="h-2.5 w-3/4" /></div>
             </div>
