@@ -15,6 +15,7 @@ import { isFilter } from "@/lib/launchpad/search";
 import { nowMs } from "@/lib/launchpad/time";
 import { inRiverWindow, riverCoverage } from "@/lib/launchpad/river";
 import TrendingStrip from "@/components/launchpad/TrendingStrip";
+import LaunchPill from "@/components/launchpad/LaunchPill";
 import WhyFree from "@/components/launchpad/WhyFree";
 import { MagicCard } from "@/components/vendor/magic-card";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
@@ -61,6 +62,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
           </div>
         </aside>
       </div>
+      <LaunchPill />
     </main>
   );
 }

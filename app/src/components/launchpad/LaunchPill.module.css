@@ -1,0 +1,6 @@
+/* A filled pill at the bottom of a phone's screen, under the header (z 40) and its menu (z 50). Phones only. */
+.pill { position: fixed; z-index: 30; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 20px 0 8px; border-radius: 9999px; background: var(--color-brand); color: var(--color-inverse); font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 12px 30px -10px var(--color-glow); animation: pill-in 220ms cubic-bezier(.2, .7, .3, 1) backwards; }
+.tile { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 12px; background: color-mix(in srgb, var(--color-inverse) 15%, transparent); }
+@keyframes pill-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+@media (min-width: 640px) { .pill { display: none; } }
+@media (prefers-reduced-motion: reduce) { .pill { animation: none; } }
