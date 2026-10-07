@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getWalletClient } from "wagmi/actions";
-import WalletAvatar from "@/components/WalletAvatar";
+import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import ChainBadge from "./ChainBadge";
 import { useLive } from "./LiveProvider";
 import { toast } from "./TxToasts";
@@ -225,7 +225,7 @@ function PostItem({ p, now, canReply, onReply, onReport }: { p: PostRow; now: nu
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted font-mono">
-        <span className="inline-flex shrink-0 items-center gap-2 text-ink" title={p.wallet}><WalletAvatar address={p.wallet} size={24} />{shortAddr(p.wallet)}</span>
+        <span className="inline-flex shrink-0 items-center gap-2 text-ink" title={p.wallet}><WhoAvatar address={p.wallet} size={24} /><WhoName address={p.wallet} className="font-sans text-[12px]" fallback={shortAddr(p.wallet)} /></span>
         <TagChip tag={p.tag} />
         <span suppressHydrationWarning>{now ? `${ago(p.created_at, now)} ago` : ""}</span>
         <span className="text-faint">#{p.id}</span>
@@ -347,11 +347,11 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
         {shown.map((p) => (
           <li key={p.id} className={compact ? "" : "px-4 py-3"}>
             <Link href={`/t/${p.chain}/${p.token}#comments`} className={`flex items-start gap-2.5 min-w-0 ${compact ? "px-4 py-3 transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none" : ""}`}>
-              <WalletAvatar address={p.wallet} />
+              <WhoAvatar address={p.wallet} />
               <div className="min-w-0 flex-1">
                 {compact ? <>
                   <div className="flex min-w-0 items-center gap-2 text-[11px]">
-                    <span className="truncate font-code text-ink" title={p.wallet}>{shortAddr(p.wallet)}</span>
+                    <WhoName address={p.wallet} link={false} fallback={<span className="truncate font-code text-ink" title={p.wallet}>{shortAddr(p.wallet)}</span>} />
                     {p.tag ? <span className={`shrink-0 rounded-md px-1.5 py-px text-[10px] font-semibold ${TAG_BADGE[p.tag].className}`}>{TAG_BADGE[p.tag].label}</span> : null}
                     <time dateTime={p.created_at} className="ml-auto shrink-0 text-muted tnum" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</time>
                   </div>
@@ -359,7 +359,7 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
                   <div className="mt-1.5 rounded-xl rounded-tl-sm bg-ink/[0.045] px-3 py-2"><p className="line-clamp-3 whitespace-pre-wrap text-[13px] leading-relaxed text-ink [overflow-wrap:anywhere]">{p.body}</p></div>
                   <p className="mt-1.5 truncate text-[11px] text-muted">on <span className="font-medium text-body">${p.symbol || shortAddr(p.token)}</span> · {CHAIN_SHORT[p.chain]}</p>
                 </> : <div className="flex items-center gap-1.5 text-[11px] text-muted font-mono min-w-0">
-                  <span className="text-ink shrink-0" title={p.wallet}>{shortAddr(p.wallet)}</span>
+                  <WhoName address={p.wallet} link={false} className="shrink-0 font-sans" fallback={<span className="text-ink shrink-0" title={p.wallet}>{shortAddr(p.wallet)}</span>} />
                   <ChainBadge chain={p.chain} className="shrink-0" />
                   <TagChip tag={p.tag} />
                   <span className="truncate font-sans">on {p.symbol || shortAddr(p.token)}</span>

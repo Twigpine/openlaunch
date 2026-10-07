@@ -7,7 +7,7 @@ import { ArrowRight, ArrowUpRight, MessageSquare, MessagesSquare, RefreshCw, Sea
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
-import WalletAvatar from "@/components/WalletAvatar";
+import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import { useLive } from "@/components/launchpad/LiveProvider";
 import { CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
@@ -85,9 +85,9 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
           <article className={styles.post}>
             <Link href={`/t/${post.chain}/${post.token}#comments`} className={styles.postLink}>
               <div className={styles.postHeading}>
-                <WalletAvatar address={post.wallet} size={40} />
+                <WhoAvatar address={post.wallet} size={40} />
                 <div className={styles.postAuthor}>
-                  <h3 title={post.wallet}><span className="sr-only">Post by </span>{shortAddr(post.wallet)}</h3>
+                  <h3 title={post.wallet}><span className="sr-only">Post by </span><WhoName address={post.wallet} link={false} fallback={shortAddr(post.wallet)} /></h3>
                   <p>
                     {post.tag ? <span className={styles.role} data-tag={post.tag}>{ROLE[post.tag]}</span> : null}
                     <time dateTime={post.created_at} title={post.created_at} suppressHydrationWarning>{now ? `${ago(post.created_at, now)} ago` : ""}</time>

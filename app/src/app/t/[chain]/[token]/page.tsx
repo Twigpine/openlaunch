@@ -18,6 +18,8 @@ import TokenDetails from "@/components/launchpad/TokenDetails";
 import TokenTrades from "@/components/launchpad/TokenTrades";
 import LaunchReceipt from "@/components/launchpad/LaunchReceipt";
 import TokenAbout from "@/components/launchpad/TokenAbout";
+import NamesProvider from "@/components/profile/NamesProvider";
+import { namesFor } from "@/lib/profiles/server";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
@@ -90,10 +92,14 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const unlisted = quote.key === "other";
   const stockQuote = quote.key === "stock" ? stockByAddress(chain, l.quote) : null;
   const [swaps, holders, tint] = await Promise.all([getSwaps(chain, l.token, quote.decimals, 40), memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)), tokenTint(l.image_url, l.token)]);
+  // names for every wallet the server renders (trades, creator, fee recipients, top holders): the first paint shows them
+  const nameWallets = [l.launcher, ...swaps.map((s) => s.trader), ...l.recipients.map((r) => r.payout), ...(holders?.top ?? []).map((h) => h.address)].filter((w): w is string => Boolean(w));
+  const known = await namesFor(nameWallets).catch(() => ({}) as Awaited<ReturnType<typeof namesFor>>);
+  const names = Object.fromEntries([...new Set(nameWallets.map((w) => w.toLowerCase()))].map((w) => [w, known[w] ?? null]));
   const now = nowMs();
   const mode = feeModeOf(l.lp_fee, l.recipients);
   const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals });
-  const proof = proofFacts({ holders, symbol: l.symbol, launcher: l.launcher, lpFee: l.lp_fee, mode, recipients: l.recipients.length });
+  const proof = proofFacts({ holders, symbol: l.symbol, launcher: l.launcher, launcherName: names[l.launcher.toLowerCase()]?.u ?? null, lpFee: l.lp_fee, mode, recipients: l.recipients.length });
   const locker = launchpad(chain).locker;
   const proofLinks: Partial<Record<ProofKey, ProofLink>> = {
     ...(locker ? { lock: { href: explorerAddress(chain, locker), label: "View locker", external: true } } : {}),
@@ -139,7 +145,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   });
 
   return (
-    <>
+    <NamesProvider names={names}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
       {/* the token's tint (from its logo) is a CSS variable per theme: the ring, the chart line, the proof marks. Never an action colour. */}
       <div className="relative isolate overflow-x-clip [--tok:var(--tok-light)] dark:[--tok:var(--tok-dark)]" style={{ "--tok-light": tint.light, "--tok-dark": tint.dark } as React.CSSProperties}>
@@ -269,7 +275,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
       </main>
       </div>
       <MobileBuyBar symbol={l.symbol} mcap={cap.compact} />
-    </>
+    </NamesProvider>
   );
 }
 

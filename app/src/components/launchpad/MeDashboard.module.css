@@ -44,7 +44,7 @@
 .identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 /* the wallet's own avatar, the one the header shows */
 .walletIcon { display: inline-flex; flex-shrink: 0; }
-.identity p { font-size: 12px; color: var(--color-muted); margin-bottom: 2px; }
+.identity p, .identityLabel { font-size: 12px; color: var(--color-muted); margin-bottom: 2px; }
 .address { font-family: var(--font-code); font-size: 14px; color: var(--color-ink); }
 .walletUtilities { display: flex; align-items: center; gap: 14px; }
 .updateNote { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-muted); }

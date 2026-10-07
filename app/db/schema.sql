@@ -323,3 +323,70 @@ CREATE TABLE IF NOT EXISTS bb_quote_tokens (
 -- An optional wide image the creator uploads beside the logo. Same rules as image_url (https only; uploads are
 -- re-encoded server-side, here to a 1500×500 WebP). NULL means no banner: the market cards draw one from the logo.
 ALTER TABLE bb_launch_meta ADD COLUMN IF NOT EXISTS banner_url text;
+
+-- ── profiles (2026-10-07) ──────────────────────────────────────────────────
+-- Optional public profile per wallet: a unique username shown wherever the wallet appears (trades, holders, posts,
+-- "launched by"). Every write is a wallet signature (src/lib/profiles). The X tick comes only from a public post
+-- that carries a one-time code bound to this wallet and the claimed handle (lib/profiles/xpost.ts); the claimed
+-- handle is never shown until it is verified. No email, no IP, no off-site identity beyond the public X account.
+CREATE TABLE IF NOT EXISTS bb_profiles (
+  wallet              text PRIMARY KEY,                    -- lowercase hex
+  username            text NOT NULL,                       -- lowercase [a-z0-9_]{3,20}
+  display_name        text NOT NULL,
+  bio                 text,
+  avatar_key          text,                                -- t/<hex>.webp in our image store, served same-origin
+  x_handle            text,                                -- claimed handle (lowercase); public only once verified
+  x_user_id           text,                                -- X account id ('h:<handle>' when only the handle was readable)
+  x_post_id           text,
+  x_verified_at       timestamptz,
+  x_account_created   timestamptz,
+  x_followers         integer,
+  x_status            text NOT NULL DEFAULT 'none' CHECK (x_status IN ('none','verified','post_missing','pending_review')),
+  x_checked_at        timestamptz,
+  hidden              boolean NOT NULL DEFAULT false,      -- admin: the wallet shows as a plain address again
+  points_flag         text,                                -- admin: 'excluded' keeps the wallet off any points board
+  points_flag_reason  text,
+  username_changed_at timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bb_profiles_username_uq ON bb_profiles (username);
+CREATE UNIQUE INDEX IF NOT EXISTS bb_profiles_x_user_uq ON bb_profiles (x_user_id) WHERE x_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS bb_profiles_x_review_idx ON bb_profiles (x_status, updated_at DESC) WHERE x_status <> 'none';
+-- A released username (rename or delete) stays reserved for its previous wallet for 30 days.
+CREATE TABLE IF NOT EXISTS bb_username_holds (
+  username    text PRIMARY KEY,
+  wallet      text NOT NULL,
+  released_at timestamptz NOT NULL DEFAULT now()
+);
+-- single-use nonces for profile / profile-moderation signatures (client-generated, server-consumed)
+CREATE TABLE IF NOT EXISTS bb_profile_nonces (
+  nonce      text PRIMARY KEY,
+  wallet     text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- One-time X verification codes: bound to the wallet AND the handle the wallet signed for, so a copied code is
+-- useless from any other account. review: NULL until a post is submitted while every lookup is down.
+CREATE TABLE IF NOT EXISTS bb_x_codes (
+  code         text PRIMARY KEY,                           -- OL-XXXXXXXX
+  wallet       text NOT NULL,
+  x_handle     text NOT NULL,                              -- lowercase
+  issued_at    timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  used_at      timestamptz,
+  post_id      text,
+  submitted_at timestamptz,
+  review       text CHECK (review IN ('pending','approved','rejected'))
+);
+CREATE INDEX IF NOT EXISTS bb_x_codes_wallet_idx ON bb_x_codes (wallet, issued_at DESC);
+
+-- ── swap attribution (2026-10-07) ───────────────────────────────────────────
+-- trader is tx.from, except when the sender neither received nor sent the token in that transaction (ERC-4337
+-- smart wallets: tx.from is the bundler; relayed EIP-7702 calls: the relayer). Then the indexer credits the wallet
+-- that actually took or paid the token (lib/launchpad/attribution.ts) and marks the row 'transfers'.
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_via text;
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS tx_from text;
+-- the unchecked set: every swap until the history drain reaches it, then only the newest few (partial index stays small)
+CREATE INDEX IF NOT EXISTS bb_launch_swaps_unattributed_idx ON bb_launch_swaps (chain_id, block_number DESC) WHERE trader_via IS NULL;
+-- one wallet's trades (profile pages, /me, posting eligibility, points) without scanning every swap
+CREATE INDEX IF NOT EXISTS bb_launch_swaps_trader_idx ON bb_launch_swaps (trader, block_number DESC);

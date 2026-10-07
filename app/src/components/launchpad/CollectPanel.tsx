@@ -12,6 +12,7 @@ import { LAUNCH_LOCKER_ABI } from "@/lib/launchpad/abi";
 import { DEAD, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
 import { fmtQuote, fmtTokens, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { BUILDER_DATA_SUFFIX, CHAINS, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { WhoName } from "@/components/profile/Who";
 import { friendlyError } from "@/lib/errors";
 import { feeSidesUsd } from "@/lib/launchpad/creator";
 import { feeModeOf } from "./FeeChip";
@@ -141,9 +142,11 @@ export default function CollectPanel({
                     {burn ? (
                       <span className="text-warm-ink font-medium">Burned</span>
                     ) : (
-                      <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">
-                        {address && r.payout.toLowerCase() === address.toLowerCase() ? "You" : shortAddr(r.payout)}
-                      </a>
+                      address && r.payout.toLowerCase() === address.toLowerCase() ? (
+                        <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">You</a>
+                      ) : (
+                        <WhoName address={r.payout} fallback={<a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">{shortAddr(r.payout)}</a>} />
+                      )
                     )}
                   </span>
                   <span className="font-mono tnum text-body">{(r.bps / 100).toFixed(r.bps % 100 === 0 ? 0 : 2)}%</span>

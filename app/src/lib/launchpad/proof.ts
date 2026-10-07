@@ -15,15 +15,18 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n.toLocaleString("en-US")} times`);
 
-export function proofFacts({ holders, symbol, launcher, lpFee, mode, recipients }: {
+export function proofFacts({ holders, symbol, launcher, launcherName, lpFee, mode, recipients }: {
   holders: Pick<HolderPanel, "synced" | "holders" | "top10Bps" | "poolBps" | "creator" | "sniper"> | null;
   symbol: string;
   launcher: string;
+  /** the creator's profile username, when they have one: the facts then name them instead of the short address */
+  launcherName?: string | null;
   lpFee: number;
   mode: FeeMode;
   recipients: number;
 }): { facts: ProofFact[]; holdersReady: boolean } {
   const ready = holders?.synced === true;
+  const who = launcherName || short(launcher);
   const facts: ProofFact[] = [];
 
   facts.push({
@@ -40,10 +43,10 @@ export function proofFacts({ holders, symbol, launcher, lpFee, mode, recipients 
     const { bps, sells } = h.creator;
     const bought = BigInt(h.creator.bought);
     facts.push(bps === 0 && sells === 0 && bought === 0n
-      ? { key: "creator", tone: "good", title: "The creator holds none", detail: `${short(launcher)} has never bought or sold ${symbol}.` }
+      ? { key: "creator", tone: "good", title: "The creator holds none", detail: `${who} has never bought or sold ${symbol}.` }
       : bps === 0
-        ? { key: "creator", tone: sells > 0 ? "warn" : "info", title: "The creator holds none now", detail: sells > 0 ? `${short(launcher)} sold ${times(sells)} and holds no ${symbol}.` : `${short(launcher)} bought and no longer holds ${symbol}.` }
-        : { key: "creator", tone: bps >= 2_000 || sells > 0 ? "warn" : "info", title: `The creator holds ${fmtShare(bps)}`, detail: sells > 0 ? `${short(launcher)} has sold ${times(sells)}.` : `${short(launcher)} has not sold any.` });
+        ? { key: "creator", tone: sells > 0 ? "warn" : "info", title: "The creator holds none now", detail: sells > 0 ? `${who} sold ${times(sells)} and holds no ${symbol}.` : `${who} bought and no longer holds ${symbol}.` }
+        : { key: "creator", tone: bps >= 2_000 || sells > 0 ? "warn" : "info", title: `The creator holds ${fmtShare(bps)}`, detail: sells > 0 ? `${who} has sold ${times(sells)}.` : `${who} has not sold any.` });
 
     facts.push({
       key: "spread",

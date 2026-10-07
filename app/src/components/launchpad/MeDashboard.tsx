@@ -9,7 +9,6 @@ import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner, ChainLogoStack } from "./ChainLogo";
-import WalletAvatar from "@/components/WalletAvatar";
 import { QuoteBrandBadge } from "./MuseworldBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
@@ -24,10 +23,11 @@ import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
 import type { EditFields } from "@/lib/launchpad/editAuth";
 import { ago } from "@/lib/launchpad/time";
-import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
+import ProfileIdentity from "@/components/profile/ProfileIdentity";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -192,7 +192,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
   const walletBar = <div className={styles.walletBar}>
-    <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><WalletAvatar address={address} size={40} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
+    <div className={styles.identity}><ProfileIdentity address={address} avatarClass={styles.walletIcon} labelClass={styles.identityLabel} addressClass={styles.address} /></div>
     <div className={styles.walletUtilities}><span className={styles.updateNote}><ChainLogoStack chains={VISIBLE_CHAINS} size={16} />{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
   </div>;
 

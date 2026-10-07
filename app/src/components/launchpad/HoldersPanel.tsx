@@ -4,6 +4,7 @@ import { holderFactsAvailable } from "@/lib/launchpad/token-market";
 import { fmtShare } from "@/lib/launchpad/holders";
 import { fmtCompact } from "@/lib/launchpad/math";
 import { explorerAddress, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { WhoName } from "@/components/profile/Who";
 
 /**
  * Holders & trust panel (server component). Facts only — no score: who holds the supply, what the
@@ -48,9 +49,15 @@ export default function HoldersPanel({ chain, symbol, p, embedded = false }: { c
           {p.top.map((h, i) => (
             <li key={h.address} className="px-5 py-2.5 flex items-center gap-3 text-sm transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none">
               <span className="w-5 text-right font-mono text-xs text-muted tnum">{i + 1}</span>
-              <a href={explorerAddress(chain, h.address)} target="_blank" rel="noreferrer" className="font-code text-xs text-body hover:text-ink" title={h.address}>
-                {shortAddr(h.address)}
-              </a>
+              <WhoName
+                address={h.address}
+                className="text-xs"
+                fallback={
+                  <a href={explorerAddress(chain, h.address)} target="_blank" rel="noreferrer" className="font-code text-xs text-body hover:text-ink" title={h.address}>
+                    {shortAddr(h.address)}
+                  </a>
+                }
+              />
               <span className="flex gap-1">
                 {h.tags.map((t) => (
                   <span key={t} className={`inline-flex items-center h-5 px-1.5 rounded-md border text-[10px] font-medium ${TAG_STYLE[t]}`}>

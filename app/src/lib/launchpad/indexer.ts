@@ -10,6 +10,7 @@ import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
+import { attributeSwap, type Leg } from "./attribution";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -143,8 +144,8 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
     const inserted = await t`
-    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
-    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${trader}, ${a.amount0.toString()}, ${a.amount1.toString()},
+    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
+    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${trader}, ${trader}, ${a.amount0.toString()}, ${a.amount1.toString()},
             ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time})
     ON CONFLICT DO NOTHING
     RETURNING tx_hash`;
@@ -273,7 +274,72 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
   const tokens = [...new Set([...poolToToken.values()])];
   if (tokens.length > 0) await applyTransfers(db, chain, tokens, from, to);
+  // the range's transfers are in now: credit smart-wallet / relayed swaps to the wallet that moved the token
+  if (swaps > 0) await attributeSwaps(db, chain, { from, to });
   return { launches, swaps, fees };
+}
+
+// ── swap attribution ─────────────────────────────────────────────────────────
+type UnattributedSwap = { tx_hash: string; log_index: number; token: string; is_buy: boolean; trader: string };
+
+/**
+ * Check swaps not yet checked (trader_via IS NULL): keep the sender when it moved the token itself, otherwise credit
+ * the wallet that did (attribution.ts). With a range, the swaps of that block range (the live path, right after its
+ * transfers were applied); without one, a bounded batch of the newest unchecked swaps (history, drained a batch per
+ * poll). Every checked row is marked, so nothing is checked twice; the UPDATEs re-test trader_via IS NULL so two
+ * machines running the same batch change each row once.
+ */
+export async function attributeSwaps(db: Db, chain: ChainKey, range: { from: bigint; to: bigint } | null, limit = 1000): Promise<{ checked: number; moved: number }> {
+  const cid = chainIdOf(chain);
+  const rows = range
+    ? await db<UnattributedSwap[]>`
+        SELECT tx_hash, log_index, token, is_buy, trader FROM bb_launch_swaps
+         WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${range.from} AND ${range.to} LIMIT ${limit}`
+    : await db<UnattributedSwap[]>`
+        SELECT tx_hash, log_index, token, is_buy, trader FROM bb_launch_swaps
+         WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL ORDER BY block_number DESC LIMIT ${limit}`;
+  if (rows.length === 0) return { checked: 0, moved: 0 };
+  const txs = [...new Set(rows.map((r) => r.tx_hash))];
+  const legRows = await db<{ tx_hash: string; token: string; log_index: number; from_addr: string; to_addr: string }[]>`
+    SELECT tx_hash, token, log_index, from_addr, to_addr FROM bb_token_transfers WHERE chain_id = ${cid} AND tx_hash = ANY(${txs}::text[])`;
+  const legs = new Map<string, Leg[]>();
+  for (const l of legRows) {
+    const k = `${l.tx_hash}:${l.token}`;
+    const list = legs.get(k) ?? [];
+    list.push({ log_index: Number(l.log_index), from_addr: l.from_addr, to_addr: l.to_addr });
+    legs.set(k, list);
+  }
+  const pm = launchpad(chain).v4.poolManager;
+  const system = systemAddresses(chain);
+  const kept: UnattributedSwap[] = [];
+  const moved: (UnattributedSwap & { to: string })[] = [];
+  for (const r of rows) {
+    const who = attributeSwap({ legs: legs.get(`${r.tx_hash}:${r.token}`) ?? [], txFrom: r.trader, isBuy: r.is_buy, swapLogIndex: Number(r.log_index), poolManager: pm, system });
+    if (who) moved.push({ ...r, to: who });
+    else kept.push(r);
+  }
+  if (kept.length > 0) {
+    await db`
+      UPDATE bb_launch_swaps s SET trader_via = 'tx_from', tx_from = COALESCE(s.tx_from, s.trader)
+        FROM unnest(${kept.map((r) => r.tx_hash)}::text[], ${kept.map((r) => Number(r.log_index))}::int[]) AS u(tx, li)
+       WHERE s.chain_id = ${cid} AND s.tx_hash = u.tx AND s.log_index = u.li AND s.trader_via IS NULL`;
+  }
+  if (moved.length > 0) {
+    await db`
+      UPDATE bb_launch_swaps s SET tx_from = COALESCE(s.tx_from, s.trader), trader = u.who, trader_via = 'transfers'
+        FROM unnest(${moved.map((r) => r.tx_hash)}::text[], ${moved.map((r) => Number(r.log_index))}::int[], ${moved.map((r) => r.to)}::text[]) AS u(tx, li, who)
+       WHERE s.chain_id = ${cid} AND s.tx_hash = u.tx AND s.log_index = u.li AND s.trader_via IS NULL`;
+  }
+  return { checked: rows.length, moved: moved.length };
+}
+
+/** History drain for the poller: one batch of the newest unchecked swaps per call. */
+export async function attributeBacklog(chain: ChainKey): Promise<number> {
+  const db = maybeDb();
+  if (!db || skipReason(chain)) return 0;
+  const r = await attributeSwaps(db, chain, null);
+  if (r.moved) console.log(`[launch-sync] attributed ${r.moved} of ${r.checked} swap(s) to the wallet that moved the token on ${chain}`);
+  return r.moved;
 }
 
 // ── holders ──────────────────────────────────────────────────────────────────
@@ -489,6 +555,7 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
       await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, errMessage(e)));
       await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
       await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));
+      await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, errMessage(e)));
       await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, errMessage(e)));
     }),
   );
