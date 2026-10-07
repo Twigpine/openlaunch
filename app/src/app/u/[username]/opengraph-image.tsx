@@ -7,6 +7,7 @@ import { getProfile } from "@/lib/profiles/server";
 import { walletFacts } from "@/lib/profiles/stats";
 import { normalizeUsername } from "@/lib/profiles/validate";
 import { BRAND, BRAND_DOMAIN, BRAND_TLD } from "@/lib/brand";
+import { walletHue, walletMark } from "@/lib/wallet-mark";
 
 export const alt = "profile on openlaunch.lol";
 export const size = { width: 1200, height: 630 };
@@ -34,12 +35,6 @@ async function avatarPng(url: string | null): Promise<string | null> {
   }
 }
 
-function hueOf(addr: string): number {
-  let h = 0;
-  for (let i = 2; i < Math.min(addr.length, 18); i++) h = (h * 31 + addr.charCodeAt(i)) % 360;
-  return h;
-}
-
 /** The link card under every profile link, including the X verification post: name, ✓, and three on-chain facts. */
 export default async function ProfileOg({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
@@ -47,7 +42,8 @@ export default async function ProfileOg({ params }: { params: Promise<{ username
   const [fonts, p] = await Promise.all([loadOgFonts(), /^[a-z0-9_]{3,20}$/.test(u) ? memo(`og-u:${u}`, 30_000, () => getProfile({ username: u })) : Promise.resolve(null)]);
   const facts = p ? await memo(`u-facts:${p.wallet}`, 10_000, () => walletFacts(p.wallet)) : null;
   const avatar = p ? await memo(`og-u-avatar:${p.wallet}:${p.avatar_url ?? ""}`, 60_000, () => avatarPng(p.avatar_url)) : null;
-  const h = p ? hueOf(p.wallet) : 210;
+  // no picture: the same wallet mark the site draws (WalletAvatar), so the card and the page look like one person
+  const hue = p ? walletHue(p.wallet) : 212;
   return new ImageResponse(
     (
       <div style={{ width: "100%", height: "100%", background: PAPER, display: "flex", flexDirection: "column", fontFamily: "Geist, sans-serif", position: "relative", overflow: "hidden", color: INK }}>
@@ -69,9 +65,12 @@ export default async function ProfileOg({ params }: { params: Promise<{ username
             {avatar ? (
               <img src={avatar} alt="" width={220} height={220} style={{ width: 220, height: 220, borderRadius: 999, objectFit: "cover", border: `1px solid ${LINE}` }} />
             ) : (
-              <div style={{ width: 220, height: 220, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 75% 45%))`, color: "#fff", fontWeight: 700, fontSize: 104 }}>
-                {p.display_name.slice(0, 1).toUpperCase()}
-              </div>
+              <svg width={220} height={220} viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="19.5" fill={`hsl(${hue} 85% 86%)`} stroke={`hsl(${hue} 35% 78%)`} strokeWidth={0.5} />
+                {walletMark(p.wallet).map(({ x, y }) => (
+                  <rect key={`${x}:${y}`} x={x} y={y} width={3.5} height={3.5} rx={0.8} fill={`hsl(${hue} 70% 28%)`} />
+                ))}
+              </svg>
             )}
             <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
