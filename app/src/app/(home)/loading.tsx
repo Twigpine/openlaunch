@@ -46,6 +46,7 @@ export default function Loading() {
             <div className={HERO.actions}><Sk className="h-12 min-w-0 flex-1 rounded-2xl sm:h-[54px] sm:w-52 sm:flex-none" /><Sk className="h-12 w-[149px] shrink-0 rounded-2xl max-[379px]:w-12 sm:h-[54px] sm:w-56" /></div>
             <div className={HERO.proofs}>{["w-[106px] sm:w-[122px]", "w-[96px] sm:w-[170px]", "w-[133px] sm:w-[152px]"].map((w) => <Sk key={w} className={`h-8 rounded-full sm:h-9 ${w}`} />)}</div>
           </div>
+          <div className={hero.stageCol}>
           <div className={hero.stage}>
             <div className={machine.machine}>
               <div className="flex h-9 items-center"><Sk className="h-3 w-44" /></div>
@@ -55,6 +56,8 @@ export default function Loading() {
               {/* the locker's proof links drop to a second row on the narrowest phones */}
               <div className="flex h-[53px] items-center px-2 min-[340px]:h-[30px]"><Sk className="h-2.5 w-full" /></div>
             </div>
+          </div>
+          <div className={hero.tickerStage}><Sk className="h-10 w-full rounded-xl" /></div>
           </div>
           <div className={hero.totalsArea}>
             <div className={totals.panel}>
@@ -70,8 +73,8 @@ export default function Loading() {
               <div className={`${totals.breakdown} flex min-h-11 items-center lg:min-h-9`}><Sk className="h-3 w-64 max-w-full" /></div>
             </div>
           </div>
+          <div className={hero.tickerArea}><Sk className="h-10 w-full rounded-xl" /></div>
         </div>
-        <div className={HERO.ticker}><Sk className="h-10 w-full rounded-xl" /></div>
       </section>
       {/* Trending (TrendingStrip.tsx): a row to swipe below 1024px, a leader over four runners from there. The row's own stylesheet
           class is used, so its padding, gap and card width are the real ones. */}

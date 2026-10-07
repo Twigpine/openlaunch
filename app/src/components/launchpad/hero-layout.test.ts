@@ -27,8 +27,8 @@ test("the headline is stepped so it stays two lines, and the hero grid has three
   assert.ok(HERO.section.split(" ").includes("lg:pt-4"), "tight rhythm from 1024px");
   // phones: copy, the locker, then the totals. 768px: text beside the locker, totals under both. 1024px: the totals
   // move up under the text and the locker spans both rows, with copy hugging its row's bottom and the totals its top
-  assert.match(heroCss, /\.layout \{[^}]*align-items: center;[^}]*grid-template-columns: minmax\(0, 1fr\); grid-template-areas: "copy" "stage" "totals"; \}/);
-  assert.match(heroCss, /@media \(min-width: 768px\) \{ \.layout \{ grid-template-columns: minmax\(0, 1\.06fr\) minmax\(0, 1fr\); grid-template-areas: "copy stage" "totals totals"; \} \}/);
+  assert.match(heroCss, /\.layout \{[^}]*align-items: center;[^}]*grid-template-columns: minmax\(0, 1fr\); grid-template-areas: "copy" "stage" "totals" "ticker"; \}/);
+  assert.match(heroCss, /@media \(min-width: 768px\) \{ \.layout \{ grid-template-columns: minmax\(0, 1\.06fr\) minmax\(0, 1fr\); grid-template-areas: "copy stage" "totals totals" "ticker ticker"; \} \}/);
   assert.match(heroCss, /@media \(min-width: 1024px\) \{\n\s*\.layout \{ grid-template-areas: "copy stage" "totals stage";[^}]*\}\n\s*\.copyArea \{ align-self: end; \}\n\s*\.totalsArea \{ align-self: start; \}/);
   assert.match(heroCss, /\.stage \{ grid-area: stage;/);
 });
