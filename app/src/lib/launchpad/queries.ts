@@ -789,10 +789,10 @@ export async function getTrending(ethUsd: number | null = null): Promise<Trendin
  * The quote pricing the lists use, as a function, for code that prices many launches at once (season points):
  * decimals and USD per whole quote unit (null = unpriced) for a launch's quote on its chain.
  */
-export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { decimals: number; usd: number | null }> {
+export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: string; decimals: number; usd: number | null }> {
   await withStocks();
   return (chain, quote) => {
     const q = quoteInfo(chain, quote);
-    return { decimals: q.decimals, usd: quoteUsd(q, ethUsd) };
+    return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd) };
   };
 }

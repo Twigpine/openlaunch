@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { WalletPoints } from "@/lib/points/server";
+import type { NotEligibleReason } from "@/lib/points/score";
 
-export type PointsState = { season: { name: string; starts_at: string; ends_at: string } | null; me: WalletPoints | null; at: number } | null;
+export type PointsState = { season: { name: string; starts_at: string; ends_at: string; ended: boolean } | null; me: WalletPoints | null; reason: NotEligibleReason | null; at: number } | null;
 
 /** The public season and this wallet's points (null season while the season is not public). */
 export function usePoints(wallet: string | undefined): PointsState {

@@ -30,8 +30,9 @@ export function startLaunchSyncLoop(): boolean {
     }
     // verified X posts are re-read about weekly, a small batch every ten minutes (self-throttled)
     await recheckProfiles().catch((err) => console.warn("[profiles] recheck:", err instanceof Error ? err.message : err));
-    // season points: recomputed hourly from the index, one machine at a time (self-throttled)
-    await computePointsIfDue().catch((err) => console.warn("[points] compute:", err instanceof Error ? err.message : err));
+    // season points: recomputed hourly from the index, one machine at a time (self-throttled); not awaited, so a
+    // long compute never holds up indexing
+    void computePointsIfDue().catch((err) => console.warn("[points] compute:", err instanceof Error ? err.message : err));
   };
   const timer = setInterval(() => void tick(), interval);
   timer.unref();

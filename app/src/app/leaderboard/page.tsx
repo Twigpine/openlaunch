@@ -6,7 +6,7 @@ import NamesProvider from "@/components/profile/NamesProvider";
 import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import YourStanding from "@/components/points/YourStanding";
 import { memo } from "@/lib/launchpad/memo";
-import { boardRows, currentSeason, type Board } from "@/lib/points/server";
+import { boardRows, currentSeason, seasonEnded, type Board } from "@/lib/points/server";
 import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +39,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
 
   const data = await memo(`points:board:${season.id}:${board}`, 30_000, () => boardRows(season.id, board));
   const left = daysLeft(season.ends_at);
+  const ended = seasonEnded(season);
   const tab = (b: Board, label: string) => (
     <Link href={b === "creator" ? "/leaderboard" : "/leaderboard?board=scout"} aria-current={board === b ? "page" : undefined} className={`inline-flex min-h-10 items-center rounded-xl px-4 text-sm font-semibold ${board === b ? "bg-ink text-inverse" : "text-body hover:bg-paper hover:text-ink"}`}>{label}</Link>
   );
@@ -55,8 +56,17 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
               <p className="mt-2 max-w-xl text-sm text-body text-pretty">Real buyers and early finds, read from the chain every hour. Points are reputation: no cash value, not a token. <Link href="/rules#points" className="underline underline-offset-4 hover:text-ink">How points work</Link></p>
             </div>
             <div className="text-left sm:text-right">
-              <p className="font-mono text-[44px] font-bold leading-none tracking-[-0.03em] text-ink tnum sm:text-[56px]">{left}</p>
-              <p className="mt-1 text-xs text-muted">{left === 1 ? "day left" : "days left"} · ends {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</p>
+              {ended ? (
+                <>
+                  <p className="text-[22px] font-bold leading-none text-ink">Final standings</p>
+                  <p className="mt-1 text-xs text-muted">ended {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-mono text-[44px] font-bold leading-none tracking-[-0.03em] text-ink tnum sm:text-[56px]">{left}</p>
+                  <p className="mt-1 text-xs text-muted">{left === 1 ? "day left" : "days left"} · ends {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</p>
+                </>
+              )}
             </div>
           </div>
           <nav aria-label="Boards" className="mt-6 flex gap-1">{tab("creator", "Creators")}{tab("scout", "Scouts")}</nav>

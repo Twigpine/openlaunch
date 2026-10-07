@@ -62,8 +62,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   // the owner's name comes from the profile this page just read, not from a separately cached lookup
   const ownName = { u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" };
   // season points, once the season is public, for a wallet that qualifies
-  const season = await memo("points:season", 10_000, currentSeason);
-  const pts = season?.public ? await memo(`points:me:${season.id}:${p.wallet}`, 10_000, () => walletPoints(season.id, p.wallet)) : null;
+  // fails soft: a points hiccup never takes the profile page down
+  const season = await memo("points:season", 10_000, currentSeason).catch(() => null);
+  const pts = season?.public ? await memo(`points:me:${season.id}:${p.wallet}`, 10_000, () => walletPoints(season.id, p.wallet)).catch(() => null) : null;
   const showPts = Boolean(season && pts && pts.eligible && pts.total > 0);
   const now = nowMs();
   const joined = new Date(p.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });

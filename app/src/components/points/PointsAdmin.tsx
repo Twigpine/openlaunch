@@ -98,11 +98,12 @@ export default function PointsAdmin() {
                 {s.public ? <span className="font-semibold text-up">public</span> : <span className="font-semibold text-warm-ink">shadow (admins only)</span>} · {data.wallets ?? 0} wallets with points, {data.eligible ?? 0} eligible · computed {data.computed_at ? new Date(data.computed_at).toLocaleTimeString() : "not yet"}
               </p>
             ) : (
-              <p className="text-body">No season yet. Starting one begins the shadow run: points are computed hourly but only admins see them until you publish.</p>
+              <p className="text-body">No season yet. Starting one begins the shadow run: points are computed hourly but only admins see them. Publishing then starts the season for everyone, with a fresh 28-day clock (the shadow run&apos;s points are only for tuning).</p>
             )}
             <div className="flex flex-wrap gap-2">
               {!running ? <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void run("start", { days: 28 })}>Start a 28-day season</button> : null}
-              {s ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run(s.public ? "unpublish" : "publish")}>{s.public ? "Hide boards" : "Publish boards"}</button> : null}
+              {s && !s.public ? <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void run("publish")}>Publish: {s.name} starts now</button> : null}
+              {s && s.public ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("unpublish")}>Hide boards</button> : null}
               {s ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("recompute")}>Recompute now</button> : null}
               {running ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("end")}>End season now</button> : null}
             </div>
