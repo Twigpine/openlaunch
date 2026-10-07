@@ -56,6 +56,41 @@ export function randomImageKey(): string {
   return imageKey(rand);
 }
 
+/** The key of a picture in our store (`t/<48 hex>.webp`) inside any URL that points at it (any host, a query or fragment after it), else null. */
+export function pictureKey(url: string | null | undefined): string | null {
+  const m = url ? /\/(t\/[0-9a-f]{48}\.webp)(?=$|[?#])/i.exec(url) : null;
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** A launch's registered metadata, as far as ownership of its picture goes. */
+export type PictureUse = { chain_id: number; token: string; created_at: Date | string; image_url: string | null };
+
+/**
+ * `chain_id:token` of each of `rows` whose picture another token registered first. A picture belongs to the first token that
+ * registered it (the creator registers before broadcasting, and the key is random and secret until then): the same key on a
+ * later token is a copy of somebody else's picture, however it got there. Ties go to the lower address, so the answer never
+ * depends on read order. `all` holds every registration of the pictures `rows` use.
+ */
+export function reusedPictures(rows: readonly Pick<PictureUse, "chain_id" | "token" | "image_url">[], all: readonly PictureUse[]): Set<string> {
+  const first = new Map<string, { at: number; id: string }>();
+  for (const use of all) {
+    const key = pictureKey(use.image_url);
+    if (!key) continue;
+    const at = new Date(use.created_at).getTime();
+    const mine = { at: Number.isFinite(at) ? at : Infinity, id: `${use.chain_id}:${use.token.toLowerCase()}` };
+    const best = first.get(key);
+    if (!best || mine.at < best.at || (mine.at === best.at && mine.id < best.id)) first.set(key, mine);
+  }
+  const reused = new Set<string>();
+  for (const row of rows) {
+    const key = pictureKey(row.image_url);
+    const id = `${row.chain_id}:${row.token.toLowerCase()}`;
+    const owner = key ? first.get(key) : undefined;
+    if (owner && owner.id !== id) reused.add(id);
+  }
+  return reused;
+}
+
 /** Public URL for a stored key under the bucket's public base (no trailing slash). */
 export function imageUrlFor(publicBase: string, key: string): string {
   return `${publicBase.replace(/\/+$/, "")}/${key}`;

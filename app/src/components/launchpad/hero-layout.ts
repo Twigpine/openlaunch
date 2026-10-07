@@ -14,8 +14,10 @@ export const HERO = {
   /** 16px again beside the locker (768 to 1023px), where the headline is 34px and 18px copy would outweigh it, and on a laptop's shortest
       browser window (about 657px under the toolbars), where the totals have to stay in view */
   copy: "mt-5 max-w-[34rem] text-pretty text-[15px] leading-relaxed text-body sm:mt-6 sm:text-lg md:text-base lg:text-lg [@media(min-width:1024px)_and_(max-height:700px)]:text-base",
-  /** phones: the two buttons share one row, so the first screen keeps its room */
-  actions: "mt-6 flex items-center gap-2.5 sm:mt-8 sm:gap-4 lg:mt-6",
+  /** phones: the two buttons share one row, so the first screen keeps its room. With larger text they no longer fit side by
+      side, and the second goes under the first (flex-wrap) instead of squeezing the filled button down to an icon or running off
+      the page. From 640px the row never wraps, as before: the two-column hero at tablet widths is laid out around one row. */
+  actions: "mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:flex-nowrap sm:gap-4 lg:mt-6",
   proofs: "mt-5 flex flex-wrap gap-2 lg:mt-4",
   /** the live ticker that closes the hero */
   ticker: "mt-4 sm:mt-5",

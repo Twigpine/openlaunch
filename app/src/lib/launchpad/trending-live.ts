@@ -202,6 +202,19 @@ export function cascadeMs(hits: readonly Pick<Hit, "slot">[]): number {
   return hits.length ? Math.max(...hits.map((h) => h.slot)) + SETTLE_MS : 0;
 }
 
+/**
+ * The tapes a board is drawn with, or nothing when the read failed. They are the cards' decoration, so a database that
+ * cannot answer this one query leaves the cards without trades to draw: it never takes the whole page down with it.
+ */
+export async function tapeOrNone(read: () => Promise<Record<string, Pip[]>>, onError: (error: unknown) => void): Promise<Record<string, Pip[]> | undefined> {
+  try {
+    return await read();
+  } catch (error) {
+    onError(error);
+    return undefined;
+  }
+}
+
 /** What each card is doing because of trades: the pips of its tape, and the reaction it is playing (if any). */
 export type CardFx = { id: string; side: Side; parity: 0 | 1; chip: string; mag: number; slot: number; since: number; dev: boolean };
 /** `flips`: which of the two identical nudge keyframes a card played last, so the next hit can play the other and replay at once. */

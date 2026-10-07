@@ -37,10 +37,16 @@ test("the hero has two ways in, and the proofs are chips that are easy to hit", 
   // the filled button, and the way in for someone who wants it explained first: the rules guide
   assert.match(hero, /<HeroCtaLink id="hero-cta" href="\/launch"/);
   assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works" className="group inline-flex min-h-12 /);
-  assert.match(hero, /<span aria-hidden="true" className="hidden sm:inline">See how it works<\/span>/);
+  assert.match(hero, /<span aria-hidden="true" className="hidden truncate sm:inline">See how it works<\/span>/);
   // phones: both buttons share one row, and below 380px the second is just its tile so the filled one keeps its words
   assert.ok(HERO.actions.split(" ").includes("items-center") && !HERO.actions.split(" ").includes("flex-col"));
-  assert.match(hero, /max-\[379px\]:hidden sm:hidden">How it works</);
+  assert.match(hero, /truncate max-\[379px\]:hidden sm:hidden">How it works</);
+  // larger text: the buttons no longer fit side by side, so the row wraps (the second goes under the first) instead of the
+  // filled button shrinking to an icon or the second running off the page; the filled button keeps room for its words
+  // From 640px it never wraps (the tablet hero is laid out around one row), so none of this changes there.
+  assert.ok(HERO.actions.split(" ").includes("flex-wrap") && HERO.actions.split(" ").includes("sm:flex-nowrap"));
+  assert.match(hero, /className="group relative inline-flex min-h-12 min-w-0 max-sm:min-w-\[10\.5rem\] flex-1 /);
+  assert.match(hero, /className="group inline-flex min-h-12 shrink-0 max-sm:max-w-full /);
   // the chain chip links to the same guide and appears from 640px (the copy below names the chains on a phone)
   assert.match(hero, /<Link href="\/rules#launchpad" className=\{HERO\.chip\}>/);
   assert.ok(HERO.chip.split(" ").includes("hidden") && HERO.chip.split(" ").includes("sm:inline-flex"));

@@ -4,7 +4,7 @@ import type { FeedItem } from "./queries";
 import { feedKey } from "./river.ts";
 import {
   FRESH_MS, FX_LIFE_MS, MAX_CASCADE_MS, PIP_CAP, PIP_STEP_MS, STEP_MS, STREAK_GAP_MS, STREAK_SHOW_MS,
-  applyPlan, bumpOf, cascadeMs, chipText, lastTradeAt, mergeTape, pipFromSwapRow, pipMagnitude, planHits, rankMoves, streakOf, swapKey,
+  applyPlan, bumpOf, cascadeMs, chipText, lastTradeAt, mergeTape, pipFromSwapRow, pipMagnitude, planHits, rankMoves, streakOf, swapKey, tapeOrNone,
   type Pip, type TapePip,
 } from "./trending-live.ts";
 
@@ -233,3 +233,12 @@ test("a token's last trade is the later of its row's times and the newest pip on
   assert.equal(lastTradeAt({ last_trade_at: null, last_outside_trade_at: null }, []), null);
 });
 
+test("a failed tape read leaves the cards without tapes instead of failing the page", async () => {
+  const tape = { "8453:0xa": [{ key: "k", at: NOW, buy: true, usd: 5, dev: false }] };
+  assert.deepEqual(await tapeOrNone(async () => tape, () => assert.fail("no error to report")), tape);
+  const seen: unknown[] = [];
+  assert.equal(await tapeOrNone(async () => { throw new Error("timeout"); }, (e) => seen.push(e)), undefined);
+  assert.equal((seen[0] as Error).message, "timeout", "the error is handed on to be logged");
+  assert.equal(await tapeOrNone(() => { throw new Error("sync"); }, (e) => seen.push(e)), undefined, "a read that throws before it returns a promise too");
+  assert.equal(seen.length, 2);
+});

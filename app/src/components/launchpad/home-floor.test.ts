@@ -185,7 +185,7 @@ test("the board re-sorts on the shared poll alone, and holds only under a mouse 
   assert.match(board, /useEffect\(\(\) => \(\) => window\.clearTimeout\(settle\.current\), \[\]\);/);
   assert.match(board, /holdOnPoll\(hold\.current\)/);
   assert.match(board, /if \(e\.pointerType === "mouse"\) hold\.current = \{ \.\.\.hold\.current, pointer: true \};/);
-  assert.match(board, /if \(e\.target\.matches\(":focus-visible"\)\)/, "a click focuses a card too and must not hold");
+  assert.match(board, /if \(!e\.target\.matches\(":focus-visible"\)\) return;/, "a click focuses a card too and must not hold");
   assert.match(board, /refreshInPlace\(cur\.snap\.items, next\.items\)/, "held figures stay fresh");
   // a hold keeps the order only: a changed window or a token that left the ranking still moves the board on
   assert.match(board, /\(held \|\| settling\) && sameBoard\(cur\.snap, next\) \? \{ \.\.\.cur, snap: \{ \.\.\.cur\.snap, items: refreshInPlace\(cur\.snap\.items, next\.items\) \} \} : advance\(cur, next, live\.at\)/);
@@ -215,7 +215,7 @@ test("a re-sort that unmounts the focused card hands focus back to a card, witho
 });
 
 test("the leader's ages start from the server's clock and tick with the poll", () => {
-  assert.match(home, /<TrendingStrip initial=\{trending\} serverNow=\{now\} \/>/);
+  assert.match(home, /<TrendingStrip initial=\{trending\} serverNow=\{now\} seenKeys=\{feed\.filter\(\(item\) => item\.kind === "swap"\)\.map\(feedKey\)\} \/>/);
   assert.match(board, /const \[now, setNow\] = useState\(serverNow\);/);
   assert.match(board, /setNow\(live\.at\);/);
   assert.match(board, /suppressHydrationWarning>\{facts\}/);
@@ -231,7 +231,7 @@ test("the Trending heading says what its window is", () => {
 test("the cards' tapes start from the page's seed, and the seed's trades are never announced again", () => {
   assert.match(home, /const trending = await withBoardTape\(fetchedTrending \?\? trendingFrom\(page\.items\)\);/);
   assert.match(board, /const seedTape = \(snap: Snap\): Record<string, TapePip\[\]> =>/);
-  assert.match(board, /seen\.current = new Set\(Object\.values\(seedTape\(initial\)\)\.flatMap\(\(pips\) => pips\.map\(\(p\) => p\.key\)\)\);/);
+  assert.match(board, /seen\.current = new Set\(\[\.\.\.Object\.values\(seedTape\(initial\)\)\.flatMap\(\(pips\) => pips\.map\(\(p\) => p\.key\)\), \.\.\.seenKeys\]\);/);
   assert.match(board, /planHits\(\{ feed: live\.feed, seen: seen\.current \?\? new Set\(\), board: onBoard, at: live\.at \}\);/);
   assert.match(board, /setCards\(\(cur\) => applyPlan\(cur, plan, live\.at, onBoard\)\);/, "tokens that left the board are forgotten");
 });

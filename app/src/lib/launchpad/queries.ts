@@ -10,12 +10,12 @@ import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
 import { gitlawbLinkedUsd } from "./twig";
-import { canonicalImageUrl } from "./images";
+import { canonicalImageUrl, pictureKey, reusedPictures, type PictureUse } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, STRIP_SIZE, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
 import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
-import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, type Pip } from "./trending-live";
+import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, tapeOrNone, type Pip } from "./trending-live";
 import { launchKey } from "./list-state";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
@@ -429,10 +429,27 @@ export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: nu
 
 /** Home tape: launches + trades across chains, newest first. */
 export type FeedItem =
-  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; image_url: string | null }
+  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; image_url: string | null; image_reused?: true }
   | { kind: "swap"; chain: ChainKey; at: string; tx_hash: string; log_index: number; token: string; name: string; symbol: string; trader: string | null; is_buy: boolean; is_dev: boolean; quote_wei: string; quote_key: Quote["key"]; quote_symbol: string; quote_decimals: number; usd: number | null; image_url: string | null };
 
 export type FeedSwap = Extract<FeedItem, { kind: "swap" }>;
+
+/**
+ * Which of these launches wear a picture another token registered first (images.ts: reusedPictures). The hero's coin only
+ * shows a picture that is its token's own. When ownership cannot be checked (the read failed) every launch with a stored
+ * picture counts as a copy: the coin then shows no picture and its caption still reacts, until the next read answers.
+ */
+async function pictureCopies(db: NonNullable<ReturnType<typeof maybeDb>>, launches: readonly { chain_id: number; token: string; image_url: string | null }[]): Promise<Set<string>> {
+  const keys = [...new Set(launches.map((r) => pictureKey(r.image_url)).filter((k): k is string => k !== null))];
+  if (keys.length === 0) return new Set();
+  try {
+    const all = await db<PictureUse[]>`SELECT chain_id, token, created_at, image_url FROM bb_launch_meta WHERE image_url ILIKE ANY(${keys.map((k) => `%/${k}%`)}::text[])`;
+    return reusedPictures(launches, all);
+  } catch (error) {
+    console.warn("[feed] picture ownership read failed:", error instanceof Error ? error.message : error);
+    return new Set(launches.filter((r) => pictureKey(r.image_url) !== null).map((r) => `${r.chain_id}:${r.token.toLowerCase()}`));
+  }
+}
 
 export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): Promise<FeedItem[]> {
   const db = maybeDb();
@@ -469,9 +486,10 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
       (i) => `${i.chain}:${i.tx_hash}:${i.log_index}`,
     ),
   ]);
+  const reused = await pictureCopies(db, launches);
   const items: FeedItem[] = launches.map((r) => {
     const chain = chainKeyOf(r.chain_id) ?? DEFAULT_CHAIN;
-    return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.launcher ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: image(r.image_url) };
+    return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.launcher ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: image(r.image_url), ...(reused.has(`${r.chain_id}:${r.token.toLowerCase()}`) ? { image_reused: true as const } : {}) };
   });
   return [...items, ...swaps].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, n);
 }
@@ -751,7 +769,8 @@ export async function withBoardTape(snap: TrendingSnap): Promise<TrendingSnap> {
   // the board shows STRIP_SIZE cards (the ranking returns no more); the cap keeps a larger snapshot from fetching history nobody draws
   const shown = snap.items.slice(0, STRIP_SIZE + 1);
   const key = `board-tape:${shown.map((r) => `${r.chain_id}:${r.token}`).join(",")}`;
-  return { ...snap, tape: await memo(key, 3_000, () => getBoardTapes(shown)) };
+  const tape = await tapeOrNone(() => memo(key, 3_000, () => getBoardTapes(shown)), (error) => console.warn("[trending] tape read failed:", error instanceof Error ? error.message : error));
+  return tape ? { ...snap, tape } : snap;
 }
 
 /** "Hot right now": the top of the live sort, ranked for the strip by lib/launchpad/ranking.ts. */

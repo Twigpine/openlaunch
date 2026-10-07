@@ -111,7 +111,7 @@ test("step selection and copy follow CSS phase events, including the loop seam",
 
 test("the home hero shows the looping locker and points to the rules guide", () => {
   // the hero's locker is the same drawing /rules shows, wrapped so a real launch can put its picture on the coin
-  assert.match(hero, /<div className="relative"><HeroLocker imageBase=\{imagePublicBase\(\)\} \/><\/div>/);
+  assert.match(hero, /<div className="relative"><HeroLocker imageBase=\{coinPicturesEnabled\(\) \? imagePublicBase\(\) : null\} \/><\/div>/);
   assert.doesNotMatch(hero, /<LaunchMachine/, "the hero never draws the machine itself");
   assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works"/);
   assert.doesNotMatch(hero, /See what&apos;s trending/);

@@ -73,3 +73,30 @@ test("only launches count, memory is bounded, and the coin lasts COIN_LIFE_MS on
   assert.equal(coinActive(r, NOW + COIN_LIFE_MS), false);
   assert.equal(coinActive(null, NOW), false);
 });
+
+test("disguised spellings of a brand are caught: fullwidth, styled and accented letters, a capital I for an l, separators, vv for w", () => {
+  for (const name of ["ｏｐｅｎｌａｕｎｃｈ", "𝗼𝗽𝗲𝗻𝗹𝗮𝘂𝗻𝗰𝗵", "ⓖⓘⓣⓛⓐⓦⓑ", "Gítláwb", "GitIawb", "G1tlawb", "g.i.t.l.a.w.b", "g i t l a w b", "Twig​pine", "Gitlavvb", "Rob!nhood", "C0inbase", "Uni$wap"]) {
+    assert.equal(brandLookalike(name, "X"), true, name);
+  }
+});
+
+test("letters borrowed from another script cannot be checked, so the picture is dropped: Cyrillic, Greek, IPA and small capitals", () => {
+  for (const name of ["оpenlaunch", "gіtlawb", "Twіg", "Gitlawb", "Οfficial", "ɡitlawb", "ᴏpenlaunch", "Моon Cat", "Привет", "Ελλάδα"]) {
+    assert.equal(brandLookalike(name, "X"), true, name);
+  }
+  assert.equal(brandLookalike("Moon Cat", "ΜCAT"), true, "the symbol too");
+});
+
+test("honest names keep their picture, whatever the script that cannot spell a Latin word", () => {
+  for (const [name, symbol] of [["Moon Cat", "MCAT"], ["Olive", "OLV"], ["Basecamp", "BCAMP"], ["Pine", "PINE"], ["狗狗币", "GGB"], ["Doge 狗狗", "DOGE"], ["猫", "CAT"], ["고양이", "GOYANGI"], ["แมว", "MEOW"], ["قطة", "QITTA"], ["Café Noir", "CAFE"], ["Señor Gato", "SG"], ["Pepe 🐸", "PEPE"], ["🚀🚀🚀", "MOON"]]) {
+    assert.equal(brandLookalike(name, symbol), false, `${name} / ${symbol}`);
+  }
+});
+
+test("a picture another token registered first never reaches the coin, but the launch still reacts with its caption", () => {
+  const copy = { ...launch({ name: "Moon Cat" }), image_reused: true } as FeedItem;
+  const p = pickLaunch([copy], new Set(), NOW, BASE);
+  assert.equal(p.reaction?.src, null, "the picture belongs to the earlier token");
+  assert.equal(p.reaction?.chain, "base", "the launch is still news");
+  assert.equal(pickLaunch([launch({ name: "Moon Cat" })], new Set(), NOW, BASE).reaction?.src, OWN, "its own picture is drawn");
+});

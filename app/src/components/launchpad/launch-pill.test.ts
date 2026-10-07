@@ -33,3 +33,8 @@ test("the home page mounts it once", () => {
   assert.equal((home.match(/<LaunchPill \/>/g) ?? []).length, 1);
   assert.match(home, /import LaunchPill from "@\/components\/launchpad\/LaunchPill";/);
 });
+
+test("it is drawn outside <main>: a fixed element must not decide which child of <main> is the last (space-y skips only that one)", () => {
+  const home = read("../../app/(home)/page.tsx");
+  assert.ok(home.indexOf("<LaunchPill />") > home.indexOf("</main>"), "the pill follows </main>");
+});

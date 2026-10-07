@@ -77,6 +77,8 @@ function shownItems(snap: Snap, king: string | null): LaunchRow[] {
  */
 function advance(board: Board, next: Snap, at: number): Board {
   const crown = stickyKing(board.crown.king, next.items[0] ? launchKey(next.items[0]) : null, board.crown.streak);
+  // 1h and 24h are two different rankings: moving from one to the other shows a new list, not a race, so nobody moved and nobody took the lead
+  if (next.window !== board.snap.window) return { snap: next, crown, moves: {}, from: null };
   const was = shownItems(board.snap, board.crown.king);
   const shown = shownItems(next, crown.king);
   const moves: Board["moves"] = {};
@@ -84,6 +86,16 @@ function advance(board: Board, next: Snap, at: number): Board {
   for (const [token, delta] of Object.entries(rankMoves(was.map(launchKey), shown.map(launchKey)))) moves[token] = { delta, since: at };
   const handed = was.length > 0 && shown.length > 0 && launchKey(shown[0]) !== launchKey(was[0]);
   return { snap: next, crown, moves, from: handed ? { name: was[0].name, since: at } : board.from };
+}
+
+/**
+ * The reaction a card plays. A change of leader swaps a token's card between the leader's cell and a runner's, which
+ * mounts a new card: whatever reaction the token already had played on the card it replaced, so the new card starts
+ * without it and plays only the ones that come after.
+ */
+function useFreshFx(fx: CardFx | undefined): CardFx | undefined {
+  const [atMount] = useState(fx?.id);
+  return fx && fx.id !== atMount ? fx : undefined;
 }
 
 /** The card that has keyboard focus, by its link: a re-sort can unmount it, and focus must not fall to the page. */
@@ -98,15 +110,16 @@ function focusedCard(list: HTMLElement | null): string | null {
  * or a keyboard focus (lib/launchpad/trending-board.ts) and the figures keep refreshing in place meanwhile. A hold
  * keeps the order only: when the window changes or a shown token drops out of the ranking, the board re-sorts anyway.
  */
-export default function TrendingStrip({ initial, serverNow }: { initial: Snap; serverNow: number }) {
+export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { initial: Snap; serverNow: number; seenKeys?: readonly string[] }) {
   const { subscribe } = useLive();
   const reduced = useReducedMotion();
   const [board, setBoard] = useState<Board>({ snap: initial, crown: { king: initial.items[0] ? launchKey(initial.items[0]) : null, streak: { token: null, n: 0 } }, moves: {}, from: null });
   const [now, setNow] = useState(serverNow);
   const [cards, setCards] = useState<CardsState>(() => ({ tape: seedTape(initial), fx: {}, flips: {} }));
-  // the trades the page already drew (the seeded tapes): the first polls must not announce them again
+  // the trades the page already drew (the seeded tapes) and the ones its feed held (a runner's tape is shorter than the feed,
+  // so a busy runner's older trades are only there): the first polls must not announce either again
   const seen = useRef<Set<string> | null>(null);
-  if (seen.current === null) seen.current = new Set(Object.values(seedTape(initial)).flatMap((pips) => pips.map((p) => p.key)));
+  if (seen.current === null) seen.current = new Set([...Object.values(seedTape(initial)).flatMap((pips) => pips.map((p) => p.key)), ...seenKeys]);
   const hold = useRef<BoardHold>(NO_HOLD);
   const pending = useRef<Snap | null>(null);
   const settle = useRef(0);
@@ -201,7 +214,12 @@ export default function TrendingStrip({ initial, serverNow }: { initial: Snap; s
           onPointerEnter={(e) => { if (e.pointerType === "mouse") hold.current = { ...hold.current, pointer: true }; }}
           onPointerLeave={() => { hold.current = { ...hold.current, pointer: false }; release(); }}
           // a click focuses a card too, but only keyboard focus (:focus-visible) may hold the order
-          onFocusCapture={(e) => { if (e.target.matches(":focus-visible")) hold.current = { ...hold.current, focus: true, focusPolls: 0 }; }}
+          onFocusCapture={(e) => {
+            if (!e.target.matches(":focus-visible")) return;
+            hold.current = { ...hold.current, focus: true, focusPolls: 0 };
+            // the browser scrolls a card into view only when it is wholly outside the row: bring a partly visible one in too
+            e.target.closest("li")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+          }}
           onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { hold.current = { ...hold.current, focus: false, focusPolls: 0 }; release(); } }}
         >
           {/* `relative`: the cards hold sr-only (absolutely positioned) labels; without a positioned ancestor they
@@ -257,10 +275,13 @@ function FxNodes({ fx, place }: { fx: CardFx; place: "lead" | "runner" }) {
 function Tape({ pips, now, big = false, className = "" }: { pips: readonly TapePip[]; now: number; big?: boolean; className?: string }) {
   const buys = pips.filter((p) => p.buy).length;
   const sells = pips.length - buys;
+  // a trade still arriving when this tape mounts (a re-sort moved the card) arrived on the card it replaced: it does not pop in again
+  const arriving = (p: TapePip) => p.fresh !== undefined && now - p.fresh.since < FX_LIFE_MS;
+  const [before] = useState(() => new Set(pips.filter(arriving).map((p) => p.key)));
   return (
     <span aria-hidden="true" title={pips.length ? `Last ${pips.length} trades: ${buys} ${buys === 1 ? "buy" : "buys"}, ${sells} ${sells === 1 ? "sell" : "sells"}` : "Trades show here as they happen"} className={`${styles.tape} ${big ? styles.tapeBig : ""} ${className}`}>
       {pips.map((p) => {
-        const fresh = p.fresh !== undefined && now - p.fresh.since < FX_LIFE_MS;
+        const fresh = arriving(p) && !before.has(p.key);
         return <span key={p.key} className={`${styles.pip} ${p.buy ? styles.buy : styles.sell} ${fresh ? styles.pipFresh : ""}`} style={{ "--m": pipMagnitude(p.usd).toFixed(2), ...(fresh && p.fresh ? { "--pst": `${p.fresh.slot}ms` } : {}) } as CSSProperties}><i /></span>;
       })}
     </span>
@@ -285,7 +306,8 @@ function Bar({ pct, className }: { pct: number; className: string }) {
  * one after another, a line sweeps its top edge and the card says whom it took the lead from (`from`: not on page load,
  * where the card would play beside four runners that are already there). `fx` is the reaction to a trade on this token.
  */
-function Leader({ row, window, now, top, pips, fx, from }: { row: LaunchRow; window: Snap["window"]; now: number; top: number; pips: readonly TapePip[]; fx: CardFx | undefined; from: Board["from"] }) {
+function Leader({ row, window, now, top, pips, fx: onToken, from }: { row: LaunchRow; window: Snap["window"]; now: number; top: number; pips: readonly TapePip[]; fx: CardFx | undefined; from: Board["from"] }) {
+  const fx = useFreshFx(onToken);
   const a = activity(row, window);
   const c = cap(row);
   const handover = from !== null && now - from.since < HANDOVER_LIFE_MS;
@@ -341,7 +363,8 @@ function Leader({ row, window, now, top, pips, fx, from }: { row: LaunchRow; win
 }
 
 /** A runner's card. The visible marks are terse, so sr-only words make the link read as one sentence. */
-function Runner({ row, rank, window, top, now, pips, fx, move, lead = false, from = null }: { row: LaunchRow; rank: number; window: Snap["window"]; top: number; now: number; pips: readonly TapePip[]; fx: CardFx | undefined; move: Board["moves"][string] | undefined; lead?: boolean; from?: Board["from"] }) {
+function Runner({ row, rank, window, top, now, pips, fx: onToken, move, lead = false, from = null }: { row: LaunchRow; rank: number; window: Snap["window"]; top: number; now: number; pips: readonly TapePip[]; fx: CardFx | undefined; move: Board["moves"][string] | undefined; lead?: boolean; from?: Board["from"] }) {
+  const fx = useFreshFx(onToken);
   const a = activity(row, window);
   const c = cap(row);
   const last = lastTradeAt(row, pips);

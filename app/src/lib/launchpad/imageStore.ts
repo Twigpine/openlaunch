@@ -39,6 +39,15 @@ export function imagePublicBase(): string | null {
   return c.kind === "off" ? null : c.publicBase;
 }
 
+/**
+ * The hero coin wears a new launch's picture unless HERO_COIN_PICTURES=off (a Fly secret: setting it restarts the app, no
+ * deploy). The coin's rules are speed bumps (hero-coin.ts), so this is the switch for a day a creator's picture should not
+ * be on the front page. Off, the caption still reacts and the coin stays plain.
+ */
+export function coinPicturesEnabled(): boolean {
+  return process.env.HERO_COIN_PICTURES?.trim().toLowerCase() !== "off";
+}
+
 export function imageUploadsEnabled(): boolean {
   return config().kind !== "off";
 }
