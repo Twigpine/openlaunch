@@ -445,7 +445,11 @@ async function pictureCopies(db: NonNullable<ReturnType<typeof maybeDb>>, launch
   const keys = [...new Set(launches.map((r) => pictureKey(r.image_url)).filter((k): k is string => k !== null))];
   if (keys.length === 0) return new Set();
   try {
-    const all = await db<PictureUse[]>`SELECT chain_id, token, created_at, image_url FROM bb_launch_meta WHERE image_url ILIKE ANY(${keys.map((k) => `%/${k}%`)}::text[])`;
+    // a scan of bb_launch_meta (about 30 ms at 5,000 rows), and the home page asks on every render: read it once per half minute for a
+    // given set of pictures. Stale is safe: a copy is judged against the earliest registration, which is older than any copy and
+    // already in the answer, and a launch with a new picture changes the set, so it is read fresh.
+    const sorted = [...keys].sort();
+    const all = await memo(`picture-owners:${sorted.join(",")}`, 30_000, () => db<PictureUse[]>`SELECT chain_id, token, created_at, image_url FROM bb_launch_meta WHERE image_url ILIKE ANY(${sorted.map((k) => `%/${k}%`)}::text[])`);
     return reusedPictures(launches, all);
   } catch (error) {
     console.warn("[feed] picture ownership read failed:", error instanceof Error ? error.message : error);
