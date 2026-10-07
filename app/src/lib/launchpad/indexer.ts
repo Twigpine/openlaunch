@@ -94,6 +94,7 @@ async function fromOf(chain: ChainKey, hash: Hex): Promise<string | null> {
 // ── apply ────────────────────────────────────────────────────────────────────
 type Launched = { token: Address; tokenId: bigint; launcher: Address; quote: Address; poolId: Hex; startTick: number; lpFee?: number; creatorFeePips?: number; supply: bigint; metadataURI: string };
 
+/** Record a launch from its factory event with the suite that emitted it; false when the row already exists. */
 async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launched }, suite: LaunchSuite): Promise<boolean> {
   const a = log.args;
   const token = a.token.toLowerCase();
@@ -121,6 +122,7 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
 
 type Swap = { id: Hex; sender: Address; amount0: bigint; amount1: bigint; sqrtPriceX96: bigint; liquidity: bigint; tick: number; fee: number };
 
+/** Record a core swap, with the hook's trader amounts for a quote-only pool, and roll it into the launch totals in one transaction; false when already stored. */
 async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>, hookSwap?: QuoteSwapLog): Promise<boolean> {
   const a = log.args;
   const poolId = a.id.toLowerCase();
@@ -229,6 +231,7 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
 }
 
 type PoolInfo = { token: string; quote: string; pool_id: string; token_id: bigint; suite_id: string; fee_contract_address: string | null; hook_address: string };
+/** The chain's indexed launches as lookups: pool id → token, fee contract + NFT id → launch, quote-only pool → hook. `source` narrows them to one suite. */
 async function poolMaps(db: Db, chain: ChainKey, source?: LaunchSuite) {
   const rows = await db<PoolInfo[]>`SELECT token, pool_id, token_id, quote, suite_id, fee_contract_address, hook_address FROM bb_launches WHERE chain_id = ${chainIdOf(chain)}`;
   const poolToToken = new Map<string, string>();

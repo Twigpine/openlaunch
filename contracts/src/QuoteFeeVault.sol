@@ -69,6 +69,7 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
         if (msg.sender != address(poolManager) || !_redeeming) revert BadRedemption();
     }
 
+    /// @notice Bind a position minted to the locker to its pool and fee recipients. Factory only, once per position.
     function register(
         uint256 tokenId,
         address token,
@@ -98,6 +99,7 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
         emit Registered(tokenId, token, quote, poolId);
     }
 
+    /// @notice Record a fee the hook minted to this vault as claims. Hook only.
     function accrue(PoolId poolId, uint256 amount) external {
         if (msg.sender != hook) revert NotHook();
         uint256 tokenId = tokenIdOfPool[poolId];
@@ -106,22 +108,27 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
         _positions[tokenId].pending += amount;
     }
 
+    /// @notice Quote fees accrued to a position and not yet collected.
     function pendingFees(uint256 tokenId) external view returns (uint256) {
         return _position(tokenId).pending;
     }
 
+    /// @notice The position's fixed fee recipients.
     function recipientsOf(uint256 tokenId) external view returns (LaunchLocker.Recipient[] memory) {
         return _position(tokenId).recipients;
     }
 
+    /// @notice The position's quote asset.
     function quoteOf(uint256 tokenId) external view returns (address) {
         return _position(tokenId).quote;
     }
 
+    /// @notice The position's launched token.
     function tokenOf(uint256 tokenId) external view returns (address) {
         return _position(tokenId).token;
     }
 
+    /// @notice Redeem a position's pending claims and pay them to its recipients; a failed payout becomes a credit. Anyone may call.
     function collect(uint256 tokenId) public nonReentrant returns (uint256 quoteOut, uint256 tokenOut) {
         Position storage p = _position(tokenId);
         quoteOut = p.pending;
@@ -158,25 +165,30 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
         return (quoteOut, 0);
     }
 
+    /// @notice `collect` for several positions in one transaction.
     function collectMany(uint256[] calldata tokenIds) external {
         for (uint256 i; i < tokenIds.length; ++i) {
             collect(tokenIds[i]);
         }
     }
 
+    /// @dev One payout in its own call frame, so a token that transfers but returns false or malformed data is rolled back and credited. Self only.
     function executePayout(address currency, address account, uint256 amount) external {
         if (msg.sender != address(this)) revert NotSelf();
         _pay(currency, account, amount);
     }
 
+    /// @notice Withdraw the caller's credited share of a position.
     function claim(uint256 tokenId) external nonReentrant returns (uint256) {
         return _claim(tokenId, msg.sender);
     }
 
+    /// @notice Push `account`'s credited share of a position to `account`. Anyone may call.
     function claimFor(uint256 tokenId, address account) external nonReentrant returns (uint256) {
         return _claim(tokenId, account);
     }
 
+    /// @dev Pay a credit and release its reserve.
     function _claim(uint256 tokenId, address account) internal returns (uint256 amount) {
         Position storage p = _position(tokenId);
         amount = claimable[tokenId][account];
@@ -187,6 +199,7 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
         emit Claimed(tokenId, account, p.quote, amount);
     }
 
+    /// @notice PoolManager callback during `collect`: burn exactly the redeemed claims and take the asset.
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
         if (!_redeeming) revert BadRedemption();
@@ -197,15 +210,18 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
         return "";
     }
 
+    /// @dev The registered position; reverts for an unknown id.
     function _position(uint256 tokenId) internal view returns (Position storage p) {
         p = _positions[tokenId];
         if (p.token == address(0)) revert UnknownPosition();
     }
 
+    /// @dev This contract's balance of a currency, native or ERC-20.
     function _balance(address currency) internal view returns (uint256) {
         return currency == address(0) ? address(this).balance : IERC20(currency).balanceOf(address(this));
     }
 
+    /// @dev Transfer `amount` of `currency` to `account`, reverting on failure.
     function _pay(address currency, address account, uint256 amount) internal {
         if (currency == address(0)) {
             (bool ok,) = account.call{value: amount}("");

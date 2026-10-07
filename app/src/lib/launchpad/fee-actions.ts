@@ -12,6 +12,7 @@ import { SUITE_KINDS } from "./suite-kinds";
  */
 export type FeeTarget = { launch: Pick<LaunchIdentity, "suite_id" | "fee_asset_mode">; feeContract: Address; tokenId: bigint };
 
+/** The fee contract's ABI for this launch: the locker's or the vault's. */
 const feeAbi = (t: FeeTarget) => SUITE_KINDS[isQuoteFeeLaunch(t.launch) ? "quote-v2" : "lp-v1"].feeAbi;
 
 /** Uncollected fees, read with eth_call (no gas). The vault exposes them; the locker only reveals them through a simulated collect. */

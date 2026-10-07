@@ -26,6 +26,7 @@ type Props = {
   onBeneficiaryChange: (value: FeeBeneficiary) => void;
 };
 
+/** The launch form's trading-fee step: the fee asset (where the quote-only suite can launch), the rate and the beneficiaries. */
 export default function LaunchFeeSettings({ feeAssetMode = "both", quoteAvailable = false, bothAvailable = true, quoteSymbol = "quote asset", onFeeAssetChange, feePips, beneficiary, address, split, children, onFeeChange, onBeneficiaryChange }: Props) {
   const id = useId();
   const feePerHundred = feePips / 10_000;

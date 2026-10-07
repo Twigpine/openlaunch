@@ -244,6 +244,7 @@ contract QuoteLaunchFactory {
         revert NoSaltFound();
     }
 
+    /// @dev The CREATE2 address of the token a launch with these parameters would deploy.
     function _predict(
         bytes32 scopedSalt,
         string memory name,

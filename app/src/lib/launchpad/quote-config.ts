@@ -22,6 +22,7 @@ export function isQuoteHook(hook: Address): boolean {
   return (BigInt(hook) & 0x3fffn) === 0x20ccn;
 }
 
+/** The chain's quote-only deployment from the environment, or null unless every address, the deploy block and the hook's permission bits are valid. */
 export function quoteDeployment(chain: ChainKey, values: readonly (string | undefined)[] = QUOTE_CONFIG[chain]) {
   const [f, l, v, h, d, enabled] = values;
   const factory = nonZeroAddress(f), locker = nonZeroAddress(l), feeContract = nonZeroAddress(v), hook = nonZeroAddress(h);

@@ -69,6 +69,7 @@ contract QuoteFeeHook is IHooks {
         _;
     }
 
+    /// @notice The permissions this hook's address must encode.
     function getHookPermissions() public pure returns (Hooks.Permissions memory p) {
         p.beforeInitialize = true;
         p.beforeSwap = true;
@@ -77,6 +78,7 @@ contract QuoteFeeHook is IHooks {
         p.afterSwapReturnDelta = true;
     }
 
+    /// @notice Record a pool the factory is about to initialize; swaps stay off until `activate`. Factory only.
     function register(PoolKey calldata key, uint24 feePips) external onlyFactory {
         if (block.chainid == 5042 && Currency.unwrap(key.currency0) == address(0)) revert NativeQuoteUnsupported();
         PoolId id = key.toId();
@@ -88,11 +90,13 @@ contract QuoteFeeHook is IHooks {
         poolConfig[id] = Config(feePips, true, false);
     }
 
+    /// @notice Turn swaps on once the vault knows the pool's position. Factory only.
     function activate(PoolId id) external onlyFactory {
         if (!poolConfig[id].registered || poolConfig[id].active || vault.tokenIdOfPool(id) == 0) revert BadPool();
         poolConfig[id].active = true;
     }
 
+    /// @notice Only the factory may initialize a registered pool with this hook.
     function beforeInitialize(address sender, PoolKey calldata key, uint160)
         external
         view
@@ -103,6 +107,7 @@ contract QuoteFeeHook is IHooks {
         return IHooks.beforeInitialize.selector;
     }
 
+    /// @notice When the quote amount is specified, charge the fee up front as claims minted to the vault.
     function beforeSwap(address, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         external
         onlyPoolManager
@@ -117,6 +122,7 @@ contract QuoteFeeHook is IHooks {
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(signedFee, 0), 0);
     }
 
+    /// @notice Charge the fee on the actual quote delta when the token amount was specified, require a full fill, and accrue it to the vault.
     function afterSwap(
         address sender,
         PoolKey calldata key,
@@ -156,6 +162,7 @@ contract QuoteFeeHook is IHooks {
         return (IHooks.afterSwap.selector, specifiedQuote ? int128(0) : signedFee);
     }
 
+    /// @notice The fee on a quote amount: a share of the amount for exact input, grossed up for exact output.
     function feeAmount(uint256 amount, uint24 feePips, bool exactOutput) public pure returns (uint256) {
         if (feePips > MAX_CREATOR_FEE) revert BadPool();
         return exactOutput
@@ -163,23 +170,28 @@ contract QuoteFeeHook is IHooks {
             : Math.mulDiv(amount, feePips, DENOMINATOR);
     }
 
+    /// @dev The pool's config; reverts unless the pool is active.
     function _config(PoolKey calldata key) internal view returns (Config memory cfg) {
         cfg = poolConfig[key.toId()];
         if (!cfg.active) revert UnknownPool();
     }
 
+    /// @dev Whether the swap's specified amount is the quote (currency0).
     function _quoteSpecified(SwapParams calldata p) internal pure returns (bool) {
         return (p.amountSpecified < 0) == p.zeroForOne;
     }
 
+    /// @dev Absolute value, safe at the int256 minimum.
     function _magnitude(int256 amount) internal pure returns (uint256) {
         return amount < 0 ? uint256(-(amount + 1)) + 1 : uint256(amount);
     }
 
+    /// @dev Not a permission of this hook.
     function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
         revert HookNotImplemented();
     }
 
+    /// @dev Not a permission of this hook.
     function beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         external
         pure
@@ -188,6 +200,7 @@ contract QuoteFeeHook is IHooks {
         revert HookNotImplemented();
     }
 
+    /// @dev Not a permission of this hook.
     function afterAddLiquidity(
         address,
         PoolKey calldata,
@@ -199,6 +212,7 @@ contract QuoteFeeHook is IHooks {
         revert HookNotImplemented();
     }
 
+    /// @dev Not a permission of this hook.
     function beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         external
         pure
@@ -207,6 +221,7 @@ contract QuoteFeeHook is IHooks {
         revert HookNotImplemented();
     }
 
+    /// @dev Not a permission of this hook.
     function afterRemoveLiquidity(
         address,
         PoolKey calldata,
@@ -218,10 +233,12 @@ contract QuoteFeeHook is IHooks {
         revert HookNotImplemented();
     }
 
+    /// @dev Not a permission of this hook.
     function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         revert HookNotImplemented();
     }
 
+    /// @dev Not a permission of this hook.
     function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         revert HookNotImplemented();
     }

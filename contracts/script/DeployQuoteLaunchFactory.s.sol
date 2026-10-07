@@ -13,6 +13,7 @@ import {QuoteLaunchFactory} from "src/QuoteLaunchFactory.sol";
 contract DeployQuoteLaunchFactory is Script {
     address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
+    /// Known PoolManager and PositionManager per chain; zero where a chain must pass its own.
     function _known(uint256 chainId) internal pure returns (address pm, address posm) {
         if (chainId == 8453) {
             return (0x498581fF718922c3f8e6A244956aF099B2652b2b, 0x7C5f5A4bBd8fD63184577525326123B519429bDc);
@@ -27,6 +28,7 @@ contract DeployQuoteLaunchFactory is Script {
         return (address(0), address(0));
     }
 
+    /// Mine the hook salt for the deployer's next CREATE address and deploy the whole suite in one transaction.
     function run() external returns (QuoteLaunchFactory factory) {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         (address pmDefault, address posmDefault) = _known(block.chainid);

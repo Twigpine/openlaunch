@@ -4,6 +4,7 @@ export type QuoteSwapLog = {
   args: { poolId: string; quoteFee: bigint; amount0: bigint; amount1: bigint };
 };
 type CoreSwapLog = { transactionHash: string | null; logIndex: number | null; args: { id?: string; amount0?: bigint; amount1?: bigint } };
+/** Pair each core Swap on a quote-only pool with the hook's QuoteSwap from the same transaction; throws when one is missing or inconsistent so the range is retried. */
 export function pairQuoteSwaps(core: CoreSwapLog[], hooks: QuoteSwapLog[], quotePools: Map<string, string>): Map<string, QuoteSwapLog> {
   const queues = new Map<string, QuoteSwapLog[]>();
   for (const log of [...hooks].sort((a, b) => (a.logIndex ?? 0) - (b.logIndex ?? 0))) {
