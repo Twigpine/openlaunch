@@ -7,23 +7,26 @@
  *   real buyer  = a wallet whose FIRST buy of a token was ≥ $5, outside the sniper window (the launch block + 3, and
  *                 the first 12 seconds), and that is not the launcher, a fee recipient, a protocol address, a wallet
  *                 that got the token by transfer from the launcher or a recipient, or a wallet kept off points
- *   real holder = a real buyer still holding ≥ $5 of it (≥ $1 if their profile is points-eligible)
+ *   real holder = a real buyer who has held ≥ $5 of it (≥ $1 if their profile is points-eligible) ever since that buy
+ *
+ * "Held" always means the LOWEST balance since the buy in question, read from the transfer history: tokens sent in
+ * later by another wallet cannot top a position back up, and $5 passed from wallet to wallet counts for none of them.
  *
  * Only tokens whose quote has a price count at all. Then:
  *
  *   Creator (any token the wallet launched; only activity inside the season counts)
  *     - each real holder whose first buy was in the season, a day or more ago: 30 if their profile is points-eligible,
  *       else 5; a week or more ago: half again. A holder counts once per creator (their best token).
- *     - 10 per $1 of fees on buys ≥ $5 by points-eligible outside traders who still hold half of what they bought this
-       season (net buyers: a round trip earns nothing); at most 50 per trader per creator per day
- *     - a token scores 0 if its creator sold during the season and now keeps less than half of what they bought
+ *     - 10 per $1 of fees on buys ≥ $5 by points-eligible outside traders, for each buy half of which has been held ever
+ *       since (a round trip earns nothing); at most 50 per trader per creator per day
+ *     - a token scores 0 if its creator sold during the season and has since dropped below half of what they bought
  *     - of the tokens a wallet launched on one UTC day, only the best 3 count
  *   Scout (traders)
  *     - one of the first 25 real buyers of a token that now has 50+ real holders, buying in the season: 100, and 50
  *       more while still holding half of that first buy
  *     - 5 per token first bought in the season (≥ $5) and still half-held a day later; at most 20 tokens per UTC day
- *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ real holders (5+ of them eligible), while
-       still holding half of what you bought of it this season; at most 200 a day
+ *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ real holders (5+ of them eligible), for
+ *       each buy half of which has been held ever since; at most 200 a day
  *
  * Only points-eligible wallets rank; everyone else sees what is waiting for them.
  */
@@ -46,7 +49,6 @@ export const RULES = {
   earlyHoldersTarget: 50,
   hold: 5,
   holdTokensPerDay: 20,
-  heldShare: 0.5,
   scoutFeePointsPerUsd: 10,
   scoutFeeCapPerDay: 200,
   scoutFeeMinHolders: 20,
@@ -81,8 +83,8 @@ export type ScoreInput = {
   /** swaps inside the season, any order */
   swaps: readonly ScoreSwap[];
   firstBuys: readonly FirstBuy[];
-  /** current balances (raw, 18 decimals) of the tokens in scope, for wallets that ever bought them */
-  holders: readonly { key: string; wallet: string; balanceRaw: bigint }[];
+  /** every balance change (raw, 18 decimals) of buyers and launchers of the tokens in scope, from the transfer history */
+  moves: readonly { key: string; wallet: string; block: number; logIndex: number; delta: bigint }[];
   /** the launcher's all-time bought amount (raw) per token */
   launcherBought: ReadonlyMap<string, bigint>;
   /** per token: wallets that received it by transfer from the launcher or a fee recipient */
@@ -120,10 +122,39 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   const quoteUsd = (l: ScoreLaunch, raw: bigint) => units(raw, l.quoteDecimals) * (l.quoteUsd as number);
   const tokenUsd = (l: ScoreLaunch, raw: bigint) => units(raw, 18) * (l.tokenUsd as number);
   const inSeason = (t: number) => t >= input.seasonStart && t < end;
-  const balanceOf = new Map<string, bigint>();
-  for (const h of input.holders) if (h.balanceRaw > 0n) balanceOf.set(`${h.key}|${h.wallet}`, h.balanceRaw);
-  const bal = (key: string, w: string) => balanceOf.get(`${key}|${w}`) ?? 0n;
-  const halfHeld = (key: string, w: string, boughtRaw: bigint) => bal(key, w) * 2n >= boughtRaw && bal(key, w) > 0n;
+  // balance timelines per (token, wallet): the running balance after each transfer, in chain order
+  type Point = { block: number; logIndex: number; balance: bigint };
+  const timelines = new Map<string, Point[]>();
+  {
+    const net = new Map<string, Map<string, { block: number; logIndex: number; delta: bigint }>>();
+    for (const m of input.moves) {
+      const k = `${m.key}|${m.wallet}`;
+      const at = `${m.block}:${m.logIndex}`;
+      const byAt = net.get(k) ?? new Map();
+      const cur = byAt.get(at);
+      byAt.set(at, { block: m.block, logIndex: m.logIndex, delta: (cur?.delta ?? 0n) + m.delta }); // a self-transfer nets to 0
+      net.set(k, byAt);
+    }
+    for (const [k, byAt] of net) {
+      let balance = 0n;
+      const pts: Point[] = [...byAt.values()].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex).map((x) => ({ block: x.block, logIndex: x.logIndex, balance: (balance += x.delta) }));
+      timelines.set(k, pts);
+    }
+  }
+  /** The lowest balance after the given position (a swap: its token transfer comes right after it). 0 when unknown. */
+  const minAfter = (key: string, w: string, block: number, logIndex: number): bigint => {
+    let min: bigint | null = null;
+    for (const p of timelines.get(`${key}|${w}`) ?? []) {
+      if (p.block < block || (p.block === block && p.logIndex <= logIndex)) continue;
+      if (min === null || p.balance < min) min = p.balance;
+    }
+    return min !== null && min > 0n ? min : 0n;
+  };
+  /** Held at least half of a buy, every moment since it. */
+  const halfHeldSince = (key: string, w: string, block: number, logIndex: number, boughtRaw: bigint) => {
+    const m = minAfter(key, w, block, logIndex);
+    return m > 0n && m * 2n >= boughtRaw;
+  };
 
   // real buyers per token, in buy order
   const realBuyers = new Map<string, FirstBuy[]>();
@@ -140,27 +171,28 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   const realHolders = new Map<string, FirstBuy[]>();
   for (const [key, list] of realBuyers) {
     const l = launches.get(key)!;
-    const held = list.filter((f) => tokenUsd(l, bal(key, f.wallet)) >= (input.eligible.has(f.wallet) ? RULES.verifiedHolderMinUsd : RULES.holderMinUsd));
+    const held = list.filter((f) => tokenUsd(l, minAfter(key, f.wallet, f.block, f.logIndex)) >= (input.eligible.has(f.wallet) ? RULES.verifiedHolderMinUsd : RULES.holderMinUsd));
     realHolders.set(key, held);
   }
   const holderCount = (key: string) => realHolders.get(key)?.length ?? 0;
 
   // the season's outside trades (≥ $5, outside the sniper window), and what each creator sold
   const outside: ScoreSwap[] = [];
-  const creatorSold = new Set<string>();
+  const creatorFirstSell = new Map<string, ScoreSwap>();
   for (const s of input.swaps) {
     const l = launches.get(s.key);
     if (!l || !inSeason(s.time)) continue;
-    if (s.trader === l.launcher && !s.isBuy) creatorSold.add(s.key);
+    if (s.trader === l.launcher && !s.isBuy) {
+      const cur = creatorFirstSell.get(s.key);
+      if (!cur || s.block < cur.block || (s.block === cur.block && s.logIndex < cur.logIndex)) creatorFirstSell.set(s.key, s);
+    }
     if (insider(l, s.trader) || sniper(l, s.block, s.time) || quoteUsd(l, s.quoteRaw) < RULES.minTradeUsd) continue;
     outside.push(s);
   }
 
-  // net buyers: a trader's buys of a token earn fee points only while they hold half of what they bought this season,
-  // so a round trip (the fees coming back to a farmer's own token) earns nothing and washing ties up real capital
-  const seasonBought = new Map<string, bigint>();
-  for (const s of outside) if (s.isBuy) seasonBought.set(`${s.key}|${s.trader}`, (seasonBought.get(`${s.key}|${s.trader}`) ?? 0n) + s.tokenRaw);
-  const netBuyer = (key: string, w: string) => halfHeld(key, w, seasonBought.get(`${key}|${w}`) ?? 0n);
+  // net buying: a buy earns fee points only if at least half of it has been held every moment since, so a round trip
+  // (the fees coming back to a farmer's own token) earns nothing and washing ties up real capital for the season
+  const heldBuy = (s: ScoreSwap) => halfHeldSince(s.key, s.trader, s.block, s.logIndex, s.tokenRaw);
   const eligibleHolders = new Map<string, number>();
   for (const [key, list] of realHolders) eligibleHolders.set(key, list.filter((f) => input.eligible.has(f.wallet)).length);
 
@@ -186,15 +218,17 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   }
   for (const s of outside) {
     // fees count only on buys by points-eligible traders who are net buyers: wash trades need real accounts and capital
-    if (!s.isBuy || !input.eligible.has(s.trader) || !netBuyer(s.key, s.trader)) continue;
+    if (!s.isBuy || !input.eligible.has(s.trader) || !heldBuy(s)) continue;
     const l = launches.get(s.key)!;
     const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
   }
   for (const t of perToken.values()) {
     const bought = input.launcherBought.get(t.l.key) ?? 0n;
-    // a dump = sold during the season and now keeps less than half of what was bought (selling fee tokens is not one)
-    if (bought > 0n && creatorSold.has(t.l.key) && bal(t.l.key, t.l.launcher) * 2n < bought) t.dumped = true;
+    const sell = creatorFirstSell.get(t.l.key);
+    // a dump = sold during the season and dropped below half of what was bought at any point since (selling the fee
+    // tokens the pool paid out, while keeping what was bought, is not one)
+    if (bought > 0n && sell && minAfter(t.l.key, t.l.launcher, sell.block, sell.logIndex) * 2n < bought) t.dumped = true;
   }
   // per creator: each holder once (their best token), fees capped per trader per day, best 3 tokens per launch day
   const byCreator = new Map<string, TokenCreator[]>();
@@ -231,7 +265,8 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
       const d = utcDay(t.l.launchTime);
       daysFirst.set(d, [...(daysFirst.get(d) ?? []), t]);
     }
-    for (const list of daysFirst.values()) for (const t of [...list].sort((a, b) => (firstPass.get(b) ?? 0) + b.fees.length - ((firstPass.get(a) ?? 0) + a.fees.length)).slice(0, RULES.bestTokensPerDay)) kept.add(t);
+    const rough = (t: TokenCreator) => (firstPass.get(t) ?? 0) + t.fees.reduce((a, f) => a + f.usd * RULES.creatorFeePointsPerUsd, 0);
+    for (const list of daysFirst.values()) for (const t of [...list].sort((a, b) => rough(b) - rough(a)).slice(0, RULES.bestTokensPerDay)) kept.add(t);
     const holderBest = assign((t) => kept.has(t));
     for (const [, h] of holderBest) value.set(h.t, (value.get(h.t) ?? 0) + h.pts);
     const feeUsd = new Map<TokenCreator, number>();
@@ -279,7 +314,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     for (const f of list.slice(0, RULES.earlyFirstBuyers)) {
       if (!inSeason(f.time)) continue;
       const s = get(f.wallet);
-      s.scout += RULES.early + (halfHeld(key, f.wallet, f.tokenRaw) ? RULES.earlyStillHolding : 0);
+      s.scout += RULES.early + (halfHeldSince(key, f.wallet, f.block, f.logIndex, f.tokenRaw) ? RULES.earlyStillHolding : 0);
       s.scoutWhy.early++;
     }
   }
@@ -292,7 +327,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   }
   const holdsPerDay = new Map<string, number>();
   for (const s of [...firstSeasonBuy.values()].sort((a, b) => a.time - b.time)) {
-    if (end - s.time < DAY || !halfHeld(s.key, s.trader, s.tokenRaw)) continue;
+    if (end - s.time < DAY || !heldBuy(s)) continue;
     const dayKey = `${s.trader}|${utcDay(s.time)}`;
     const n = holdsPerDay.get(dayKey) ?? 0;
     if (n >= RULES.holdTokensPerDay) continue;
@@ -303,7 +338,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   }
   const scoutFeeUsed = new Map<string, number>();
   for (const s of outside) {
-    if (!s.isBuy || !netBuyer(s.key, s.trader)) continue;
+    if (!s.isBuy || !heldBuy(s)) continue;
     if (holderCount(s.key) < RULES.scoutFeeMinHolders || (eligibleHolders.get(s.key) ?? 0) < RULES.scoutFeeMinEligibleHolders) continue;
     const l = launches.get(s.key)!;
     const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;

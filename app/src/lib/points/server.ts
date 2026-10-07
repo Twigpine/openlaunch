@@ -110,12 +110,19 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     SELECT DISTINCT ON (s.chain_id, s.token, s.trader) s.chain_id, s.token, s.trader, s.block_number, s.log_index, s.block_time AS t, s.amount0, s.amount1
       FROM bb_launch_swaps s JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
      WHERE s.is_buy AND s.trader IS NOT NULL ORDER BY s.chain_id, s.token, s.trader, s.block_number, s.log_index`;
-  // balances of wallets that ever bought the token (airdrop / dust recipients never matter to any rule)
-  const holderRows = await read<{ chain_id: number; token: string; holder: string; balance: string }[]>`
-    SELECT h.chain_id, h.token, h.holder, h.balance
-      FROM bb_token_holders h JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON h.chain_id = u.cid AND h.token = u.tok
-     WHERE h.balance > 0
-       AND EXISTS (SELECT 1 FROM bb_launch_swaps s WHERE s.trader = h.holder AND s.chain_id = h.chain_id AND s.token = h.token AND s.is_buy)`;
+  // every balance change of every buyer (and launcher) of the tokens in scope: holding is judged on the lowest balance
+  // since a buy, so tokens topped up later by transfer, or $5 passed from wallet to wallet, never count
+  const pairs = new Map<string, { cid: number; tok: string; w: string }>();
+  for (const f of firstRows) pairs.set(`${f.chain_id}|${f.token}|${f.trader}`, { cid: f.chain_id, tok: f.token, w: f.trader });
+  for (const l of launchRows) pairs.set(`${l.chain_id}|${l.token}|${l.launcher}`, { cid: l.chain_id, tok: l.token, w: l.launcher });
+  const pv = [...pairs.values()];
+  const moveRows = await read<{ chain_id: number; token: string; wallet: string; block_number: bigint; log_index: number; delta: string }[]>`
+    WITH p AS (SELECT * FROM unnest(${pv.map((x) => x.cid)}::int[], ${pv.map((x) => x.tok)}::text[], ${pv.map((x) => x.w)}::text[]) AS p(cid, tok, w))
+    SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, t.value::text AS delta
+      FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.to_addr = p.w
+    UNION ALL
+    SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, (-t.value)::text AS delta
+      FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.from_addr = p.w`;
   const boughtRows = await read<{ chain_id: number; token: string; bought: string }[]>`
     SELECT s.chain_id, s.token, sum(s.amount1)::text AS bought
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
@@ -159,7 +166,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     launches,
     swaps,
     firstBuys,
-    holders: holderRows.map((h) => ({ key: keyOf(h.chain_id, h.token), wallet: h.holder, balanceRaw: int(h.balance) })),
+    moves: moveRows.map((m) => ({ key: keyOf(m.chain_id, m.token), wallet: m.wallet, block: Number(m.block_number), logIndex: Number(m.log_index), delta: m.delta.startsWith("-") ? -int(m.delta) : int(m.delta) })),
     launcherBought: new Map(boughtRows.map((b) => [keyOf(b.chain_id, b.token), int(b.bought)])),
     linked,
     system,
