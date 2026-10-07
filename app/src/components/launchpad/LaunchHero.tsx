@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Play, Rocket, Scale, ShieldCheck } from "lucide-react";
 import LaunchMechanism from "./LaunchMechanism";
-import LaunchMachine from "./LaunchMachine";
+import HeroLocker from "./HeroLocker";
 import HeroCtaLink from "./HeroCtaLink";
 import LiveTicker from "./LiveTicker";
 import { ChainLogoStack } from "./ChainLogo";
 import { BRAND_GITHUB } from "@/lib/brand";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
+import { imagePublicBase } from "@/lib/launchpad/imageStore";
 import { HERO } from "./hero-layout";
 import styles from "./LaunchHero.module.css";
 
@@ -76,7 +77,7 @@ export default function LaunchHero({ configured }: { configured: boolean }) {
         <div className={styles.stage}>
           <span className={styles.grid} aria-hidden="true" />
           {["tl", "tr", "bl", "br"].map((corner) => <span key={corner} className={styles.corner} data-corner={corner} aria-hidden="true" />)}
-          <div className="relative"><LaunchMachine /></div>
+          <div className="relative"><HeroLocker imageBase={imagePublicBase()} /></div>
         </div>
         <div className={styles.totalsArea}>
           <LaunchMechanism />

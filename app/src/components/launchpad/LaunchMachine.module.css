@@ -182,3 +182,14 @@
   .detail { min-height: 80px; padding: 12px 6px 0; }
   .proof { padding-inline: 6px; }
 }
+
+/* A real launch's picture on the coin's face. It pops in, rides the coin down into the pool, and is gone by 15 s whether or not
+   the next poll has dropped it: the last keyframe leaves it invisible. Wall-clock, so it does not wait on the loop's own pause. */
+.coinFace { transform-box: fill-box; transform-origin: center; animation: coin-in 520ms cubic-bezier(.3, 1.4, .5, 1) backwards, coin-out 700ms ease-in 14.3s forwards; }
+.coinDisc { fill: var(--color-card); }
+.coinRing { fill: none; stroke: color-mix(in srgb, var(--color-card) 92%, transparent); stroke-width: 1.5; }
+@keyframes coin-in { from { opacity: 0; transform: scale(.6); } }
+@keyframes coin-out { to { opacity: 0; } }
+@keyframes coin-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .coinFace { animation: coin-fade 300ms ease-out backwards, coin-out 700ms ease-in 14.3s forwards; } }
+
