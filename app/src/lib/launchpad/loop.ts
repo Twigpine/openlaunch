@@ -1,6 +1,7 @@
 import "server-only";
 import { pollAll } from "./indexer";
 import { recheckProfiles } from "@/lib/profiles/server";
+import { computePointsIfDue } from "@/lib/points/server";
 
 /** In-process launchpad poller (same shape as src/lib/syncLoop.ts). */
 const DEFAULT_MS = 15_000;
@@ -29,6 +30,8 @@ export function startLaunchSyncLoop(): boolean {
     }
     // verified X posts are re-read about weekly, a small batch every ten minutes (self-throttled)
     await recheckProfiles().catch((err) => console.warn("[profiles] recheck:", err instanceof Error ? err.message : err));
+    // season points: recomputed hourly from the index, one machine at a time (self-throttled)
+    await computePointsIfDue().catch((err) => console.warn("[points] compute:", err instanceof Error ? err.message : err));
   };
   const timer = setInterval(() => void tick(), interval);
   timer.unref();

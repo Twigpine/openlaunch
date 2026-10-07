@@ -18,6 +18,8 @@ import { fmtUsd } from "@/lib/launchpad/math";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAIN_SHORT, SITE_URL, explorerTx } from "@/lib/chainPublic";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
+import { currentSeason, walletPoints } from "@/lib/points/server";
+import { Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +61,10 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   ]);
   // the owner's name comes from the profile this page just read, not from a separately cached lookup
   const ownName = { u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" };
+  // season points, once the season is public, for a wallet that qualifies
+  const season = await memo("points:season", 10_000, currentSeason);
+  const pts = season?.public ? await memo(`points:me:${season.id}:${p.wallet}`, 10_000, () => walletPoints(season.id, p.wallet)) : null;
+  const showPts = Boolean(season && pts && pts.eligible && pts.total > 0);
   const now = nowMs();
   const joined = new Date(p.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 
@@ -99,6 +105,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
               </div>
             ))}
           </dl>
+          {showPts && season && pts ? (
+            <Link href="/leaderboard" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-brand/30 bg-brand-soft px-4 py-3 text-sm text-ink hover:border-brand/60">
+              <span className="inline-flex items-center gap-1.5 font-semibold"><Trophy size={14} className="text-brand" aria-hidden="true" />{season.name}</span>
+              {pts.creator > 0 ? <span>Creator {pts.rank_creator ? <strong className="font-mono">#{pts.rank_creator}</strong> : null} · <span className="font-mono tnum">{pts.creator.toLocaleString("en-US")}</span> pts</span> : null}
+              {pts.scout > 0 ? <span>Scout {pts.rank_scout ? <strong className="font-mono">#{pts.rank_scout}</strong> : null} · <span className="font-mono tnum">{pts.scout.toLocaleString("en-US")}</span> pts</span> : null}
+            </Link>
+          ) : null}
           <p className="mt-3 text-[11px] text-muted">Every number here is read from the chain. {p.x ? "The ✓ means this wallet posted a one-time code from that X account." : "No ✓: this profile has not verified an X account."}</p>
         </section>
 

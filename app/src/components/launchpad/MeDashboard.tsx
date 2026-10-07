@@ -28,6 +28,7 @@ import { friendlyError } from "@/lib/errors";
 import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
 import ProfileIdentity from "@/components/profile/ProfileIdentity";
+import SeasonCard from "@/components/points/SeasonCard";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -208,6 +209,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   return (
     <div className={styles.dashboard}>
       {walletBar}
+      <SeasonCard address={address} />
       {err ? <p className={styles.error} role="alert">Refresh failed: {err}. Showing the last loaded data. Try Refresh again.</p> : null}
       <dl className={styles.stats}>
         <Stat k="Your launches" icon={<Layers3 size={14} />} v={String(me.launches.length)} hint="Across all chains" />

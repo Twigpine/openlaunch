@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
-import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, Check, ChevronDown, CircleAlert, Coins, FileCode2, LockKeyhole, Rocket } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, Check, ChevronDown, CircleAlert, Coins, FileCode2, LockKeyhole, Rocket, Trophy } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import styles from "@/components/sections/RulesGuide.module.css";
@@ -10,6 +10,10 @@ import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPu
 import { BRAND_GITHUB } from "@/lib/brand";
 import LaunchMachine from "@/components/launchpad/LaunchMachine";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
+import { RULES } from "@/lib/points/score";
+import { eligibilityConfig } from "@/lib/points/server";
+
+const POINTS_X = eligibilityConfig();
 
 export const metadata: Metadata = pageMetadata({ path: "/rules", title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity." });
 
@@ -29,7 +33,7 @@ const FIXED = [
 
 /** The guide's sections, each with the mark its heading carries. */
 const CONTENTS = [
-  ["launchpad", "The launch", Rocket], ["fees", "Fees & routing", Coins], ["immutable", "What stays fixed", LockKeyhole], ["know", "Before you begin", CircleAlert], ["contracts", "Contracts", FileCode2],
+  ["launchpad", "The launch", Rocket], ["fees", "Fees & routing", Coins], ["immutable", "What stays fixed", LockKeyhole], ["points", "Season points", Trophy], ["know", "Before you begin", CircleAlert], ["contracts", "Contracts", FileCode2],
 ] as const;
 
 /** Verification records stay chain-specific and point to each deployed contract. */
@@ -110,6 +114,17 @@ export default function RulesPage() {
           <section className={shell.anchorSection} id="immutable" aria-labelledby="fixed-heading">
             <div className={styles.sectionHeading}><div><p className={styles.eyebrow}><LockKeyhole size={14} aria-hidden="true" />What stays fixed</p><h2 id="fixed-heading">Code, not a promise.</h2></div><a href="#contracts" className={shell.textLink}>Read the contracts <ArrowUpRight size={14} aria-hidden="true" /></a></div>
             <ul className={styles.fixedList}>{FIXED.map(([title, description]) => <li key={title}><span className={styles.fixedMark} aria-hidden="true"><Check size={12} strokeWidth={3} /></span><div><h3>{title}</h3><p>{description}</p></div></li>)}</ul>
+          </section>
+
+          <section className={shell.anchorSection} id="points" aria-labelledby="points-heading">
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}><Trophy size={14} aria-hidden="true" />Season points</p><h2 id="points-heading">Points for real buyers.<br />Nothing for noise.</h2></div><Link href="/leaderboard" className={shell.textLink}>See the leaderboard <ArrowRight size={14} aria-hidden="true" /></Link></div>
+            <p className={styles.riskIntro}>Points measure reputation on openlaunch. They have no cash value, are not a token and not a promise of one, cannot be transferred or sold, and the rules can change between seasons. Wallets that game the system lose their points. Everything is computed from the chain every hour; the rules below are the whole of it.</p>
+            <div className={styles.questions}>
+              <details open><summary>How do creators earn?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>On any token you launched, only what happens during the season counts. Each outside buyer whose first buy was this season and who still holds a day later earns you {RULES.verifiedHolder} points if their profile is verified on X, or {RULES.holder} if not (at least ${RULES.verifiedHolderMinUsd} or ${RULES.holderMinUsd} held). Still holding at day 7 adds half again.</p><p>Trading fees from outside trades earn {RULES.creatorFeePointsPerUsd} points per $1, whoever the fee goes to. A token that is a week old, has {RULES.aliveMinHolders}+ outside holders and an outside trade in the last day earns {RULES.alive} once.</p><p>Of the tokens you launch on one day, only your best {RULES.bestTokensPerDay} count. A token scores nothing if, during the season, you sell half or more of what you bought of it.</p></div></details>
+              <details open><summary>How do traders earn?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Be one of the first {RULES.earlyFirstBuyers} outside buyers of a token that goes on to reach {RULES.earlyHoldersTarget} outside holders: {RULES.early} points, and {RULES.earlyStillHolding} more while you still hold it.</p><p>Every token you buy (${RULES.minTradeUsd}+) and still hold a day later: {RULES.hold} points, up to {RULES.holdTokensPerDay} tokens a day. Fees you pay on other people&apos;s tokens with {RULES.scoutFeeMinHolders}+ outside holders: {RULES.scoutFeePointsPerUsd} points per $1, up to {RULES.scoutFeeCapPerTokenDay} per token a day.</p></div></details>
+              <details open><summary>What never counts?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Launching by itself, trading your own token, trades under ${RULES.minTradeUsd}, buys in the launch block and the next {RULES.sniperBlocks} blocks, wallets that got a token by transfer from its launcher or fee recipient, and the launcher and fee recipients themselves.</p></div></details>
+              <details open><summary>Who appears on the leaderboard?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Profiles verified with one post on X from an account at least {POINTS_X.minAgeDays} days old with {POINTS_X.minFollowers} or more followers. Everyone else can see the points waiting for them on their dashboard; they unlock, for the whole season so far, the moment the profile is verified. The post itself earns nothing.</p></div></details>
+            </div>
           </section>
 
           <section className={shell.anchorSection} id="know" aria-labelledby="know-heading">
