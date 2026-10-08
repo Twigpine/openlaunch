@@ -36,6 +36,9 @@ test("shareBps / fmtShare", () => {
   assert.equal(fmtShare(42), "0.42%");
   assert.equal(fmtShare(0), "0%");
   assert.equal(fmtShare(0.5), "<0.01%");
+  assert.equal(fmtShare(NaN), "—", "non-finite never paints NaN% in the trust panel");
+  assert.equal(fmtShare(Infinity), "—");
+  assert.equal(fmtShare(-Infinity), "—");
 });
 
 test("holderTags: creator, pool, burn, sniper, whale (whale never on pool/burn)", () => {

@@ -37,6 +37,7 @@ export function shareBps(balance: bigint, supply: bigint): number {
 }
 
 export function fmtShare(bps: number): string {
+  if (!Number.isFinite(bps)) return "—";
   if (bps <= 0) return "0%";
   if (bps < 1) return "<0.01%";
   const pct = bps / 100;

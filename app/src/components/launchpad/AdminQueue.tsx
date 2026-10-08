@@ -26,15 +26,25 @@ export default function AdminQueue() {
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!address) return;
-    const res = await fetch(`/api/posts/reported?wallet=${address}`, { cache: "no-store" });
-    const d = (await res.json()) as { posts?: PostRow[]; error?: string };
-    if (!res.ok) {
-      setErr(d.error ?? "not allowed");
+    try {
+      const res = await fetch(`/api/posts/reported?wallet=${address}`, { cache: "no-store" });
+      let d: { posts?: PostRow[]; error?: string };
+      try {
+        d = (await res.json()) as { posts?: PostRow[]; error?: string };
+      } catch {
+        throw new Error(`moderation queue returned ${res.status}`);
+      }
+      if (!res.ok) {
+        setErr(d.error ?? "not allowed");
+        setPosts(null);
+        return;
+      }
+      setErr(null);
+      setPosts(d.posts ?? []);
+    } catch (e) {
+      setErr(friendlyError(e));
       setPosts(null);
-      return;
     }
-    setErr(null);
-    setPosts(d.posts ?? []);
   }, [address]);
   useEffect(() => {
     const id = setTimeout(() => void load(), 0);
