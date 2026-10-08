@@ -17,7 +17,17 @@ export type HolderPanel = {
   notes: { level: "warn" | "info" | "good"; text: string }[];
 };
 
-/** Holder distribution + creator / sniper facts for one launch. Cheap: two indexed queries + one small scan of its swaps. */
+/**
+ * How many swaps the holder panel scans. Sniper detection only needs the
+ * earliest swaps (launch block … +SNIPER_BLOCKS), so oldest-first keeps it
+ * exact while the table stays bounded: without a LIMIT one hot token
+ * materializes every swap per cache miss (100k rows → 100k BigInt parses).
+ * Creator totals on hyper-traded tokens are a lower bound past this cap;
+ * the panel stays available instead of OOMing.
+ */
+export const HOLDER_SWAPS_LIMIT = 5000;
+
+/** Holder distribution + creator / sniper facts for one launch. Cheap: two indexed queries + one bounded scan of its earliest swaps. */
 export async function getHolderPanel(chain: ChainKey, token: string): Promise<HolderPanel | null> {
   const db = maybeDb();
   if (!db) return null;
@@ -35,7 +45,8 @@ export async function getHolderPanel(chain: ChainKey, token: string): Promise<Ho
        WHERE h.chain_id = ${cid} AND h.token = ${t} AND h.balance > 0 AND NOT (h.holder = ANY(${excluded}))
        ORDER BY h.balance DESC LIMIT ${TOP_HOLDERS}`, // qualified: a bare "balance" would sort the ::text alias
     db<{ trader: string | null; is_buy: boolean; block_number: bigint; amount1: string }[]>`
-      SELECT trader, is_buy, block_number, amount1::text AS amount1 FROM bb_launch_swaps WHERE chain_id = ${cid} AND token = ${t}`,
+      SELECT trader, is_buy, block_number, amount1::text AS amount1 FROM bb_launch_swaps WHERE chain_id = ${cid} AND token = ${t}
+      ORDER BY block_number ASC LIMIT ${HOLDER_SWAPS_LIMIT}`,
     db<{ balance: string }[]>`
       SELECT COALESCE(sum(balance), 0)::text AS balance FROM bb_token_holders WHERE chain_id = ${cid} AND token = ${t} AND holder = ANY(${system})`,
   ]);
