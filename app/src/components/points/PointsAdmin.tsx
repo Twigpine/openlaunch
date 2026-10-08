@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -29,9 +29,18 @@ export default function PointsAdmin() {
   const { chainId } = useAccount();
   const config = useConfig();
   const chain: ChainKey = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === chainId) ?? DEFAULT_CHAIN;
-  const [data, setData] = useState<Preview | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // the preview is read with one admin wallet's signature and shown only while that wallet is connected; an action
+  // or preview that finishes after a switch is dropped
+  const me = address?.toLowerCase() ?? "";
+  const [loaded, setLoaded] = useState<{ wallet: string; v: Preview } | null>(null);
+  const [failed, setFailed] = useState<{ wallet: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const data = loaded?.wallet === me ? loaded.v : null;
+  const err = failed?.wallet === me ? failed.message : null;
+  const current = useRef(me);
+  useEffect(() => {
+    current.current = me;
+  }, [me]);
 
   async function call(action: PointsAdminAction, extra: Record<string, unknown> = {}) {
     if (!address) return null;
@@ -45,13 +54,15 @@ export default function PointsAdmin() {
     return d;
   }
   async function run(action: PointsAdminAction, extra: Record<string, unknown> = {}) {
+    const who = me;
     setBusy(true);
-    setErr(null);
+    setFailed(null);
     try {
       if (action !== "preview") await call(action, extra);
-      setData({ ...((await call("preview")) as Omit<Preview, "at">), at: Date.now() });
+      const v = { ...((await call("preview")) as Omit<Preview, "at">), at: Date.now() };
+      if (current.current === who) setLoaded({ wallet: who, v });
     } catch (e) {
-      setErr(friendlyError(e));
+      if (current.current === who) setFailed({ wallet: who, message: friendlyError(e) });
     } finally {
       setBusy(false);
     }
