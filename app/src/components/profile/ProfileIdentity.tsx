@@ -27,22 +27,39 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
   useEffect(() => {
     current.current = me;
   }, [me]);
+  // and only the newest lookup counts: a switch A → B → A (the effect's alive flag), or a save (this counter), makes
+  // every lookup still in flight stale
+  const latest = useRef(0);
   const keep = (wallet: string, p: PublicProfile | null) => {
     if (current.current === wallet) setLoaded({ wallet, profile: p });
   };
   useEffect(() => {
+    let alive = true; // cleared when the wallet changes or the card unmounts: a lookup already sent can no longer land
+    const ask = ++latest.current;
+    const fresh = () => alive && latest.current === ask;
     const id = setTimeout(async () => {
       try {
         const r = await fetch(`/api/profile?wallet=${me}`, { cache: "no-store" });
-        if (r.status === 404) return keep(me, null);
+        if (r.status === 404) {
+          if (fresh()) keep(me, null);
+          return;
+        }
         if (!r.ok) return;
-        keep(me, ((await r.json()) as { profile: PublicProfile }).profile);
+        const p = ((await r.json()) as { profile: PublicProfile }).profile;
+        if (fresh()) keep(me, p);
       } catch {
         /* keep what we have */
       }
     }, 0);
-    return () => clearTimeout(id);
+    return () => {
+      alive = false;
+      clearTimeout(id);
+    };
   }, [me]);
+  const saved = (p: PublicProfile) => {
+    latest.current++; // a lookup sent before the save would bring back the old fields
+    keep(me, p);
+  };
 
   const xState = profile?.x_state ?? "none";
   return (
@@ -81,7 +98,7 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
           <button type="button" onClick={() => setOpen("edit")} className="ml-1 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-inverse hover:bg-brand-strong"><UserRound size={14} aria-hidden="true" />Create profile</button>
         )}
       </div>
-      {open ? <ProfileSheet address={address} initial={profile ?? null} startOnVerify={open === "verify"} onClose={() => setOpen(null)} onSaved={(p) => keep(me, p)} /> : null}
+      {open ? <ProfileSheet address={address} initial={profile ?? null} startOnVerify={open === "verify"} onClose={() => setOpen(null)} onSaved={saved} /> : null}
     </>
   );
 }
