@@ -15,15 +15,16 @@ export async function GET(req: Request) {
   if (!c.ok) return NextResponse.json({ available: false, error: c.error });
   const wallet = (u.searchParams.get("wallet") ?? "").toLowerCase();
   const db = maybeDb();
-  if (!db) return NextResponse.json({ available: true });
+  // a check that could not run says so (the form then shows nothing); the save checks for real either way
+  if (!db) return NextResponse.json({ error: "could not check right now" }, { status: 503 });
   try {
     const [owner] = await db<{ wallet: string }[]>`SELECT wallet FROM bb_profiles WHERE username = ${c.username}`;
     const [held] = await db<{ wallet: string }[]>`SELECT wallet FROM bb_username_holds WHERE username = ${c.username} AND released_at > now() - interval '30 days'`;
-    // the zero address holds retired names: nobody is it
-    const mine = (w: string | undefined) => Boolean(w && isAddress(wallet) && w === wallet && !/^0x0{40}$/.test(w));
+    // a retired name is held by a marker that is no wallet, so it is never "mine"
+    const mine = (w: string | undefined) => Boolean(w && isAddress(wallet) && w === wallet);
     const available = (!owner || mine(owner.wallet)) && (!held || mine(held.wallet));
     return NextResponse.json(available ? { available: true } : { available: false, error: "that username is taken" }, { headers: { "cache-control": "no-store" } });
   } catch {
-    return NextResponse.json({ available: true });
+    return NextResponse.json({ error: "could not check right now" }, { status: 503 });
   }
 }

@@ -61,7 +61,10 @@ export function buildProfileAdminListMessage(p: { wallet: string; nonce: string;
   return [`${PROFILE_DOMAIN} moderation`, ``, `Action: list profiles`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
 }
 
-/** The message an admin wallet signs for one moderation action on one profile. */
-export function buildProfileModMessage(p: { action: ProfileModAction; target: string; wallet: string; nonce: string; ts: number; reason?: string }): string {
-  return [`${PROFILE_DOMAIN} moderation`, ``, `Action: ${p.action}`, `Profile: ${p.target.toLowerCase()}`, `Reason: ${p.reason ?? ""}`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
+/**
+ * The message an admin wallet signs for one moderation action on one profile. Approving or rejecting an X post also
+ * names the claim (its code) the admin looked at, so the action can never land on a different claim.
+ */
+export function buildProfileModMessage(p: { action: ProfileModAction; target: string; wallet: string; nonce: string; ts: number; reason?: string; claim?: string }): string {
+  return [`${PROFILE_DOMAIN} moderation`, ``, `Action: ${p.action}`, `Profile: ${p.target.toLowerCase()}`, `Claim: ${p.claim ?? ""}`, `Reason: ${p.reason ?? ""}`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
 }

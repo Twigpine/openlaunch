@@ -110,7 +110,7 @@ const RECEIPT_PENDING = "receipt_pending";
  * `via` null = the transaction itself could not be read; RECEIPT_PENDING = it went to an EntryPoint but the receipt
  * could not be read. Either way the backlog pass tries again later.
  */
-async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
+async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token: string): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
   const tx = await txOf(chain, hash);
   if (!tx) return { trader: null, tx_from: null, via: null };
   let logs: ReceiptLog[] | null = null;
@@ -128,7 +128,7 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number): Promi
       receiptLogs.set(k, logs);
     }
   }
-  const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs });
+  const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs, token });
   return { trader: a.trader, tx_from: tx.from, via: a.via };
 }
 
@@ -171,7 +171,7 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const cid = chainIdOf(chain);
   const isBuy = a.amount0 < 0n; // swapper paid quote (currency0)
   const absQuote = a.amount0 < 0n ? -a.amount0 : a.amount0;
-  const [time, who] = await Promise.all([timeOf(chain, log.blockNumber!), traderOf(chain, log.transactionHash!, log.logIndex!)]);
+  const [time, who] = await Promise.all([timeOf(chain, log.blockNumber!), traderOf(chain, log.transactionHash!, log.logIndex!, token)]);
   const bn = log.blockNumber!;
   const li = log.logIndex!;
   // One transaction: the swap row and the launch totals commit together or not at all (a failure between
@@ -335,18 +335,27 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
   const cid = chainIdOf(chain);
   const [cur] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
   if (!cur || cur.cursor_block <= 0n) return 0;
-  // history: every row; otherwise the last day, as a block range so the partial index is scanned as a range (the
-  // lowest block with a swap in the last day comes off the block_time index, a few hundred rows)
-  let fromBlock = 0n;
+  // unchecked rows: every one with history on; otherwise the last day, as a block range so the partial index is scanned
+  // as a range (the lowest block with a swap in the last day comes off the block_time index, a few hundred rows).
+  // EntryPoint calls whose receipt is pending are few and always retried, however old (their own small index).
+  let fromBlock: bigint | null = 0n;
   if (!history) {
     const [d] = await db<{ b: bigint | null }[]>`SELECT min(block_number) AS b FROM bb_launch_swaps WHERE chain_id = ${cid} AND block_time > now() - interval '1 day'`;
-    if (d?.b === null || d?.b === undefined) return 0;
-    fromBlock = BigInt(d.b);
+    fromBlock = d?.b === null || d?.b === undefined ? null : BigInt(d.b);
   }
-  const rows = await db<{ tx_hash: string; log_index: number; trader: string }[]>`
-    SELECT tx_hash, log_index, trader FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING}) AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
+  type Open = { tx_hash: string; log_index: number; trader: string; token: string };
+  const unchecked =
+    fromBlock === null
+      ? []
+      : await db<Open[]>`
+    SELECT tx_hash, log_index, trader, token FROM bb_launch_swaps
+     WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
      ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
+  const pending = await db<Open[]>`
+    SELECT tx_hash, log_index, trader, token FROM bb_launch_swaps
+     WHERE chain_id = ${cid} AND trader_via = ${RECEIPT_PENDING} AND trader IS NOT NULL AND block_number <= ${cur.cursor_block}
+     ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
+  const rows = [...unchecked, ...pending];
   let moved = 0;
   const stopAt = Date.now() + ATTRIBUTION_PASS_BUDGET_MS;
   for (const r of rows) {
@@ -356,7 +365,7 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
     // the queue never spend the pass's budget, so the rows behind them keep moving
     const prev = attributionTries.get(key);
     if (prev && Date.now() - prev.at < ATTRIBUTION_TRY_GAP_MS) continue;
-    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
+    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token);
     if (!who.via || !who.trader || who.via === RECEIPT_PENDING) {
       // evidence unreadable right now (RPC refusal, a transaction the node no longer has): a few tries spaced at least
       // ten minutes apart, then give up, so a short outage never freezes a smart wallet's trade on its bundler. An
@@ -696,13 +705,13 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
   const db = maybeDb();
   if (!db || skipReason(chain)) return 0;
   const cid = chainIdOf(chain);
-  const rows = await db<{ tx_hash: string; log_index: number }[]>`
-    SELECT tx_hash, log_index FROM bb_launch_swaps
+  const rows = await db<{ tx_hash: string; log_index: number; token: string }[]>`
+    SELECT tx_hash, log_index, token FROM bb_launch_swaps
      WHERE chain_id = ${cid} AND trader IS NULL ORDER BY block_number DESC LIMIT 20`;
   if (rows.length === 0) return 0;
   let healed = 0;
   for (const r of rows) {
-    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index));
+    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token);
     if (!who.trader) continue;
     await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
     healed++;

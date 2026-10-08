@@ -58,13 +58,14 @@ export default function ProfileQueue() {
     }
   }
 
-  async function act(target: string, action: ProfileModAction) {
+  // approve / reject sign the code shown on the row, so they only ever act on the claim that was looked at
+  async function act(target: string, action: ProfileModAction, claim = "") {
     if (!address) return;
     setBusy(true);
     try {
       const reason = "";
-      const s = await signed((n, ts) => buildProfileModMessage({ action, target, wallet: address, nonce: n, ts, reason }));
-      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, chain, wallet: address, ...s }) });
+      const s = await signed((n, ts) => buildProfileModMessage({ action, target, wallet: address, nonce: n, ts, reason, claim }));
+      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, claim, chain, wallet: address, ...s }) });
       const d = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(d.error ?? "failed");
       setBusy(false);
@@ -98,10 +99,10 @@ export default function ProfileQueue() {
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        {pending ? (
+        {pending && p.code ? (
           <>
-            <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void act(p.wallet, "approve_x")}>Approve ✓</button>
-            <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, "reject_x")}>Reject</button>
+            <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void act(p.wallet, "approve_x", p.code ?? "")}>Approve ✓</button>
+            <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, "reject_x", p.code ?? "")}>Reject</button>
           </>
         ) : null}
         {!pending && p.x_status !== "none" ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void act(p.wallet, "remove_x")}>Remove ✓</button> : null}

@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * POST {action, …signed} → one admin-signed request: action "list" returns the review queue (X posts waiting for a
  * person, with the code that was issued for each, and the newest profiles); any other action moderates one profile.
+ * Approve / reject also carry `claim`: the code of the post the admin reviewed, signed with the action.
  */
 export async function POST(req: Request) {
   if (rateLimited(`pmod:ip:${clientIp(req)}`, 60)) return NextResponse.json({ error: "slow down" }, { status: 429 });
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
       return NextResponse.json({ pending: r.pending, recent: r.recent }, { headers: { "cache-control": "no-store" } });
     }
-    const r = await moderateProfile({ action: b.action, target: b.target, reason: b.reason, chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
+    const r = await moderateProfile({ action: b.action, target: b.target, reason: b.reason, claim: b.claim, chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
     return NextResponse.json({ ok: true });
   } catch (err) {

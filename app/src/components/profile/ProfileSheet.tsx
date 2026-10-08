@@ -94,6 +94,7 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
     const id = setTimeout(async () => {
       try {
         const r = await fetch(`/api/profile/check?username=${encodeURIComponent(wanted)}&wallet=${address}`, { cache: "no-store" });
+        if (!r.ok) return; // the check could not run (or was rate limited): say nothing, the save checks for real
         const d = (await r.json()) as { available?: boolean; error?: string };
         if (n === seq.current) setAvail({ name: wanted, ok: Boolean(d.available), error: d.error });
       } catch {

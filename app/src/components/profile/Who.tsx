@@ -5,7 +5,7 @@ import { useContext, useEffect, useSyncExternalStore, type ReactNode } from "rea
 import { BadgeCheck } from "lucide-react";
 import WalletAvatar from "@/components/WalletAvatar";
 import { shortAddr } from "@/lib/chainPublic";
-import { cachedName, requestName, subscribeNames, type NameEntry } from "@/lib/profiles/names-client";
+import { cachedName, subscribeNames, watchName, type NameEntry } from "@/lib/profiles/names-client";
 import { NamesContext } from "./NamesProvider";
 
 /**
@@ -16,9 +16,8 @@ export function useName(address: string | null | undefined): NameEntry | null | 
   const w = address?.toLowerCase() ?? "";
   const seeded = useContext(NamesContext)?.[w];
   const live = useSyncExternalStore(subscribeNames, () => (w ? cachedName(w) : undefined), () => undefined);
-  useEffect(() => {
-    if (w) requestName(w); // no-op while the store holds a fresh answer
-  }, [w]);
+  // watched while mounted: asked now (unless fresh), then kept current by the store's shared refresher
+  useEffect(() => (w ? watchName(w) : undefined), [w]);
   return live !== undefined ? live : seeded;
 }
 
