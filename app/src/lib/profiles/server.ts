@@ -517,8 +517,11 @@ export async function listProfilesForReview(r: Signed, limit = 100): Promise<{ o
   return { ok: true, pending, recent };
 }
 
-/** Apply one admin-signed moderation action to a profile. */
-export async function moderateProfile(r: Signed & { action: unknown; target: unknown; reason?: unknown; claim?: unknown }): Promise<{ ok: true } | Fail> {
+/**
+ * Apply one admin-signed moderation action to a profile, and return the profile as the queue shows it afterwards (so
+ * the queue updates in place, without asking the admin to sign another list read).
+ */
+export async function moderateProfile(r: Signed & { action: unknown; target: unknown; reason?: unknown; claim?: unknown }): Promise<{ ok: true; row: ReviewRow | null } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   if (!isProfileModAction(r.action)) return fail("bad action", 400);
@@ -587,7 +590,10 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
   });
   if (refused) return refused;
   forgetName(target);
-  return { ok: true };
+  const [row] = await db<ReviewRow[]>`
+    SELECT wallet, username, display_name, x_handle, x_status, hidden, points_flag, created_at, NULL::text AS code, x_post_id AS post_id
+      FROM bb_profiles WHERE wallet = ${target} AND deleted_at IS NULL`;
+  return { ok: true, row: row ?? null };
 }
 
 // ── re-check ─────────────────────────────────────────────────────────────────
@@ -595,11 +601,12 @@ let lastRecheck = 0;
 const RECHECK_EVERY_MS = 10 * 60_000;
 
 /**
- * Re-read verified posts older than a week, a small batch at a time (claimed with SKIP LOCKED so two machines never
- * read the same one). The post must still be there AND still be by the bound account: a post X says is gone, or one
- * now attributed to a different account, pauses the tick ("reverify"). The same account under a new handle (a rename
- * on X) updates the handle. A post that answers refreshes the facts points use (account age, followers) and upgrades
- * a handle-only binding to the account id. No answer changes nothing.
+ * Re-read verified posts older than a week, and paused ones every day (so a pause that X takes back does not last a
+ * week), a small batch at a time (claimed with SKIP LOCKED so two machines never read the same one). The post must
+ * still be there AND still be by the bound account: a post X says is gone, or one now attributed to a different
+ * account, pauses the tick ("reverify"). The same account under a new handle (a rename on X) updates the handle. A post
+ * that answers refreshes the facts points use (account age, followers), upgrades a handle-only binding to the account
+ * id, and gives a paused tick back. No answer, or an unsure one, changes nothing.
  */
 export async function recheckProfiles(batch = 20): Promise<number> {
   const db = maybeDb();
@@ -609,7 +616,8 @@ export async function recheckProfiles(batch = 20): Promise<number> {
   const rows = await db<{ wallet: string; x_handle: string | null; x_post_id: string | null; x_user_id: string | null; x_status: string }[]>`
     UPDATE bb_profiles p SET x_checked_at = now()
       FROM (SELECT wallet FROM bb_profiles WHERE x_status IN ('verified', 'post_missing') AND deleted_at IS NULL AND x_post_id IS NOT NULL AND x_handle IS NOT NULL
-             AND (x_checked_at IS NULL OR x_checked_at < now() - interval '7 days') ORDER BY x_checked_at NULLS FIRST LIMIT ${batch} FOR UPDATE SKIP LOCKED) due
+             AND (x_checked_at IS NULL OR x_checked_at < now() - CASE WHEN x_status = 'post_missing' THEN interval '1 day' ELSE interval '7 days' END)
+           ORDER BY x_checked_at NULLS FIRST LIMIT ${batch} FOR UPDATE SKIP LOCKED) due
      WHERE p.wallet = due.wallet
      RETURNING p.wallet, p.x_handle, p.x_post_id, p.x_user_id, p.x_status`;
   let changed = 0;

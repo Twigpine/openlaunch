@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     }
     const r = await moderateProfile({ action: b.action, target: b.target, reason: b.reason, claim: b.claim, chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, row: r.row }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     console.error("[profile] moderation failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not apply" }, { status: 502 });

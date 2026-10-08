@@ -77,10 +77,20 @@ export default function ProfileQueue() {
       const reason = "";
       const s = await signed((n, ts) => buildProfileModMessage({ action, target, wallet: address, nonce: n, ts, reason, claim }));
       const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, claim, chain, wallet: address, ...s }) });
-      const d = (await res.json()) as { error?: string };
+      const d = (await res.json()) as { error?: string; row?: ReviewRow | null };
       if (!res.ok) throw new Error(d.error ?? "failed");
+      // the answer carries the profile as it is now: patch the queue in place (Reload is the one signed list read)
+      const who = address.toLowerCase();
+      if (current.current === who) {
+        const now = d.row ?? null;
+        setLoaded((cur) => {
+          if (!cur || cur.wallet !== who) return cur;
+          const recent = now ? cur.recent.map((r) => (r.wallet === target ? now : r)) : cur.recent.filter((r) => r.wallet !== target);
+          const pending = now && now.x_status === "pending_review" ? cur.pending.map((r) => (r.wallet === target ? { ...r, ...now, code: r.code, post_id: r.post_id } : r)) : cur.pending.filter((r) => r.wallet !== target);
+          return { ...cur, recent, pending };
+        });
+      }
       setBusy(false);
-      await load();
     } catch (e) {
       setErr(friendlyError(e));
       setBusy(false);

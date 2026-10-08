@@ -6,7 +6,10 @@ import { handleFromAuthorUrl, oembedText, syndicationToken, type PostFacts } fro
  *   1. X's oEmbed endpoint (official, the embed-a-post API): author handle + post text
  *   2. X's embed widget data (cdn.syndication.twimg.com): account id, handle, text
  *   3. fxtwitter (third party): account join date, followers, private flag
- * Only the two X sources can say a post is gone (404); a third-party failure is never read as "deleted".
+ * Only X says who wrote what: the post is found, and its author, text and account id taken, only from the two X
+ * sources. fxtwitter adds the account facts points use, and only for the account X named. Only X can say a post is
+ * gone, and only when it is sure: an X source says 404 and neither X source failed. Anything less certain is
+ * "unknown" (null), which sends a new claim to a person and leaves a verified one as it is.
  * Every URL is built here from a validated handle and a numeric id (nothing user-supplied is fetched as given),
  * redirects are not followed, every call has a 5 s timeout, and the returned HTML is only parsed for text.
  */
@@ -72,28 +75,26 @@ export async function fetchPostFacts(handle: string, id: string): Promise<PostFa
       facts.sources.push("syndication");
     }
   }
-  if (fx.status === "ok") {
-    const d = fx.data as { code?: unknown; tweet?: { id?: unknown; text?: unknown; author?: { id?: unknown; screen_name?: unknown; followers?: unknown; joined?: unknown; protected?: unknown } } };
+
+  if (facts.sources.length > 0) {
+    facts.found = true;
+    // both X sources, when both answered, must name the same author, or nobody is trusted
+    const distinct = new Set(handles.map((h) => h.toLowerCase()));
+    facts.handle = distinct.size === 1 ? handles[0] : null;
+  } else if (oe.status !== "error" && syn.status !== "error" && (oe.status === "missing" || syn.status === "missing")) {
+    facts.found = false; // X itself says it is gone, and no X source failed to answer
+  }
+
+  // fxtwitter: the account facts only (never the author, the text or the account id), and only for the account X named
+  if (facts.found && facts.handle && fx.status === "ok") {
+    const d = fx.data as { code?: unknown; tweet?: { id?: unknown; author?: { screen_name?: unknown; followers?: unknown; joined?: unknown; protected?: unknown } } };
     const a = d.tweet?.author;
-    const h = str(a?.screen_name);
-    if (d.code === 200 && String(d.tweet?.id ?? "") === id && h) {
-      handles.push(h);
-      facts.userId ??= xid(a?.id);
-      facts.text ??= str(d.tweet?.text);
+    if (d.code === 200 && String(d.tweet?.id ?? "") === id && str(a?.screen_name)?.toLowerCase() === facts.handle.toLowerCase()) {
       facts.followers = num(a?.followers);
       facts.accountCreated = iso(a?.joined);
       facts.protected = typeof a?.protected === "boolean" ? a.protected : null;
       facts.sources.push("fxtwitter");
     }
-  }
-
-  if (facts.sources.length > 0) {
-    facts.found = true;
-    // every source that answered must name the same author, or nobody is trusted
-    const distinct = new Set(handles.map((h) => h.toLowerCase()));
-    facts.handle = distinct.size === 1 ? handles[0] : null;
-  } else if (oe.status === "missing" || syn.status === "missing") {
-    facts.found = false;
   }
   return facts;
 }
