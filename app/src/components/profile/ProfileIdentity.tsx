@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BadgeCheck, PencilLine, UserRound } from "lucide-react";
 import { XMark } from "@/components/launchpad/BrandMarks";
 import { shortAddr } from "@/lib/chainPublic";
@@ -14,22 +14,35 @@ import { VerifiedTick, WhoAvatar } from "./Who";
  * otherwise the address and a "Create profile" button. Opens ProfileSheet for every change.
  */
 export default function ProfileIdentity({ address, avatarClass, labelClass, addressClass }: { address: string; avatarClass?: string; labelClass?: string; addressClass?: string }) {
-  const [profile, setProfile] = useState<PublicProfile | null | undefined>(undefined);
-  const [open, setOpen] = useState<null | "edit" | "verify">(null);
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/profile?wallet=${address}`, { cache: "no-store" });
-      if (r.status === 404) return setProfile(null);
-      if (!r.ok) return;
-      setProfile(((await r.json()) as { profile: PublicProfile }).profile);
-    } catch {
-      /* keep what we have */
-    }
-  }, [address]);
+  const me = address.toLowerCase();
+  // everything here is tagged with the wallet it belongs to: after a switch in the wallet app, the previous wallet's
+  // profile, Edit button and open form are never shown or used, and a late answer for it never lands on the new one
+  const [loaded, setLoaded] = useState<{ wallet: string; profile: PublicProfile | null } | undefined>(undefined);
+  const [openFor, setOpenFor] = useState<{ wallet: string; mode: "edit" | "verify" } | null>(null);
+  const profile = loaded?.wallet === me ? loaded.profile : undefined;
+  const open = openFor?.wallet === me ? openFor.mode : null;
+  const setOpen = (mode: "edit" | "verify" | null) => setOpenFor(mode ? { wallet: me, mode } : null);
+  // the wallet connected right now: a lookup or a save that finishes for any other wallet is dropped
+  const current = useRef(me);
   useEffect(() => {
-    const id = setTimeout(() => void load(), 0);
+    current.current = me;
+  }, [me]);
+  const keep = (wallet: string, p: PublicProfile | null) => {
+    if (current.current === wallet) setLoaded({ wallet, profile: p });
+  };
+  useEffect(() => {
+    const id = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/profile?wallet=${me}`, { cache: "no-store" });
+        if (r.status === 404) return keep(me, null);
+        if (!r.ok) return;
+        keep(me, ((await r.json()) as { profile: PublicProfile }).profile);
+      } catch {
+        /* keep what we have */
+      }
+    }, 0);
     return () => clearTimeout(id);
-  }, [load]);
+  }, [me]);
 
   const xState = profile?.x_state ?? "none";
   return (
@@ -68,7 +81,7 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
           <button type="button" onClick={() => setOpen("edit")} className="ml-1 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-inverse hover:bg-brand-strong"><UserRound size={14} aria-hidden="true" />Create profile</button>
         )}
       </div>
-      {open ? <ProfileSheet address={address} initial={profile ?? null} startOnVerify={open === "verify"} onClose={() => setOpen(null)} onSaved={(p) => setProfile(p)} /> : null}
+      {open ? <ProfileSheet address={address} initial={profile ?? null} startOnVerify={open === "verify"} onClose={() => setOpen(null)} onSaved={(p) => keep(me, p)} /> : null}
     </>
   );
 }

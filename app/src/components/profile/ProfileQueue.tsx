@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -30,9 +30,19 @@ export default function ProfileQueue() {
   const { chainId } = useAccount();
   // the chain the wallet signs on (a smart-wallet admin is checked there)
   const chain: ChainKey = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === chainId) ?? DEFAULT_CHAIN;
-  const [data, setData] = useState<{ pending: ReviewRow[]; recent: ReviewRow[] } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // the queue is read with one admin wallet's signature and shown only while that wallet is connected; a load that
+  // finishes after a switch never replaces another wallet's queue
+  const me = address?.toLowerCase() ?? "";
+  const [loaded, setLoaded] = useState<{ wallet: string; pending: ReviewRow[]; recent: ReviewRow[] } | null>(null);
+  const [failed, setFailed] = useState<{ wallet: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const data = loaded?.wallet === me ? loaded : null;
+  const err = failed?.wallet === me ? failed.message : null;
+  const setErr = (message: string | null) => setFailed(message ? { wallet: me, message } : null);
+  const current = useRef(me);
+  useEffect(() => {
+    current.current = me;
+  }, [me]);
 
   async function signed(message: (n: string, ts: number) => string) {
     const n = nonce();
@@ -50,7 +60,8 @@ export default function ProfileQueue() {
       const d = (await res.json()) as { pending?: ReviewRow[]; recent?: ReviewRow[]; error?: string };
       if (!res.ok) throw new Error(d.error ?? "not allowed");
       setErr(null);
-      setData({ pending: d.pending ?? [], recent: d.recent ?? [] });
+      const who = address.toLowerCase();
+      if (current.current === who) setLoaded({ wallet: who, pending: d.pending ?? [], recent: d.recent ?? [] }); // signed by a wallet no longer connected: dropped
     } catch (e) {
       setErr(friendlyError(e));
     } finally {

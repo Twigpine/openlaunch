@@ -4,7 +4,9 @@
  * profile is remembered as null so it is not asked again. Server pages can seed it (NamesProvider) so the first
  * paint already shows names. Wallets on screen are watched: one shared timer re-asks for the ones whose answer is
  * older than the TTL (a rename or a lost ✓ reaches an open page) and retries failed lookups, backing off while the
- * names API keeps failing. Pure data, no React: Who.tsx subscribes with useSyncExternalStore.
+ * names API keeps failing. An answer only lands if nothing newer arrived for that wallet while it was in flight (a
+ * server seed, or a save that invalidated it): every wallet has a generation, bumped by both, and a response asked at
+ * an older generation is dropped. Pure data, no React: Who.tsx subscribes with useSyncExternalStore.
  */
 export type NameEntry = { u: string; d: string; a: string | null; v: boolean };
 
@@ -15,6 +17,10 @@ const BACKOFF_MAX_MS = 5 * 60_000;
 const cache = new Map<string, { v: NameEntry | null; at: number }>();
 const listeners = new Set<() => void>();
 const watched = new Map<string, number>(); // wallet → how many mounted components show it
+const generation = new Map<string, number>(); // wallet → bumped by a seed or an invalidation (newer than anything in flight)
+const inFlight = new Map<string, number>(); // wallet → the generation its pending lookup was asked at
+const genOf = (k: string) => generation.get(k) ?? 0;
+const bump = (k: string) => generation.set(k, genOf(k) + 1);
 let queued = new Set<string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let refresher: ReturnType<typeof setInterval> | null = null;
@@ -52,6 +58,7 @@ export function seedNames(names: Record<string, NameEntry | null>): void {
   let changed = false;
   for (const [w, v] of Object.entries(names)) {
     const k = w.toLowerCase();
+    bump(k); // the server's answer is newer than any lookup still in flight
     const cur = cache.get(k);
     if (cur && JSON.stringify(cur.v) === JSON.stringify(v)) {
       cur.at = at;
@@ -65,15 +72,18 @@ export function seedNames(names: Record<string, NameEntry | null>): void {
 
 /** Drop one wallet (after its owner saves) so the next render asks again. */
 export function forgetCachedName(wallet: string): void {
-  cache.delete(wallet.toLowerCase());
-  requestName(wallet);
+  const k = wallet.toLowerCase();
+  cache.delete(k);
+  bump(k); // a lookup already in flight predates the change: its answer is dropped, and a new one is asked
+  requestName(k);
 }
 
 /** Queue a wallet for the next batched lookup unless a fresh answer is already held. */
 export function requestName(wallet: string): void {
   if (typeof window === "undefined") return;
   const k = wallet.toLowerCase();
-  if (!/^0x[0-9a-f]{40}$/.test(k) || fresh(k) || queued.has(k)) return;
+  // nothing to do while a fresh answer is held, or a lookup asked at the current generation is queued or in flight
+  if (!/^0x[0-9a-f]{40}$/.test(k) || fresh(k) || queued.has(k) || inFlight.get(k) === genOf(k)) return;
   queued.add(k);
   if (!timer) timer = setTimeout(() => void flush(), 40);
 }
@@ -120,6 +130,8 @@ async function flush() {
   queued = new Set();
   for (let i = 0; i < all.length; i += BATCH_MAX) {
     const part = all.slice(i, i + BATCH_MAX);
+    const asked = new Map(part.map((k) => [k, genOf(k)]));
+    for (const [k, g] of asked) inFlight.set(k, g);
     try {
       const r = await fetch(`/api/profile/names?w=${part.join(",")}`, { cache: "no-store" });
       if (!r.ok) {
@@ -128,13 +140,16 @@ async function flush() {
       }
       const d = (await r.json()) as { names?: Record<string, NameEntry> };
       const at = Date.now();
-      for (const w of part) cache.set(w, { v: d.names?.[w] ?? null, at });
+      // only answers still current land: a seed or a save since this was asked is newer than what came back
+      for (const w of part) if (genOf(w) === asked.get(w)) cache.set(w, { v: d.names?.[w] ?? null, at });
       failures = 0;
       retryAfter = 0;
     } catch {
       noteFailure(); // offline: the address stays as it is until a retry answers
+    } finally {
+      for (const [k, g] of asked) if (inFlight.get(k) === g) inFlight.delete(k);
     }
   }
-  if (cache.size > 20_000) cache.clear();
+  if (cache.size > 20_000) cache.clear(); // generations are kept (a number per wallet seen): clearing them could let an old answer match again
   notify();
 }
