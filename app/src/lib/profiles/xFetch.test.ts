@@ -6,8 +6,8 @@ import { fetchPostFacts } from "./xFetch.ts";
 type Say = { ok: unknown } | "missing" | "error";
 function sources(p: { oembed: Say; syndication: Say; fx: Say }) {
   globalThis.fetch = (async (url: string | URL) => {
-    const u = String(url);
-    const say = u.includes("publish.x.com") ? p.oembed : u.includes("syndication.twimg.com") ? p.syndication : p.fx;
+    const host = new URL(String(url)).hostname;
+    const say = host === "publish.x.com" ? p.oembed : host === "cdn.syndication.twimg.com" ? p.syndication : host === "api.fxtwitter.com" ? p.fx : "error";
     if (say === "missing") return new Response("", { status: 404 });
     if (say === "error") return new Response("", { status: 500 });
     return Response.json(say.ok);
