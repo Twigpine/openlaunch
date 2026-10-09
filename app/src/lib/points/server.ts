@@ -22,12 +22,14 @@ import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type Creat
  *
  * Prices: without ETH, GITLAWB or TWIG a run writes nothing (the last board stays). Another quote that normally has a
  * price (MUSEWORLD, a stock) but has none right now only takes its own tokens out of an hourly run, which the next run
- * puts back; a run that would fix the FINAL standings writes nothing instead, so a price blip can never drop tokens
- * from them for good. Tokens quoted in an unlisted pair never count (they have no price to hold anything to).
+ * puts back; a run that would fix the FINAL standings writes nothing instead (for up to a day), so a price blip can
+ * never drop tokens from them for good. Tokens quoted in an unlisted pair never count (they have no price to hold
+ * anything to).
  *
  * Final standings are fixed only by a compute that read everything through the season's end: the clock passing the
  * end is not enough, every indexer must have read past it too (computed_until is capped at the least of their
- * cursors), and every read stops at the season's last block, so a late final compute sees the season as it ended.
+ * cursors), the season's swaps must be attributed (at most an hour's wait), and every read stops at the season's last
+ * block, so a late final compute sees the season as it ended. Until then an ended season is not recomputed at all.
  */
 
 export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null };
@@ -132,6 +134,17 @@ async function lastBlockBefore(read: Db, chain: ChainKey, ms: number): Promise<b
   return keep(await lastBlockBetween(lo, tLo, hi, tHi, ms, timeOf));
 }
 
+/** How long past its end a season's final count waits for swaps still being attributed. */
+const SETTLE_WAIT_MS = 60 * 60_000;
+/** How long past its end it waits for a normally-priced quote's price (a feed gone for good then drops its tokens). */
+const PRICE_WAIT_MS = 24 * 60 * 60_000;
+/** Whether any swap in [from, to) is still being attributed (unchecked, or its EntryPoint receipt not read yet). */
+async function unattributedIn(read: Db, from: string, to: string): Promise<boolean> {
+  const [r] = await read<{ open: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM bb_launch_swaps WHERE (trader_via IS NULL OR trader_via = 'receipt_pending') AND block_time >= ${from} AND block_time < ${to}) AS open`;
+  return Boolean(r?.open);
+}
+
 /** `read` runs the season's reads one after another (a reserved connection); `write` (the pool) runs the replace. */
 export async function computeSeason(read: Db, write: Db, season: Season): Promise<ComputeResult> {
   const t0 = Date.now();
@@ -144,7 +157,13 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   // makes the final standings (the hourly and admin recomputes stop after that)
   const indexed = await indexedThrough(read);
   const covered = indexed === null ? Math.min(dataUntil, end - 1) : Math.min(dataUntil, indexed);
-  const finalRun = covered >= end;
+  // a smart-wallet buy is credited to the bundler until its receipt is read (then it is no real buy): the final count
+  // waits for the season's swaps still being attributed, at most an hour past the end (a receipt that never comes is
+  // settled on its sender by then anyway)
+  const unsettled = covered >= end && now < end + SETTLE_WAIT_MS && (await unattributedIn(read, season.starts_at, season.ends_at));
+  const finalRun = covered >= end && !unsettled;
+  // once the season is over, a run that cannot be final would only redo the whole compute for the same board: wait
+  if (now >= end && !finalRun) return { skipped: unsettled ? "waiting for the season's last swaps to be attributed" : "waiting for every indexer to read past the season's end" };
 
   // per chain: the season's first block (a creator's in-season outflows), and once it has ended its last one, so
   // transfers after the end (blocks, not times) are never read as the season's
@@ -181,7 +200,8 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
 
   // ETH, GITLAWB and TWIG price most of the board: without them the run would be wrong everywhere, so it writes
   // nothing. Another quote that normally has a price but has none now (MUSEWORLD, a stock) takes its own tokens out
-  // of an hourly run (the next run puts them back), but never out of the final standings: that run waits instead.
+  // of an hourly run (the next run puts them back); the final run waits for it instead (up to a day: a feed gone for
+  // good then drops its tokens, logged).
   // An unlisted pair has no price to begin with: never scored.
   const MAIN_QUOTES = new Set(["eth", "gitlawb", "twig"]);
   let dropped = 0;
@@ -193,7 +213,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     const chain = chainKeyOf(l.chain_id) as ChainKey;
     const q = price(chain, l.quote);
     if (q.usd === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
-    if (q.usd === null && q.key !== "other" && finalRun) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
+    if (q.usd === null && q.key !== "other" && finalRun && now < end + PRICE_WAIT_MS) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
     if (q.usd === null) {
       dropped++;
       continue;
@@ -358,8 +378,9 @@ async function computeLocked(season: Season): Promise<ComputeResult | null> {
 /**
  * The hourly run, from the sync loop: at most hourly per season (bb_seasons.computed_at, so a season with no points
  * yet does not recompute every few minutes), one machine at a time, never while a run is in progress on this machine.
- * An ended season is computed every few minutes until a run covers its end (every indexer past it, every price in);
- * that run's standings are final, and nothing recomputes the season after it.
+ * An ended season is checked every few minutes until a run can cover its end (every indexer past it, every price in,
+ * its last swaps attributed or an hour gone); only that run computes, its standings are final, and nothing recomputes
+ * the season after it.
  */
 export async function computePointsIfDue(): Promise<ComputeResult | null> {
   if (running || Date.now() - lastCheck < 5 * 60_000) return null;
@@ -427,8 +448,8 @@ export async function walletReason(wallet: string): Promise<PublicReason | null>
 // ── admin ────────────────────────────────────────────────────────────────────
 /**
  * Start a season (hidden: a shadow run until it is published), or null when one is already running. Under a lock,
- * so two starts at once make one season; the slug and the number come from the row's own id, so a deleted season
- * can never make the next start collide with an existing slug.
+ * so two starts at once make one season; the slug comes from the row's own id and the number follows the highest
+ * season name, so a deleted season never makes the next start collide with a slug or repeat a name.
  */
 export async function startSeason(days = 28): Promise<Season | null> {
   const db = maybeDb()!;
@@ -442,7 +463,9 @@ export async function startSeason(days = 28): Promise<Season | null> {
     const [row] = await t<{ id: number }[]>`
       INSERT INTO bb_seasons (slug, name, starts_at, ends_at, public) VALUES (${`pending-${Date.now()}-${Math.random().toString(36).slice(2)}`}, '', now(), now() + make_interval(days => ${days}), false) RETURNING id`;
     const [s] = await t<Season[]>`
-      UPDATE bb_seasons SET slug = 's' || id, name = 'Season ' || (SELECT count(*) FROM bb_seasons WHERE id <= ${row.id}) WHERE id = ${row.id}
+      UPDATE bb_seasons SET slug = 's' || id,
+             name = 'Season ' || (1 + COALESCE((SELECT max((regexp_match(name, '^Season ([0-9]+)$'))[1]::int) FROM bb_seasons WHERE id <> ${row.id}), 0))
+       WHERE id = ${row.id}
       RETURNING id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at`;
     return s;
   }) as Promise<Season | null>;

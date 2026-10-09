@@ -305,3 +305,16 @@ test("a buy whose tokens the wallet never received (a relayer or bundler the swa
   assert.equal(r.wallets.get("0xrelay0")?.scoutWhy.early ?? 0, 0, "the relayer takes no early slot");
   assert.equal(r.wallets.get(w(1))!.scoutWhy.early, 1, "the first real buyers keep theirs");
 });
+
+test("best 3 by what each token adds: three tokens sharing one trader's fee cap are worth one cap, not three", () => {
+  const launches = ["0xa", "0xb", "0xc", "0xd"].map((t, i) => ({ ...L, key: `base:${t}`, launchTime: START - DAY + i }));
+  // one eligible trader buys $1,000 of each of 0xa..0xc on the same day ($10 fee each: 100 points uncapped, 50 capped,
+  // and 50 for the three together); 0xd has one eligible holder (45 after a week)
+  const whale = launches.slice(0, 3).map((l) => buyer(w(900), START + DAY, 0.5, 1, l));
+  const fan = buyer(w(901), START + DAY, 0.003, 1, launches[3]);
+  const r = scoreSeason(build([...whale, fan], { launches, eligible: new Set([w(900), w(901)]) }));
+  const c = r.wallets.get(CREATOR)!;
+  // the whale counts once as a holder (45) and once for fees (50); 0xd's fan adds 45 more
+  assert.equal(c.creatorWhy.verifiedHolders, 2, "0xd's holder is counted: 0xd was not cut for a second share of the same cap");
+  assert.ok(c.creator >= 45 + 50 + 45, `creator ${c.creator}`);
+});

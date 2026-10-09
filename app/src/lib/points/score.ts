@@ -308,20 +308,36 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
       }
       return { pts, usd };
     };
-    // the best 3 tokens of each launch day, ranked by what each would actually be worth: its holders (each on their
-    // best token) and its fees with the per-trader-per-day cap applied (an uncapped estimate let one big fee payer
-    // push a token with real holders out of the 3)
+    // the best 3 tokens of each launch day, picked one at a time by what each ADDS: its holders (each on their best
+    // token) and its fees with the per-trader-per-day cap applied after what the tokens already picked used of it (an
+    // uncapped estimate let one big fee payer push out a token with real holders; three tokens sharing one trader's
+    // cap are worth one cap, not three)
     const firstPass = new Map<TokenCreator, number>();
     for (const [, h] of assign(live)) firstPass.set(h.t, (firstPass.get(h.t) ?? 0) + h.pts);
-    const estimate = new Map(live.map((t) => [t, (firstPass.get(t) ?? 0) + feePoints(t, new Map()).pts]));
     const byDay = new Map<number, TokenCreator[]>();
     for (const t of live) {
       const d = utcDay(t.l.launchTime);
       byDay.set(d, [...(byDay.get(d) ?? []), t]);
     }
     const kept: TokenCreator[] = [];
-    for (const list of byDay.values()) kept.push(...[...list].sort((a, b) => (estimate.get(b) ?? 0) - (estimate.get(a) ?? 0)).slice(0, RULES.bestTokensPerDay));
-    kept.sort((a, b) => (estimate.get(b) ?? 0) - (estimate.get(a) ?? 0) || a.l.key.localeCompare(b.l.key));
+    const added = new Map<TokenCreator, number>();
+    for (const list of byDay.values()) {
+      const left = [...list].sort((a, b) => a.l.key.localeCompare(b.l.key));
+      const used = new Map<string, number>();
+      for (let picked = 0; picked < RULES.bestTokensPerDay && left.length; picked++) {
+        let best = 0;
+        let bestValue = -1;
+        left.forEach((t, i) => {
+          const v = (firstPass.get(t) ?? 0) + feePoints(t, new Map(used)).pts;
+          if (v > bestValue) [best, bestValue] = [i, v];
+        });
+        const [t] = left.splice(best, 1);
+        feePoints(t, used);
+        added.set(t, bestValue);
+        kept.push(t);
+      }
+    }
+    kept.sort((a, b) => (added.get(b) ?? 0) - (added.get(a) ?? 0) || a.l.key.localeCompare(b.l.key));
     // the count: each holder on their best kept token (a holder whose favourite was cut still counts on another), and
     // fees with the cap shared across all of this creator's kept tokens
     const holderBest = assign(kept);
