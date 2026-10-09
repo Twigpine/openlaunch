@@ -1,10 +1,12 @@
 import "server-only";
 import { pollAll } from "./indexer";
+import { recheckProfiles } from "@/lib/profiles/server";
 
 /** In-process launchpad poller (same shape as src/lib/syncLoop.ts). */
 const DEFAULT_MS = 15_000;
 type G = typeof globalThis & { __launchSyncLoop?: NodeJS.Timeout };
 
+/** Start the in-process sync loop once per process: indexing every interval, plus the profile post re-check. */
 export function startLaunchSyncLoop(): boolean {
   const g = globalThis as G;
   if (g.__launchSyncLoop) return false;
@@ -25,6 +27,8 @@ export function startLaunchSyncLoop(): boolean {
     } catch (err) {
       console.error("[launch-sync] error:", err instanceof Error ? err.message : err);
     }
+    // verified X posts are re-read about weekly, a small batch every ten minutes (self-throttled)
+    await recheckProfiles().catch((err) => console.warn("[profiles] recheck:", err instanceof Error ? err.message : err));
   };
   const timer = setInterval(() => void tick(), interval);
   timer.unref();

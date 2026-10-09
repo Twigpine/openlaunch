@@ -4,6 +4,7 @@ import { holderFactsAvailable } from "@/lib/launchpad/token-market";
 import { fmtShare } from "@/lib/launchpad/holders";
 import { fmtCompact } from "@/lib/launchpad/math";
 import { explorerAddress, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { WhoName } from "@/components/profile/Who";
 
 /**
  * Holders & trust panel (server component). Facts only — no score: who holds the supply, what the
@@ -20,6 +21,7 @@ const TAG_STYLE: Record<string, string> = {
 const TAG_LABEL: Record<string, string> = { creator: "Creator", pool: "Pool", burn: "Burn", sniper: "Sniper", whale: "Whale" };
 const NOTE_STYLE = { warn: "border-warm/40 bg-warm-soft text-warm-ink", info: "border-line bg-card text-body", good: "border-holder-good-line bg-holder-good-bg text-up" } as const;
 
+/** Holder distribution and the top holders of a token, each named by their profile where they have one. */
 export default function HoldersPanel({ chain, symbol, p, embedded = false }: { chain: ChainKey; symbol: string; p: HolderPanel | null; embedded?: boolean }) {
   if (!p || !holderFactsAvailable(p)) return <section aria-label="holders" className={embedded ? "p-5" : "rounded-2xl border border-line bg-paper p-5"}><div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-ink">Supply distribution</h2><span className="text-[11px] text-muted">Awaiting transfer history</span></div><div className="flex min-h-44 flex-col items-center justify-center gap-2 text-center"><UsersRound size={24} strokeWidth={1.4} className="mb-1 text-muted" /><h3 className="text-sm font-medium text-ink">The holder picture is not ready yet.</h3><p className="max-w-sm text-xs leading-relaxed text-muted text-pretty">Concentration, creator holdings and early buyers appear after transfer history is indexed. Missing data is not a clean bill of health.</p></div></section>;
   const supply = Number(BigInt(p.supply)) / 1e18;
@@ -48,9 +50,16 @@ export default function HoldersPanel({ chain, symbol, p, embedded = false }: { c
           {p.top.map((h, i) => (
             <li key={h.address} className="px-5 py-2.5 flex items-center gap-3 text-sm transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none">
               <span className="w-5 text-right font-mono text-xs text-muted tnum">{i + 1}</span>
-              <a href={explorerAddress(chain, h.address)} target="_blank" rel="noreferrer" className="font-code text-xs text-body hover:text-ink" title={h.address}>
-                {shortAddr(h.address)}
-              </a>
+              <WhoName
+                address={h.address}
+                className="text-xs"
+                explorer={explorerAddress(chain, h.address)}
+                fallback={
+                  <a href={explorerAddress(chain, h.address)} target="_blank" rel="noreferrer" className="font-code text-xs text-body hover:text-ink" title={h.address}>
+                    {shortAddr(h.address)}
+                  </a>
+                }
+              />
               <span className="flex gap-1">
                 {h.tags.map((t) => (
                   <span key={t} className={`inline-flex items-center h-5 px-1.5 rounded-md border text-[10px] font-medium ${TAG_STYLE[t]}`}>

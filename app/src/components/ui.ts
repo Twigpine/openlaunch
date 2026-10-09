@@ -17,6 +17,8 @@ export const btn = {
   warm: `${btnBase} ${lit} min-h-11 px-5 bg-warm-ink text-inverse hover:brightness-110`,
   warmOutline: `${btnBase} min-h-11 px-5 bg-warm-soft text-warm-ink border border-warm/40 hover:border-warm`,
   icon: `${btnBase} h-10 w-10 rounded-xl text-ink hover:bg-paper border border-transparent hover:border-line`,
+  // a destructive action that is never the main one on screen (it always asks once more)
+  dangerSm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-card text-down-ink border border-down/40 hover:border-down hover:bg-down-soft`,
 };
 
 export const card = "rounded-2xl bg-card border border-line shadow-card";

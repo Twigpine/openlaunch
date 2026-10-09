@@ -13,6 +13,12 @@
  *
  *   DATABASE_URL=postgres://… node scripts/migrate.mjs
  *
+ * Then db/concurrent-indexes.sql: indexes on the big, busy tables, built one by
+ * one AFTER the transaction commits with CREATE INDEX CONCURRENTLY, so no read
+ * or write on those tables waits for a build (inside the transaction a build
+ * would hold the exclusive lock an ALTER TABLE already took). An index a failed
+ * build left invalid is dropped and built again. A failed build exits 1 too.
+ *
  * Only depends on `postgres` + node builtins so it runs from the standalone
  * image (Dockerfile copies db/ + this file; next.config.ts keeps `postgres`
  * external so it is traced into .next/standalone/node_modules).
@@ -45,7 +51,20 @@ if (!url) {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const file = process.env.BASEBID_SCHEMA_FILE || path.resolve(here, "../db/schema.sql");
 const text = await readFile(file, "utf8");
-const hash = createHash("sha256").update(text).digest("hex");
+const concurrentFile = process.env.BASEBID_CONCURRENT_FILE || path.resolve(path.dirname(file), "concurrent-indexes.sql");
+const concurrentText = await readFile(concurrentFile, "utf8").catch(() => "");
+// one CREATE INDEX CONCURRENTLY IF NOT EXISTS <name> per statement (comments dropped)
+const concurrent = concurrentText
+  .replace(/--[^\n]*/g, "")
+  .split(";")
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((s) => {
+    const m = /^CREATE INDEX CONCURRENTLY IF NOT EXISTS (\w+) ON /i.exec(s);
+    if (!m) throw new Error(`concurrent-indexes.sql: not a CREATE INDEX CONCURRENTLY IF NOT EXISTS statement: ${s.slice(0, 80)}`);
+    return { name: m[1], sql: s };
+  });
+const hash = createHash("sha256").update(text).update(concurrentText).digest("hex");
 const appliedBy = process.env.FLY_IMAGE_REF || process.env.FLY_MACHINE_ID || hostname();
 
 const sql = postgres(url, { max: 1, connect_timeout: 15, idle_timeout: 5, onnotice: () => {} });
@@ -53,6 +72,9 @@ const t0 = Date.now();
 let exitCode = 0;
 try {
   const { changed, history, tables } = await sql.begin(async (tx) => {
+    // an ALTER TABLE takes an exclusive lock even when the column exists: never queue behind a long read (and block
+    // every read behind us) for more than a few seconds; a failed release just fails the deploy, which can be retried
+    await tx`SET LOCAL lock_timeout = '10s'`;
     await tx.unsafe(text);
     const [last] = await tx`select schema_sha256 from bb_migrations order by id desc limit 1`;
     const changed = last?.schema_sha256 !== hash;
@@ -65,6 +87,29 @@ try {
        where table_schema = current_schema() and table_name like 'bb\\_%'`;
     return { changed, history, tables };
   });
+  // outside any transaction: each build lets reads and writes go on; a long-held lock elsewhere fails it after 30 s
+  await sql`SET lock_timeout = '30s'`;
+  await sql`SET statement_timeout = '20min'`;
+  for (const ix of concurrent) {
+    const [state] = await sql`select i.indisvalid as valid from pg_class c join pg_index i on i.indexrelid = c.oid where c.relname = ${ix.name} and c.relnamespace = current_schema()::regnamespace`;
+    if (state && state.valid) continue;
+    const t1 = Date.now();
+    try {
+      if (state) await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS ${ix.name}`); // left invalid by a failed build
+      await sql.unsafe(ix.sql);
+    } catch (err) {
+      // say which index and why: the schema transaction is already in, so retrying the deploy is safe
+      const e = /** @type {{ message?: string; code?: string }} */ (err);
+      const why =
+        e?.code === "55P03"
+          ? "waited 30 s for a lock: an older transaction is still open, or another session holds the table (retry the deploy)"
+          : e?.code === "57014"
+            ? "the build ran past the 20 min statement timeout (retry the deploy)"
+            : "";
+      throw Object.assign(new Error(`building ${ix.name} concurrently: ${e?.message ?? err}${why ? ` — ${why}` : ""}`), { code: e?.code });
+    }
+    console.log(`migrate: built ${ix.name} concurrently in ${Date.now() - t1}ms`);
+  }
   console.log(
     `migrate: ok schema=${hash.slice(0, 12)} ${changed ? "applied (new hash)" : "re-applied (unchanged)"} ` +
       `tables=${tables} history=${history} ${Date.now() - t0}ms`,

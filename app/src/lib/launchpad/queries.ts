@@ -699,14 +699,14 @@ export async function getWalletTokens(wallet: string, ethUsd: number | null = nu
   return rows.map((r) => ({ ...shape(r, ethUsd), my_buys: Number(r.my_buys), my_sells: Number(r.my_sells), my_last_trade: r.my_last_trade }));
 }
 
-export type WalletTrade = { chain: ChainKey; token: string; symbol: string; name: string; tx_hash: string; is_buy: boolean; quote_raw: string; quote_symbol: string; quote_decimals: number; usd: number | null; tokens: string; block_time: string };
+export type WalletTrade = { chain: ChainKey; token: string; symbol: string; name: string; tx_hash: string; log_index: number; is_buy: boolean; quote_raw: string; quote_symbol: string; quote_decimals: number; usd: number | null; tokens: string; block_time: string };
 
 export async function getWalletTrades(wallet: string, ethUsd: number | null = null, limit = 50): Promise<WalletTrade[]> {
   const db = maybeDb();
   if (!db) return [];
   await withStocks();
-  const rows = await db<{ chain_id: number; token: string; symbol: string; name: string; quote: string; tx_hash: string; is_buy: boolean; amount0: string; amount1: string; block_time: string }[]>`
-    SELECT s.chain_id, s.token, l.symbol, l.name, l.quote, s.tx_hash, s.is_buy, s.amount0, s.amount1, s.block_time
+  const rows = await db<{ chain_id: number; token: string; symbol: string; name: string; quote: string; tx_hash: string; log_index: number; is_buy: boolean; amount0: string; amount1: string; block_time: string }[]>`
+    SELECT s.chain_id, s.token, l.symbol, l.name, l.quote, s.tx_hash, s.log_index, s.is_buy, s.amount0, s.amount1, s.block_time
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
      WHERE s.trader = ${wallet.toLowerCase()} ORDER BY s.block_number DESC, s.log_index DESC LIMIT ${Math.min(200, limit)}`;
   return rows.map((r) => {
@@ -715,7 +715,7 @@ export async function getWalletTrades(wallet: string, ethUsd: number | null = nu
     const qu = quoteUsd(q, ethUsd);
     const raw = BigInt(r.amount0) < 0n ? (-BigInt(r.amount0)).toString() : r.amount0;
     const tok = BigInt(r.amount1) < 0n ? (-BigInt(r.amount1)).toString() : r.amount1;
-    return { chain, token: r.token, symbol: r.symbol, name: r.name, tx_hash: r.tx_hash, is_buy: r.is_buy, quote_raw: raw, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(raw, q.decimals) * qu, tokens: tok, block_time: r.block_time };
+    return { chain, token: r.token, symbol: r.symbol, name: r.name, tx_hash: r.tx_hash, log_index: r.log_index, is_buy: r.is_buy, quote_raw: raw, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(raw, q.decimals) * qu, tokens: tok, block_time: r.block_time };
   });
 }
 

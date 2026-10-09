@@ -4,6 +4,7 @@ import { explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/cha
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd } from "@/lib/launchpad/math";
 import { ago } from "@/lib/launchpad/time";
 import type { Quote } from "@/lib/launchpad/config";
+import { WhoName } from "@/components/profile/Who";
 
 /** Recent swaps straight from the pool: a side pill, the wallet, both amounts, the price and a link to each transaction. */
 export default function TokenTrades({ chain, symbol, quote, swaps, now }: { chain: ChainKey; symbol: string; quote: Quote; swaps: SwapRow[]; now: number }) {
@@ -22,7 +23,7 @@ export default function TokenTrades({ chain, symbol, quote, swaps, now }: { chai
               <th className="py-2.5 pl-3 pr-5 text-right font-medium">Time</th>
             </tr>
           </thead>
-          <tbody>{swaps.map((s) => { const q = BigInt(s.amount0); const t = BigInt(s.amount1); const Icon = s.is_buy ? ArrowDownLeft : ArrowUpRight; const wallet = s.trader ? <a href={explorerAddress(chain, s.trader)} target="_blank" rel="noreferrer" className="font-code text-[11px] text-muted transition-colors hover:text-ink motion-reduce:transition-none" title={s.trader}>{shortAddr(s.trader)}</a> : null; return <tr key={`${s.tx_hash}:${s.log_index}`} className="border-b border-line last:border-0 transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none">
+          <tbody>{swaps.map((s) => { const q = BigInt(s.amount0); const t = BigInt(s.amount1); const Icon = s.is_buy ? ArrowDownLeft : ArrowUpRight; const wallet = s.trader ? <WhoName address={s.trader} className="text-[12px]" explorer={explorerAddress(chain, s.trader)} fallback={<a href={explorerAddress(chain, s.trader)} target="_blank" rel="noreferrer" className="font-code text-[11px] text-muted transition-colors hover:text-ink motion-reduce:transition-none" title={s.trader}>{shortAddr(s.trader)}</a>} /> : null; return <tr key={`${s.tx_hash}:${s.log_index}`} className="border-b border-line last:border-0 transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none">
             <td className="py-2.5 pl-5 pr-3">
               <span className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold ${s.is_buy ? "bg-up-soft text-up" : "bg-down-soft text-down-ink"}`}><Icon size={12} aria-hidden="true" />{s.is_buy ? "Buy" : "Sell"}</span>
               {/* phones have no wallet column: the wallet sits under the side */}

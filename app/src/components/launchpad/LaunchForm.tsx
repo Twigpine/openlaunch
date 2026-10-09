@@ -38,6 +38,7 @@ import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
 import WalletPicker from "@/components/WalletPicker";
+import { randomHex } from "@/lib/nonce";
 
 /**
  * Launch flow — honest states, nothing claimed before the chain says so:
@@ -65,9 +66,7 @@ const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 // transaction is sent first and pays its own gas, then the buy (and, for an ERC-20 quote, its approvals).
 
 function randomSalt(): Hex {
-  const b = new Uint8Array(32);
-  crypto.getRandomValues(b);
-  return `0x${Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")}`;
+  return `0x${randomHex(32)}`;
 }
 
 /** Shown wherever the form is blocked on a stock choice: one sentence, one place. */

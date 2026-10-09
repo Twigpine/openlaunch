@@ -9,7 +9,6 @@ import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner, ChainLogoStack } from "./ChainLogo";
-import WalletAvatar from "@/components/WalletAvatar";
 import { QuoteBrandBadge } from "./MuseworldBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
@@ -24,10 +23,11 @@ import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
 import type { EditFields } from "@/lib/launchpad/editAuth";
 import { ago } from "@/lib/launchpad/time";
-import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
+import ProfileIdentity from "@/components/profile/ProfileIdentity";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -47,6 +47,7 @@ export default function MeDashboard() {
   return <WalletDashboard key={address?.toLowerCase() ?? "disconnected"} address={address} isConnected={isConnected} />;
 }
 
+/** The dashboard for one connected wallet: its profile card, figures, launches, holdings and trades. */
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
   const config = useConfig();
   const [me, setMe] = useState<Me | null>(null);
@@ -192,7 +193,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
   const walletBar = <div className={styles.walletBar}>
-    <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><WalletAvatar address={address} size={40} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
+    <div className={styles.identity}><ProfileIdentity address={address} avatarClass={styles.walletIcon} labelClass={styles.identityLabel} addressClass={styles.address} /></div>
     <div className={styles.walletUtilities}><span className={styles.updateNote}><ChainLogoStack chains={VISIBLE_CHAINS} size={16} />{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
   </div>;
 
@@ -332,7 +333,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
               <thead><tr><th scope="col">Side</th><th scope="col">Token / chain</th><th scope="col">Amount</th><th scope="col" className={styles.usdColumn}>USD value</th><th scope="col">Transaction</th></tr></thead>
               <tbody className="font-mono tnum">
                 {me.trades.map((t) => (
-                  <tr key={t.tx_hash} className="border-b border-line last:border-0">
+                  <tr key={`${t.chain}:${t.tx_hash}:${t.log_index}`} className="border-b border-line last:border-0">
                     <td><span className={styles.tradeSide} data-side={t.is_buy ? "buy" : "sell"}>{t.is_buy ? <ArrowDownLeft size={14} aria-hidden="true" /> : <ArrowUpRight size={14} aria-hidden="true" />}{t.is_buy ? "Buy" : "Sell"}</span></td>
                     <td><Link href={`/t/${t.chain}/${t.token}`}>{t.symbol}</Link> <span className={styles.tradeChain}>{CHAIN_SHORT[t.chain]}</span></td>
                     <td>{fmtQuote(t.quote_raw, t.quote_decimals, t.quote_symbol)}</td>

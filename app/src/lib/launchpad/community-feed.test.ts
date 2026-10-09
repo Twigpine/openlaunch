@@ -31,3 +31,17 @@ test("community remains read-only with token-thread links and shared refresh sig
   assert.match(source, /aria-label="Search recent posts"/);
   assert.doesNotMatch(source, /signMessage|writeContract|dangerouslySetInnerHTML|setInterval/);
 });
+
+test("authors are found by username (with or without @) and display name, not only by address", () => {
+  const posts = [
+    { id: 1, chain: "base", body: "gm", token: "0xt1", wallet: "0xaaa", symbol: "SKY" },
+    { id: 2, chain: "base", body: "hello", token: "0xt2", wallet: "0xbbb", symbol: "SEA" },
+  ];
+  const names: Record<string, { u: string; d: string }> = { "0xaaa": { u: "kevin_lol", d: "Kevin Codex" } };
+  const nameOf = (w: string) => names[w];
+  assert.deepEqual(filterCommunityPosts(posts, null, "kevin_lol", nameOf), [posts[0]]);
+  assert.deepEqual(filterCommunityPosts(posts, null, "@kevin", nameOf), [posts[0]]);
+  assert.deepEqual(filterCommunityPosts(posts, null, "codex", nameOf), [posts[0]], "display name");
+  assert.deepEqual(filterCommunityPosts(posts, null, "kevin"), [], "without names nothing matches the username");
+  assert.deepEqual(filterCommunityPosts(posts, null, "@", nameOf), [], "a lone @ matches nobody");
+});

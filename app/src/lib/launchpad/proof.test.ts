@@ -37,6 +37,11 @@ test("missing holder history leaves the holder facts out instead of guessing", (
   }
 });
 
+test("a creator with a profile is named by username instead of the short address", () => {
+  const detail = fact(proofFacts({ ...base, launcherName: "basedbuilder", holders: holders({ bps: 350, sells: 2 }) }).facts, "creator").detail;
+  assert.equal(detail, "basedbuilder has sold twice.");
+});
+
 test("the creator's holdings and sells read as facts, flagged at the holders panel's thresholds", () => {
   const holds = (o: Parameters<typeof holders>[0]) => fact(proofFacts({ ...base, holders: holders(o) }).facts, "creator");
   assert.deepEqual([holds({ bps: 350 }).title, holds({ bps: 350 }).tone, holds({ bps: 350 }).detail], ["The creator holds 3.5%", "info", "0x6b2b…51d3 has not sold any."]);
