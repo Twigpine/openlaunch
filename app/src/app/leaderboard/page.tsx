@@ -7,6 +7,7 @@ import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import BoardRefresh from "@/components/points/BoardRefresh";
 import YourStanding from "@/components/points/YourStanding";
 import { memo } from "@/lib/launchpad/memo";
+import { RULES } from "@/lib/points/score";
 import { boardRows, publicSeason, seasonEnded, seasonFinal, type Board } from "@/lib/points/server";
 import { pageMetadata } from "@/lib/seo";
 
@@ -30,12 +31,14 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
         <section className="rounded-2xl border border-line bg-card p-6 sm:p-10">
           <p className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-line px-3 text-xs font-medium text-body"><Trophy size={14} className="text-brand" aria-hidden="true" />Season points</p>
           <h1 className="mt-5 max-w-2xl text-[32px] font-bold leading-[1.1] tracking-[-0.04em] text-ink text-balance sm:text-[44px]">Season 1 is almost here.</h1>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-body text-pretty">Points for creators whose tokens find real buyers, and for traders who find them early. Computed from the chain every hour. Create your profile and verify it with one post on X now, and your points unlock from day one.</p>
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-body text-pretty">Points for creators whose tokens find real buyers, and for traders who find them early. Computed from the chain every hour. Create your profile now and verify it with one post on X, from an X account at least {RULES.eligibleMinAgeDays} days old with {RULES.eligibleMinFollowers} or more followers, and your points count from day one.</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/me" className={shell.action}>Create your profile <ArrowRight size={15} aria-hidden="true" /></Link>
             <Link href="/rules#points" className={shell.textLink}>How points work</Link>
           </div>
         </section>
+        {/* a teaser left open shows the boards once the season is published */}
+        <BoardRefresh />
       </main>
     );
   }

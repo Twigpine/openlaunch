@@ -132,7 +132,8 @@ export default function PointsAdmin() {
             )}
             <div className="flex flex-wrap gap-2">
               {!running ? <button type="button" disabled={busy} className={btn.primarySm} onClick={() => void run("start", { days: 28 })}>Start a 28-day season</button> : null}
-              {s && !s.public ? <button type="button" disabled={busy} className={!s.published_at && running ? btn.primarySm : btn.secondarySm} onClick={() => void run("publish", { seasonId: s.id })}>{!s.published_at && running ? `Publish: ${s.name} starts now` : "Show boards"}</button> : null}
+              {/* a season that ended without going public (a discarded hidden run) can never be published */}
+              {s && !s.public && (s.published_at || running) ? <button type="button" disabled={busy} className={!s.published_at && running ? btn.primarySm : btn.secondarySm} onClick={() => void run("publish", { seasonId: s.id })}>{!s.published_at && running ? `Publish: ${s.name} starts now` : "Show boards"}</button> : null}
               {s && s.public ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("unpublish", { seasonId: s.id })}>Hide boards</button> : null}
               {s ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("recompute")}>Recompute now</button> : null}
               {running && !confirmEnd ? <button type="button" disabled={busy} className={btn.dangerSm} onClick={() => setConfirmEnd(true)}>{s?.published_at ? "End season now" : "Discard the hidden run"}</button> : null}

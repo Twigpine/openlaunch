@@ -50,7 +50,7 @@ export async function POST(req: Request) {
         if (season && !seasonEnded(season)) return NextResponse.json({ error: `${season.name} is still running` }, { status: 409 });
         // a season that went public keeps its final standings, so they are computed first; a hidden run that was
         // discarded has none to keep, and never blocks the next season (not even when a price is missing)
-        if (season && season.published_at && !(await finalizeIfEnded(season))) return NextResponse.json({ error: `${season.name}'s final standings are not in yet (they wait for every indexer, its last swaps and every price, at most about an hour past the end); try again in a few minutes` }, { status: 409 });
+        if (season && season.published_at && !(await finalizeIfEnded(season))) return NextResponse.json({ error: `${season.name}'s final standings are not in yet: they wait for every indexer and the season's last swaps (at most about an hour past the end) and for a missing price (up to a day); try again in a few minutes` }, { status: 409 });
         const s = await startSeason(days);
         if (!s) return NextResponse.json({ error: "a season is already running" }, { status: 409 });
         void recomputeNow().catch(() => {});
