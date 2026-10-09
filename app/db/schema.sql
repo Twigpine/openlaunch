@@ -391,8 +391,5 @@ CREATE INDEX IF NOT EXISTS bb_x_codes_wallet_idx ON bb_x_codes (wallet, issued_a
 -- read yet (retried), 'unread' = the evidence could not be read (sender kept). Both open states are settled from the chain.
 ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_via text;
 ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS tx_from text;
--- the unchecked set: every swap until the history drain reaches it, then only the newest few (partial index stays small)
-CREATE INDEX IF NOT EXISTS bb_launch_swaps_unattributed_idx ON bb_launch_swaps (chain_id, block_number DESC) WHERE trader_via IS NULL;
-CREATE INDEX IF NOT EXISTS bb_launch_swaps_receipt_pending_idx ON bb_launch_swaps (chain_id, block_number DESC) WHERE trader_via = 'receipt_pending';
--- one wallet's trades (profile pages, /me, posting eligibility, points) without scanning every swap
-CREATE INDEX IF NOT EXISTS bb_launch_swaps_trader_idx ON bb_launch_swaps (trader, block_number DESC);
+-- its indexes (the unchecked set, receipt-pending calls, one wallet's trades) are in db/concurrent-indexes.sql: built
+-- concurrently after this transaction, so no query on swaps waits for them

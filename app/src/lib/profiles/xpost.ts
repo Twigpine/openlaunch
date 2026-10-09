@@ -59,12 +59,16 @@ export function parsePostUrl(raw: unknown): { handle: string; id: string } | nul
   return { handle: m[1], id: m[2] };
 }
 
-/** Post texts, rotated so a wave of identical posts does not look like spam. Code, @handle and link always present. */
+/**
+ * Post texts, rotated so a wave of identical posts does not look like spam. Code, our @handle and link always present.
+ * The only account a post ever @-mentions is ours: an openlaunch username is not an X handle, and "@<username>" would
+ * tag (and notify) whoever owns that name on X.
+ */
 export function postTexts(username: string, code: string, brandX: string, domain: string): string[] {
   const link = `${domain}/u/${username}`;
   return [
     `Verifying my @${brandX} profile ✓\n${link}\ncode: ${code}`,
-    `I'm @${username} on @${brandX}, free token launches on Base\n${link}\n${code}`,
+    `I'm ${username} on @${brandX}, free token launches on Base\n${link}\n${code}`,
     `Claiming ${link} on @${brandX}\nverification: ${code}`,
   ];
 }

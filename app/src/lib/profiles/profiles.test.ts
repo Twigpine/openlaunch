@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { avatarKeyOf, avatarUrl, checkUsername, cleanBio, cleanDisplayName, validateProfile, usernameFromPath } from "./validate.ts";
+import { avatarKeyOf, avatarUrl, checkUsername, cleanBio, cleanDisplayName, cleanText, validateProfile, usernameFromPath } from "./validate.ts";
 import { buildProfileMessage, buildProfileModMessage, isNonce, tsFresh } from "./auth.ts";
 import { readJson } from "./http.ts";
 import { X_CODE_ALPHABET, containsCode, decodeEntities, handleFromAuthorUrl, intentUrl, isXCode, judgePost, makeXCode, oembedText, parsePostUrl, pointsEligible, postTextFor, postTexts, syndicationToken, type CodeRow, type PostFacts } from "./xpost.ts";
@@ -191,4 +191,54 @@ test("usernameFromPath: a malformed or double-encoded path is an unknown profile
   assert.equal(usernameFromPath("%"), null);
   assert.equal(usernameFromPath("ab"), null, "too short");
   assert.equal(usernameFromPath("kev%2F..%2Fadmin"), null);
+});
+
+test("cleaning is idempotent on any input (the server re-cleans what the client cleaned and signed)", () => {
+  // a hostile alphabet: combining marks, joiners and selectors, invisibles, ticks, emoji parts, tags, whitespace
+  const parts = ["e", "a", "o", "́", "̈", "​", "‌", "‍", "­", "⁠", "️", "︎", "︀", "✓", "✅", "👨", "💻", "🏳", "🌈", "❤", "🇵", "🇭", "🏴", "\u{e0067}", "\u{e0062}", "\u{e007f}", "\u{1f3fd}", "1", "⃣", " ", "\n", "\t", "‮", "<", "x"];
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  for (let i = 0; i < 5000; i++) {
+    const s = Array.from({ length: 1 + Math.floor(rnd() * 40) }, () => parts[Math.floor(rnd() * parts.length)]).join("");
+    for (const [max, multiline] of [[32, false], [160, true], [8, false]] as const) {
+      const once = cleanText(s, max, { multiline });
+      assert.equal(cleanText(once, max, { multiline }), once, JSON.stringify(s));
+      assert.ok([...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(once)].length <= max);
+    }
+  }
+});
+
+test("names that came out different on a second clean now save as written", () => {
+  for (const raw of ["Jose​́", "Re­́my", "e✓́"]) {
+    const v = cleanDisplayName(raw);
+    assert.ok(v.ok);
+    const again = cleanDisplayName(v.ok ? v.value : "");
+    assert.deepEqual(again, v, raw);
+  }
+});
+
+test("emoji keep their joiners and selectors; stray ones still go; a cut never splits an emoji", () => {
+  for (const e of ["Kevin 👨‍💻", "❤️", "🏳️‍🌈", "1️⃣", "👍🏽", "🇵🇭", "🏴\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}"]) {
+    assert.equal(cleanText(e, 32), e.normalize("NFC"), e);
+  }
+  assert.equal(cleanText("ad‍min", 32), "admin", "a joiner between letters is invisible: removed");
+  assert.equal(cleanText("a️b", 32), "ab", "a selector after a letter: removed");
+  assert.equal(cleanText("x\u{e0067}\u{e0062}y", 32), "xy", "tags outside a flag: removed");
+  assert.equal(cleanText("ab👨‍💻", 3), "ab👨‍💻", "the emoji counts as one character");
+  assert.equal(cleanText("abc👨‍💻", 3), "abc", "and is dropped whole, never half");
+  assert.equal(cleanText("🇵🇭🇵🇭", 1), "🇵🇭", "a flag is never cut to a lone letter");
+});
+
+test("usernames: nothing that reads as an address, a reserved name or the brand in disguise", () => {
+  for (const u of ["0xd8da_6045", "0x_kev", "0xabc"]) assert.equal(checkUsername(u).ok, false, u);
+  for (const u of ["0penlaunch_team", "open_launch", "g1tlawb", "tw1gpine", "adm1n", "supp0rt", "m0d"]) assert.equal(checkUsername(u).ok, false, u);
+  for (const u of ["kevin", "alice_99", "x_kev", "ox_trader", "dev_1"]) assert.equal(checkUsername(u).ok, true, u);
+});
+
+test("verification posts @-mention only our account, never the username (it is not an X handle)", () => {
+  for (const t of postTexts("bob", "OL-7K2QXM9A", "openlaunch_lol", "openlaunch.lol")) {
+    const mentions = [...t.matchAll(/@(\w+)/g)].map((m) => m[1]);
+    assert.deepEqual(mentions, ["openlaunch_lol"], t);
+    assert.ok(t.includes("OL-7K2QXM9A") && t.includes("openlaunch.lol/u/bob"), t);
+  }
 });

@@ -11,6 +11,7 @@ import { buildProfileAdminListMessage, buildProfileDeleteMessage, buildProfileMe
 import { avatarUrl, validateProfile } from "./validate";
 import { X_CODE_TTL_MS, intentUrl, isXCode, judgePost, makeXCode, parsePostUrl, postTextFor, type CodeRow } from "./xpost";
 import { fetchPostFacts } from "./xFetch";
+import type { NameEntry } from "./names-client";
 
 /**
  * Server half of profiles. Rules, all enforced here regardless of the client:
@@ -73,8 +74,8 @@ export type PublicProfile = {
   created_at: string;
 };
 
-/** One entry of the names map that rides along with trades, holders and posts. */
-export type NameEntry = { u: string; d: string; a: string | null; v: boolean };
+/** One entry of the names map that rides along with trades, holders and posts (one definition, in the names store). */
+export type { NameEntry };
 
 /** The code to post, plus `secret`: the private verify key that never goes in the post (only this browser has it). */
 export type XCodeView = { code: string; handle: string; expires_at: string; text: string; intent: string; secret: string };
@@ -151,29 +152,39 @@ export async function namesFor(wallets: readonly (string | null | undefined)[]):
 }
 
 // ── signatures ───────────────────────────────────────────────────────────────
-const deployedOn = new Map<string, { chains: ChainKey[]; at: number }>();
+// "this wallet has code on this chain": once true, true for good (deployed code stays), so it is cached for good.
+// "no code" is never cached: it can turn true any moment (a deploy), and a remembered "deployed nowhere" is exactly
+// what would let an old owner sign through an ERC-6492 wrapper after the wallet was deployed and its key rotated.
+const hasCode = new Set<string>();
 
 /**
- * Chains where the wallet has code (cached 10 min). Deployed on the chain it signed on settles it at once. Otherwise
- * every chain must answer: a chain that failed to answer could be where the wallet lives, and treating it as "deployed
- * nowhere" would let an old owner sign through an ERC-6492 wrapper. Null = could not be told; nothing is cached then.
+ * Chains where the wallet has code. Deployed on the chain it signed on settles it at once. Otherwise every chain must
+ * answer: a chain that failed to answer could be where the wallet lives, and treating it as "deployed nowhere" would
+ * let an old owner sign through an ERC-6492 wrapper. Null = could not be told.
  */
 async function codeChains(wallet: string, first: ChainKey): Promise<ChainKey[] | null> {
-  const hit = deployedOn.get(wallet);
-  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.chains;
-  const order = [first, ...CHAIN_KEYS.filter((k) => k !== first)];
-  const chains: ChainKey[] = [];
-  for (const c of order) {
+  const known = (c: ChainKey) => hasCode.has(`${c}:${wallet}`);
+  const check = async (c: ChainKey): Promise<boolean | null> => {
+    if (known(c)) return true;
     try {
       const code = await publicClient(c).getCode({ address: wallet as Address });
-      if (code && code !== "0x") chains.push(c);
-      if (c === first && chains.length) break; // deployed where it signed: that is all we need
+      if (!code || code === "0x") return false;
+      if (hasCode.size > 20_000) hasCode.clear();
+      hasCode.add(`${c}:${wallet}`);
+      return true;
     } catch {
       return null;
     }
+  };
+  const here = await check(first);
+  if (here === null) return null;
+  if (here) return [first]; // deployed where it signed: that is all we need
+  const chains: ChainKey[] = [];
+  for (const c of CHAIN_KEYS.filter((k) => k !== first)) {
+    const there = await check(c);
+    if (there === null) return null;
+    if (there) chains.push(c);
   }
-  if (deployedOn.size > 10_000) deployedOn.clear();
-  deployedOn.set(wallet, { chains, at: Date.now() });
   return chains;
 }
 
@@ -220,22 +231,33 @@ async function consumeNonce(db: Db, nonce: string, wallet: string): Promise<bool
     await db`INSERT INTO bb_profile_nonces (nonce, wallet) VALUES (${nonce}, ${wallet})`;
     void db`DELETE FROM bb_profile_nonces WHERE created_at < now() - interval '1 hour'`.catch(() => {});
     return true;
-  } catch {
-    return false; // duplicate → replay
+  } catch (err) {
+    // only a duplicate is a replay; any other failure (the database is down) is an error, not "already used"
+    if ((err as { code?: string })?.code === "23505") return false;
+    throw err;
   }
 }
 
 type Signed = { chain?: unknown; wallet: unknown; nonce: unknown; ts: unknown; signature: unknown };
 
-/** Shared front of every signed write: shapes, freshness, signature, then (only then) the nonce. */
-async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: number) => string): Promise<{ ok: true; wallet: string; ts: number } | Fail> {
+/**
+ * Shared front of every signed write: shapes, freshness, signature, then (only then) the rate-limit bucket and the
+ * nonce. The signature may be over any one of several candidate messages, tried in order (a save accepts its fields
+ * exactly as sent or their cleaned form).
+ */
+async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: number) => string | string[]): Promise<{ ok: true; wallet: string; ts: number } | Fail> {
   if (typeof s.wallet !== "string" || !isAddress(s.wallet)) return fail("bad wallet", 400);
   if (!isNonce(s.nonce)) return fail("bad nonce", 400);
   const now = Date.now();
   if (!tsFresh(s.ts, now)) return fail("signature expired, try again", 400);
   const wallet = s.wallet.toLowerCase();
   const ts = Number(s.ts);
-  const v = await verifySig(wallet, message(wallet, s.nonce, ts), s.signature, s.chain);
+  const candidates = [...new Set([message(wallet, s.nonce, ts)].flat())];
+  let v: SigCheck = "bad";
+  for (const m of candidates) {
+    v = await verifySig(wallet, m, s.signature, s.chain);
+    if (v !== "bad") break; // ok, or an answer about the wallet itself (down, lives elsewhere) that another text cannot change
+  }
   if (v === "down") return fail("signature check unavailable, try again", 503);
   if (v === "bad") return fail("signature does not match (with a smart wallet, switch it to Base and sign again)", 401);
   if (typeof v === "object") return fail(`your wallet lives on ${CHAIN_LABELS[v.switchTo]}: switch your wallet to ${CHAIN_LABELS[v.switchTo]} and sign again`, 409);
@@ -290,7 +312,12 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
   const v = validateProfile({ username: r.fields.username, display_name: r.fields.display_name, bio: r.fields.bio, avatar: r.fields.avatar, x_handle: r.fields.x_handle });
   if (!v.ok) return fail(v.error, 400);
   const f = v.value;
-  const a = await admit(db, r, (wallet, nonce, ts) => buildProfileMessage({ wallet, nonce, ts, fields: f }));
+  // the signature is checked over exactly the fields that were sent (what our form shows and signs), and failing
+  // that over their cleaned form (a client that signs what it will be stored as); the stored values are always the
+  // cleaned ones. A browser that cleans text slightly differently from the server can then never fail a save.
+  const asText = (x: unknown) => (typeof x === "string" ? x : "");
+  const signed = { username: asText(r.fields.username), display_name: asText(r.fields.display_name), bio: asText(r.fields.bio), avatar_key: asText(r.fields.avatar) || null, x_handle: asText(r.fields.x_handle) };
+  const a = await admit(db, r, (wallet, nonce, ts) => [buildProfileMessage({ wallet, nonce, ts, fields: { ...f, ...signed } }), buildProfileMessage({ wallet, nonce, ts, fields: f })]);
   if (!a.ok) return a;
   const me = a.wallet;
   const now = Date.now();
@@ -302,9 +329,17 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
       await t`SELECT pg_advisory_xact_lock(hashtext(${`username:${f.username}`}))`;
       await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${me}`}))`;
       const existing = await rowByWallet(t, me);
+      // a profile a moderator hid is not editable: its owner sees "Create profile" (the public read cannot show a
+      // hidden row), and a save from that blank form would replace their real profile and drop their X verification.
+      // Only the owner learns this: a save needs their signature.
+      // (a deleted one may come back: it has nothing left to lose, and it stays hidden)
+      if (existing?.hidden && !existing.deleted_at) return fail("a moderator has hidden your profile, so it can't be changed right now", 409);
       const nameChange = !existing || existing.username !== f.username;
-      const claimingOwnX = Boolean(existing && !existing.deleted_at && existing.x_status === "verified" && existing.x_handle === f.username);
+      // a verified X owner may take their own handle as a username, and only while keeping that verification in this
+      // same save (taking the name and dropping the X claim at once would evict the holder for nothing)
+      const claimingOwnX = Boolean(existing && !existing.deleted_at && existing.x_status === "verified" && existing.x_handle === f.username && f.x_handle === existing.x_handle);
       let renamed: string | undefined;
+      let restoredAfterDelete = false;
       if (nameChange) {
         // the hold and the current owner in ONE statement (one snapshot): a rename or delete of that name committing
         // between two separate reads could otherwise show neither, and hand out a name that is held
@@ -318,8 +353,12 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
         // taking your own name back skips the rename clock only as an undo, within a day of letting it go: the name
         // left behind was then kept under a day, so it is not held, and two names can never be swapped back and forth
         const undo = restoringOwn && n?.held_at != null && now - new Date(n.held_at).getTime() < RENAME_GRACE_MS;
-        // the rename clock: free in the first day of the profile, to undo a rename, or to claim your verified X handle
-        if (existing && !claimingOwnX && !undo && now - new Date(existing.created_at).getTime() > RENAME_GRACE_MS && existing.username_changed_at && now - new Date(existing.username_changed_at).getTime() < RENAME_COOLDOWN_MS) {
+        // coming back after a delete under the very name the delete let go of (its hold was written in the delete's own
+        // transaction, so it carries the same instant) is no rename either: the profile simply returns
+        restoredAfterDelete = Boolean(restoringOwn && existing?.deleted_at && n?.held_at != null && new Date(n.held_at).getTime() === new Date(existing.deleted_at).getTime());
+        // the rename clock: free in the first day of the profile, to undo a rename, to come back under your name after a
+        // delete, or to claim your verified X handle
+        if (existing && !claimingOwnX && !undo && !restoredAfterDelete && now - new Date(existing.created_at).getTime() > RENAME_GRACE_MS && existing.username_changed_at && now - new Date(existing.username_changed_at).getTime() < RENAME_COOLDOWN_MS) {
           return fail("you can change your username once every 30 days", 429);
         }
         // holds yield only to the verified owner of the same X handle (a retired name never does)
@@ -350,7 +389,7 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
         VALUES (${me}, ${f.username}, ${f.display_name}, ${f.bio || null}, ${f.avatar_key}, ${f.x_handle || null})
         ON CONFLICT (wallet) DO UPDATE SET
           username = EXCLUDED.username, display_name = EXCLUDED.display_name, bio = EXCLUDED.bio, avatar_key = EXCLUDED.avatar_key,
-          username_changed_at = CASE WHEN bb_profiles.username <> EXCLUDED.username THEN now() ELSE bb_profiles.username_changed_at END,
+          username_changed_at = CASE WHEN bb_profiles.username <> EXCLUDED.username AND NOT ${restoredAfterDelete} THEN now() ELSE bb_profiles.username_changed_at END,
           deleted_at = NULL, updated_at = now()`;
       // a different X handle (or none) drops the old verification and any pending review: the tick is earned again
       const xChanged = !existing || Boolean(existing.deleted_at) || (existing.x_handle ?? "") !== f.x_handle;
@@ -408,8 +447,9 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
   if (!j.ok) {
     // X answered nobody: a person checks it against this code (only for a link that at least names the right account)
     if (j.review && post.handle.toLowerCase() === code.x_handle) {
-      // code and profile change together, under the profile lock that save, delete and moderate take first: a save
-      // in between can never leave the profile waiting for review with no code behind it
+      // code and profile change together, under the profile lock that save, delete and moderate also hold before they
+      // write any row (save takes its username lock first, then this one): a save in between can never leave the
+      // profile waiting for review with no code behind it
       const queued = await db.begin(async (tx) => {
         const t = tx as unknown as Db;
         await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${me}`}))`;
@@ -425,21 +465,27 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
       if (!queued) return fail(NO_CODE, 400);
       return { ok: true, status: "pending_review", profile: await getProfile({ wallet: me }) };
     }
-    return fail(j.error, j.review ? 503 : 400);
+    // X answered nobody, and the link names another account: nothing was queued, so never say a person will look
+    if (j.review) return fail(`X did not answer just now, and that link is not a post from @${code.x_handle}: paste the link to your post from @${code.x_handle}, or try again in a minute`, 503);
+    return fail(j.error, 400);
   }
   const done = await db.begin(async (tx) => {
     const t = tx as unknown as Db;
-    // the profile lock first, as save and delete take it: the same rows are never locked in opposite orders
+    // the profile lock before any row, as save, delete and moderate do: the same rows are never locked in opposite orders
     await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${me}`}))`;
     const used = await t`UPDATE bb_x_codes SET used_at = now(), post_id = ${post.id}, submitted_at = now() WHERE code = ${code.code} AND used_at IS NULL RETURNING code`;
     if (used.length === 0) return false;
     // a claim still waiting for review is settled by this proof: it leaves the queue
     await t`UPDATE bb_x_codes SET review = 'rejected', used_at = now() WHERE wallet = ${me} AND review = 'pending' AND used_at IS NULL`;
     // one X account, one wallet: verifying here releases it from any other wallet (only the account owner could post the code)
+    // (all of it: the account facts too, and any claim of theirs still open or waiting for review)
     const others = await t<{ wallet: string }[]>`
-      UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_status = 'none', updated_at = now()
+      UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now()
        WHERE wallet <> ${me} AND (x_user_id = ${j.userId} OR x_user_id = ${`h:${j.handle}`} OR (x_handle = ${j.handle} AND x_status IN ('verified', 'post_missing'))) RETURNING wallet`;
-    for (const o of others) forgetName(o.wallet);
+    for (const o of others) {
+      await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${o.wallet} AND used_at IS NULL`;
+      forgetName(o.wallet);
+    }
     await t`
       UPDATE bb_profiles SET x_status = 'verified', x_handle = ${j.handle}, x_user_id = ${j.userId}, x_post_id = ${post.id}, x_verified_at = now(), x_checked_at = now(),
              x_account_created = ${facts.accountCreated}, x_followers = ${facts.followers}, updated_at = now()
@@ -454,8 +500,9 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
 // ── delete ───────────────────────────────────────────────────────────────────
 /**
  * Delete = the profile disappears everywhere and its name is released, but the row stays: moderation flags,
- * created_at and the rename clock survive, so deleting and re-creating is not a way around either. Coming back
- * follows the same clock as a rename (your own held name is always free to take back).
+ * created_at and the rename clock survive, so deleting and re-creating is not a way around either. Coming back under
+ * the name the delete let go of is free at any time (it is no rename); coming back under any other name follows the
+ * same clock as a rename.
  */
 export async function deleteProfile(r: Signed): Promise<{ ok: true } | Fail> {
   const db = maybeDb();
@@ -536,9 +583,9 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
   if (reviewsClaim && !claim) return fail("reload the queue: this action needs the claim you reviewed", 400);
   const a = await admit(db, r, (wallet, nonce, ts) => buildProfileModMessage({ action, target, wallet, nonce, ts, reason, claim }));
   if (!a.ok) return a;
-  // every action runs under the profile lock that save, delete and verify take first, and judges the profile and its
-  // pending code as they are now: an owner's save between an admin's look and the write can never be overridden
-  // (approving @a after the claim moved to @b refuses instead of marking @b verified)
+  // every action runs under the profile lock that save, delete and verify also hold before writing any row, and
+  // judges the profile and its pending code as they are now: an owner's save between an admin's look and the write
+  // can never be overridden (approving @a after the claim moved to @b refuses instead of marking @b verified)
   const refused = await db.begin(async (tx): Promise<Fail | null> => {
     const t = tx as unknown as Db;
     await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${target}`}))`;
@@ -562,8 +609,18 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
         // a handle another wallet has verified is not handed out by hand
         const [taken] = await t`SELECT 1 FROM bb_profiles WHERE wallet <> ${target} AND deleted_at IS NULL AND x_handle = ${code.x_handle} AND x_status IN ('verified', 'post_missing')`;
         if (taken) return fail(`@${code.x_handle} is already verified by another wallet; reject this one`, 409);
+        // one X account, one wallet: any other wallet still holding this account's binding (a paused claim that went
+        // back to review, say) lets go of it, so the approval never trips the one-account-per-wallet constraint
+        const binding = prof.x_user_id ?? `h:${code.x_handle}`;
+        const released = await t<{ wallet: string }[]>`
+          UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now()
+           WHERE wallet <> ${target} AND (x_user_id = ${binding} OR x_user_id = ${`h:${code.x_handle}`}) RETURNING wallet`;
+        for (const o of released) {
+          await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${o.wallet} AND used_at IS NULL`;
+          forgetName(o.wallet);
+        }
         await t`UPDATE bb_x_codes SET review = 'approved', used_at = now() WHERE code = ${code.code}`;
-        await t`UPDATE bb_profiles SET x_status = 'verified', x_user_id = COALESCE(x_user_id, ${`h:${code.x_handle}`}), x_post_id = ${code.post_id}, x_verified_at = now(), x_checked_at = NULL, updated_at = now() WHERE wallet = ${target}`;
+        await t`UPDATE bb_profiles SET x_status = 'verified', x_user_id = ${binding}, x_post_id = ${code.post_id}, x_verified_at = now(), x_checked_at = NULL, updated_at = now() WHERE wallet = ${target}`;
         return null;
       }
       case "remove_x":
@@ -627,12 +684,23 @@ export async function recheckProfiles(batch = 20): Promise<number> {
     const up = await db`UPDATE bb_profiles SET x_status = 'post_missing', updated_at = now() WHERE wallet = ${r.wallet} AND x_status = 'verified' AND x_handle = ${r.x_handle} AND x_post_id = ${r.x_post_id} RETURNING wallet`;
     changed += up.length;
   };
+  // an unsure read changes nothing, and is tried again in about an hour instead of waiting out the whole 1- or 7-day
+  // gap the claim set before the fetch
+  const retrySoon = async (r: { wallet: string; x_handle: string; x_post_id: string }) => {
+    await db`UPDATE bb_profiles SET x_checked_at = now() - CASE WHEN x_status = 'post_missing' THEN interval '1 day' ELSE interval '7 days' END + interval '1 hour'
+              WHERE wallet = ${r.wallet} AND x_handle = ${r.x_handle} AND x_post_id = ${r.x_post_id}`;
+  };
   for (const r of rows) {
     if (!r.x_handle || !r.x_post_id) continue;
     const facts = await fetchPostFacts(r.x_handle, r.x_post_id);
-    if (facts.found === null) continue;
-    if (facts.found === false || !facts.handle) {
+    // only X saying the post is gone pauses the tick; no answer, or X's two sources disagreeing on the author (as just
+    // after a rename on X, while one still serves the old handle), is unsure and changes nothing
+    if (facts.found === false) {
       await pause({ wallet: r.wallet, x_handle: r.x_handle, x_post_id: r.x_post_id });
+      continue;
+    }
+    if (facts.found === null || !facts.handle) {
+      await retrySoon({ wallet: r.wallet, x_handle: r.x_handle, x_post_id: r.x_post_id });
       continue;
     }
     const boundId = r.x_user_id && !r.x_user_id.startsWith("h:") ? r.x_user_id : null;
@@ -642,6 +710,12 @@ export async function recheckProfiles(batch = 20): Promise<number> {
       continue;
     }
     const sameHandle = facts.handle.toLowerCase() === r.x_handle;
+    // a new handle while X gives no account id (its embed data, the only source of it, did not answer): a rename on X
+    // looks exactly like this, so it is unsure, not a reason to pause
+    if (!sameHandle && !facts.userId) {
+      await retrySoon({ wallet: r.wallet, x_handle: r.x_handle, x_post_id: r.x_post_id });
+      continue;
+    }
     if (!sameHandle && !(boundId && facts.userId === boundId)) {
       await pause({ wallet: r.wallet, x_handle: r.x_handle, x_post_id: r.x_post_id });
       continue;

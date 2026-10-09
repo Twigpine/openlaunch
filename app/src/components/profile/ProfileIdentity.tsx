@@ -37,20 +37,28 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
     let alive = true; // cleared when the wallet changes or the card unmounts: a lookup already sent can no longer land
     const ask = ++latest.current;
     const fresh = () => alive && latest.current === ask;
-    const id = setTimeout(async () => {
+    let id: ReturnType<typeof setTimeout>;
+    // a lookup that fails (not a 404: that is "no profile") is tried again after 2, 5, 15 and 30 s, so the card is
+    // never left without its Edit or Create button
+    const attempt = async (n: number) => {
       try {
         const r = await fetch(`/api/profile?wallet=${me}`, { cache: "no-store" });
         if (r.status === 404) {
           if (fresh()) keep(me, null);
           return;
         }
-        if (!r.ok) return;
-        const p = ((await r.json()) as { profile: PublicProfile }).profile;
-        if (fresh()) keep(me, p);
+        if (r.ok) {
+          const p = ((await r.json()) as { profile: PublicProfile }).profile;
+          if (fresh()) keep(me, p);
+          return;
+        }
       } catch {
-        /* keep what we have */
+        /* offline or a blip: retried below */
       }
-    }, 0);
+      const wait = [2_000, 5_000, 15_000, 30_000][n];
+      if (wait !== undefined && fresh()) id = setTimeout(() => void attempt(n + 1), wait);
+    };
+    id = setTimeout(() => void attempt(0), 0);
     return () => {
       alive = false;
       clearTimeout(id);
@@ -88,9 +96,14 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
         {profile === undefined ? null : profile ? (
           <div className="ml-1 flex shrink-0 flex-wrap items-center gap-1.5">
             <button type="button" onClick={() => setOpen("edit")} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-[13px] font-medium text-body hover:border-line-strong hover:text-ink"><PencilLine size={14} aria-hidden="true" />Edit</button>
-            {xState !== "verified" ? (
+            {xState === "pending" ? (
+              // a person is deciding on the code that was posted: nothing to do here until then (Edit still works)
+              <span className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-brand-soft px-3 text-[13px] font-semibold text-brand" title="A person is checking your post. Your ✓ appears once it is approved.">
+                <BadgeCheck size={14} aria-hidden="true" />Being checked
+              </span>
+            ) : xState !== "verified" ? (
               <button type="button" onClick={() => setOpen(loadCode(address) ? "verify" : "edit")} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-brand-soft px-3 text-[13px] font-semibold text-brand hover:bg-brand hover:text-inverse">
-                {xState === "pending" ? <><BadgeCheck size={14} aria-hidden="true" />Being checked</> : xState === "reverify" ? <><XMark />Verify again</> : <><XMark />Verify with X</>}
+                {xState === "reverify" ? <><XMark />Verify again</> : <><XMark />Verify with X</>}
               </button>
             ) : null}
           </div>

@@ -14,7 +14,9 @@ const TTL_MS = 120_000;
 const BATCH_MAX = 100;
 const REFRESH_EVERY_MS = 30_000; // how often watched wallets are looked at (only stale or missing ones are asked)
 const BACKOFF_MAX_MS = 5 * 60_000;
-const cache = new Map<string, { v: NameEntry | null; at: number }>();
+// own = written by this browser's own save: the newest truth while fresh, so no server seed (a page served from the
+// router cache on Back, say) can put the old name back over it
+const cache = new Map<string, { v: NameEntry | null; at: number; own?: true }>();
 const listeners = new Set<() => void>();
 const watched = new Map<string, number>(); // wallet → how many mounted components show it
 const generation = new Map<string, number>(); // wallet → bumped by a seed or an invalidation (newer than anything in flight)
@@ -58,8 +60,9 @@ export function seedNames(names: Record<string, NameEntry | null>): void {
   let changed = false;
   for (const [w, v] of Object.entries(names)) {
     const k = w.toLowerCase();
-    bump(k); // the server's answer is newer than any lookup still in flight
     const cur = cache.get(k);
+    if (cur?.own && at - cur.at < TTL_MS) continue; // a name saved here a moment ago beats any page render
+    bump(k); // the server's answer is newer than any lookup still in flight
     if (cur && JSON.stringify(cur.v) === JSON.stringify(v)) {
       cur.at = at;
       continue;
@@ -70,7 +73,18 @@ export function seedNames(names: Record<string, NameEntry | null>): void {
   if (changed) notify();
 }
 
-/** Drop one wallet (after its owner saves) so the next render asks again. */
+/**
+ * The name this browser just saved (or verified) for a wallet: stored as is, with no lookup, so the answer can never
+ * come from a server machine whose short names cache still holds the old one. Lookups in flight are dropped.
+ */
+export function rememberSavedName(wallet: string, v: NameEntry | null): void {
+  const k = wallet.toLowerCase();
+  bump(k);
+  cache.set(k, { v, at: Date.now(), own: true });
+  notify();
+}
+
+/** Drop one wallet so the next render asks again. */
 export function forgetCachedName(wallet: string): void {
   const k = wallet.toLowerCase();
   cache.delete(k);
@@ -128,12 +142,14 @@ async function flush() {
   // a provider may have seeded some of these since they were queued (child effects run before the parent's)
   const all = [...queued].filter((k) => !fresh(k));
   queued = new Set();
+  if (cache.size > 20_000) cache.clear(); // before the answers below land, never after (that would wipe them)
   for (let i = 0; i < all.length; i += BATCH_MAX) {
     const part = all.slice(i, i + BATCH_MAX);
     const asked = new Map(part.map((k) => [k, genOf(k)]));
     for (const [k, g] of asked) inFlight.set(k, g);
     try {
-      const r = await fetch(`/api/profile/names?w=${part.join(",")}`, { cache: "no-store" });
+      // a lookup that hangs gives up after 10 s, so its wallets can be asked again instead of waiting on the browser
+      const r = await fetch(`/api/profile/names?w=${part.join(",")}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
       if (!r.ok) {
         noteFailure(); // the refresher asks again after the backoff
         continue;
@@ -150,6 +166,6 @@ async function flush() {
       for (const [k, g] of asked) if (inFlight.get(k) === g) inFlight.delete(k);
     }
   }
-  if (cache.size > 20_000) cache.clear(); // generations are kept (a number per wallet seen): clearing them could let an old answer match again
+  // generations are kept (a number per wallet seen): clearing them could let an old answer match again
   notify();
 }

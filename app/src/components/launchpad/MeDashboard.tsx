@@ -333,7 +333,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
               <thead><tr><th scope="col">Side</th><th scope="col">Token / chain</th><th scope="col">Amount</th><th scope="col" className={styles.usdColumn}>USD value</th><th scope="col">Transaction</th></tr></thead>
               <tbody className="font-mono tnum">
                 {me.trades.map((t) => (
-                  <tr key={t.tx_hash} className="border-b border-line last:border-0">
+                  <tr key={`${t.chain}:${t.tx_hash}:${t.log_index}`} className="border-b border-line last:border-0">
                     <td><span className={styles.tradeSide} data-side={t.is_buy ? "buy" : "sell"}>{t.is_buy ? <ArrowDownLeft size={14} aria-hidden="true" /> : <ArrowUpRight size={14} aria-hidden="true" />}{t.is_buy ? "Buy" : "Sell"}</span></td>
                     <td><Link href={`/t/${t.chain}/${t.token}`}>{t.symbol}</Link> <span className={styles.tradeChain}>{CHAIN_SHORT[t.chain]}</span></td>
                     <td>{fmtQuote(t.quote_raw, t.quote_decimals, t.quote_symbol)}</td>

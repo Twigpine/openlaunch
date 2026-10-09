@@ -8,12 +8,16 @@ import Sheet from "@/components/Sheet";
 import { btn, helper, input, label } from "@/components/ui";
 import ImageUpload from "@/components/launchpad/ImageUpload";
 import { XMark } from "@/components/launchpad/BrandMarks";
-import { CHAINS, DEFAULT_CHAIN, type ChainKey } from "@/lib/chainPublic";
+import { DEFAULT_CHAIN } from "@/lib/chainPublic";
+import { chainKeyOf } from "@/lib/chainKeys";
 import { friendlyError } from "@/lib/errors";
 import { buildProfileMessage } from "@/lib/profiles/auth";
 import { BIO_MAX, DISPLAY_NAME_MAX, USERNAME_MAX, validateProfile } from "@/lib/profiles/validate";
-import { forgetCachedName } from "@/lib/profiles/names-client";
+import { rememberSavedName } from "@/lib/profiles/names-client";
 import type { PublicProfile, XCodeView } from "@/lib/profiles/server";
+
+/** A profile as the names store keeps it (what Who shows next to a wallet). */
+const nameEntryOf = (p: PublicProfile) => ({ u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" });
 
 /** The localStorage key that remembers this wallet's open X code in this browser. */
 const codeKey = (w: string) => `ol:xcode:${w.toLowerCase()}`;
@@ -45,12 +49,6 @@ function nonce(): string {
   const b = new Uint8Array(16);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-/** The chain key the connected wallet is on, or the default chain when it is on one we do not support. */
-function chainKeyOf(id: number | undefined): ChainKey {
-  const hit = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === id);
-  return hit ?? DEFAULT_CHAIN;
 }
 
 type Form = { username: string; display_name: string; bio: string; avatar: string; x_handle: string };
@@ -111,7 +109,7 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
     setNote(null);
     try {
       setPhase("sign");
-      const chain = chainKeyOf(chainId);
+      const chain = chainKeyOf(chainId) ?? DEFAULT_CHAIN; // a wallet on a chain we do not support signs for the default
       const n = nonce();
       const ts = Date.now();
       const wallet = await getWalletClient(config);
@@ -121,7 +119,7 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
       const d = (await r.json()) as { ok?: boolean; error?: string; profile?: PublicProfile; code?: XCodeView | null };
       if (!r.ok || !d.ok || !d.profile) throw new Error(d.error ?? "could not save");
       setProfile(d.profile);
-      forgetCachedName(address);
+      rememberSavedName(address, nameEntryOf(d.profile));
       onSaved(d.profile);
       storeCode(address, d.code ?? null);
       if (d.code) {
@@ -148,10 +146,11 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
       if (d.profile) {
         setProfile(d.profile);
         onSaved(d.profile);
+        rememberSavedName(address, nameEntryOf(d.profile));
       }
-      forgetCachedName(address);
+      // either way the code is spent: verified, or with a person (who decides on this very code; it cannot be sent again)
+      storeCode(address, null);
       if (d.status === "verified") {
-        storeCode(address, null);
         setNote("Verified. The ✓ now shows next to your name.");
         setTimeout(onClose, 1200);
       } else {

@@ -8,7 +8,7 @@ import CopyChip from "@/components/launchpad/CopyChip";
 import { XMark } from "@/components/launchpad/BrandMarks";
 import NamesProvider from "@/components/profile/NamesProvider";
 import { VerifiedTick, WhoAvatar } from "@/components/profile/Who";
-import { getProfile, namesFor } from "@/lib/profiles/server";
+import { getProfile } from "@/lib/profiles/server";
 import { walletFacts } from "@/lib/profiles/stats";
 import { usernameFromPath } from "@/lib/profiles/validate";
 import { getWalletTrades, listLaunches } from "@/lib/launchpad/queries";
@@ -57,12 +57,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
     memo(`u-launches:${p.wallet}`, 10_000, () => listLaunches({ launcher: p.wallet, limit: 24, ethUsd: usd })),
     memo(`u-trades:${p.wallet}`, 10_000, () => getWalletTrades(p.wallet, usd, 20)),
   ]);
-  const names = await namesFor([p.wallet]);
+  // the owner's name comes from the profile this page just read, not from a separately cached lookup
+  const ownName = { u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" };
   const now = nowMs();
   const joined = new Date(p.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 
   return (
-    <NamesProvider names={{ [p.wallet]: names[p.wallet] ?? null }}>
+    <NamesProvider names={{ [p.wallet]: ownName }}>
       <main className={shell.page}>
         <section aria-labelledby="profile-name" className="rounded-2xl border border-line bg-card p-5 sm:p-7">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
@@ -125,7 +126,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
               {trades.map((t) => {
                 const Icon = t.is_buy ? ArrowDownLeft : ArrowUpRight;
                 return (
-                  <li key={t.tx_hash + t.token} className="flex items-center gap-3 px-5 py-3 text-sm">
+                  <li key={`${t.chain}:${t.tx_hash}:${t.log_index}`} className="flex items-center gap-3 px-5 py-3 text-sm">
                     <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-semibold ${t.is_buy ? "bg-up-soft text-up" : "bg-down-soft text-down-ink"}`}><Icon size={12} aria-hidden="true" />{t.is_buy ? "Buy" : "Sell"}</span>
                     <Link href={`/t/${t.chain}/${t.token}`} className="min-w-0 truncate font-medium text-ink hover:underline underline-offset-2">{t.name} <span className="font-mono text-muted">{t.symbol}</span></Link>
                     <span className="ml-auto shrink-0 font-mono text-body tnum">{t.usd !== null ? fmtUsd(t.usd) : t.quote_symbol}</span>

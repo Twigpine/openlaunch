@@ -18,11 +18,16 @@ export async function GET(req: Request) {
   // a check that could not run says so (the form then shows nothing); the save checks for real either way
   if (!db) return NextResponse.json({ error: "could not check right now" }, { status: 503 });
   try {
-    const [owner] = await db<{ wallet: string }[]>`SELECT wallet FROM bb_profiles WHERE username = ${c.username}`;
+    const [owner] = await db<{ wallet: string; x_status: string }[]>`SELECT wallet, x_status FROM bb_profiles WHERE username = ${c.username}`;
     const [held] = await db<{ wallet: string }[]>`SELECT wallet FROM bb_username_holds WHERE username = ${c.username} AND released_at > now() - interval '30 days'`;
     // a retired name is held by a marker that is no wallet, so it is never "mine"
     const mine = (w: string | undefined) => Boolean(w && isAddress(wallet) && w === wallet);
-    const available = (!owner || mine(owner.wallet)) && (!held || mine(held.wallet));
+    // the save's rule for a verified X owner taking their own handle: it yields an unverified holder and any hold but
+    // a retirement (the verified handle is public, so this says nothing new)
+    const [self] = isAddress(wallet) ? await db<{ x_status: string; x_handle: string | null }[]>`SELECT x_status, x_handle FROM bb_profiles WHERE wallet = ${wallet} AND deleted_at IS NULL` : [];
+    const claimingOwnX = self?.x_status === "verified" && self.x_handle === c.username;
+    const available =
+      (!owner || mine(owner.wallet) || (claimingOwnX && owner.x_status !== "verified")) && (!held || mine(held.wallet) || (claimingOwnX && held.wallet !== "retired"));
     return NextResponse.json(available ? { available: true } : { available: false, error: "that username is taken" }, { headers: { "cache-control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "could not check right now" }, { status: 503 });

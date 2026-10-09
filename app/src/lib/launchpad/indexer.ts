@@ -317,6 +317,9 @@ const attributionTries = new Map<string, { n: number; at: number }>();
 const ATTRIBUTION_MAX_TRIES = 3;
 const ATTRIBUTION_TRY_GAP_MS = 10 * 60_000; // tries this far apart: a short RPC outage never freezes a row
 const ATTRIBUTION_PASS_BUDGET_MS = 5_000; // chain reads per pass stop here, so a long backlog never holds up indexing
+const ATTRIBUTION_IDLE_MS = 5 * 60_000; // a pass that found nothing to check rests this long (per chain, per machine)
+const attributionIdleUntil = new Map<ChainKey, number>();
+const healRestUntil = new Map<string, number>(); // `${chain}:${tx}` whose transaction could not be read → next try
 
 /**
  * Swaps not checked yet (trader_via NULL, or RECEIPT_PENDING) get checked a batch per poll: always for the last day
@@ -331,17 +334,21 @@ const ATTRIBUTION_PASS_BUDGET_MS = 5_000; // chain reads per pass stop here, so 
 export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<number> {
   const db = maybeDb();
   if (!db || skipReason(chain)) return 0;
+  // after the deploy day there is almost never anything to check: an empty pass rests a few minutes instead of
+  // querying every 15 s poll on every machine
+  if (Date.now() < (attributionIdleUntil.get(chain) ?? 0)) return 0;
   const history = process.env.LAUNCH_ATTRIBUTE_BACKLOG === "1";
   const cid = chainIdOf(chain);
   const [cur] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
   if (!cur || cur.cursor_block <= 0n) return 0;
   // unchecked rows: every one with history on; otherwise the last day, as a block range so the partial index is scanned
-  // as a range (the lowest block with a swap in the last day comes off the block_time index, a few hundred rows).
+  // as a range. The range starts at the block of the first swap of the last day, read off the block_time index (a
+  // min(block_number) with a time filter can plan as a walk down the block index through every older swap).
   // EntryPoint calls whose receipt is pending are few and always retried, however old (their own small index).
   let fromBlock: bigint | null = 0n;
   if (!history) {
-    const [d] = await db<{ b: bigint | null }[]>`SELECT min(block_number) AS b FROM bb_launch_swaps WHERE chain_id = ${cid} AND block_time > now() - interval '1 day'`;
-    fromBlock = d?.b === null || d?.b === undefined ? null : BigInt(d.b);
+    const [d] = await db<{ b: bigint }[]>`SELECT block_number AS b FROM bb_launch_swaps WHERE block_time > now() - interval '1 day' AND chain_id = ${cid} ORDER BY block_time ASC LIMIT 1`;
+    fromBlock = d ? BigInt(d.b) : null;
   }
   type Open = { tx_hash: string; log_index: number; trader: string; token: string };
   const unchecked =
@@ -350,12 +357,18 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
       : await db<Open[]>`
     SELECT tx_hash, log_index, trader, token FROM bb_launch_swaps
      WHERE chain_id = ${cid} AND trader_via IS NULL AND trader IS NOT NULL AND block_number BETWEEN ${fromBlock} AND ${cur.cursor_block}
-     ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
+     ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch * 5}`;
   const pending = await db<Open[]>`
     SELECT tx_hash, log_index, trader, token FROM bb_launch_swaps
      WHERE chain_id = ${cid} AND trader_via = ${RECEIPT_PENDING} AND trader IS NOT NULL AND block_number <= ${cur.cursor_block}
-     ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch}`;
+     ORDER BY block_number DESC, tx_hash, log_index LIMIT ${batch * 5}`;
+  // five times the batch is read: rows still waiting out their retry gap are skipped without a chain read, so a run
+  // of them at the head of the queue does not hold up the rows behind (the time budget still bounds the reads)
   const rows = [...unchecked, ...pending];
+  if (rows.length === 0) {
+    attributionIdleUntil.set(chain, Date.now() + ATTRIBUTION_IDLE_MS);
+    return 0;
+  }
   let moved = 0;
   const stopAt = Date.now() + ATTRIBUTION_PASS_BUDGET_MS;
   for (const r of rows) {
@@ -707,14 +720,31 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
   const cid = chainIdOf(chain);
   const rows = await db<{ tx_hash: string; log_index: number; token: string }[]>`
     SELECT tx_hash, log_index, token FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND trader IS NULL ORDER BY block_number DESC LIMIT 20`;
+     WHERE chain_id = ${cid} AND trader IS NULL ORDER BY block_number DESC LIMIT 100`;
   if (rows.length === 0) return 0;
+  // one read per transaction (a transaction with many swaps no longer takes every slot and every call), up to 20
+  // transactions a poll, and one that could not be read rests ten minutes before it is read again
+  const byTx = new Map<string, { tx_hash: string; log_index: number; token: string }[]>();
+  for (const r of rows) byTx.set(r.tx_hash, [...(byTx.get(r.tx_hash) ?? []), r]);
   let healed = 0;
-  for (const r of rows) {
-    const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token);
-    if (!who.trader) continue;
-    await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
-    healed++;
+  let read = 0;
+  for (const [tx, swaps] of byTx) {
+    if (read >= 20) break;
+    const key = `${chain}:${tx}`;
+    if (Date.now() < (healRestUntil.get(key) ?? 0)) continue;
+    read++;
+    if (!(await txOf(chain, tx as Hex))) {
+      if (healRestUntil.size > 5_000) healRestUntil.clear();
+      healRestUntil.set(key, Date.now() + ATTRIBUTION_TRY_GAP_MS);
+      continue;
+    }
+    healRestUntil.delete(key);
+    for (const r of swaps) {
+      const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token); // the transaction is cached now
+      if (!who.trader) continue;
+      await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
+      healed++;
+    }
   }
   if (healed) console.log(`[launch-sync] healed traders on ${healed} swap(s) on ${chain}`);
   return healed;
@@ -771,6 +801,13 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   const receipt = await publicClient(chain).getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) return { status: "not_found" };
   if (receipt.status !== "success") return { status: "reverted" };
+  // the receipt in hand is what attribution needs (sender, destination, logs): give it to traderOf, so crediting a
+  // smart wallet's swap here never depends on reading the same receipt a second time from a node that may lag
+  const k = `${chain}:${receipt.transactionHash}`; // the same hash the receipt's logs carry, so traderOf finds it
+  if (txFacts.size > 5000) txFacts.clear();
+  txFacts.set(k, { from: receipt.from.toLowerCase(), to: receipt.to ? receipt.to.toLowerCase() : null });
+  if (receiptLogs.size > 500) receiptLogs.clear();
+  receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
   const cfg = launchpad(chain);
   const factory = cfg.factory!.toLowerCase();
   const locker = cfg.locker!.toLowerCase();

@@ -19,7 +19,7 @@ import TokenTrades from "@/components/launchpad/TokenTrades";
 import LaunchReceipt from "@/components/launchpad/LaunchReceipt";
 import TokenAbout from "@/components/launchpad/TokenAbout";
 import NamesProvider from "@/components/profile/NamesProvider";
-import { namesFor } from "@/lib/profiles/server";
+import { namesFor, type NameEntry } from "@/lib/profiles/server";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
@@ -96,8 +96,9 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const [swaps, holders, tint] = await Promise.all([getSwaps(chain, l.token, quote.decimals, 40), memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)), tokenTint(l.image_url, l.token)]);
   // names for every wallet the server renders (trades, creator, fee recipients, top holders): the first paint shows them
   const nameWallets = [l.launcher, ...swaps.map((s) => s.trader), ...l.recipients.map((r) => r.payout), ...(holders?.top ?? []).map((h) => h.address)].filter((w): w is string => Boolean(w));
-  const known = await namesFor(nameWallets).catch(() => ({}) as Awaited<ReturnType<typeof namesFor>>);
-  const names = Object.fromEntries([...new Set(nameWallets.map((w) => w.toLowerCase()))].map((w) => [w, known[w] ?? null]));
+  // a failed lookup seeds nothing (the browser then asks itself); only an answer says "no profile" for a wallet
+  const known = await namesFor(nameWallets).catch(() => null);
+  const names: Record<string, NameEntry | null> = known ? Object.fromEntries([...new Set(nameWallets.map((w) => w.toLowerCase()))].map((w) => [w, known[w] ?? null])) : {};
   const now = nowMs();
   const mode = feeModeOf(l.lp_fee, l.recipients);
   const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals });
