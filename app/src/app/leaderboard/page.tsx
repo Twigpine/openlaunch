@@ -4,6 +4,7 @@ import { ArrowRight, Trophy } from "lucide-react";
 import shell from "@/components/sections/SectionShell.module.css";
 import NamesProvider from "@/components/profile/NamesProvider";
 import { WhoAvatar, WhoName } from "@/components/profile/Who";
+import BoardRefresh from "@/components/points/BoardRefresh";
 import YourStanding from "@/components/points/YourStanding";
 import { memo } from "@/lib/launchpad/memo";
 import { boardRows, publicSeason, seasonEnded, seasonFinal, type Board } from "@/lib/points/server";
@@ -62,7 +63,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
               {ended ? (
                 <>
                   <p className="text-[22px] font-bold leading-none text-ink">{final ? "Final standings" : "Season over"}</p>
-                  <p className="mt-1 text-xs text-muted">ended {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}{final ? "" : " · final standings within the hour"}</p>
+                  <p className="mt-1 text-xs text-muted">ended {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}{final ? "" : " · waiting for the final count"}</p>
                 </>
               ) : (
                 <>
@@ -76,6 +77,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
         </section>
 
         <YourStanding board={board} />
+        <BoardRefresh />
 
         <section aria-label={board === "creator" ? "Top creators" : "Top scouts"} className="mt-4 overflow-hidden rounded-2xl border border-line bg-card">
           {data.rows.length === 0 ? (

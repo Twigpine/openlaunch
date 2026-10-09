@@ -35,14 +35,14 @@ export default function SeasonCard({ address }: { address: string }) {
   return (
     <section aria-labelledby="season-card" className="mb-4 rounded-2xl border border-line bg-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="season-card" className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><Trophy size={15} className="text-brand" aria-hidden="true" />{p.season.name} · {p.season.final ? "final standings" : p.season.ended ? "season over, final standings soon" : `${days} ${days === 1 ? "day" : "days"} left`}</h2>
+        <h2 id="season-card" className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><Trophy size={15} className="text-brand" aria-hidden="true" />{p.season.name} · {p.season.final ? "final standings" : p.season.ended ? "season over, waiting for the final count" : `${days} ${days === 1 ? "day" : "days"} left`}</h2>
         <Link href="/leaderboard" className="inline-flex items-center gap-1 text-xs font-medium text-body hover:text-ink">Leaderboard <ArrowRight size={13} aria-hidden="true" /></Link>
       </div>
       {me ? (
         <>
           {waiting ? (
             <p className="mt-3 rounded-xl bg-brand-soft px-4 py-3 text-sm text-ink">
-              <strong>{me.total.toLocaleString("en-US")} points are waiting for you.</strong> {NEXT_STEP[step]}, and they unlock for the whole season so far within the hour.
+              <strong>{me.total.toLocaleString("en-US")} points are waiting for you.</strong> {NEXT_STEP[step]}, and they unlock for the whole season so far with the next points update.
             </p>
           ) : null}
           {!me.eligible && p.reason === "hidden" ? <p className="mt-3 text-sm text-muted">{NEXT_STEP.hidden}.</p> : null}

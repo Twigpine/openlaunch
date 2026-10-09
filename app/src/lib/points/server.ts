@@ -472,7 +472,6 @@ export async function startSeason(days = 28): Promise<Season | null> {
 }
 
 /**
-/**
  * Make a season public. The first publish starts its clock now and drops the shadow run's rows ("started"); showing a
  * season again after a hide changes neither ("shown"). A season that never went public and has ended is "refused":
  * its shadow boards were never told to anyone, and they never become public. (The first publish restarts the clock
