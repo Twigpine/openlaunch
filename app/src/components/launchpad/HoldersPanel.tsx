@@ -53,6 +53,7 @@ export default function HoldersPanel({ chain, symbol, p, embedded = false }: { c
               <WhoName
                 address={h.address}
                 className="text-xs"
+                explorer={explorerAddress(chain, h.address)}
                 fallback={
                   <a href={explorerAddress(chain, h.address)} target="_blank" rel="noreferrer" className="font-code text-xs text-body hover:text-ink" title={h.address}>
                     {shortAddr(h.address)}

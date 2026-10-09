@@ -2,13 +2,17 @@ import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
-import { getProfile, saveProfile } from "@/lib/profiles/server";
+import { getProfile, profileHidden, saveProfile } from "@/lib/profiles/server";
 import { normalizeUsername } from "@/lib/profiles/validate";
 
 export const dynamic = "force-dynamic";
 const noStore = { "cache-control": "no-store" };
 
-/** GET /api/profile?wallet=0x… | ?username=name → the public profile (404 when there is none). */
+/**
+ * GET /api/profile?wallet=0x… | ?username=name → the public profile (404 when there is none). A wallet whose profile a
+ * moderator hid also says `hidden: true` (only the fact, never the contents); a username lookup stays plainly "not
+ * found", so hidden names cannot be listed by trying them.
+ */
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const wallet = (u.searchParams.get("wallet") ?? "").toLowerCase();
@@ -16,7 +20,10 @@ export async function GET(req: Request) {
   if (!isAddress(wallet) && !/^[a-z0-9_]{1,20}$/.test(username)) return NextResponse.json({ error: "bad params" }, { status: 400 });
   try {
     const profile = await getProfile(isAddress(wallet) ? { wallet } : { username });
-    if (!profile) return NextResponse.json({ error: "not found" }, { status: 404, headers: noStore });
+    if (!profile) {
+      const hidden = isAddress(wallet) && (await profileHidden(wallet));
+      return NextResponse.json(hidden ? { error: "not found", hidden: true } : { error: "not found" }, { status: 404, headers: noStore });
+    }
     return NextResponse.json({ profile }, { headers: noStore });
   } catch (err) {
     console.error("[profile] read failed:", err instanceof Error ? err.message : err);

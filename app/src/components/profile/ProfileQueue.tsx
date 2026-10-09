@@ -11,13 +11,7 @@ import type { ReviewRow } from "@/lib/profiles/server";
 import { CHAINS, DEFAULT_CHAIN, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
-
-/** A random single-use nonce for an admin signature (32 hex characters). */
-function nonce(): string {
-  const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
-  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
+import { nonce } from "@/lib/nonce";
 
 /**
  * Profiles for an admin: X posts waiting for a person (X did not answer when they were submitted), each shown with

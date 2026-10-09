@@ -11,10 +11,11 @@ import { XMark } from "@/components/launchpad/BrandMarks";
 import { DEFAULT_CHAIN } from "@/lib/chainPublic";
 import { chainKeyOf } from "@/lib/chainKeys";
 import { friendlyError } from "@/lib/errors";
-import { buildProfileMessage } from "@/lib/profiles/auth";
+import { buildProfileDeleteMessage, buildProfileMessage } from "@/lib/profiles/auth";
 import { BIO_MAX, DISPLAY_NAME_MAX, USERNAME_MAX, validateProfile } from "@/lib/profiles/validate";
 import { rememberSavedName } from "@/lib/profiles/names-client";
 import type { PublicProfile, XCodeView } from "@/lib/profiles/server";
+import { nonce } from "@/lib/nonce";
 
 /** A profile as the names store keeps it (what Who shows next to a wallet). */
 const nameEntryOf = (p: PublicProfile) => ({ u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" });
@@ -44,13 +45,6 @@ function storeCode(wallet: string, c: XCodeView | null) {
   }
 }
 
-/** A random single-use nonce for the profile signature (32 hex characters). */
-function nonce(): string {
-  const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
-  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
-
 type Form = { username: string; display_name: string; bio: string; avatar: string; x_handle: string };
 
 /**
@@ -58,7 +52,7 @@ type Form = { username: string; display_name: string; bio: string; avatar: strin
  * signature (no transaction); with an X handle the reply carries a one-time code bound to this wallet and that
  * handle. The post itself earns nothing; it only proves the account is yours.
  */
-export default function ProfileSheet({ address, initial, startOnVerify = false, onClose, onSaved }: { address: string; initial: PublicProfile | null; startOnVerify?: boolean; onClose: () => void; onSaved: (p: PublicProfile) => void }) {
+export default function ProfileSheet({ address, initial, startOnVerify = false, onClose, onSaved, onDeleted }: { address: string; initial: PublicProfile | null; startOnVerify?: boolean; onClose: () => void; onSaved: (p: PublicProfile) => void; onDeleted?: () => void }) {
   const config = useConfig();
   const { chainId } = useAccount();
   const origin = typeof window === "undefined" ? "" : window.location.origin;
@@ -74,7 +68,8 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
   const [profile, setProfile] = useState<PublicProfile | null>(initial);
   const [code, setCode] = useState<XCodeView | null>(() => (startOnVerify ? loadCode(address) : null));
   const [step, setStep] = useState<"form" | "verify">(startOnVerify && loadCode(address) ? "verify" : "form");
-  const [phase, setPhase] = useState<"idle" | "sign" | "save" | "check">("idle");
+  const [phase, setPhase] = useState<"idle" | "sign" | "save" | "check" | "delete">("idle");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [avail, setAvail] = useState<{ name: string; ok: boolean; error?: string } | null>(null);
@@ -128,6 +123,32 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
       } else {
         onClose();
       }
+    } catch (e) {
+      setErr(friendlyError(e));
+    } finally {
+      setPhase("idle");
+    }
+  }
+
+  /** Delete the profile (one free signature): it disappears everywhere; a username kept a day or more stays reserved 30 days. */
+  async function remove() {
+    setErr(null);
+    setNote(null);
+    try {
+      setPhase("sign");
+      const chain = chainKeyOf(chainId) ?? DEFAULT_CHAIN;
+      const n = nonce();
+      const ts = Date.now();
+      const wallet = await getWalletClient(config);
+      const signature = await wallet.signMessage({ message: buildProfileDeleteMessage({ wallet: address, nonce: n, ts }) });
+      setPhase("delete");
+      const r = await fetch("/api/profile/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain, wallet: address, nonce: n, ts, signature }) });
+      const d = (await r.json()) as { ok?: boolean; error?: string };
+      if (!r.ok || !d.ok) throw new Error(d.error ?? "could not delete");
+      storeCode(address, null);
+      rememberSavedName(address, null);
+      onDeleted?.();
+      onClose();
     } catch (e) {
       setErr(friendlyError(e));
     } finally {
@@ -232,8 +253,23 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
         {err ? <p className="text-sm text-down-ink" role="alert">{err}</p> : null}
         <div className="flex flex-wrap items-center justify-end gap-2">
           {profile && profile.x_state !== "verified" && loadCode(address) ? <button type="button" className={btn.secondary} onClick={() => { setCode(loadCode(address)); setStep("verify"); }}>I already have a code</button> : null}
-          <button type="button" className={btn.primary} disabled={busy || !v.ok || (nameState !== null && !nameState.ok)} onClick={() => void save()}>{phase === "sign" ? "Sign in your wallet…" : phase === "save" ? "Saving…" : f.x_handle && profile?.x_state !== "verified" ? "Save and verify with X" : "Save profile"}</button>
+          <button type="button" className={btn.primary} disabled={busy || !v.ok || (nameState !== null && !nameState.ok)} onClick={() => void save()}>{phase === "sign" && !confirmDelete ? "Sign in your wallet…" : phase === "save" ? "Saving…" : f.x_handle && profile?.x_state !== "verified" ? "Save and verify with X" : "Save profile"}</button>
         </div>
+        {profile ? (
+          <div className="border-t border-line pt-4">
+            {confirmDelete ? (
+              <div className="space-y-3" role="group" aria-label="Delete profile">
+                <p className="text-sm text-body text-pretty">Delete your profile? Your name, picture, bio and X tick disappear everywhere. A username you have had for a day or more stays reserved for this wallet for 30 days.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className={btn.secondarySm} disabled={busy} onClick={() => setConfirmDelete(false)}>Keep it</button>
+                  <button type="button" className={btn.dangerSm} disabled={busy} onClick={() => void remove()}>{phase === "sign" ? "Sign in your wallet…" : phase === "delete" ? "Deleting…" : "Delete for good"}</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className={btn.dangerSm} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete profile</button>
+            )}
+          </div>
+        ) : null}
       </div>
     </Sheet>
   );

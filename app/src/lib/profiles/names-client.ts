@@ -30,8 +30,16 @@ let failures = 0; // consecutive failed lookups
 let retryAfter = 0; // no refresh before this (backoff)
 
 /** Tell every subscribed component the store changed. */
+let version = 0; // bumped on every change: a component that reads many names subscribes to this one number
+
 function notify() {
+  version++;
   for (const l of listeners) l();
+}
+
+/** A number that changes whenever any name in the store does (useSyncExternalStore snapshot for lists). */
+export function namesVersion(): number {
+  return version;
 }
 
 /** Subscribe to name changes (useSyncExternalStore); returns the unsubscribe. */

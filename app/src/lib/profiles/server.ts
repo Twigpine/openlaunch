@@ -105,6 +105,18 @@ async function rowByWallet(db: Db, wallet: string): Promise<Row | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Whether a moderator hid this wallet's profile (not deleted: a deleted one is gone and may be made again). The
+ * contents stay private; only this fact is public, the way a suspended account says so, so the owner's card can say
+ * why there is no profile instead of offering to create one.
+ */
+export async function profileHidden(wallet: string): Promise<boolean> {
+  const db = maybeDb();
+  if (!db) return false;
+  const [row] = await db`SELECT 1 FROM bb_profiles WHERE wallet = ${wallet.toLowerCase()} AND hidden AND deleted_at IS NULL`;
+  return Boolean(row);
+}
+
 /** The visible profile for a wallet or a username, or null (hidden and deleted profiles never show). */
 export async function getProfile(by: { wallet: string } | { username: string }): Promise<PublicProfile | null> {
   const db = maybeDb();
@@ -191,31 +203,38 @@ async function codeChains(wallet: string, first: ChainKey): Promise<ChainKey[] |
 type SigCheck = "ok" | "bad" | "down" | { switchTo: ChainKey };
 
 /**
- * A plain wallet's signature is recovered locally (no RPC). A smart wallet's is checked on the chain it signed on
- * (Coinbase Smart Wallet and Safe bind the chain id into what they sign), and only where it is deployed or, if it is
- * deployed nowhere yet, through its ERC-6492 wrapper. Deployed only elsewhere → ask the person to switch chains.
+ * Whether `signature` is the wallet's over any one of `messages`. A plain wallet's signature is recovered locally, for
+ * every candidate text first (no RPC, so a brief node outage can never turn a good plain signature into "down"). Only
+ * when none recovers is it treated as a smart wallet's: checked on the chain it signed on (Coinbase Smart Wallet and
+ * Safe bind the chain id into what they sign), and only where it is deployed or, if it is deployed nowhere yet,
+ * through its ERC-6492 wrapper. Deployed only elsewhere → ask the person to switch chains.
  */
-async function verifySig(wallet: string, message: string, signature: unknown, signedOn: unknown): Promise<SigCheck> {
+async function verifySig(wallet: string, messages: readonly string[], signature: unknown, signedOn: unknown): Promise<SigCheck> {
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) return "bad";
   // the zero address has no key and no code: an ERC-6492 check compares ecrecover's failure value (0x0) to it and
   // passes for a garbage signature, so nothing is ever accepted as signed by it
   if (ZERO_ADDRESS.test(wallet)) return "bad";
-  try {
-    if ((await recoverMessageAddress({ message, signature: signature as Hex })).toLowerCase() === wallet) return "ok";
-  } catch {
-    /* not a plain 65-byte signature: a smart wallet's */
+  for (const message of messages) {
+    try {
+      if ((await recoverMessageAddress({ message, signature: signature as Hex })).toLowerCase() === wallet) return "ok";
+    } catch {
+      break; // not a plain 65-byte signature: a smart wallet's (the shape does not depend on the text)
+    }
   }
   const chain: ChainKey = isChainKey(signedOn) ? signedOn : DEFAULT_CHAIN;
   const home = await codeChains(wallet, chain);
   if (home === null) return "down";
   if (home.length > 0 && !home.includes(chain)) return { switchTo: home.includes(DEFAULT_CHAIN) ? DEFAULT_CHAIN : home[0] };
-  let valid = false;
-  try {
-    valid = await publicClient(chain).verifyMessage({ address: wallet as Address, message, signature: signature as Hex });
-  } catch {
-    return "down";
+  // every candidate text is tried before an outage is reported: one that answers "valid" settles it
+  let unreachable = false;
+  for (const message of messages) {
+    try {
+      if (await publicClient(chain).verifyMessage({ address: wallet as Address, message, signature: signature as Hex })) return "ok";
+    } catch {
+      unreachable = true;
+    }
   }
-  if (valid) return "ok";
+  if (unreachable) return "down";
   // viem returns false (not a throw) on an unreachable transport: tell an outage from a mismatch
   try {
     await publicClient(chain).getChainId();
@@ -224,6 +243,14 @@ async function verifySig(wallet: string, message: string, signature: unknown, si
   }
   return "bad";
 }
+
+/**
+ * Every fact of an X claim except the handle, back to "no claim": the one SET list for each place that drops a claim (a
+ * new or cleared handle, a delete, a rejected or removed tick, another wallet proving the account).
+ */
+const noXClaim = (t: Db) => t`x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none'`;
+/** Close a wallet's open X codes; a claim still waiting for review is rejected with them. */
+const closeXCodes = (t: Db, wallet: string) => t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${wallet} AND used_at IS NULL`;
 
 /** Spend a profile nonce; false when it was already used (a replay). */
 async function consumeNonce(db: Db, nonce: string, wallet: string): Promise<boolean> {
@@ -252,12 +279,7 @@ async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: 
   if (!tsFresh(s.ts, now)) return fail("signature expired, try again", 400);
   const wallet = s.wallet.toLowerCase();
   const ts = Number(s.ts);
-  const candidates = [...new Set([message(wallet, s.nonce, ts)].flat())];
-  let v: SigCheck = "bad";
-  for (const m of candidates) {
-    v = await verifySig(wallet, m, s.signature, s.chain);
-    if (v !== "bad") break; // ok, or an answer about the wallet itself (down, lives elsewhere) that another text cannot change
-  }
+  const v = await verifySig(wallet, [...new Set([message(wallet, s.nonce, ts)].flat())], s.signature, s.chain);
   if (v === "down") return fail("signature check unavailable, try again", 503);
   if (v === "bad") return fail("signature does not match (with a smart wallet, switch it to Base and sign again)", 401);
   if (typeof v === "object") return fail(`your wallet lives on ${CHAIN_LABELS[v.switchTo]}: switch your wallet to ${CHAIN_LABELS[v.switchTo]} and sign again`, 409);
@@ -394,9 +416,8 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
       // a different X handle (or none) drops the old verification and any pending review: the tick is earned again
       const xChanged = !existing || Boolean(existing.deleted_at) || (existing.x_handle ?? "") !== f.x_handle;
       if (xChanged) {
-        await t`UPDATE bb_profiles SET x_handle = ${f.x_handle || null}, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL,
-                x_followers = NULL, x_checked_at = NULL, x_status = 'none' WHERE wallet = ${me}`;
-        await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${me} AND used_at IS NULL`;
+        await t`UPDATE bb_profiles SET x_handle = ${f.x_handle || null}, ${noXClaim(t)} WHERE wallet = ${me}`;
+        await closeXCodes(t, me);
       }
       let code: XCodeView | null = null;
       const verified = !xChanged && existing?.x_status === "verified";
@@ -480,10 +501,10 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
     // one X account, one wallet: verifying here releases it from any other wallet (only the account owner could post the code)
     // (all of it: the account facts too, and any claim of theirs still open or waiting for review)
     const others = await t<{ wallet: string }[]>`
-      UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now()
+      UPDATE bb_profiles SET x_handle = NULL, ${noXClaim(t)}, updated_at = now()
        WHERE wallet <> ${me} AND (x_user_id = ${j.userId} OR x_user_id = ${`h:${j.handle}`} OR (x_handle = ${j.handle} AND x_status IN ('verified', 'post_missing'))) RETURNING wallet`;
     for (const o of others) {
-      await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${o.wallet} AND used_at IS NULL`;
+      await closeXCodes(t, o.wallet);
       forgetName(o.wallet);
     }
     await t`
@@ -521,10 +542,9 @@ export async function deleteProfile(r: Signed): Promise<{ ok: true } | Fail> {
     }
     await t`
       UPDATE bb_profiles SET deleted_at = now(), username = ${`~del_${randomSuffix(12)}`}, display_name = '', bio = NULL, avatar_key = NULL,
-             x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL,
-             x_status = 'none', updated_at = now()
+             x_handle = NULL, ${noXClaim(t)}, updated_at = now()
        WHERE wallet = ${a.wallet}`;
-    await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${a.wallet} AND used_at IS NULL`;
+    await closeXCodes(t, a.wallet);
   });
   forgetName(a.wallet);
   return { ok: true };
@@ -600,8 +620,7 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
           await t`UPDATE bb_x_codes SET review = 'rejected', used_at = now() WHERE code = ${code.code}`;
           // back to an unproven claim: any account binding a paused verification carried goes too, so it can never
           // block another wallet's approval or a re-check of the account's real owner
-          await t`UPDATE bb_profiles SET x_status = 'none', x_post_id = NULL, x_user_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, updated_at = now()
-                  WHERE wallet = ${target} AND x_status = 'pending_review'`;
+          await t`UPDATE bb_profiles SET ${noXClaim(t)}, updated_at = now() WHERE wallet = ${target} AND x_status = 'pending_review'`;
           return null;
         }
         // only the claim that is pending, for the handle this code was issued for
@@ -613,10 +632,10 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
         // back to review, say) lets go of it, so the approval never trips the one-account-per-wallet constraint
         const binding = prof.x_user_id ?? `h:${code.x_handle}`;
         const released = await t<{ wallet: string }[]>`
-          UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now()
+          UPDATE bb_profiles SET x_handle = NULL, ${noXClaim(t)}, updated_at = now()
            WHERE wallet <> ${target} AND (x_user_id = ${binding} OR x_user_id = ${`h:${code.x_handle}`}) RETURNING wallet`;
         for (const o of released) {
-          await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${o.wallet} AND used_at IS NULL`;
+          await closeXCodes(t, o.wallet);
           forgetName(o.wallet);
         }
         await t`UPDATE bb_x_codes SET review = 'approved', used_at = now() WHERE code = ${code.code}`;
@@ -624,8 +643,8 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
         return null;
       }
       case "remove_x":
-        await t`UPDATE bb_profiles SET x_handle = NULL, x_user_id = NULL, x_post_id = NULL, x_verified_at = NULL, x_account_created = NULL, x_followers = NULL, x_checked_at = NULL, x_status = 'none', updated_at = now() WHERE wallet = ${target}`;
-        await t`UPDATE bb_x_codes SET used_at = now(), review = CASE WHEN review = 'pending' THEN 'rejected' ELSE review END WHERE wallet = ${target} AND used_at IS NULL`;
+        await t`UPDATE bb_profiles SET x_handle = NULL, ${noXClaim(t)}, updated_at = now() WHERE wallet = ${target}`;
+        await closeXCodes(t, target);
         return null;
       case "hide":
       case "unhide":

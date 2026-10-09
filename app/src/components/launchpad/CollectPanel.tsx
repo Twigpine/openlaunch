@@ -145,7 +145,7 @@ export default function CollectPanel({
                       address && r.payout.toLowerCase() === address.toLowerCase() ? (
                         <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">You</a>
                       ) : (
-                        <WhoName address={r.payout} fallback={<a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">{shortAddr(r.payout)}</a>} />
+                        <WhoName address={r.payout} explorer={explorerAddress(chain, r.payout)} fallback={<a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">{shortAddr(r.payout)}</a>} />
                       )
                     )}
                   </span>

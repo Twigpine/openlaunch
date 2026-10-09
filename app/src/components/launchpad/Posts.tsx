@@ -18,13 +18,7 @@ import { friendlyError } from "@/lib/errors";
 import ConnectWallet from "@/components/ConnectWallet";
 import { ArrowUpRight, ChevronDown, MessageSquare } from "lucide-react";
 import { MagicCard } from "@/components/vendor/magic-card";
-
-/** A random single-use nonce for a signed post, report or mute (32 hex characters). */
-function nonce(): string {
-  const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
-  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
+import { nonce } from "@/lib/nonce";
 
 /** The holder tag shown beside a post's author (creator, whale, holder). */
 function TagChip({ tag }: { tag: PostRow["tag"] }) {

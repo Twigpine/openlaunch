@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowUpRight, MessageSquare, MessagesSquare, RefreshCw, Search, Signature, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
 import { WhoAvatar, WhoName } from "@/components/profile/Who";
+import { NamesContext } from "@/components/profile/NamesProvider";
+import { cachedName, namesVersion, subscribeNames } from "@/lib/profiles/names-client";
 import { useLive } from "@/components/launchpad/LiveProvider";
 import { CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
@@ -50,7 +52,11 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
     return () => { clearTimeout(timer); unsubscribe(); };
   }, [initial, router, subscribe]);
 
-  const shown = filterCommunityPosts(initial, chain, query);
+  // authors are searchable by the names the feed shows: the server's seed first, then the browser's store (re-filtered
+  // as names arrive)
+  const seeded = useContext(NamesContext);
+  useSyncExternalStore(subscribeNames, namesVersion, () => 0);
+  const shown = filterCommunityPosts(initial, chain, query, (w) => cachedName(w) ?? seeded?.[w.toLowerCase()]);
   const filtered = Boolean(chain || query.trim());
   function reset() { setChain(null); setQuery(""); }
 

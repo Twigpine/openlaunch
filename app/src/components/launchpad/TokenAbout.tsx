@@ -39,7 +39,7 @@ export default function TokenAbout({ chain, token, symbol, description, website,
       <dl className="mt-4 divide-y divide-line border-t border-line text-xs">
         <div className="flex items-center justify-between gap-3 py-2.5">
           <dt className="text-muted">Creator</dt>
-          <dd className="min-w-0"><WhoName address={launcher} fallback={<a href={explorerAddress(chain, launcher)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-code text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">{shortAddr(launcher)}<ArrowUpRight size={11} aria-hidden="true" /></a>} /></dd>
+          <dd className="min-w-0"><WhoName address={launcher} explorer={explorerAddress(chain, launcher)} fallback={<a href={explorerAddress(chain, launcher)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-code text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">{shortAddr(launcher)}<ArrowUpRight size={11} aria-hidden="true" /></a>} /></dd>
         </div>
         <div className="flex items-center justify-between gap-3 py-2.5">
           <dt className="text-muted">Contract</dt>
