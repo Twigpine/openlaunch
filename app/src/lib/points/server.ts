@@ -45,7 +45,11 @@ export function seasonEnded(s: Pick<Season, "ends_at">, now = Date.now()): boole
 }
 
 /** The final standings are fixed once a compute has read the data through the season's end. */
-function isFinal(s: Season): boolean {
+/** Whether a season's final standings are in: a compute covered its end (the clock passing is not enough). */
+export function seasonFinal(s: Pick<Season, "computed_until" | "ends_at">): boolean {
+  return isFinal(s);
+}
+function isFinal(s: Pick<Season, "computed_until" | "ends_at">): boolean {
   return Boolean(s.computed_until && new Date(s.computed_until).getTime() >= new Date(s.ends_at).getTime());
 }
 

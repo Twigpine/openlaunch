@@ -5,7 +5,7 @@ import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card } from "@/components/ui";
-import { buildPointsAdminMessage, type PointsAdminAction } from "@/lib/points/auth";
+import { buildPointsAdminMessage, normalizeSeasonDays, type PointsAdminAction } from "@/lib/points/auth";
 import type { NameEntry } from "@/lib/profiles/server";
 import { CHAINS, DEFAULT_CHAIN, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
@@ -14,6 +14,16 @@ import { nonce } from "@/lib/nonce";
 
 type Row = { rank: number; wallet: string; points: number; eligible: boolean; why: string };
 type Preview = { season: { name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null } | null; creator?: Row[]; scout?: Row[]; names?: Record<string, NameEntry>; computed_at?: string | null; wallets?: number; eligible?: number; at: number };
+
+/** What an action did, said when it went through but the boards could not be loaded again after it. */
+const DONE: Record<PointsAdminAction, string> = {
+  preview: "Loaded",
+  start: "Season started (hidden)",
+  publish: "Published",
+  unpublish: "Boards hidden",
+  end: "Season ended",
+  recompute: "Recompute started",
+};
 
 /**
  * Season controls for an admin: start a season (not public), see the shadow boards (eligible or not, with why), publish
@@ -43,7 +53,9 @@ export default function PointsAdmin() {
     const n = nonce();
     const ts = nowMs();
     const wallet = await getWalletClient(config);
-    const signature = await wallet.signMessage({ message: buildPointsAdminMessage({ action, wallet: address, nonce: n, ts }) });
+    // starting signs the season's length too (the server builds the same text from the same normalized number)
+    const days = normalizeSeasonDays(extra.days);
+    const signature = await wallet.signMessage({ message: buildPointsAdminMessage({ action, wallet: address, nonce: n, ts, days }) });
     const res = await fetch("/api/points/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, chain, wallet: address, nonce: n, ts, signature, ...extra }) });
     const d = (await res.json()) as Record<string, unknown> & { error?: string };
     if (!res.ok) throw new Error(d.error ?? "failed");
@@ -53,12 +65,23 @@ export default function PointsAdmin() {
     const who = me;
     setBusy(true);
     setFailed(null);
+    let done = false; // the action itself went through (only the boards' refresh can still fail)
     try {
-      if (action !== "preview") await call(action, extra);
+      if (action !== "preview") {
+        await call(action, extra);
+        done = true;
+      }
       const v = { ...((await call("preview")) as Omit<Preview, "at">), at: Date.now() };
       if (current.current === who) setLoaded({ wallet: who, v });
     } catch (e) {
-      if (current.current === who) setFailed({ wallet: who, message: friendlyError(e) });
+      if (current.current !== who) return;
+      if (done) {
+        // the boards on screen are from before the action: they go, so no stale control is offered as current
+        setLoaded(null);
+        setFailed({ wallet: who, message: `${DONE[action]}. Loading the boards again failed (${friendlyError(e)}): press Load to see where things stand.` });
+      } else {
+        setFailed({ wallet: who, message: friendlyError(e) });
+      }
     } finally {
       setBusy(false);
     }

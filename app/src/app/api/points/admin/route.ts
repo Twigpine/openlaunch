@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
 import { admitAdmin } from "@/lib/profiles/server";
-import { buildPointsAdminMessage, isPointsAdminAction } from "@/lib/points/auth";
+import { buildPointsAdminMessage, isPointsAdminAction, normalizeSeasonDays } from "@/lib/points/auth";
 import { currentSeason, endSeasonNow, finalizeIfEnded, hideSeason, previewBoards, publishSeason, recomputeNow, seasonEnded, startSeason } from "@/lib/points/server";
 
 export const dynamic = "force-dynamic";
@@ -18,15 +18,17 @@ export async function POST(req: Request) {
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
   const action = b.action;
   if (!isPointsAdminAction(action)) return NextResponse.json({ error: "bad action" }, { status: 400 });
-  const a = await admitAdmin({ chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature }, (wallet, nonce, ts) => buildPointsAdminMessage({ action, wallet, nonce, ts }));
+  const days = normalizeSeasonDays(b.days); // signed for "start": the season is exactly as long as the admin signed
+  const a = await admitAdmin({ chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature }, (wallet, nonce, ts) => buildPointsAdminMessage({ action, wallet, nonce, ts, days }));
   if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
   try {
     const season = await currentSeason();
     switch (action) {
       case "start": {
         if (season && !seasonEnded(season)) return NextResponse.json({ error: `${season.name} is still running` }, { status: 409 });
-        if (season && !(await finalizeIfEnded(season))) return NextResponse.json({ error: `${season.name}'s final standings could not be computed yet; try again in a minute` }, { status: 409 });
-        const days = Math.min(90, Math.max(1, Math.trunc(Number(b.days) || 28)));
+        // a season that went public keeps its final standings, so they are computed first; a hidden run that was
+        // discarded has none to keep, and never blocks the next season (not even when a price is missing)
+        if (season && season.published_at && !(await finalizeIfEnded(season))) return NextResponse.json({ error: `${season.name}'s final standings could not be computed yet; try again in a minute` }, { status: 409 });
         const s = await startSeason(days);
         void recomputeNow().catch(() => {});
         return NextResponse.json({ ok: true, season: s });

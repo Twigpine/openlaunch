@@ -10,6 +10,9 @@ export default function YourStanding({ board }: { board: "creator" | "scout" }) 
   const p = usePoints(address);
   if (!address || !p?.season || !p.me) return null;
   const ended = p.season.ended;
+  const final = p.season.final;
+  // only a step the wallet can take is offered: a reason the API keeps back (a moderator's call) leaves it neutral
+  const actionable = p.reason === "no_profile" || p.reason === "not_verified" || p.reason === "account_too_new" || p.reason === "few_followers";
   const me = p.me;
   const points = board === "creator" ? me.creator : me.scout;
   const rank = board === "creator" ? me.rank_creator : me.rank_scout;
@@ -18,7 +21,7 @@ export default function YourStanding({ board }: { board: "creator" | "scout" }) 
     <section aria-label="Your standing" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/30 bg-brand-soft px-5 py-4">
       <div className="min-w-0">
         <p className="text-xs font-medium text-brand">You</p>
-        <p className="text-sm text-ink">{me.eligible ? (rank ? <>Rank <strong className="font-mono tnum">#{rank}</strong></> : "Not ranked on this board") : ended ? "Not on the final board" : <>Your points are waiting. <Link href="/me" className="font-semibold underline underline-offset-4">See what unlocks them</Link>.</>}{why ? <span className="text-muted"> · {why}</span> : null}</p>
+        <p className="text-sm text-ink">{me.eligible ? (rank ? <>Rank <strong className="font-mono tnum">#{rank}</strong></> : "Not ranked on this board") : ended ? (final ? "Not on the final board" : "Not on the board") : actionable ? <>Your points are waiting. <Link href="/me" className="font-semibold underline underline-offset-4">See what unlocks them</Link>.</> : "Not on the board"}{why ? <span className="text-muted"> · {why}</span> : null}</p>
       </div>
       <span className="font-mono text-xl font-bold text-ink tnum">{points.toLocaleString("en-US")}</span>
     </section>

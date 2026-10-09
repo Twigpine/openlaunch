@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { WalletPoints } from "@/lib/points/server";
 import type { NotEligibleReason } from "@/lib/points/score";
 
-export type PointsState = { season: { name: string; starts_at: string; ends_at: string; ended: boolean } | null; me: WalletPoints | null; reason: NotEligibleReason | null; at: number } | null;
+export type PointsState = { season: { name: string; starts_at: string; ends_at: string; ended: boolean; final: boolean } | null; me: WalletPoints | null; reason: NotEligibleReason | null; at: number } | null;
 
 const REFRESH_MS = 5 * 60_000; // points are recomputed hourly; a page left open picks up a publish or a new run
 const RETRY_MS = [10_000, 30_000, 60_000]; // after a failed read, then back to the normal refresh

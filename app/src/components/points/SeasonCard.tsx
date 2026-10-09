@@ -35,7 +35,7 @@ export default function SeasonCard({ address }: { address: string }) {
   return (
     <section aria-labelledby="season-card" className="mb-4 rounded-2xl border border-line bg-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="season-card" className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><Trophy size={15} className="text-brand" aria-hidden="true" />{p.season.name} · {p.season.ended ? "final standings" : `${days} ${days === 1 ? "day" : "days"} left`}</h2>
+        <h2 id="season-card" className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><Trophy size={15} className="text-brand" aria-hidden="true" />{p.season.name} · {p.season.final ? "final standings" : p.season.ended ? "season over, final standings soon" : `${days} ${days === 1 ? "day" : "days"} left`}</h2>
         <Link href="/leaderboard" className="inline-flex items-center gap-1 text-xs font-medium text-body hover:text-ink">Leaderboard <ArrowRight size={13} aria-hidden="true" /></Link>
       </div>
       {me ? (

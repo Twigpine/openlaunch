@@ -6,7 +6,7 @@ import NamesProvider from "@/components/profile/NamesProvider";
 import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import YourStanding from "@/components/points/YourStanding";
 import { memo } from "@/lib/launchpad/memo";
-import { boardRows, publicSeason, seasonEnded, type Board } from "@/lib/points/server";
+import { boardRows, publicSeason, seasonEnded, seasonFinal, type Board } from "@/lib/points/server";
 import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +42,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
   const data = await memo(`points:board:${season.id}:${board}`, 30_000, () => boardRows(season.id, board));
   const left = daysLeft(season.ends_at);
   const ended = seasonEnded(season);
+  const final = seasonFinal(season); // the final compute ran: until then the board may still move
   const tab = (b: Board, label: string) => (
     <Link href={b === "creator" ? "/leaderboard" : "/leaderboard?board=scout"} aria-current={board === b ? "page" : undefined} className={`inline-flex min-h-10 items-center rounded-xl px-4 text-sm font-semibold ${board === b ? "bg-ink text-inverse" : "text-body hover:bg-paper hover:text-ink"}`}>{label}</Link>
   );
@@ -60,8 +61,8 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
             <div className="text-left sm:text-right">
               {ended ? (
                 <>
-                  <p className="text-[22px] font-bold leading-none text-ink">Final standings</p>
-                  <p className="mt-1 text-xs text-muted">ended {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</p>
+                  <p className="text-[22px] font-bold leading-none text-ink">{final ? "Final standings" : "Season over"}</p>
+                  <p className="mt-1 text-xs text-muted">ended {new Date(season.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}{final ? "" : " · final standings within the hour"}</p>
                 </>
               ) : (
                 <>
