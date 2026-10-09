@@ -94,8 +94,20 @@ try {
     const [state] = await sql`select i.indisvalid as valid from pg_class c join pg_index i on i.indexrelid = c.oid where c.relname = ${ix.name} and c.relnamespace = current_schema()::regnamespace`;
     if (state && state.valid) continue;
     const t1 = Date.now();
-    if (state) await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS ${ix.name}`); // left invalid by a failed build
-    await sql.unsafe(ix.sql);
+    try {
+      if (state) await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS ${ix.name}`); // left invalid by a failed build
+      await sql.unsafe(ix.sql);
+    } catch (err) {
+      // say which index and why: the schema transaction is already in, so retrying the deploy is safe
+      const e = /** @type {{ message?: string; code?: string }} */ (err);
+      const why =
+        e?.code === "55P03"
+          ? "waited 30 s for a lock: an older transaction is still open, or another session holds the table (retry the deploy)"
+          : e?.code === "57014"
+            ? "the build ran past the 20 min statement timeout (retry the deploy)"
+            : "";
+      throw Object.assign(new Error(`building ${ix.name} concurrently: ${e?.message ?? err}${why ? ` — ${why}` : ""}`), { code: e?.code });
+    }
     console.log(`migrate: built ${ix.name} concurrently in ${Date.now() - t1}ms`);
   }
   console.log(

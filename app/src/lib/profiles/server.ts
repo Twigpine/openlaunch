@@ -339,7 +339,14 @@ export async function saveProfile(r: SaveRequest): Promise<{ ok: true; profile: 
   // cleaned ones. A browser that cleans text slightly differently from the server can then never fail a save.
   const asText = (x: unknown) => (typeof x === "string" ? x : "");
   const signed = { username: asText(r.fields.username), display_name: asText(r.fields.display_name), bio: asText(r.fields.bio), avatar_key: asText(r.fields.avatar) || null, x_handle: asText(r.fields.x_handle) };
-  const a = await admit(db, r, (wallet, nonce, ts) => [buildProfileMessage({ wallet, nonce, ts, fields: { ...f, ...signed } }), buildProfileMessage({ wallet, nonce, ts, fields: f })]);
+  // the as-sent text is a candidate only when it holds no control characters (the bio may keep line breaks): a crafted
+  // client must never be able to put extra lines into the message the wallet shows its owner
+  // (C0/C1 controls, bidi marks, overrides and isolates, and the line / paragraph separators)
+  const UNSHOWABLE = "\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f\\u061c\\u200e\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069";
+  const oneLine = new RegExp(`[\\u000a${UNSHOWABLE}]`);
+  const bioOk = new RegExp(`[${UNSHOWABLE}]`);
+  const plain = [signed.username, signed.display_name, signed.avatar_key ?? "", signed.x_handle].every((x) => !oneLine.test(x)) && !bioOk.test(signed.bio);
+  const a = await admit(db, r, (wallet, nonce, ts) => [...(plain ? [buildProfileMessage({ wallet, nonce, ts, fields: { ...f, ...signed } })] : []), buildProfileMessage({ wallet, nonce, ts, fields: f })]);
   if (!a.ok) return a;
   const me = a.wallet;
   const now = Date.now();
@@ -521,9 +528,10 @@ export async function verifyXPost(r: { wallet: unknown; postUrl: unknown; code: 
 // ── delete ───────────────────────────────────────────────────────────────────
 /**
  * Delete = the profile disappears everywhere and its name is released, but the row stays: moderation flags,
- * created_at and the rename clock survive, so deleting and re-creating is not a way around either. Coming back under
- * the name the delete let go of is free at any time (it is no rename); coming back under any other name follows the
- * same clock as a rename.
+ * created_at and the rename clock survive, so deleting and re-creating is not a way around either. A name kept a day or
+ * more is held for this wallet for 30 days, and coming back under it is no rename (the clock is skipped and not
+ * restarted). A name kept under a day is not held: coming back under it, or any other name, follows the same clock
+ * as a rename.
  */
 export async function deleteProfile(r: Signed): Promise<{ ok: true } | Fail> {
   const db = maybeDb();
@@ -631,9 +639,16 @@ export async function moderateProfile(r: Signed & { action: unknown; target: unk
         // one X account, one wallet: any other wallet still holding this account's binding (a paused claim that went
         // back to review, say) lets go of it, so the approval never trips the one-account-per-wallet constraint
         const binding = prof.x_user_id ?? `h:${code.x_handle}`;
-        const released = await t<{ wallet: string }[]>`
-          UPDATE bb_profiles SET x_handle = NULL, ${noXClaim(t)}, updated_at = now()
-           WHERE wallet <> ${target} AND (x_user_id = ${binding} OR x_user_id = ${`h:${code.x_handle}`}) RETURNING wallet`;
+        // each of those wallets' profile lock first (in wallet order), as their own verify takes it before their rows:
+        // the release can then never lock their codes and profile in the opposite order to a verify running for them
+        const holders = await t<{ wallet: string }[]>`
+          SELECT wallet FROM bb_profiles WHERE wallet <> ${target} AND (x_user_id = ${binding} OR x_user_id = ${`h:${code.x_handle}`}) ORDER BY wallet`;
+        for (const o of holders) await t`SELECT pg_advisory_xact_lock(hashtext(${`profile:${o.wallet}`}))`;
+        const released = holders.length
+          ? await t<{ wallet: string }[]>`
+              UPDATE bb_profiles SET x_handle = NULL, ${noXClaim(t)}, updated_at = now()
+               WHERE wallet IN ${t(holders.map((o) => o.wallet))} AND (x_user_id = ${binding} OR x_user_id = ${`h:${code.x_handle}`}) RETURNING wallet`
+          : [];
         for (const o of released) {
           await closeXCodes(t, o.wallet);
           forgetName(o.wallet);

@@ -7,7 +7,10 @@ import { checkUsername } from "@/lib/profiles/validate";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/profile/check?username=name[&wallet=0x…] → {available, error?} for the form (the save re-checks everything). */
+/**
+ * GET /api/profile/check?username=name[&wallet=0x…][&x=handle] → {available, error?} for the form (the save re-checks
+ * everything). `x` is the X handle in the form: a verified owner claims their handle only while keeping it.
+ */
 export async function GET(req: Request) {
   if (rateLimited(`ucheck:ip:${clientIp(req)}`, 120)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const u = new URL(req.url);
@@ -25,7 +28,8 @@ export async function GET(req: Request) {
     // the save's rule for a verified X owner taking their own handle: it yields an unverified holder and any hold but
     // a retirement (the verified handle is public, so this says nothing new)
     const [self] = isAddress(wallet) ? await db<{ x_status: string; x_handle: string | null }[]>`SELECT x_status, x_handle FROM bb_profiles WHERE wallet = ${wallet} AND deleted_at IS NULL` : [];
-    const claimingOwnX = self?.x_status === "verified" && self.x_handle === c.username;
+    const formX = (u.searchParams.get("x") ?? "").trim().replace(/^@/, "").toLowerCase();
+    const claimingOwnX = self?.x_status === "verified" && self.x_handle === c.username && (!u.searchParams.has("x") || formX === self.x_handle);
     const available =
       (!owner || mine(owner.wallet) || (claimingOwnX && owner.x_status !== "verified")) && (!held || mine(held.wallet) || (claimingOwnX && held.wallet !== "retired"));
     return NextResponse.json(available ? { available: true } : { available: false, error: "that username is taken" }, { headers: { "cache-control": "no-store" } });

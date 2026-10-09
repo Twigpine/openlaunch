@@ -81,17 +81,42 @@ const HIDDEN = "\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180f
 const INVISIBLE = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${HIDDEN}]|[\\u{e0100}-\\u{e01ef}]`, "gu");
 const INVISIBLE_KEEP_NL = new RegExp(`[\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f${HIDDEN}]|[\\u{e0100}-\\u{e01ef}]`, "gu");
 // a joiner only between two emoji (👨‍💻, 🏳️‍🌈); a presentation selector only right after an emoji or a keycap base
-// (❤️, 1️⃣) and never twice; tag characters only inside a subdivision flag (🏴 + tags + cancel tag)
+// (❤️, 1️⃣) and never twice; tag characters only inside the three subdivision flags emoji actually have (England,
+// Scotland, Wales). Any other 🏴 + tags renders as a plain black flag and would carry hidden ASCII text.
 const STRAY_JOINER = /(?<![\p{Extended_Pictographic}\p{Emoji_Modifier}\ufe0f])\u200d|\u200d(?!\p{Extended_Pictographic})/gu;
 const STRAY_SELECTOR = /(?<![\p{Extended_Pictographic}0-9#*])[\ufe0e\ufe0f]/gu;
-const TAGS = /(\u{1f3f4}[\u{e0030}-\u{e0039}\u{e0061}-\u{e007a}]{1,7}\u{e007f})|[\u{e0000}-\u{e007f}]/gu;
+const TAGS = /(\u{1f3f4}\u{e0067}\u{e0062}(?:\u{e0065}\u{e006e}\u{e0067}|\u{e0073}\u{e0063}\u{e0074}|\u{e0077}\u{e006c}\u{e0073})\u{e007f})|[\u{e0000}-\u{e007f}]/gu;
+// a character (grapheme) carries at most this many combining marks (Vietnamese and other diacritics need 2 or 3, emoji
+// 1 or 2) and code points (the longest emoji sequences, a family with skin tones, are 11): no zalgo towers
+const MARKS_PER_CHAR = 4;
+const CODEPOINTS_PER_CHAR = 16;
+// and the whole text at most this many code points per allowed character
+const CODEPOINTS_PER_MAX = 4;
+
+/** One character with its combining marks and code points capped (see MARKS_PER_CHAR). */
+function capChar(g: string): string {
+  let marks = 0;
+  let out = "";
+  let n = 0;
+  for (const c of g) {
+    if (n >= CODEPOINTS_PER_CHAR) break;
+    if (/\p{M}/u.test(c) && ++marks > MARKS_PER_CHAR) continue;
+    out += c;
+    n++;
+  }
+  return out;
+}
 // everything that reads as a tick: ✓ ✔ ☑ ✅ √ ⍻ 🗸 🗹 (the verified badge is the only tick on the page)
 const TICKS = /[\u2713\u2714\u2611\u2705\u221a\u237b\u{1f5f8}\u{1f5f9}]/gu;
 const graphemes: Intl.Segmenter | null = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
 
-/** One cleaning pass: strip, NFC, collapse whitespace, cut to `max` whole characters (an emoji is never cut in half). */
+/**
+ * One cleaning pass: strip, NFC, collapse whitespace, then keep at most `max` whole characters (an emoji is never cut
+ * in half), each with its marks capped, and at most CODEPOINTS_PER_MAX × max code points in all.
+ */
 function cleanOnce(s: string, max: number, multiline: boolean): string {
-  if (multiline) s = s.replace(/\r\n?/g, "\n");
+  // a pasted line break or tab is a space in a one-line field (never glued to the next word), a line break in the bio
+  s = multiline ? s.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : s.replace(/[\r\n\t]+/g, " ");
   s = s
     .replace(multiline ? INVISIBLE_KEEP_NL : INVISIBLE, "")
     .replace(TAGS, (_m, flag: string | undefined) => flag ?? "")
@@ -102,7 +127,17 @@ function cleanOnce(s: string, max: number, multiline: boolean): string {
   s = multiline ? s.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n") : s.replace(/\s+/g, " ");
   s = s.trim();
   const chars = graphemes ? [...graphemes.segment(s)].map((g) => g.segment) : [...s];
-  return chars.length > max ? chars.slice(0, max).join("").trim() : s;
+  const kept: string[] = [];
+  let codepoints = 0;
+  for (const g of chars) {
+    if (kept.length >= max) break;
+    const c = capChar(g);
+    const n = [...c].length;
+    if (codepoints + n > max * CODEPOINTS_PER_MAX) break;
+    kept.push(c);
+    codepoints += n;
+  }
+  return kept.join("").trim();
 }
 
 /**

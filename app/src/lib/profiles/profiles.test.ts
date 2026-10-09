@@ -242,3 +242,44 @@ test("verification posts @-mention only our account, never the username (it is n
     assert.ok(t.includes("OL-7K2QXM9A") && t.includes("openlaunch.lol/u/bob"), t);
   }
 });
+
+test("zalgo text is capped: at most 4 marks per character, 4 code points per allowed character in all", () => {
+  const name = cleanDisplayName("a" + "́".repeat(3000));
+  assert.ok(name.ok);
+  assert.ok(name.ok && [...name.value].length <= 5, "one character, at most 4 marks");
+  const bio = cleanBio(("b" + "́".repeat(50) + " ").repeat(400));
+  assert.ok(bio.ok && [...bio.value].length <= 160 * 4, `bio code points ${bio.ok ? [...bio.value].length : "?"}`);
+  assert.equal(cleanText("Việt Nam", 32), "Việt Nam", "real diacritics are kept");
+  assert.equal(cleanText("ệ", 32), "ệ".normalize("NFC"), "two stacked marks are kept");
+});
+
+test("tag characters survive only in the three real subdivision flags; fake ones lose their hidden text", () => {
+  const tags = (s: string) => [...s].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("");
+  const flag = (code: string) => "\u{1f3f4}" + tags(code) + "\u{e007f}";
+  for (const real of ["gbeng", "gbsct", "gbwls"]) assert.equal(cleanText(`Hi ${flag(real)}`, 32), `Hi ${flag(real)}`, real);
+  const fake = "Bob " + ["ignorea", "llprevi", "nstruc"].map(flag).join("");
+  const out = cleanText(fake, 32);
+  assert.doesNotMatch(out, /[\u{e0000}-\u{e007f}]/u, "no tag character left");
+  assert.equal(out, "Bob \u{1f3f4}\u{1f3f4}\u{1f3f4}", "each fake flag renders as the plain black flag it already showed");
+});
+
+test("multi-code-point emoji at the limits are kept whole or dropped whole, never cut", () => {
+  const family = "👨🏻‍👩🏻‍👧🏻‍👦🏻"; // 11 code points, one character
+  const at32 = "a".repeat(31) + family;
+  assert.equal(cleanText(at32, 32), at32, "the 32nd character is an 11-code-point emoji: kept");
+  assert.equal(cleanText(at32 + "b", 32), at32, "one more character is the one cut");
+  const many = family.repeat(32);
+  const out = cleanText(many, 32);
+  const n = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(out)].length;
+  assert.equal(out, family.repeat(n), "only whole families");
+  assert.ok([...out].length <= 32 * 4 && n === 11, `kept ${n} families, ${[...out].length} code points`);
+});
+
+test("👨‍💻 and 🏳️‍🌈 at the exact length limit are kept whole", () => {
+  for (const e of ["👨‍💻", "🏳️‍🌈"]) {
+    const atLimit = "x".repeat(31) + e;
+    assert.equal(cleanText(atLimit, 32), atLimit, e);
+    assert.equal(cleanText("x".repeat(32) + e, 32), "x".repeat(32), `${e} as the 33rd character is dropped whole`);
+    assert.deepEqual(cleanDisplayName(atLimit), { ok: true, value: atLimit }, "and saves as a display name unchanged");
+  }
+});
