@@ -10,15 +10,10 @@ import type { NameEntry } from "@/lib/profiles/server";
 import { CHAINS, DEFAULT_CHAIN, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
+import { nonce } from "@/lib/nonce";
 
 type Row = { rank: number; wallet: string; points: number; eligible: boolean; why: string };
 type Preview = { season: { name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null } | null; creator?: Row[]; scout?: Row[]; names?: Record<string, NameEntry>; computed_at?: string | null; wallets?: number; eligible?: number; at: number };
-
-function nonce(): string {
-  const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
-  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
 
 /**
  * Season controls for an admin: start a season (not public), see the shadow boards (eligible or not, with why), publish
