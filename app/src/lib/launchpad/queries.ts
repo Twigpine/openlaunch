@@ -190,10 +190,12 @@ async function withStocks(): Promise<void> {
   }
 }
 
+/** A quote's USD price (ETH-quoted through the ETH price; null when unknown). */
 function quoteUsd(q: Quote, ethUsd: number | null): number | null {
   return quoteUsdOf(q, ethUsd);
 }
 
+/** A launch row as the app uses it: indexer-only bigint columns dropped (JSON-safe), price, FDV and USD figures worked out. */
 function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null): LaunchRow {
   // drop indexer-only bigint columns so the row is JSON-safe
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -386,6 +388,7 @@ export async function listLaunches(opts: ListOpts = {}): Promise<LaunchRow[]> {
   return (await listLaunchesPage(opts)).items;
 }
 
+/** One launch by chain and token, or null. */
 export async function getLaunch(chain: ChainKey, token: string, ethUsd: number | null = null): Promise<LaunchRow | null> {
   const db = maybeDb();
   if (!db) return null;
@@ -420,6 +423,7 @@ export async function findLaunchChain(token: string): Promise<ChainKey | null> {
 
 export type SwapRow = { tx_hash: string; log_index: number; token: string; trader: string | null; amount0: string; amount1: string; is_buy: boolean; block_time: string; price_quote: number };
 
+/** A token's newest swaps, newest first, with amounts in display units. */
 export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: number, limit = 50): Promise<SwapRow[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -457,6 +461,7 @@ async function pictureCopies(db: NonNullable<ReturnType<typeof maybeDb>>, launch
   }
 }
 
+/** The newest launches and trades across every chain, merged newest first, for the home feed. */
 export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): Promise<FeedItem[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -522,6 +527,7 @@ export type LaunchTotals = {
   by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
 };
 
+/** Platform totals (launches, trades, USD volume, fees burned and paid to creators, GITLAWB burned); zeros without a database. */
 export async function getLaunchTotals(ethUsd: number | null = null): Promise<LaunchTotals> {
   const empty = (): LaunchTotals => ({
     launches: 0,
@@ -587,6 +593,7 @@ export const getLaunchTotalsForRequest = cache(getLaunchTotals);
 
 export type FeeEventRow = { tx_hash: string; kind: string; currency: string | null; account: string | null; amount: string | null; quote_amount: string | null; token_amount: string | null; block_time: string };
 
+/** A token's newest fee collections and burns. */
 export async function getFeeEvents(chain: ChainKey, token: string, limit = 30): Promise<FeeEventRow[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -597,6 +604,7 @@ export async function getFeeEvents(chain: ChainKey, token: string, limit = 30): 
 
 export type SyncCursor = { chain: ChainKey; cursor_block: number; head_block: number | null; last_run_at: string | null; last_error: string | null };
 
+/** How far the indexer has read on each chain. */
 export async function launchSyncCursors(): Promise<SyncCursor[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -701,6 +709,7 @@ export async function getWalletTokens(wallet: string, ethUsd: number | null = nu
 
 export type WalletTrade = { chain: ChainKey; token: string; symbol: string; name: string; tx_hash: string; log_index: number; is_buy: boolean; quote_raw: string; quote_symbol: string; quote_decimals: number; usd: number | null; tokens: string; block_time: string };
 
+/** One wallet's newest trades across every chain, keyed by chain, transaction and log index. */
 export async function getWalletTrades(wallet: string, ethUsd: number | null = null, limit = 50): Promise<WalletTrade[]> {
   const db = maybeDb();
   if (!db) return [];

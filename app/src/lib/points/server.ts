@@ -39,6 +39,7 @@ export async function publicSeason(): Promise<Season | null> {
   return s ?? null;
 }
 
+/** Whether a season's end has passed. */
 export function seasonEnded(s: Pick<Season, "ends_at">, now = Date.now()): boolean {
   return new Date(s.ends_at).getTime() <= now;
 }
@@ -193,8 +194,14 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     breakdown: { creator: s.creatorWhy, scout: s.scoutWhy },
   }));
 
-  await write.begin(async (tx) => {
+  const wrote = await write.begin(async (tx) => {
     const t = tx as unknown as Db;
+    // the season as it is now, locked: a publish (which restarts the clock and drops the shadow rows), an end or a
+    // restart that landed while this run was reading means its rows describe a window that no longer exists
+    const [cur] = await t<{ starts_at: Date | string; ends_at: Date | string; published_at: Date | string | null }[]>`
+      SELECT starts_at, ends_at, published_at FROM bb_seasons WHERE id = ${season.id} FOR UPDATE`;
+    const same = (a: Date | string | null | undefined, b: Date | string | null | undefined) => (a == null || b == null ? a == b : new Date(a).getTime() === new Date(b).getTime());
+    if (!cur || !same(cur.starts_at, season.starts_at) || !same(cur.ends_at, season.ends_at) || !same(cur.published_at, season.published_at)) return false;
     await t`DELETE FROM bb_points WHERE season_id = ${season.id}`;
     for (let i = 0; i < rows.length; i += 1000) {
       const part = rows.slice(i, i + 1000);
@@ -207,7 +214,9 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
                AS u(w, c, s, tot, e, rc, rs, b)`; // booleans and nullable ints travel as text: the driver does not type those arrays
     }
     await t`UPDATE bb_seasons SET computed_at = now(), computed_until = ${until} WHERE id = ${season.id}`;
+    return true;
   });
+  if (!wrote) return { skipped: "the season changed while it was being computed (the next run uses the new window)" };
   if (dropped) console.log(`[points] ${season.slug}: ${dropped} token(s) without a price left out of this run`);
   return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0 };
 }
@@ -267,6 +276,7 @@ export async function recomputeNow(): Promise<ComputeResult | { error: string } 
 // ── read ─────────────────────────────────────────────────────────────────────
 type PointsRaw = { wallet: string; creator: number; scout: number; total: number; eligible: boolean; rank_creator: number | null; rank_scout: number | null; breakdown: { creator: CreatorBreakdown; scout: ScoutBreakdown }; computed_at: string };
 
+/** One board of a season (eligible wallets, by rank) with the names to show. */
 export async function boardRows(seasonId: number, board: Board, limit = 100): Promise<{ rows: BoardRow[]; names: Record<string, NameEntry> }> {
   const db = maybeDb();
   if (!db) return { rows: [], names: {} };
@@ -279,6 +289,7 @@ export async function boardRows(seasonId: number, board: Board, limit = 100): Pr
   return { rows, names: await namesFor(rows.map((r) => r.wallet)) };
 }
 
+/** One wallet's points and ranks in a season, or null. */
 export async function walletPoints(seasonId: number, wallet: string): Promise<WalletPoints | null> {
   const db = maybeDb();
   if (!db || !isAddress(wallet)) return null;
@@ -312,7 +323,12 @@ export async function startSeason(days = 28): Promise<Season> {
  * points are dropped (they were for tuning). Any later publish (after hiding the boards, or of an ended season) only
  * shows the boards again: the clock and the points stay as they are.
  */
-export async function publishSeason(id: number): Promise<"started" | "shown"> {
+/**
+ * Make a season public. The first publish starts its clock now and drops the shadow run's rows ("started"); showing a
+ * season again after a hide changes neither ("shown"). A season that never went public and has ended is "refused":
+ * its shadow boards were never told to anyone, and they never become public.
+ */
+export async function publishSeason(id: number): Promise<"started" | "shown" | "refused"> {
   const db = maybeDb()!;
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
@@ -323,16 +339,18 @@ export async function publishSeason(id: number): Promise<"started" | "shown"> {
       await t`DELETE FROM bb_points WHERE season_id = ${id}`;
       return "started" as const;
     }
-    await t`UPDATE bb_seasons SET public = true WHERE id = ${id}`;
-    return "shown" as const;
-  }) as Promise<"started" | "shown">;
+    const shown = await t`UPDATE bb_seasons SET public = true WHERE id = ${id} AND published_at IS NOT NULL RETURNING id`;
+    return shown.length ? ("shown" as const) : ("refused" as const);
+  }) as Promise<"started" | "shown" | "refused">;
 }
 
+/** Take a season's boards out of public view (its clock and points stay). */
 export async function hideSeason(id: number): Promise<void> {
   const db = maybeDb()!;
   await db`UPDATE bb_seasons SET public = false WHERE id = ${id}`;
 }
 
+/** End a season now (or keep an earlier end): the final compute follows. */
 export async function endSeasonNow(id: number): Promise<void> {
   const db = maybeDb()!;
   await db`UPDATE bb_seasons SET ends_at = LEAST(ends_at, now()) WHERE id = ${id}`;

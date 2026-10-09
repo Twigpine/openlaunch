@@ -35,6 +35,7 @@ type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens
 type Pending = Record<string, FeeSides | null>; // key chain:token → uncollected fees on both sides (raw), null = unknown
 type Balances = Record<string, bigint | null>;
 
+/** A launch's key in the balances map (chain and token). */
 const key = (l: { chain: ChainKey; token: string }) => `${l.chain}:${l.token}`;
 
 /**
@@ -199,9 +200,12 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   </div>;
 
   if (!me) {
+    // the season card sits in the same place in every state (points come from their own endpoint, so they show even
+    // when the dashboard could not load), and React keeps the same card as the dashboard arrives
     return (
       <div className={styles.dashboard}>
         {walletBar}
+        <SeasonCard address={address} />
         {err ? <div className={styles.error} role="alert"><h2>We couldn’t load your dashboard.</h2><p>{err}. Your wallet and tokens are unchanged.</p><button type="button" className={styles.outlineButton} onClick={() => void load()} disabled={refreshing}>Try again<RefreshCw size={14} aria-hidden="true" /></button></div> : <div className={styles.loading} aria-busy="true" aria-label="Loading your dashboard"><dl className={styles.loadingStats}>{Array.from({ length: 4 }, (_, k) => <SkStat key={k} />)}</dl><ul className={styles.loadingRows}>{Array.from({ length: 3 }, (_, k) => <SkRow key={k} i={k} />)}</ul></div>}
       </div>
     );
@@ -371,6 +375,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   );
 }
 
+/** One figure in the dashboard's stats row. */
 function Stat({ k, icon, v, hint, accent }: { k: string; icon: React.ReactNode; v: string; hint: string; accent?: "up" | "warm" }) {
   return (
     <div className={styles.stat}>
@@ -381,6 +386,7 @@ function Stat({ k, icon, v, hint, accent }: { k: string; icon: React.ReactNode; 
   );
 }
 
+/** What a dashboard section shows when it has nothing yet, with the one next step. */
 function EmptyState({ icon, title, description, href, action }: { icon: "launches" | "holdings" | "trades"; title: string; description: string; href: string; action: string }) {
   const Icon = icon === "launches" ? Layers3 : icon === "holdings" ? Wallet : ArrowDownLeft;
   return <div className={styles.empty}><span className={styles.emptyIcon} aria-hidden="true"><Icon size={24} strokeWidth={1.5} /></span><h3>{title}</h3><p>{description}</p><Link href={href} className={styles.outlineButton}>{action}<ArrowRight size={15} aria-hidden="true" /></Link></div>;

@@ -103,9 +103,12 @@ export type ScoutBreakdown = { early: number; holds: number; feesUsd: number };
 export type WalletScore = { wallet: string; creator: number; scout: number; total: number; creatorWhy: CreatorBreakdown; scoutWhy: ScoutBreakdown };
 export type ScoreResult = { wallets: Map<string, WalletScore>; realHolders: Map<string, number> };
 
+/** A raw token amount in whole units. */
 const units = (raw: bigint, decimals: number) => Number(raw) / 10 ** decimals;
+/** The UTC day number of a moment (for per-day caps and the best-3-per-launch-day rule). */
 const utcDay = (ms: number) => Math.floor(ms / DAY);
 
+/** Score one season from the chain index (pure): real buyers and holders, creator and scout points, caps, and the why behind each. */
 export function scoreSeason(input: ScoreInput): ScoreResult {
   const end = Math.min(input.now, input.seasonEnd);
   // only priced tokens take part: an unpriced quote has no dollar floor to hold anything to
@@ -387,6 +390,7 @@ export function isEligible(p: { x_status: string; x_account_created: string | nu
 
 /** Why a wallet is not on the board yet (for /me): the one step that would change it. */
 export type NotEligibleReason = "no_profile" | "not_verified" | "account_too_new" | "few_followers" | "hidden" | "kept_off";
+/** Why a wallet is not on the board yet, as the one step that would change it (null when it is eligible). */
 export function notEligibleReason(p: { x_status: string; x_account_created: string | null; x_followers: number | null; points_flag: string | null; hidden: boolean; deleted_at?: string | null } | null, now: number): NotEligibleReason | null {
   if (!p || p.deleted_at) return "no_profile";
   if (p.points_flag) return "kept_off";

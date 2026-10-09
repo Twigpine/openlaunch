@@ -12,10 +12,12 @@ import { pageMetadata } from "@/lib/seo";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = pageMetadata({ path: "/leaderboard", title: "Leaderboard", description: "Season points for creators whose tokens find real buyers and traders who find them early. Computed from the chain every hour." });
 
+/** Whole days until a season ends (0 once it has). */
 function daysLeft(endsAt: string): number {
   return Math.max(0, Math.ceil((new Date(endsAt).getTime() - Date.now()) / 86_400_000));
 }
 
+/** The public season's Creators and Scouts boards, your own standing, or the "almost here" teaser before a season is public. */
 export default async function LeaderboardPage({ searchParams }: { searchParams: Promise<{ board?: string }> }) {
   const { board: raw } = await searchParams;
   const board: Board = raw === "scout" ? "scout" : "creator";

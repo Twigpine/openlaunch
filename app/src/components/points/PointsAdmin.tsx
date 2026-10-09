@@ -30,6 +30,7 @@ export default function PointsAdmin() {
   const [loaded, setLoaded] = useState<{ wallet: string; v: Preview } | null>(null);
   const [failed, setFailed] = useState<{ wallet: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const data = loaded?.wallet === me ? loaded.v : null;
   const err = failed?.wallet === me ? failed.message : null;
   const current = useRef(me);
@@ -111,8 +112,22 @@ export default function PointsAdmin() {
               {s && !s.public ? <button type="button" disabled={busy} className={!s.published_at && running ? btn.primarySm : btn.secondarySm} onClick={() => void run("publish")}>{!s.published_at && running ? `Publish: ${s.name} starts now` : "Show boards"}</button> : null}
               {s && s.public ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("unpublish")}>Hide boards</button> : null}
               {s ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("recompute")}>Recompute now</button> : null}
-              {running ? <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("end")}>End season now</button> : null}
+              {running && !confirmEnd ? <button type="button" disabled={busy} className={btn.dangerSm} onClick={() => setConfirmEnd(true)}>{s?.published_at ? "End season now" : "Discard the hidden run"}</button> : null}
             </div>
+            {running && confirmEnd && s ? (
+              // ending is for good: say what it means before the signature, above all for a run that never went public
+              <div className="space-y-2 rounded-xl border border-down/30 bg-down-soft p-3" role="group" aria-label="End the season">
+                <p className="text-body text-pretty">
+                  {s.published_at
+                    ? `End ${s.name} now? Its final standings are computed once and stay on the board; it cannot be restarted.`
+                    : `Discard ${s.name}'s hidden run? It never went public, so it can never be published after this: start a new season instead.`}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => setConfirmEnd(false)}>Keep it running</button>
+                  <button type="button" disabled={busy} className={btn.dangerSm} onClick={() => { setConfirmEnd(false); void run("end"); }}>{s.published_at ? "End it now" : "Discard it"}</button>
+                </div>
+              </div>
+            ) : null}
           </div>
           {s ? <div className="grid gap-3 md:grid-cols-2">{list("Creators (top 50, eligible or not)", data.creator)}{list("Scouts (top 50, eligible or not)", data.scout)}</div> : null}
         </>

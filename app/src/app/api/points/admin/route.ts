@@ -36,6 +36,8 @@ export async function POST(req: Request) {
         // a shadow run that ended without ever going public has no standings anyone was told about
         if (!season.published_at && seasonEnded(season)) return NextResponse.json({ error: `${season.name} ended without being published; start a new season` }, { status: 409 });
         const r = await publishSeason(season.id);
+        // it ended in the moment between the check above and the publish
+        if (r === "refused") return NextResponse.json({ error: `${season.name} ended without being published; start a new season` }, { status: 409 });
         if (r === "started") void recomputeNow().catch(() => {});
         return NextResponse.json({ ok: true, result: r });
       }

@@ -50,6 +50,7 @@ const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr:
   ],
 };
 
+/** The rules: launching, fees, posting, and how Season points are earned (no cash value, not a token). */
 export default function RulesPage() {
   return (
     <main className={`${shell.page} ${styles.guide}`}>
