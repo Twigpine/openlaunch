@@ -17,7 +17,7 @@ const tokensFor = (ethIn: number) => BigInt(Math.round((ethIn * 2000) / 0.001)) 
 type Move = ScoreInput["moves"][number];
 
 function input(over: Partial<ScoreInput> = {}): ScoreInput {
-  return { seasonStart: START, seasonEnd: START + 28 * DAY, now: NOW, launches: [L], swaps: [], firstBuys: [], moves: [], launcherBuys: new Map(), linked: new Map(), system: new Set(["0xpool"]), eligible: new Set(), flagged: new Set(), ...over };
+  return { seasonStart: START, seasonEnd: START + 28 * DAY, now: NOW, launches: [L], swaps: [], firstBuys: [], moves: [], launcherBuys: new Map(), linked: new Map(), system: new Set(["0xpool"]), eligible: new Set(), flagged: new Set(), seasonStartBlocks: new Map([["base", 1_000]]), ...over };
 }
 let n = 0;
 /** a wallet that bought `ethIn` at `t` (the swap, then its token transfer in) and later sold all but `keep` of it */
@@ -245,4 +245,63 @@ test("ranks only eligible wallets, ties share a rank; why lines read plainly", (
   ];
   assert.deepEqual([...rankBy(scores, "creator", new Set(["a", "b"])).entries()], [["a", 1], ["b", 1]]);
   assert.equal(whyLine("creator", scores[0]), "2 verified holders · 1 holder · $12.50 fees from verified traders");
+});
+
+// ── review on PR 85 ──────────────────────────────────────────────────────────
+test("dump through a side wallet: moving the bought tokens out in the season and selling elsewhere is a dump too", () => {
+  const b = buyer(w(1), START + DAY, 0.01);
+  const bought = new Map([[L.key, [{ tx: "0xcb", tokenRaw: 1_000_000n * E18 }]]]);
+  const boughtIn: Move = { key: L.key, wallet: CREATOR, block: 50, logIndex: 1, tx: "0xcb", delta: 1_000_000n * E18 };
+  const toSide: Move = { key: L.key, wallet: CREATOR, block: 3000, logIndex: 5, tx: "0xside", delta: -700_000n * E18 }; // no swap by the creator
+  const sideSell: ScoreSwap = { key: L.key, trader: "0xside", isBuy: false, quoteRaw: eth(0.1), tokenRaw: 700_000n * E18, block: 3001, logIndex: 1, time: START + 2 * DAY, tx: "0xss" };
+  const r = scoreSeason(build([b], { swaps: [b.swap, sideSell], launcherBuys: bought, moves: [...b.moves, boughtIn, toSide] }));
+  assert.equal(r.wallets.get(CREATOR)?.creator ?? 0, 0);
+  // the same transfer before the season is no dump of this season
+  const early: Move = { ...toSide, block: 500 }; // the season starts at block 1,000 in these tests
+  const r2 = scoreSeason(build([b], { swaps: [b.swap], launcherBuys: bought, moves: [...b.moves, boughtIn, early] }));
+  assert.ok((r2.wallets.get(CREATOR)?.creator ?? 0) > 0, "moved before the season: this season's points stand");
+  // burning them is not moving them out
+  const burned = scoreSeason(build([b], { swaps: [b.swap], launcherBuys: bought, moves: [...b.moves, boughtIn, { ...toSide, burn: true }] }));
+  assert.ok((burned.wallets.get(CREATOR)?.creator ?? 0) > 0, "a burn is no dump");
+});
+
+test("best 3 per launch day are ranked with the fee cap applied: one big fee payer cannot push out real holders", () => {
+  const launches = ["0xa", "0xb", "0xc", "0xd"].map((t, i) => ({ ...L, key: `base:${t}`, launchTime: START - DAY + i }));
+  // 0xa: one eligible trader paying $20 of fees in a day (200 points uncapped, 50 capped), no holders worth more
+  const whale = buyer(w(900), START + DAY, 20 / 0.01 / 2000, 1, launches[0]); // $2,000 buy → $20 fee at 1%
+  // 0xb..0xd: 3 eligible holders each (45 each after a week): 135 apiece. 0xa is worth 45 (the whale holds) + 50
+  // (its fees capped) = 95; ranked uncapped it looked like 245 and pushed one of the 135s out
+  const fans = [3, 3, 3].flatMap((count, i) => Array.from({ length: count }, (_, j) => buyer(w(100 * (i + 1) + j), START + DAY, 0.003, 1, launches[i + 1])));
+  const eligible = new Set([w(900), ...fans.map((f) => f.first.wallet)]);
+  const r = scoreSeason(build([whale, ...fans], { launches, eligible }));
+  const c = r.wallets.get(CREATOR)!;
+  assert.equal(c.creatorWhy.tokens, 3);
+  // the true best three are 0xb, 0xc and 0xd (3 × 135 = 405, plus their holders' own small fees), not 0xa's 95
+  assert.ok(c.creator >= 405, `creator ${c.creator}`);
+  assert.equal(c.creatorWhy.verifiedHolders, 9, "every fan counted; the whale's token was the one cut");
+});
+
+test("holds come only from a token the wallet first bought in the season (with a real first buy)", () => {
+  // held from before the season, bought again in it: no hold point for the second buy
+  const before = buyer(w(1), START - DAY, 0.003);
+  const again = buyer(w(1), START + DAY, 0.003);
+  const r = scoreSeason(input({ swaps: [before.swap, again.swap], firstBuys: [before.first], moves: [...before.moves, ...again.moves] }));
+  assert.equal(r.wallets.get(w(1))?.scoutWhy.holds ?? 0, 0);
+  // a first buy that was not a real one (under $5), then a real-sized buy: still no hold point
+  const tiny = buyer(w(2), START + DAY, 0.001); // $2
+  const bigger = buyer(w(2), START + 2 * DAY, 0.003);
+  const r2 = scoreSeason(input({ swaps: [tiny.swap, bigger.swap], firstBuys: [tiny.first], moves: [...tiny.moves, ...bigger.moves] }));
+  assert.equal(r2.wallets.get(w(2))?.scoutWhy.holds ?? 0, 0);
+});
+
+test("a buy whose tokens the wallet never received (a relayer or bundler the swap was credited to) is no real buy", () => {
+  const real = Array.from({ length: 52 }, (_, i) => buyer(w(i + 1), START + DAY + 100 + i, 0.003, 1, L, 1100 + i));
+  // a relayer credited with 25 early swaps: the tokens went to someone else, so no move into the relayer
+  const relayed = Array.from({ length: 25 }, (_, i) => {
+    const b = buyer(`0xrelay${i}`, START + DAY + i, 0.003, 1, L, 1000 + i);
+    return { ...b, moves: b.moves.map((m) => ({ ...m, wallet: `0xuser${i}` })) };
+  });
+  const r = scoreSeason(build([...relayed, ...real]));
+  assert.equal(r.wallets.get("0xrelay0")?.scoutWhy.early ?? 0, 0, "the relayer takes no early slot");
+  assert.equal(r.wallets.get(w(1))!.scoutWhy.early, 1, "the first real buyers keep theirs");
 });

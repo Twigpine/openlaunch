@@ -114,16 +114,23 @@ let museworldUsdNow: number | null = null;
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
 
-/** Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a registry stock, else an unlisted quote. */
-function quoteInfo(chain: ChainKey, address: string): Quote {
+/** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
+type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
+const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
+
+/**
+ * Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a
+ * registry stock, else an unlisted quote. Priced from `st` (the prices loaded now unless a snapshot is passed).
+ */
+function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState()): Quote {
   const q = staticQuoteInfo(chain, address);
-  const linked = gitlawbLinkedUsd(q.key, gitlawbUsdNow); // GITLAWB, and TWIG at the same price
+  const linked = gitlawbLinkedUsd(q.key, st.gitlawb); // GITLAWB, and TWIG at the same price
   if (linked !== undefined) return { ...q, usd: linked };
-  if (q.key === "museworld") return { ...q, usd: museworldUsdNow };
+  if (q.key === "museworld") return { ...q, usd: st.museworld };
   if (q.key !== "other") return q;
-  const st = stockByAddress(chain, address);
-  if (st) return { key: "stock", address: st.address as Quote["address"], symbol: st.symbol, decimals: st.decimals, usd: stockUsdNow.get(st.address) ?? null, name: st.name, logo: st.logo };
-  return unlistedQuote(address, quoteTokensNow.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, stockSymbolsNow.get(chain) ?? []);
+  const stock = stockByAddress(chain, address);
+  if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo };
+  return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, st.stockSymbols.get(chain) ?? []);
 }
 
 /**
@@ -800,8 +807,10 @@ export async function getTrending(ethUsd: number | null = null): Promise<Trendin
  */
 export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: string; decimals: number; usd: number | null }> {
   await withStocks();
+  // one snapshot for the caller's whole run: a page refresh loading new prices meanwhile must not change it halfway
+  const snap = priceState();
   return (chain, quote) => {
-    const q = quoteInfo(chain, quote);
+    const q = quoteInfo(chain, quote, snap);
     return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd) };
   };
 }

@@ -5,8 +5,10 @@
  * built on two definitions that cost real money to fake:
  *
  *   real buyer  = a wallet whose FIRST buy of a token was ≥ $5, outside the sniper window (the launch block + 3, and
- *                 the first 12 seconds), and that is not the launcher, a fee recipient, a protocol address, a wallet
- *                 that got the token by transfer from the launcher or a recipient, or a wallet kept off points
+ *                 the first 12 seconds), that received the tokens of that buy itself (a relayer or bundler a swap was
+ *                 credited to, or a router forwarding to someone else, is not a buyer), and that is not the launcher,
+ *                 a fee recipient, a protocol address, a wallet that got the token by transfer from the launcher or a
+ *                 recipient, or a wallet kept off points
  *   real holder = a real buyer with ≥ $5 (≥ $1 if their profile is points-eligible) of that first buy's lot still left
  *
  * "Held" is judged per buy, from the transfer history: every incoming transfer is a lot, and every outgoing one (a sell,
@@ -21,12 +23,15 @@
  *       else 5; a week or more ago: half again. A holder counts once per creator (their best token).
  *     - 10 per $1 of fees on buys ≥ $5 by points-eligible outside traders, for each buy half of which has been held ever
  *       since (a round trip earns nothing); at most 50 per trader per creator per day
- *     - a token scores 0 if its creator sold during the season and less than half of their own buys is left
- *     - of the tokens a wallet launched on one UTC day, only the best 3 count
+ *     - a token scores 0 if its creator moved tokens out during the season (a sell, or a transfer to any wallet, a
+ *       side wallet that then sells included; burning is not moving out) and less than half of their own buys is
+ *       left
+ *     - of the tokens a wallet launched on one UTC day, only the best 3 count (ranked with the fee cap applied)
  *   Scout (traders)
  *     - one of the first 25 real buyers of a token that now has 50+ real holders, buying in the season: 100, and 50
  *       more while still holding half of that first buy
- *     - 5 per token first bought in the season (≥ $5) and still half-held a day later; at most 20 tokens per UTC day
+ *     - 5 per token the wallet first bought in the season (a real buy) and still half-held a day later; at most 20
+ *       tokens per UTC day
  *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ real holders (5+ of them eligible), for
  *       each buy half of which has been held ever since; at most 200 a day
  *
@@ -85,8 +90,11 @@ export type ScoreInput = {
   /** swaps inside the season, any order */
   swaps: readonly ScoreSwap[];
   firstBuys: readonly FirstBuy[];
-  /** every balance change (raw, 18 decimals) of buyers and launchers of the tokens in scope, from the transfer history */
-  moves: readonly { key: string; wallet: string; block: number; logIndex: number; tx: string; delta: bigint }[];
+  /**
+   * every balance change (raw, 18 decimals) of buyers and launchers of the tokens in scope, from the transfer history;
+   * `burn` marks tokens sent to a burn address (0x0, 0x…dead)
+   */
+  moves: readonly { key: string; wallet: string; block: number; logIndex: number; tx: string; delta: bigint; burn?: boolean }[];
   /** the launcher's own buys of each token, all-time (transaction + tokens bought) */
   launcherBuys: ReadonlyMap<string, readonly { tx: string; tokenRaw: bigint }[]>;
   /** per token: wallets that received it by transfer from the launcher or a fee recipient */
@@ -96,6 +104,11 @@ export type ScoreInput = {
   eligible: ReadonlySet<string>;
   /** kept off points by an admin: never points, never anyone's buyer, holder or trader */
   flagged: ReadonlySet<string>;
+  /**
+   * per chain (the key's prefix, "base"): the first block of the season. Transfers carry blocks, not times, so this is
+   * what tells a creator's in-season outflows from earlier ones. A chain missing here counts only swap sells.
+   */
+  seasonStartBlocks: ReadonlyMap<string, number>;
 };
 
 export type CreatorBreakdown = { tokens: number; verifiedHolders: number; holders: number; feesUsd: number; dumped: number };
@@ -130,6 +143,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   // lots per (token, wallet): each incoming transfer is a lot; each outgoing one uses up the newest lots first (LIFO).
   // A lot only ever shrinks, so what is left of it at the end is the least it ever held. Linear in the moves.
   const lotsByTx = new Map<string, bigint>(); // `${key}|${wallet}|${tx}` → what is left of the lots that tx brought in
+  const receivedByTx = new Map<string, bigint>(); // `${key}|${wallet}|${tx}` → what that tx brought in at all
   {
     const byPair = new Map<string, Map<string, { block: number; logIndex: number; tx: string; delta: bigint }>>();
     for (const m of input.moves) {
@@ -148,6 +162,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
           const lot = { tx: m.tx, left: m.delta };
           stack.push(lot);
           all.push(lot);
+          receivedByTx.set(`${k}|${m.tx}`, (receivedByTx.get(`${k}|${m.tx}`) ?? 0n) + m.delta);
         } else if (m.delta < 0n) {
           let out = -m.delta;
           while (out > 0n && stack.length) {
@@ -170,11 +185,15 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     return left > 0n && left * 2n >= boughtRaw;
   };
 
+  /** The wallet received at least half of what a buy bought, in that buy's own transaction. */
+  const received = (key: string, w: string, tx: string, boughtRaw: bigint) => (receivedByTx.get(`${key}|${w}|${tx}`) ?? 0n) * 2n >= boughtRaw;
+
   // real buyers per token, in buy order
   const realBuyers = new Map<string, FirstBuy[]>();
   for (const f of input.firstBuys) {
     const l = launches.get(f.key);
     if (!l || insider(l, f.wallet) || sniper(l, f.block, f.time) || quoteUsd(l, f.quoteRaw) < RULES.minTradeUsd) continue;
+    if (!received(f.key, f.wallet, f.tx, f.tokenRaw)) continue; // the tokens went to someone else: not this wallet's buy
     const list = realBuyers.get(f.key) ?? [];
     list.push(f);
     realBuyers.set(f.key, list);
@@ -234,13 +253,22 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
   }
+  // the creator's in-season outflows of each token: a sell, or tokens moved to any other wallet (one that then sells
+  // included; a burn is not one), told from earlier ones by the season's first block on that chain
+  const creatorOut = new Set(creatorSold);
+  for (const m of input.moves) {
+    const l = launches.get(m.key);
+    if (!l || m.wallet !== l.launcher || m.delta >= 0n || m.burn) continue;
+    const from = input.seasonStartBlocks.get(m.key.split(":")[0]);
+    if (from !== undefined && m.block >= from) creatorOut.add(m.key);
+  }
   for (const t of perToken.values()) {
     const buys = input.launcherBuys.get(t.l.key) ?? [];
     const bought = buys.reduce((a, b) => a + b.tokenRaw, 0n);
     const left = buys.reduce((a, b) => a + leftOf(t.l.key, t.l.launcher, b.tx), 0n);
-    // a dump = sold during the season and less than half of the creator's own buys is left (fee tokens that came in
-    // after the buys are used up first, so selling those is not one)
-    if (bought > 0n && creatorSold.has(t.l.key) && left * 2n < bought) t.dumped = true;
+    // a dump = tokens moved out during the season and less than half of the creator's own buys is left (fee tokens
+    // that came in after the buys are used up first, so selling those is not one)
+    if (bought > 0n && creatorOut.has(t.l.key) && left * 2n < bought) t.dumped = true;
   }
   // per creator: each holder once (their best token), fees capped per trader per day, best 3 tokens per launch day
   const byCreator = new Map<string, TokenCreator[]>();
@@ -252,16 +280,12 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   }
   for (const [creator, tokens] of byCreator) {
     const s = get(creator);
-    const value = new Map<TokenCreator, number>();
-    const counted = new Set<string>();
-    const feeUsed = new Map<string, number>();
-    // holders: each holder once, on the token where they are worth the most. Two passes: pick each launch day's best
-    // tokens with every holder on their best token, then put each holder on their best token among those that count,
-    // so a holder whose favourite token was cut still counts on another
-    const assign = (allowed: (t: TokenCreator) => boolean) => {
+    const live = tokens.filter((t) => !t.dumped);
+    s.creatorWhy.dumped = tokens.length - live.length;
+    // each holder once, on the token where they are worth the most among `pool`
+    const assign = (pool: readonly TokenCreator[]) => {
       const best = new Map<string, { t: TokenCreator; pts: number; eligible: boolean }>();
-      for (const t of tokens) {
-        if (t.dumped || !allowed(t)) continue;
+      for (const t of pool) {
         for (const h of t.holders) {
           const cur = best.get(h.wallet);
           if (!cur || h.pts > cur.pts) best.set(h.wallet, { t, pts: h.pts, eligible: h.eligible });
@@ -269,53 +293,54 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
       }
       return best;
     };
-    const firstPass = new Map<TokenCreator, number>();
-    for (const [, h] of assign(() => true)) firstPass.set(h.t, (firstPass.get(h.t) ?? 0) + h.pts);
-    const kept = new Set<TokenCreator>();
-    const daysFirst = new Map<number, TokenCreator[]>();
-    for (const t of tokens) {
-      const d = utcDay(t.l.launchTime);
-      daysFirst.set(d, [...(daysFirst.get(d) ?? []), t]);
-    }
-    const rough = (t: TokenCreator) => (firstPass.get(t) ?? 0) + t.fees.reduce((a, f) => a + f.usd * RULES.creatorFeePointsPerUsd, 0);
-    for (const list of daysFirst.values()) for (const t of [...list].sort((a, b) => rough(b) - rough(a)).slice(0, RULES.bestTokensPerDay)) kept.add(t);
-    const holderBest = assign((t) => kept.has(t));
-    for (const [, h] of holderBest) value.set(h.t, (value.get(h.t) ?? 0) + h.pts);
-    const feeUsd = new Map<TokenCreator, number>();
-    for (const t of tokens) {
-      if (t.dumped || !kept.has(t)) continue;
+    /** Fee points of one token, at most 50 per trader per day, counting what `used` already holds for this creator. */
+    const feePoints = (t: TokenCreator, used: Map<string, number>) => {
+      let pts = 0;
+      let usd = 0;
       for (const f of t.fees) {
         const k = `${f.trader}|${f.day}`;
-        const used = feeUsed.get(k) ?? 0;
-        const pts = Math.min(f.usd * RULES.creatorFeePointsPerUsd, RULES.creatorFeeCapPerTraderDay - used);
-        if (pts <= 0) continue;
-        feeUsed.set(k, used + pts);
-        value.set(t, (value.get(t) ?? 0) + pts);
-        feeUsd.set(t, (feeUsd.get(t) ?? 0) + f.usd);
+        const already = used.get(k) ?? 0;
+        const p = Math.min(f.usd * RULES.creatorFeePointsPerUsd, RULES.creatorFeeCapPerTraderDay - already);
+        if (p <= 0) continue;
+        used.set(k, already + p);
+        pts += p;
+        usd += f.usd;
       }
-    }
+      return { pts, usd };
+    };
+    // the best 3 tokens of each launch day, ranked by what each would actually be worth: its holders (each on their
+    // best token) and its fees with the per-trader-per-day cap applied (an uncapped estimate let one big fee payer
+    // push a token with real holders out of the 3)
+    const firstPass = new Map<TokenCreator, number>();
+    for (const [, h] of assign(live)) firstPass.set(h.t, (firstPass.get(h.t) ?? 0) + h.pts);
+    const estimate = new Map(live.map((t) => [t, (firstPass.get(t) ?? 0) + feePoints(t, new Map()).pts]));
     const byDay = new Map<number, TokenCreator[]>();
-    for (const t of tokens) {
-      if (t.dumped) s.creatorWhy.dumped++;
+    for (const t of live) {
       const d = utcDay(t.l.launchTime);
-      const list = byDay.get(d) ?? [];
-      list.push(t);
-      byDay.set(d, list);
+      byDay.set(d, [...(byDay.get(d) ?? []), t]);
     }
-    for (const list of byDay.values()) {
-      list.sort((a, b) => (value.get(b) ?? 0) - (value.get(a) ?? 0));
-      for (const t of list.slice(0, RULES.bestTokensPerDay)) {
-        const v = value.get(t) ?? 0;
-        if (v <= 0) continue;
-        s.creator += v;
-        s.creatorWhy.tokens++;
-        s.creatorWhy.feesUsd += feeUsd.get(t) ?? 0;
-        for (const [w, h] of holderBest) {
-          if (h.t !== t || counted.has(w)) continue;
-          counted.add(w);
-          if (h.eligible) s.creatorWhy.verifiedHolders++;
-          else s.creatorWhy.holders++;
-        }
+    const kept: TokenCreator[] = [];
+    for (const list of byDay.values()) kept.push(...[...list].sort((a, b) => (estimate.get(b) ?? 0) - (estimate.get(a) ?? 0)).slice(0, RULES.bestTokensPerDay));
+    kept.sort((a, b) => (estimate.get(b) ?? 0) - (estimate.get(a) ?? 0) || a.l.key.localeCompare(b.l.key));
+    // the count: each holder on their best kept token (a holder whose favourite was cut still counts on another), and
+    // fees with the cap shared across all of this creator's kept tokens
+    const holderBest = assign(kept);
+    const value = new Map<TokenCreator, number>();
+    for (const [, h] of holderBest) value.set(h.t, (value.get(h.t) ?? 0) + h.pts);
+    const feeUsed = new Map<string, number>();
+    const counted = new Set<string>();
+    for (const t of kept) {
+      const fees = feePoints(t, feeUsed);
+      const v = (value.get(t) ?? 0) + fees.pts;
+      if (v <= 0) continue;
+      s.creator += v;
+      s.creatorWhy.tokens++;
+      s.creatorWhy.feesUsd += fees.usd;
+      for (const [wallet, h] of holderBest) {
+        if (h.t !== t || counted.has(wallet)) continue;
+        counted.add(wallet);
+        if (h.eligible) s.creatorWhy.verifiedHolders++;
+        else s.creatorWhy.holders++;
       }
     }
   }
@@ -330,21 +355,19 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
       s.scoutWhy.early++;
     }
   }
-  const firstSeasonBuy = new Map<string, ScoreSwap>();
-  for (const s of outside) {
-    if (!s.isBuy) continue;
-    const k = `${s.key}|${s.trader}`;
-    const cur = firstSeasonBuy.get(k);
-    if (!cur || s.time < cur.time) firstSeasonBuy.set(k, s);
-  }
+  // holds: a token the wallet FIRST bought in the season (its first buy ever was a real buy, in the season), half of
+  // that buy held a day later; a later buy of a token held from before the season, or after a first buy that was not
+  // a real one (a sniper, under $5), earns nothing
+  const firstInSeason: FirstBuy[] = [];
+  for (const list of realBuyers.values()) for (const f of list) if (inSeason(f.time)) firstInSeason.push(f);
   const holdsPerDay = new Map<string, number>();
-  for (const s of [...firstSeasonBuy.values()].sort((a, b) => a.time - b.time)) {
-    if (end - s.time < DAY || !heldBuy(s)) continue;
-    const dayKey = `${s.trader}|${utcDay(s.time)}`;
+  for (const f of firstInSeason.sort((a, b) => a.time - b.time || a.block - b.block || a.logIndex - b.logIndex)) {
+    if (end - f.time < DAY || !halfLeft(f.key, f.wallet, f.tx, f.tokenRaw)) continue;
+    const dayKey = `${f.wallet}|${utcDay(f.time)}`;
     const n = holdsPerDay.get(dayKey) ?? 0;
     if (n >= RULES.holdTokensPerDay) continue;
     holdsPerDay.set(dayKey, n + 1);
-    const w = get(s.trader);
+    const w = get(f.wallet);
     w.scout += RULES.hold;
     w.scoutWhy.holds++;
   }
@@ -390,6 +413,9 @@ export function isEligible(p: { x_status: string; x_account_created: string | nu
 
 /** Why a wallet is not on the board yet (for /me): the one step that would change it. */
 export type NotEligibleReason = "no_profile" | "not_verified" | "account_too_new" | "few_followers" | "hidden" | "kept_off";
+/** The reasons anyone may be told (being kept off points is a moderator's call that never is). */
+export type PublicReason = Exclude<NotEligibleReason, "kept_off">;
+export const PUBLIC_REASONS: readonly PublicReason[] = ["no_profile", "not_verified", "account_too_new", "few_followers", "hidden"];
 /** Why a wallet is not on the board yet, as the one step that would change it (null when it is eligible). */
 export function notEligibleReason(p: { x_status: string; x_account_created: string | null; x_followers: number | null; points_flag: string | null; hidden: boolean; deleted_at?: string | null } | null, now: number): NotEligibleReason | null {
   if (!p || p.deleted_at) return "no_profile";

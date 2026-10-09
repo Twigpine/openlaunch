@@ -11,16 +11,26 @@ export function normalizeSeasonDays(raw: unknown): number {
   return Math.min(90, Math.max(1, Math.trunc(Number(raw) || 28)));
 }
 
+/** The actions that act on one named season (its id is signed with them). */
+export const SEASON_ACTIONS: readonly PointsAdminAction[] = ["publish", "unpublish", "end"];
+/** A season id as signed: a positive whole number, else 0 (no season). */
+export function normalizeSeasonId(raw: unknown): number {
+  const n = Math.trunc(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /**
- * The message an admin wallet signs for one points action. Starting a season also names its length, so a signed
- * request cannot be replayed with a different one.
+ * The message an admin wallet signs for one points action. Starting a season also names its length, and publish,
+ * hide and end name the season they act on, so a signed request can be replayed with neither a different length
+ * nor a different season.
  */
-export function buildPointsAdminMessage(p: { action: PointsAdminAction; wallet: string; nonce: string; ts: number; days?: number }): string {
+export function buildPointsAdminMessage(p: { action: PointsAdminAction; wallet: string; nonce: string; ts: number; days?: number; seasonId?: number }): string {
   return [
     `openlaunch.lol points`,
     ``,
     `Action: ${p.action}`,
     ...(p.action === "start" ? [`Season length: ${normalizeSeasonDays(p.days)} days`] : []),
+    ...(SEASON_ACTIONS.includes(p.action) ? [`Season: ${normalizeSeasonId(p.seasonId)}`] : []),
     `Admin: ${p.wallet.toLowerCase()}`,
     `Nonce: ${p.nonce}`,
     `Issued: ${new Date(p.ts).toISOString()}`,

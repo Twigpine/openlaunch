@@ -1,21 +1,33 @@
 import "server-only";
 import { isAddress } from "viem";
-import { CHAIN_KEYS, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
+import { publicClient } from "@/lib/chain";
+import { CHAIN_KEYS, chainKeyOf, chainIdOf, type ChainKey } from "@/lib/chainPublic";
+import { CONFIGURED_CHAINS } from "@/lib/launchpad/config";
 import { maybeDb, type Db } from "@/lib/db";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { DEAD_ADDR, ZERO_ADDR } from "@/lib/launchpad/holders";
-import { systemAddresses } from "@/lib/launchpad/indexer";
+import { launchDeployBlock, systemAddresses } from "@/lib/launchpad/indexer";
 import { quotePerToken } from "@/lib/launchpad/math";
 import { quotePricer } from "@/lib/launchpad/queries";
+import { lastBlockBetween } from "./blocks";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
-import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type CreatorBreakdown, type FirstBuy, type NotEligibleReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
+import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type CreatorBreakdown, type FirstBuy, type PublicReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
 
 /**
  * Season points, the server half: load one season's chain data, score it (score.ts), replace the season's rows.
  * Runs hourly from the sync loop (fire-and-forget, so indexing never waits for it) on ONE machine (session advisory
  * lock on a reserved connection, which also runs the reads one after another so the request pool stays free), and on
  * demand from /admin. Everything is recomputed from scratch, so a rule change or an admin flag applies to the whole
- * season on the next run. A run whose prices are incomplete writes nothing: the last board stays.
+ * season on the next run.
+ *
+ * Prices: without ETH, GITLAWB or TWIG a run writes nothing (the last board stays). Another quote that normally has a
+ * price (MUSEWORLD, a stock) but has none right now only takes its own tokens out of an hourly run, which the next run
+ * puts back; a run that would fix the FINAL standings writes nothing instead, so a price blip can never drop tokens
+ * from them for good. Tokens quoted in an unlisted pair never count (they have no price to hold anything to).
+ *
+ * Final standings are fixed only by a compute that read everything through the season's end: the clock passing the
+ * end is not enough, every indexer must have read past it too (computed_until is capped at the least of their
+ * cursors), and every read stops at the season's last block, so a late final compute sees the season as it ended.
  */
 
 export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null };
@@ -44,12 +56,11 @@ export function seasonEnded(s: Pick<Season, "ends_at">, now = Date.now()): boole
   return new Date(s.ends_at).getTime() <= now;
 }
 
-/** The final standings are fixed once a compute has read the data through the season's end. */
-/** Whether a season's final standings are in: a compute covered its end (the clock passing is not enough). */
+/**
+ * Whether a season's final standings are in: a compute covered its end, the indexers' progress included (the clock
+ * passing the end is not enough). After that the hourly and admin recomputes leave the season as it is.
+ */
 export function seasonFinal(s: Pick<Season, "computed_until" | "ends_at">): boolean {
-  return isFinal(s);
-}
-function isFinal(s: Pick<Season, "computed_until" | "ends_at">): boolean {
   return Boolean(s.computed_until && new Date(s.computed_until).getTime() >= new Date(s.ends_at).getTime());
 }
 
@@ -58,15 +69,102 @@ type LaunchRowRaw = { chain_id: number; token: string; launcher: string; recipie
 
 export type ComputeResult = { wallets: number; eligible: number; ms: number } | { skipped: string };
 
+/** The chains the indexer reads (configured, with a deploy block): the ones a season's data comes from. */
+const indexedChains = () => CONFIGURED_CHAINS.filter((c) => launchDeployBlock(c) > 0n);
+
+/**
+ * The time every indexer has read through: the least of their cursor blocks' timestamps (ms), or null when one cannot
+ * be told (no cursor yet, a node that does not answer). Final standings wait for it to pass the season's end.
+ */
+async function indexedThrough(read: Db): Promise<number | null> {
+  const rows = await read<{ chain_id: number; cursor_block: bigint }[]>`SELECT chain_id, cursor_block FROM bb_launch_sync_cursor`;
+  let least = Infinity;
+  for (const c of indexedChains()) {
+    const row = rows.find((r) => r.chain_id === chainIdOf(c));
+    if (!row || BigInt(row.cursor_block) <= 0n) return null;
+    try {
+      const b = await publicClient(c).getBlock({ blockNumber: BigInt(row.cursor_block) });
+      least = Math.min(least, Number(b.timestamp) * 1000);
+    } catch {
+      return null;
+    }
+  }
+  return Number.isFinite(least) ? least : null;
+}
+
+const lastBlockCache = new Map<string, bigint>();
+/**
+ * The last block on a chain whose time is before `ms` (transfers carry blocks, not times). Bracketed by the indexed
+ * swaps on either side of `ms` (checked against the node), then searched on block timestamps (lastBlockBetween: a
+ * few reads, not one per halving). Cached, as the past does not move. Throws when the node does not answer (the run
+ * is skipped and tried again).
+ */
+async function lastBlockBefore(read: Db, chain: ChainKey, ms: number): Promise<bigint> {
+  const k = `${chain}:${ms}`;
+  const hit = lastBlockCache.get(k);
+  if (hit !== undefined) return hit;
+  const at = new Date(ms).toISOString();
+  const cid = chainIdOf(chain);
+  const client = publicClient(chain);
+  const timeOf = async (b: bigint) => Number((await client.getBlock({ blockNumber: b })).timestamp) * 1000;
+  const keep = (b: bigint) => {
+    if (lastBlockCache.size > 2_000) lastBlockCache.clear();
+    lastBlockCache.set(k, b);
+    return b;
+  };
+  const [r] = await read<{ lo: bigint | null; hi: bigint | null }[]>`
+    SELECT (SELECT max(block_number) FROM bb_launch_swaps WHERE chain_id = ${cid} AND block_time < ${at}) AS lo,
+           (SELECT min(block_number) FROM bb_launch_swaps WHERE chain_id = ${cid} AND block_time >= ${at}) AS hi`;
+  // lo: a block before `ms` (the launchpad's deploy block when no swap says better)
+  const deploy = launchDeployBlock(chain);
+  let lo = r?.lo != null ? BigInt(r.lo) : deploy;
+  let tLo = await timeOf(lo);
+  if (tLo >= ms && lo !== deploy) [lo, tLo] = [deploy, await timeOf(deploy)];
+  if (tLo >= ms) return keep(deploy > 0n ? deploy - 1n : 0n); // nothing of the launchpad is before `ms`
+  // hi: a block at or after `ms` (the head when no swap says better)
+  let hi = r?.hi != null ? BigInt(r.hi) : await client.getBlockNumber();
+  let tHi = await timeOf(hi);
+  if (tHi < ms) {
+    const head = await client.getBlockNumber();
+    if (head !== hi) [hi, tHi] = [head, await timeOf(head)];
+    if (tHi < ms) return hi; // the chain has not reached `ms` yet: its head, not cached (it moves)
+  }
+  return keep(await lastBlockBetween(lo, tLo, hi, tHi, ms, timeOf));
+}
+
 /** `read` runs the season's reads one after another (a reserved connection); `write` (the pool) runs the replace. */
 export async function computeSeason(read: Db, write: Db, season: Season): Promise<ComputeResult> {
   const t0 = Date.now();
   const start = new Date(season.starts_at).getTime();
   const end = new Date(season.ends_at).getTime();
   const now = Date.now();
-  const until = new Date(Math.min(now, end)).toISOString();
+  const dataUntil = Math.min(now, end);
+  const until = new Date(dataUntil).toISOString();
+  // how far this run can vouch for the data: the clock, and every indexer's progress. Only a run covering the end
+  // makes the final standings (the hourly and admin recomputes stop after that)
+  const indexed = await indexedThrough(read);
+  const covered = indexed === null ? Math.min(dataUntil, end - 1) : Math.min(dataUntil, indexed);
+  const finalRun = covered >= end;
 
-  // prices first: a run without a complete price picture writes nothing (the last board stays)
+  // per chain: the season's first block (a creator's in-season outflows), and once it has ended its last one, so
+  // transfers after the end (blocks, not times) are never read as the season's
+  const chains = indexedChains();
+  const seasonStartBlocks = new Map<string, number>();
+  const endBlock = new Map<number, bigint>();
+  for (const c of chains) {
+    try {
+      seasonStartBlocks.set(c, Number((await lastBlockBefore(read, c, start)) + 1n));
+      endBlock.set(chainIdOf(c), dataUntil < now ? await lastBlockBefore(read, c, end) : 2n ** 62n);
+    } catch (err) {
+      console.warn(`[points] ${c} block range:`, err instanceof Error ? err.message.split("\n")[0] : err);
+      return { skipped: `the ${c} node did not answer for the season's block range` };
+    }
+  }
+  const boundCids = [...endBlock.keys()];
+  const boundBlocks = boundCids.map((c) => endBlock.get(c)!.toString());
+
+  // prices first: without ETH nothing is priced (the last board stays). One snapshot for the whole run: a page
+  // refresh changing a price in the middle of the reads must not change the run
   const usd = await ethUsd();
   if (usd === null) return { skipped: "no ETH price" };
   const price = await quotePricer(usd);
@@ -82,7 +180,9 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const toks = [...scope.values()].map((x) => x.token);
 
   // ETH, GITLAWB and TWIG price most of the board: without them the run would be wrong everywhere, so it writes
-  // nothing. Any other quote without a price (a stock, MUSEWORLD) only takes its own tokens out of this run.
+  // nothing. Another quote that normally has a price but has none now (MUSEWORLD, a stock) takes its own tokens out
+  // of an hourly run (the next run puts them back), but never out of the final standings: that run waits instead.
+  // An unlisted pair has no price to begin with: never scored.
   const MAIN_QUOTES = new Set(["eth", "gitlawb", "twig"]);
   let dropped = 0;
   const launchRows = await read<LaunchRowRaw[]>`
@@ -93,6 +193,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     const chain = chainKeyOf(l.chain_id) as ChainKey;
     const q = price(chain, l.quote);
     if (q.usd === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
+    if (q.usd === null && q.key !== "other" && finalRun) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
     if (q.usd === null) {
       dropped++;
       continue;
@@ -114,29 +215,31 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const firstRows = await read<{ chain_id: number; token: string; trader: string; block_number: bigint; log_index: number; tx_hash: string; t: string; amount0: string; amount1: string }[]>`
     SELECT DISTINCT ON (s.chain_id, s.token, s.trader) s.chain_id, s.token, s.trader, s.block_number, s.log_index, s.tx_hash, s.block_time AS t, s.amount0, s.amount1
       FROM bb_launch_swaps s JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
-     WHERE s.is_buy AND s.trader IS NOT NULL ORDER BY s.chain_id, s.token, s.trader, s.block_number, s.log_index`;
+     WHERE s.is_buy AND s.trader IS NOT NULL AND s.block_time < ${until} ORDER BY s.chain_id, s.token, s.trader, s.block_number, s.log_index`; // buys after the end are not the season's
   // every balance change of every buyer (and launcher) of the tokens in scope: holding is judged on the lowest balance
   // since a buy, so tokens topped up later by transfer, or $5 passed from wallet to wallet, never count
   const pairs = new Map<string, { cid: number; tok: string; w: string }>();
   for (const f of firstRows) pairs.set(`${f.chain_id}|${f.token}|${f.trader}`, { cid: f.chain_id, tok: f.token, w: f.trader });
   for (const l of launchRows) pairs.set(`${l.chain_id}|${l.token}|${l.launcher}`, { cid: l.chain_id, tok: l.token, w: l.launcher });
   const pv = [...pairs.values()];
-  const moveRows = await read<{ chain_id: number; token: string; wallet: string; block_number: bigint; log_index: number; tx_hash: string; delta: string }[]>`
-    WITH p AS (SELECT * FROM unnest(${pv.map((x) => x.cid)}::int[], ${pv.map((x) => x.tok)}::text[], ${pv.map((x) => x.w)}::text[]) AS p(cid, tok, w))
-    SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, t.tx_hash, t.value::text AS delta
-      FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.to_addr = p.w
+  const moveRows = await read<{ chain_id: number; token: string; wallet: string; block_number: bigint; log_index: number; tx_hash: string; delta: string; burn: boolean }[]>`
+    WITH p AS (SELECT * FROM unnest(${pv.map((x) => x.cid)}::int[], ${pv.map((x) => x.tok)}::text[], ${pv.map((x) => x.w)}::text[]) AS p(cid, tok, w)),
+         e AS (SELECT * FROM unnest(${boundCids}::int[], ${boundBlocks}::bigint[]) AS e(cid, eb))
+    SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, t.tx_hash, t.value::text AS delta, false AS burn
+      FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.to_addr = p.w JOIN e ON e.cid = t.chain_id AND t.block_number <= e.eb
     UNION ALL
-    SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, t.tx_hash, (-t.value)::text AS delta
-      FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.from_addr = p.w`;
+    SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, t.tx_hash, (-t.value)::text AS delta, t.to_addr IN (${ZERO_ADDR}, ${DEAD_ADDR}) AS burn
+      FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.from_addr = p.w JOIN e ON e.cid = t.chain_id AND t.block_number <= e.eb`; // holdings as the season ended
   const launcherBuyRows = await read<{ chain_id: number; token: string; tx_hash: string; amount1: string }[]>`
     SELECT s.chain_id, s.token, s.tx_hash, s.amount1
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
       JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
-     WHERE s.is_buy AND s.trader = l.launcher`;
+     WHERE s.is_buy AND s.trader = l.launcher AND s.block_time < ${until}`;
   const linkedRows = await read<{ chain_id: number; token: string; to_addr: string }[]>`
     SELECT DISTINCT t.chain_id, t.token, t.to_addr
       FROM bb_token_transfers t JOIN bb_launches l ON l.chain_id = t.chain_id AND l.token = t.token
       JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON t.chain_id = u.cid AND t.token = u.tok
+      JOIN unnest(${boundCids}::int[], ${boundBlocks}::bigint[]) AS e(cid, eb) ON e.cid = t.chain_id AND t.block_number <= e.eb
      WHERE t.from_addr = l.launcher OR t.from_addr IN (SELECT lower(r->>'payout') FROM jsonb_array_elements(l.recipients) r)`;
   // every profile, deleted ones too: a flag must survive deleting the profile
   const profileRows = await read<{ wallet: string; x_status: string; x_account_created: string | null; x_followers: number | null; points_flag: string | null; hidden: boolean; deleted_at: string | null }[]>`
@@ -176,12 +279,13 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     launches,
     swaps,
     firstBuys,
-    moves: moveRows.map((m) => ({ key: keyOf(m.chain_id, m.token), wallet: m.wallet, block: Number(m.block_number), logIndex: Number(m.log_index), tx: m.tx_hash, delta: m.delta.startsWith("-") ? -int(m.delta) : int(m.delta) })),
+    moves: moveRows.map((m) => ({ key: keyOf(m.chain_id, m.token), wallet: m.wallet, block: Number(m.block_number), logIndex: Number(m.log_index), tx: m.tx_hash, delta: m.delta.startsWith("-") ? -int(m.delta) : int(m.delta), burn: m.burn })),
     launcherBuys,
     linked,
     system,
     eligible,
     flagged,
+    seasonStartBlocks,
   });
 
   const scores = [...result.wallets.values()];
@@ -217,7 +321,8 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
                       ${part.map((r) => JSON.stringify(r.breakdown))}::text[])
                AS u(w, c, s, tot, e, rc, rs, b)`; // booleans and nullable ints travel as text: the driver does not type those arrays
     }
-    await t`UPDATE bb_seasons SET computed_at = now(), computed_until = ${until} WHERE id = ${season.id}`;
+    // how far this run vouches for: final only once every indexer has read past the end
+    await t`UPDATE bb_seasons SET computed_at = now(), computed_until = ${new Date(covered).toISOString()} WHERE id = ${season.id}`;
     return true;
   });
   if (!wrote) return { skipped: "the season changed while it was being computed (the next run uses the new window)" };
@@ -253,7 +358,8 @@ async function computeLocked(season: Season): Promise<ComputeResult | null> {
 /**
  * The hourly run, from the sync loop: at most hourly per season (bb_seasons.computed_at, so a season with no points
  * yet does not recompute every few minutes), one machine at a time, never while a run is in progress on this machine.
- * An ended season gets exactly one compute after its end, which becomes its final standings.
+ * An ended season is computed every few minutes until a run covers its end (every indexer past it, every price in);
+ * that run's standings are final, and nothing recomputes the season after it.
  */
 export async function computePointsIfDue(): Promise<ComputeResult | null> {
   if (running || Date.now() - lastCheck < 5 * 60_000) return null;
@@ -261,7 +367,7 @@ export async function computePointsIfDue(): Promise<ComputeResult | null> {
   running = true;
   try {
     const season = await currentSeason();
-    if (!season || isFinal(season)) return null;
+    if (!season || seasonFinal(season)) return null;
     if (season.computed_at && Date.now() - new Date(season.computed_at).getTime() < EVERY_MS && !seasonEnded(season)) return null;
     return await computeLocked(season);
   } finally {
@@ -273,7 +379,7 @@ export async function computePointsIfDue(): Promise<ComputeResult | null> {
 export async function recomputeNow(): Promise<ComputeResult | { error: string } | null> {
   const season = await currentSeason();
   if (!season) return { error: "no season" };
-  if (isFinal(season)) return { error: `${season.name} has ended; its final standings stay as they are` };
+  if (seasonFinal(season)) return { error: `${season.name} has ended; its final standings stay as they are` };
   return computeLocked(season);
 }
 
@@ -303,34 +409,51 @@ export async function walletPoints(seasonId: number, wallet: string): Promise<Wa
   return { creator: r.creator, scout: r.scout, total: r.total, eligible: r.eligible, rank_creator: r.rank_creator, rank_scout: r.rank_scout, why_creator: whyLine("creator", why), why_scout: whyLine("scout", why), computed_at: r.computed_at };
 }
 
-/** What stands between a wallet and the board right now (null = nothing: it is eligible). */
-export async function walletReason(wallet: string): Promise<NotEligibleReason | null> {
+/**
+ * What stands between a wallet and the board right now (null = nothing it can do: it is eligible, as far as anyone
+ * may be told). Being kept off points is a moderator's call that is never told: the reason is worked out as if it
+ * were not there, so a kept-off wallet looks exactly like any other wallet in the same state. (A hidden profile is
+ * public already, so "hidden" is told.)
+ */
+export async function walletReason(wallet: string): Promise<PublicReason | null> {
   const db = maybeDb();
   if (!db || !isAddress(wallet)) return "no_profile";
   const [p] = await db<{ x_status: string; x_account_created: string | null; x_followers: number | null; points_flag: string | null; hidden: boolean; deleted_at: string | null }[]>`
     SELECT x_status, x_account_created, x_followers, points_flag, hidden, deleted_at FROM bb_profiles WHERE wallet = ${wallet.toLowerCase()}`;
-  return notEligibleReason(p ?? null, Date.now());
+  // (a kept-off wallet that is otherwise eligible reads null, as an eligible one does until the next hourly run)
+  return notEligibleReason(p ? { ...p, points_flag: null } : null, Date.now()) as PublicReason | null;
 }
 
 // ── admin ────────────────────────────────────────────────────────────────────
-export async function startSeason(days = 28): Promise<Season> {
+/**
+ * Start a season (hidden: a shadow run until it is published), or null when one is already running. Under a lock,
+ * so two starts at once make one season; the slug and the number come from the row's own id, so a deleted season
+ * can never make the next start collide with an existing slug.
+ */
+export async function startSeason(days = 28): Promise<Season | null> {
   const db = maybeDb()!;
-  const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM bb_seasons`;
-  const [s] = await db<Season[]>`
-    INSERT INTO bb_seasons (slug, name, starts_at, ends_at, public) VALUES (${`s${n + 1}`}, ${`Season ${n + 1}`}, now(), now() + make_interval(days => ${days}), false)
-    RETURNING id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at`;
-  return s;
+  return db.begin(async (tx) => {
+    const t = tx as unknown as Db;
+    await t`SELECT pg_advisory_xact_lock(hashtext('points-season-start'))`;
+    // any season not over blocks (now() is this transaction's start, from before the lock: a start that went
+    // through meanwhile can begin a moment after it, so its start time is not compared)
+    const [running] = await t`SELECT 1 FROM bb_seasons WHERE ends_at > now() LIMIT 1`;
+    if (running) return null;
+    const [row] = await t<{ id: number }[]>`
+      INSERT INTO bb_seasons (slug, name, starts_at, ends_at, public) VALUES (${`pending-${Date.now()}-${Math.random().toString(36).slice(2)}`}, '', now(), now() + make_interval(days => ${days}), false) RETURNING id`;
+    const [s] = await t<Season[]>`
+      UPDATE bb_seasons SET slug = 's' || id, name = 'Season ' || (SELECT count(*) FROM bb_seasons WHERE id <= ${row.id}) WHERE id = ${row.id}
+      RETURNING id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at`;
+    return s;
+  }) as Promise<Season | null>;
 }
 
 /**
- * The FIRST publish starts the season for everyone: its clock restarts now with the same length and the shadow run's
- * points are dropped (they were for tuning). Any later publish (after hiding the boards, or of an ended season) only
- * shows the boards again: the clock and the points stay as they are.
- */
 /**
  * Make a season public. The first publish starts its clock now and drops the shadow run's rows ("started"); showing a
  * season again after a hide changes neither ("shown"). A season that never went public and has ended is "refused":
- * its shadow boards were never told to anyone, and they never become public.
+ * its shadow boards were never told to anyone, and they never become public. (The first publish restarts the clock
+ * with the same length: the shadow run was for tuning.)
  */
 export async function publishSeason(id: number): Promise<"started" | "shown" | "refused"> {
   const db = maybeDb()!;
@@ -363,11 +486,29 @@ export async function endSeasonNow(id: number): Promise<void> {
 /** The final standings of an ended season, before another one starts (so starting never skips them). True = final. */
 export async function finalizeIfEnded(season: Season): Promise<boolean> {
   if (!seasonEnded(season)) return false;
-  if (isFinal(season)) return true;
+  if (seasonFinal(season)) return true;
   await computeLocked(season);
   const db = maybeDb()!;
   const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE id = ${season.id}`;
-  return Boolean(s && isFinal(s));
+  return Boolean(s && seasonFinal(s));
+}
+
+/** One season by id, or null. */
+export async function seasonById(id: number): Promise<Season | null> {
+  const db = maybeDb();
+  if (!db) return null;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE id = ${id}`;
+  return s ?? null;
+}
+
+/** The latest season that went public other than `exceptId` (a public Season 1 while Season 2 runs hidden), or null. */
+export async function previousPublishedSeason(exceptId: number): Promise<Season | null> {
+  const db = maybeDb();
+  if (!db) return null;
+  const [s] = await db<Season[]>`
+    SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons
+     WHERE published_at IS NOT NULL AND id <> ${exceptId} ORDER BY starts_at DESC LIMIT 1`;
+  return s ?? null;
 }
 
 /** The shadow view for admins: top wallets on each board, eligible or not, with why lines (the trial-week review). */

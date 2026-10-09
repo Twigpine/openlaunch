@@ -58,7 +58,8 @@ test("TWIG's USD is exactly GITLAWB's, and unknown while GITLAWB's is", () => {
 
 test("server: TWIG takes GITLAWB's price in rows, sorts and the quotes API; never its own thin pool", () => {
   const q = src("queries.ts");
-  assert.match(q, /const linked = gitlawbLinkedUsd\(q\.key, gitlawbUsdNow\);[^\n]*\n  if \(linked !== undefined\) return \{ \.\.\.q, usd: linked \};/);
+  assert.match(q, /const linked = gitlawbLinkedUsd\(q\.key, st\.gitlawb\);[^\n]*\n  if \(linked !== undefined\) return \{ \.\.\.q, usd: linked \};/);
+  assert.match(q, /const priceState = \(\): PriceState => \(\{ gitlawb: gitlawbUsdNow,/, "the snapshot carries the live GITLAWB price");
   assert.match(q, /const isGitlawbPriced = \(\) => db`\(\$\{isGitlawb\(\)\} OR \$\{quoteArms\("twig"\)\}\)`;/);
   assert.match(q, /WHEN \$\{isGitlawbPriced\(\)\} THEN \$\{gitlawbFactor\}::double precision/, "TWIG ranks at GITLAWB's price in the USD sorts");
   assert.match(q, /if \(opts\.filter === "twig"\) conds\.push\(db`\$\{quoteArms\("twig"\)\}`\);/);

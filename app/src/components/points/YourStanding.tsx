@@ -11,8 +11,8 @@ export default function YourStanding({ board }: { board: "creator" | "scout" }) 
   if (!address || !p?.season || !p.me) return null;
   const ended = p.season.ended;
   const final = p.season.final;
-  // only a step the wallet can take is offered: a reason the API keeps back (a moderator's call) leaves it neutral
-  const actionable = p.reason === "no_profile" || p.reason === "not_verified" || p.reason === "account_too_new" || p.reason === "few_followers";
+  // only a step the wallet can take is offered (a hidden profile has none; a moderator's other calls are never told)
+  const actionable = Boolean(p.reason && p.reason !== "hidden");
   const me = p.me;
   const points = board === "creator" ? me.creator : me.scout;
   const rank = board === "creator" ? me.rank_creator : me.rank_scout;

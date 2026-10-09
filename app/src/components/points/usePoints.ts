@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { WalletPoints } from "@/lib/points/server";
-import type { NotEligibleReason } from "@/lib/points/score";
+import { PUBLIC_REASONS, type PublicReason } from "@/lib/points/score";
 
-export type PointsState = { season: { name: string; starts_at: string; ends_at: string; ended: boolean; final: boolean } | null; me: WalletPoints | null; reason: NotEligibleReason | null; at: number } | null;
+export type PointsState = { season: { name: string; starts_at: string; ends_at: string; ended: boolean; final: boolean } | null; me: WalletPoints | null; reason: PublicReason | null; at: number } | null;
 
 const REFRESH_MS = 5 * 60_000; // points are recomputed hourly; a page left open picks up a publish or a new run
 const RETRY_MS = [10_000, 30_000, 60_000]; // after a failed read, then back to the normal refresh
@@ -30,7 +30,9 @@ export function usePoints(wallet: string | undefined): PointsState {
       try {
         const r = await fetch(`/api/points${me ? `?wallet=${me}` : ""}`, { cache: "no-store" });
         if (!r.ok) throw new Error(String(r.status));
-        const v = { ...((await r.json()) as Omit<NonNullable<PointsState>, "at">), at: Date.now() };
+        const d = (await r.json()) as Omit<NonNullable<PointsState>, "at">;
+        // only a reason the card knows how to say is kept
+        const v = { ...d, reason: PUBLIC_REASONS.includes(d.reason as PublicReason) ? d.reason : null, at: Date.now() };
         if (!alive) return; // checked after the body is read, not before
         setState({ wallet: me, v });
         failures = 0;
