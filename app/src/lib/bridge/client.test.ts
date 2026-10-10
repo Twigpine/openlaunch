@@ -549,9 +549,20 @@ test("linked timeout signal aborts on the parent, on the timer, and never needs 
   parent.abort(new Error("gone"));
   assert.equal(signal.aborted, true);
   assert.equal((signal.reason as Error).message, "gone");
-  const timed = linkedTimeoutSignal(new AbortController().signal, 5);
+  // A timeout also detaches from the parent, so a long-lived parent never collects one listener per request.
+  const owner = new AbortController();
+  const detached: unknown[] = [];
+  const remove = owner.signal.removeEventListener.bind(owner.signal);
+  owner.signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions) => {
+    detached.push(listener);
+    remove(type, listener, options);
+  }) as typeof owner.signal.removeEventListener;
+  const timed = linkedTimeoutSignal(owner.signal, 5);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(timed.aborted, true);
+  assert.equal((timed.reason as DOMException).name, "TimeoutError");
+  assert.equal(detached.length, 1);
+  owner.abort(new Error("later"));
   assert.equal((timed.reason as DOMException).name, "TimeoutError");
   const already = new AbortController();
   already.abort();
