@@ -53,6 +53,12 @@ test("transaction errors read as the program's messages", () => {
   assert.equal(describeTransactionError({ InstructionError: [0, { Custom: 1 }] }), "Program error 1");
   assert.equal(describeTransactionError("InsufficientFundsForFee"), "InsufficientFundsForFee");
   assert.equal(describeTransactionError({ InstructionError: [0, { Custom: 6010 }] }, ["Program log: AnchorError occurred. Error Code: Slippage. Error Number: 6010. Error Message: Minimum output not met."]), "Minimum output not met");
+  // An empty message falls through to the error code; a long hostile line is read in one pass.
+  assert.equal(describeTransactionError({ InstructionError: [0, { Custom: 6010 }] }, ["Program log: Error Message: ."]), "Minimum output not met");
+  const hostile = `Program log: ${"Error Message: a".repeat(20_000)}`;
+  const started = performance.now();
+  assert.equal(describeTransactionError("x", [hostile]).startsWith("aError Message: "), true);
+  assert(performance.now() - started < 50);
 });
 test("reconciliation needs finalized expiry or finalized failure before safe replacement", async () => {
   let height = 99;

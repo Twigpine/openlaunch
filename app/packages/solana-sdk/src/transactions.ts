@@ -12,9 +12,14 @@ const POOL_ERRORS = [
 ];
 /** A readable reason for a failed simulation or a refused send: the program's own error message when there is one. */
 export function describeTransactionError(err: unknown, logs: readonly string[] = []): string {
+  // Anchor logs end "... Error Message: <text>." Found by index, not regex: logs are untrusted input (CodeQL js/polynomial-redos).
+  const marker = "Error Message: ";
   for (const line of logs) {
-    const anchor = /Error Message: (.+?)\.?$/.exec(line);
-    if (anchor) return anchor[1];
+    const at = line.indexOf(marker);
+    if (at === -1) continue;
+    const text = line.slice(at + marker.length).trim();
+    const message = text.endsWith(".") ? text.slice(0, -1) : text;
+    if (message) return message;
   }
   const text = typeof err === "string" ? err : JSON.stringify(err) ?? "";
   const custom = /"Custom":(\d+)/.exec(text);
