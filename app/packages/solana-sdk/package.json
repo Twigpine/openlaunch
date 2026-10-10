@@ -1,0 +1,14 @@
+{
+  "name": "@openlaunch/solana-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./math": "./src/math.ts" },
+  "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "verify-manifest": "tsx scripts/verify-manifest.ts"
+  },
+  "dependencies": { "@solana/web3.js": "1.99.0", "@noble/hashes": "1.8.0", "buffer": "6.0.3" },
+  "devDependencies": { "@types/node": "^22", "tsx": "4.23.13", "typescript": "5.9.3" }
+}
