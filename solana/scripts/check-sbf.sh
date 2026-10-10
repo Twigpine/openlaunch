@@ -13,10 +13,12 @@ if [[ "$tool_version" != *'cargo-build-sbf 4.2.0'* ]]; then
   printf '%s\n' 'Expected cargo-build-sbf 4.2.0; review toolchain changes explicitly.' >&2
   exit 1
 fi
-command -v rg >/dev/null || { printf '%s\n' 'ripgrep is required to reject stack diagnostics.' >&2; exit 1; }
+# Hosted Ubuntu runners do not guarantee ripgrep. POSIX grep keeps this
+# mandatory diagnostic gate available without an extra CI-only dependency.
+command -v grep >/dev/null || { printf '%s\n' 'grep is required to reject stack diagnostics.' >&2; exit 1; }
 mkdir -p target
 "$build_sbf" --tools-version v1.56 --arch v3 --manifest-path programs/launch_pool/Cargo.toml -- --locked 2>&1 | tee target/sbf-build.log
-if rg -n -i 'stack offset .*exceed|stack frame size .*exceed|undefined symbol|call depth exceeded' target/sbf-build.log; then
+if grep -E -n -i 'stack offset .*exceed|stack frame size .*exceed|undefined symbol|call depth exceeded' target/sbf-build.log; then
   printf '%s\n' 'SBF diagnostics require review; do not release this binary.' >&2
   exit 1
 fi
