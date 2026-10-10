@@ -29,6 +29,17 @@ import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSe
  */
 export type LaunchRow = {
   chain: ChainKey;
+  suite_id?: "lp-v1" | "quote-v2";
+  fee_asset_mode?: "both" | "quote";
+  factory_address?: string | null;
+  locker_address?: string | null;
+  fee_contract_address?: string | null;
+  hook_address?: string | null;
+  pool_fee_pips?: number;
+  creator_fee_pips?: number;
+  tick_spacing?: number;
+  fees_quote_accrued?: string;
+  wallet_fees_quote_paid?: string;
   chain_id: number;
   token: string;
   token_id: number;
@@ -266,8 +277,8 @@ export const SELECT = `SELECT l.*, m.description, m.image_url, m.banner_url, m.w
   LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token
   LEFT JOIN LATERAL (
     SELECT count(*) FILTER (WHERE ${HOUR})::int AS n1, count(DISTINCT s.trader) FILTER (WHERE ${HOUR})::int AS t1,
-           count(DISTINCT s.trader) FILTER (WHERE ${HOUR} AND ${OUTSIDE})::int AS t1_ex, COALESCE(sum(abs(amount0)) FILTER (WHERE ${HOUR}), 0)::text AS v1,
-           count(*)::int AS n24, count(DISTINCT s.trader) FILTER (WHERE ${OUTSIDE})::int AS t24_ex, COALESCE(sum(abs(amount0)), 0)::text AS v24,
+           count(DISTINCT s.trader) FILTER (WHERE ${HOUR} AND ${OUTSIDE})::int AS t1_ex, COALESCE(sum(abs(COALESCE(trader_amount0, amount0))) FILTER (WHERE ${HOUR}), 0)::text AS v1,
+           count(*)::int AS n24, count(DISTINCT s.trader) FILTER (WHERE ${OUTSIDE})::int AS t24_ex, COALESCE(sum(abs(COALESCE(trader_amount0, amount0))), 0)::text AS v24,
            max(s.block_time) FILTER (WHERE ${OUTSIDE}) AS last_outside_at
       FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token AND s.block_time > now() - interval '${LIVE_WINDOW_HOURS} hours'
   ) w ON true`;
@@ -435,7 +446,7 @@ export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: nu
   const db = maybeDb();
   if (!db) return [];
   const rows = await db<{ tx_hash: string; log_index: number; token: string; trader: string | null; amount0: string; amount1: string; is_buy: boolean; block_time: string; sqrt_price_x96: string }[]>`
-    SELECT tx_hash, log_index, token, trader, amount0, amount1, is_buy, block_time, sqrt_price_x96 FROM bb_launch_swaps
+    SELECT tx_hash, log_index, token, trader, COALESCE(trader_amount0, amount0)::text AS amount0, COALESCE(trader_amount1, amount1)::text AS amount1, is_buy, block_time, sqrt_price_x96 FROM bb_launch_swaps
     WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()} ORDER BY block_number DESC, log_index DESC LIMIT ${Math.min(200, limit)}`;
   return rows.map((r) => ({ ...r, price_quote: quotePerToken(BigInt(r.sqrt_price_x96), quoteDecimals) }));
 }
@@ -493,7 +504,7 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
       async (after, size) =>
         (
           await db<{ chain_id: number; at: string; tx_hash: string; log_index: number; token: string; name: string; symbol: string; quote: string; trader: string | null; is_buy: boolean; quote_wei: string; image_url: string | null; is_dev: boolean | null }[]>`
-            SELECT s.chain_id, s.block_time AS at, s.tx_hash, s.log_index, s.token, l.name, l.symbol, l.quote, s.trader, s.is_buy, abs(s.amount0) AS quote_wei, m.image_url, (s.trader = l.launcher) AS is_dev
+            SELECT s.chain_id, s.block_time AS at, s.tx_hash, s.log_index, s.token, l.name, l.symbol, l.quote, s.trader, s.is_buy, abs(COALESCE(s.trader_amount0, s.amount0)) AS quote_wei, m.image_url, (s.trader = l.launcher) AS is_dev
               FROM (SELECT * FROM bb_launch_swaps
                       ${after ? db`WHERE block_time <= ${after.at} AND (block_time, log_index, chain_id, tx_hash) < (${after.at}, ${after.log_index}, ${chainIdOf(after.chain)}, ${after.tx_hash})` : db``}
                       ORDER BY block_time DESC, log_index DESC, chain_id DESC, tx_hash DESC LIMIT ${size}) s
@@ -655,7 +666,7 @@ export async function getCandles(chain: ChainKey, token: string, intervalS: numb
     WITH s AS (
       SELECT floor(extract(epoch FROM block_time) / ${intervalS})::bigint * ${intervalS} AS t,
              1.0 / (power(sqrt_price_x96::double precision / 79228162514264337593543950336.0, 2) * ${scale}) AS p,
-             abs(amount0) AS v, block_number, log_index
+             abs(COALESCE(trader_amount0, amount0)) AS v, block_number, log_index
         FROM bb_launch_swaps
        WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()}
          AND block_time >= to_timestamp(${from}) AND block_time <= to_timestamp(${asOf})
@@ -691,7 +702,7 @@ export async function getWalletSwaps(chain: ChainKey, token: string, wallet: str
   const db = maybeDb();
   if (!db) return [];
   const rows = await db<{ t: number; is_buy: boolean; quote: string }[]>`
-    SELECT extract(epoch FROM block_time)::int AS t, is_buy, abs(amount0)::text AS quote FROM bb_launch_swaps
+    SELECT extract(epoch FROM block_time)::int AS t, is_buy, abs(COALESCE(trader_amount0, amount0))::text AS quote FROM bb_launch_swaps
      WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()} AND trader = ${wallet.toLowerCase()}
        AND block_time <= to_timestamp(${asOf})
      ORDER BY block_number DESC, log_index DESC LIMIT ${Math.min(500, limit)}`;
@@ -722,7 +733,7 @@ export async function getWalletTrades(wallet: string, ethUsd: number | null = nu
   if (!db) return [];
   await withStocks();
   const rows = await db<{ chain_id: number; token: string; symbol: string; name: string; quote: string; tx_hash: string; log_index: number; is_buy: boolean; amount0: string; amount1: string; block_time: string }[]>`
-    SELECT s.chain_id, s.token, l.symbol, l.name, l.quote, s.tx_hash, s.log_index, s.is_buy, s.amount0, s.amount1, s.block_time
+    SELECT s.chain_id, s.token, l.symbol, l.name, l.quote, s.tx_hash, s.log_index, s.is_buy, COALESCE(s.trader_amount0, s.amount0)::text AS amount0, COALESCE(s.trader_amount1, s.amount1)::text AS amount1, s.block_time
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
      WHERE s.trader = ${wallet.toLowerCase()} ORDER BY s.block_number DESC, s.log_index DESC LIMIT ${Math.min(200, limit)}`;
   return rows.map((r) => {
@@ -767,7 +778,7 @@ export async function getBoardTapes(rows: readonly LaunchRow[]): Promise<Record<
     SELECT t.chain_id, t.token, s.tx_hash, s.log_index, s.is_buy, abs(s.amount0)::text AS quote_wei, s.block_time AS at, s.trader
       FROM unnest(${rows.map((r) => r.chain_id)}::int[], ${rows.map((r) => r.token.toLowerCase())}::text[]) AS t(chain_id, token)
       CROSS JOIN LATERAL (
-        SELECT tx_hash, log_index, is_buy, amount0, block_time, trader FROM bb_launch_swaps
+        SELECT tx_hash, log_index, is_buy, COALESCE(trader_amount0, amount0) AS amount0, block_time, trader FROM bb_launch_swaps
          WHERE chain_id = t.chain_id AND token = t.token
          ORDER BY block_time DESC, log_index DESC LIMIT ${PIPS_LEADER * 2}
       ) s`;
@@ -799,6 +810,19 @@ export async function withBoardTape(snap: TrendingSnap): Promise<TrendingSnap> {
 export async function getTrending(ethUsd: number | null = null): Promise<TrendingSnap> {
   const page = await listLaunchesPage({ sort: "live", limit: TRENDING_CANDIDATES, ethUsd });
   return trendingFrom(page.items);
+}
+
+/** Paid quote fees by launch and recipient. Credits count when actually claimed. */
+export async function walletQuoteFees(wallet: string): Promise<Map<string, string>> {
+  const db = maybeDb();
+  if (!db) return new Map();
+  const rows = await db<{ chain_id: number; token: string; paid: string }[]>`
+    SELECT e.chain_id, e.token, sum(e.amount)::text AS paid FROM bb_launch_fee_events e
+      JOIN bb_launches l ON l.chain_id = e.chain_id AND l.token = e.token
+     WHERE l.suite_id = 'quote-v2' AND e.currency = l.quote AND e.account = ${wallet.toLowerCase()}
+       AND e.fee_contract_address = l.fee_contract_address
+       AND e.kind IN ('paid', 'claimed') GROUP BY e.chain_id, e.token`;
+  return new Map(rows.map((r) => [`${r.chain_id}:${r.token}`, r.paid]));
 }
 
 /**

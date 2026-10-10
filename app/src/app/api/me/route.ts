@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
-import { getWalletTokens, getWalletTrades, listLaunches } from "@/lib/launchpad/queries";
+import { getWalletTokens, getWalletTrades, listLaunches, walletQuoteFees } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { memo } from "@/lib/launchpad/memo";
 
@@ -13,7 +13,8 @@ export async function GET(req: Request) {
   try {
     const usd = await ethUsd();
     const data = await memo(`me:${w}`, 3_000, async () => {
-      const [launches, tokens, trades] = await Promise.all([listLaunches({ launcher: w, limit: 200, ethUsd: usd }), getWalletTokens(w, usd), getWalletTrades(w, usd, 50)]);
+      const [launches, tokens, trades, paid] = await Promise.all([listLaunches({ launcher: w, limit: 200, ethUsd: usd }), getWalletTokens(w, usd), getWalletTrades(w, usd, 50), walletQuoteFees(w)]);
+      for (const launch of launches) if (launch.suite_id === "quote-v2") launch.wallet_fees_quote_paid = paid.get(`${launch.chain_id}:${launch.token}`) ?? "0";
       return { wallet: w, ethUsd: usd, launches, tokens, trades };
     });
     return NextResponse.json(data, { headers: { "cache-control": "no-store" } });

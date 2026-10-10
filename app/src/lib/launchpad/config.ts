@@ -1,3 +1,4 @@
+import { quoteDeployment } from "./quote-config";
 import { isAddress, type Address } from "viem";
 import { CHAIN_KEYS, SITE_URL, isChainKey, type ChainKey } from "@/lib/chainPublic";
 import { unlistedQuote } from "./unlisted-quote";
@@ -168,7 +169,7 @@ const CFG: Record<ChainKey, ChainLaunchpad> = {
     configured: false,
   },
 };
-for (const k of CHAIN_KEYS) CFG[k].configured = CFG[k].factory !== null && CFG[k].locker !== null;
+for (const k of CHAIN_KEYS) CFG[k].configured = (CFG[k].factory !== null && CFG[k].locker !== null) || quoteDeployment(k) !== null;
 
 export function launchpad(key: ChainKey): ChainLaunchpad {
   return CFG[key];

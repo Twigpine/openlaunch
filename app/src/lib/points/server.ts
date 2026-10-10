@@ -189,9 +189,13 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const price = await quotePricer(usd);
 
   // the season's swaps decide which tokens are in scope
-  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string }[]>`
-    SELECT chain_id, token, trader, is_buy, amount0, amount1, block_number, log_index, tx_hash, block_time AS t
-      FROM bb_launch_swaps WHERE block_time >= ${season.starts_at} AND block_time < ${until} AND trader IS NOT NULL`;
+  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; quote_fee: string | null; block_number: bigint; log_index: number; tx_hash: string; t: string }[]>`
+    SELECT s.chain_id, s.token, s.trader, s.is_buy,
+           COALESCE(s.trader_amount0, s.amount0)::text AS amount0, COALESCE(s.trader_amount1, s.amount1)::text AS amount1,
+           CASE WHEN l.suite_id = 'quote-v2' THEN s.quote_fee::text END AS quote_fee,
+           s.block_number, s.log_index, s.tx_hash, s.block_time AS t
+      FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
+     WHERE s.block_time >= ${season.starts_at} AND s.block_time < ${until} AND s.trader IS NOT NULL`;
   const keyOf = (cid: number, token: string) => `${chainKeyOf(cid) ?? cid}:${token}`;
   const scope = new Map<string, { cid: number; token: string }>();
   for (const s of swapRows) scope.set(keyOf(s.chain_id, s.token), { cid: s.chain_id, token: s.token });
@@ -233,7 +237,8 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   }
 
   const firstRows = await read<{ chain_id: number; token: string; trader: string; block_number: bigint; log_index: number; tx_hash: string; t: string; amount0: string; amount1: string }[]>`
-    SELECT DISTINCT ON (s.chain_id, s.token, s.trader) s.chain_id, s.token, s.trader, s.block_number, s.log_index, s.tx_hash, s.block_time AS t, s.amount0, s.amount1
+    SELECT DISTINCT ON (s.chain_id, s.token, s.trader) s.chain_id, s.token, s.trader, s.block_number, s.log_index, s.tx_hash, s.block_time AS t,
+           COALESCE(s.trader_amount0, s.amount0)::text AS amount0, COALESCE(s.trader_amount1, s.amount1)::text AS amount1
       FROM bb_launch_swaps s JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
      WHERE s.is_buy AND s.trader IS NOT NULL AND s.block_time < ${until} ORDER BY s.chain_id, s.token, s.trader, s.block_number, s.log_index`; // buys after the end are not the season's
   // every balance change of every buyer (and launcher) of the tokens in scope: holding is judged on the lowest balance
@@ -251,7 +256,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     SELECT t.chain_id, t.token, p.w AS wallet, t.block_number, t.log_index, t.tx_hash, (-t.value)::text AS delta, t.to_addr IN (${ZERO_ADDR}, ${DEAD_ADDR}) AS burn
       FROM bb_token_transfers t JOIN p ON t.chain_id = p.cid AND t.token = p.tok AND t.from_addr = p.w JOIN e ON e.cid = t.chain_id AND t.block_number <= e.eb`; // holdings as the season ended
   const launcherBuyRows = await read<{ chain_id: number; token: string; tx_hash: string; amount1: string }[]>`
-    SELECT s.chain_id, s.token, s.tx_hash, s.amount1
+    SELECT s.chain_id, s.token, s.tx_hash, COALESCE(s.trader_amount1, s.amount1)::text AS amount1
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
       JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
      WHERE s.is_buy AND s.trader = l.launcher AND s.block_time < ${until}`;
@@ -267,7 +272,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
 
   const abs = (v: string) => (v.startsWith("-") ? BigInt(v.slice(1)) : BigInt(v));
   const int = (v: string) => abs(v.split(".")[0]);
-  const swaps: ScoreSwap[] = swapRows.map((s) => ({ key: keyOf(s.chain_id, s.token), trader: s.trader, isBuy: s.is_buy, quoteRaw: abs(s.amount0), tokenRaw: abs(s.amount1), block: Number(s.block_number), logIndex: Number(s.log_index), time: new Date(s.t).getTime(), tx: s.tx_hash }));
+  const swaps: ScoreSwap[] = swapRows.map((s) => ({ key: keyOf(s.chain_id, s.token), trader: s.trader, isBuy: s.is_buy, quoteRaw: abs(s.amount0), tokenRaw: abs(s.amount1), quoteFeeRaw: s.quote_fee == null ? undefined : BigInt(s.quote_fee), block: Number(s.block_number), logIndex: Number(s.log_index), time: new Date(s.t).getTime(), tx: s.tx_hash }));
   const firstBuys: FirstBuy[] = firstRows.map((f) => ({ key: keyOf(f.chain_id, f.token), wallet: f.trader, block: Number(f.block_number), logIndex: Number(f.log_index), time: new Date(f.t).getTime(), quoteRaw: abs(f.amount0), tokenRaw: abs(f.amount1), tx: f.tx_hash }));
   const launcherBuys = new Map<string, { tx: string; tokenRaw: bigint }[]>();
   for (const b of launcherBuyRows) {

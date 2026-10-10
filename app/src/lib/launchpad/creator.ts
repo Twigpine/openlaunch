@@ -23,9 +23,10 @@ export type FeeSides = { quote: bigint; token: bigint };
 
 /** This wallet's paid share on both sides, from the indexed collected/burned totals. */
 export function earnedSides(
-  l: { fees_quote_collected: string; fees_quote_burned: string; fees_token_collected: string; fees_token_burned: string },
+  l: { wallet_fees_quote_paid?: string; fees_quote_collected: string; fees_quote_burned: string; fees_token_collected: string; fees_token_burned: string },
   shareBps: number,
 ): FeeSides {
+  if (l.wallet_fees_quote_paid !== undefined) return { quote: BigInt(l.wallet_fees_quote_paid), token: 0n };
   return { quote: earnedRaw(l.fees_quote_collected, l.fees_quote_burned, shareBps), token: earnedRaw(l.fees_token_collected, l.fees_token_burned, shareBps) };
 }
 

@@ -25,7 +25,8 @@ import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { getLaunch, getSwaps } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
-import { NATIVE, SWAP_SITES, TICK_SPACING, type Quote } from "@/lib/launchpad/config";
+import { SWAP_SITES, type Quote } from "@/lib/launchpad/config";
+import { lockerForLaunch, poolKeyForLaunch } from "@/lib/launchpad/suites";
 import UnlistedPairBadge from "@/components/launchpad/UnlistedPairBadge";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
@@ -42,7 +43,6 @@ import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { clampSocial } from "@/lib/launchpad/ogcard";
 import { capDisplay } from "@/lib/launchpad/market-cap";
-import { launchpad } from "@/lib/launchpad/config";
 import { tokenTint } from "@/lib/launchpad/tintServer";
 import { proofFacts } from "@/lib/launchpad/proof";
 import TokenProof, { type ProofLink } from "@/components/launchpad/TokenProof";
@@ -103,7 +103,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const mode = feeModeOf(l.lp_fee, l.recipients);
   const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals });
   const proof = proofFacts({ holders, symbol: l.symbol, launcher: l.launcher, launcherName: names[l.launcher.toLowerCase()]?.u ?? null, lpFee: l.lp_fee, mode, recipients: l.recipients.length });
-  const locker = launchpad(chain).locker;
+  const locker = lockerForLaunch(l);
   const proofLinks: Partial<Record<ProofKey, ProofLink>> = {
     ...(locker ? { lock: { href: explorerAddress(chain, locker), label: "View locker", external: true } } : {}),
     creator: { href: explorerAddress(chain, l.launcher), label: "Creator wallet", external: true },
@@ -111,7 +111,8 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
     launch: { href: explorerTx(chain, l.tx_hash), label: "Launch transaction", external: true },
     fees: { href: "#contracts", label: "Fee settings" },
   };
-  const poolKey = { currency0: l.quote as Address, currency1: l.token as Address, fee: l.lp_fee, tickSpacing: TICK_SPACING, hooks: NATIVE as Address };
+  const poolKey = poolKeyForLaunch(l);
+  const quoteOnly = l.fee_asset_mode === "quote";
   const priceUsd = l.price_usd;
   const chainLabel = CHAIN_LABELS[chain];
   const shareText = `${l.name} ($${l.symbol}) on ${chainLabel}. ${l.lp_fee === 0 ? "0% fee" : mode === "burn" ? "fees burned" : "no platform fee"}, liquidity locked forever`;
@@ -119,7 +120,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const supplyLabel = fmtCompact(Number(BigInt(l.supply)) / 1e18, 0);
   const feeRoute = mode === "free" ? "No trading fee" : `${pipsToPct(l.lp_fee)} trading fee → ${mode === "burn" ? "burned" : mode === "split" ? "beneficiaries" : "beneficiary"}`;
   // the trade box's own wording: short, no arrow
-  const tradeFee = mode === "free" ? "None" : `${pipsToPct(l.lp_fee)}, ${mode === "burn" ? "burned" : mode === "split" ? `to ${l.recipients.length} recipients` : "to the recipient"}`;
+  const tradeFee = mode === "free" ? "None" : `${pipsToPct(l.lp_fee)}${quoteOnly ? ` in ${quote.symbol}` : ""}, ${mode === "burn" ? "burned" : mode === "split" ? `to ${l.recipients.length} recipients` : "to the recipient"}`;
   const swapSite = SWAP_SITES[chain];
   const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
   // a chip on the cover: dark glass, so it reads over any banner in either theme (display is set where it is used)
@@ -238,8 +239,8 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             </div>
             {/* the token at a glance beside the trade box, as other launchpads keep it; the full record is in the About tab */}
             <TokenAbout chain={chain} token={l.token} symbol={l.symbol} description={l.description} website={l.website} x_handle={l.x_handle} launcher={l.launcher} launchedAt={l.block_time} now={now} swap={swapSite ? { name: swapSite.name, url: swapSite.url(l.token) } : null} />
-            <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} />
-            <CollectPanel chain={chain} quote={quote} token={l.token as Address} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} collectedToken={l.fees_token_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} priceQuote={l.price_quote} ethUsd={usd} />
+            <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} locker={locker} />
+            <CollectPanel launchIdentity={l} chain={chain} quote={quote} token={l.token as Address} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} collectedToken={l.fees_token_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} priceQuote={l.price_quote} ethUsd={usd} />
           </aside>
 
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
@@ -260,9 +261,12 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                   <Row k="Token contract" v={<A href={explorerAddress(chain, l.token)}>{shortAddr(l.token)} ↗</A>} />
                   <Row k="Launch transaction" v={<A href={explorerTx(chain, l.tx_hash)}>{shortAddr(l.tx_hash)} ↗</A>} />
                   <Row k="Pool ID" v={<CopyChip value={l.pool_id} />} />
-                  <Row k="Market" v={`${quote.symbol} / ${l.symbol} · Uniswap v4 · no hook`} />
+                  {l.factory_address ? <Row k="Factory" v={<A href={explorerAddress(chain, l.factory_address)}>{shortAddr(l.factory_address)} ↗</A>} /> : null}
+                  {l.fee_contract_address ? <Row k="Fee contract" v={<A href={explorerAddress(chain, l.fee_contract_address)}>{shortAddr(l.fee_contract_address)} ↗</A>} /> : null}
+                  {quoteOnly && l.hook_address ? <Row k="Hook" v={<A href={explorerAddress(chain, l.hook_address)}>{shortAddr(l.hook_address)} ↗</A>} /> : null}
+                  <Row k="Market" v={`${quote.symbol} / ${l.symbol} · Uniswap v4 · ${quoteOnly ? "quote fees" : "no hook"}`} />
                   {unlisted ? <Row k="Pair token" v={<A href={explorerAddress(chain, l.quote)}>{shortAddr(l.quote)} ↗</A>} /> : null}
-                  <Row k="Trading fee" v={feeRoute} />
+                  <Row k="Trading fee" v={`${feeRoute}${quoteOnly ? ` · ${quote.symbol} only` : ""}`} />
                   <Row k="Fixed supply" v={`${supplyLabel} ${l.symbol}`} />
                   <Row k="Launched" v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
                 </dl>

@@ -40,11 +40,12 @@ ${verificationLine("Arc (5042)", a, [
 
 ## What a launch does
 1. deploys a fixed-supply ERC-20 (1,000,000,000; no mint/pause/blacklist/tax/owner)
-2. initializes a Uniswap v4 pool quote/token (quote = ETH, TWIG on Base, GITLAWB, USDG on Robinhood Chain, USDC on Arc, or a registry stock token; tick spacing 200, no hook) at the chosen start tick
+2. initializes a Uniswap v4 pool quote/token (quote = ETH, TWIG on Base, GITLAWB, USDG on Robinhood Chain, USDC on Arc, or a registry stock token; tick spacing 200; legacy pools have no hook) at the chosen start tick
 3. mints one single-sided position holding 100% of supply to an ownerless locker (no withdraw path exists)
 4. registers fee routing: lpFee 0 | 10000 (1%) | 30000 (3%) pips; recipients [] = fees burned,
    else {payout,bps}[] summing to 10000. Fixed forever.
 Anyone may call locker.collect(tokenId): accrued fees are paid straight to recipients (or burned).
+Optional quote-v2 suite: creatorFeePips replaces lpFee in the launch tuple; actual pool LP fee is 0 with an immutable quote fee hook. Quote fees accrue on buys and sells. Use the recorded factory and pool key; collect from the recorded vault with collect(tokenId), claim credits with claim(tokenId). Rows expose suite_id, fee_asset_mode, factory_address, locker_address, fee_contract_address, hook_address, pool_fee_pips and creator_fee_pips. Metadata requests include suite_id=quote-v2 for that suite.
 
 ## Contracts
 Base (8453):            LaunchFactory ${b.factory ?? "(not deployed yet)"} · LaunchLocker ${b.locker ?? "(not deployed yet)"}
