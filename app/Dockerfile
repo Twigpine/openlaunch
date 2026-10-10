@@ -5,6 +5,7 @@
 FROM node:22-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY packages/solana-sdk ./packages/solana-sdk
 RUN npm ci --no-audit --no-fund
 
 COPY . .

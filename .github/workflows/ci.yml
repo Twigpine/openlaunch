@@ -30,6 +30,11 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit -p .
       - run: npm test
+      - name: Solana SDK and independent economic model
+        run: |
+          npx tsc --noEmit -p packages/solana-sdk/tsconfig.json
+          npx tsx --test packages/solana-sdk/tests/*.test.ts
+          node --experimental-strip-types --test ../packages/solana-model/*.test.mjs
       - name: production build
         env:
           NEXT_PUBLIC_SITE_URL: https://openlaunch.lol
@@ -38,6 +43,34 @@ jobs:
           NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD: "0x815542E8b392389A1389E22E588E4B62A67Ade72"
           NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD: "0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a"
         run: npm run build
+
+  solana:
+    name: Solana · host tests, SBFv3 build, offline VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: solana
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: solana
+      - run: cargo fmt --all --check
+      - run: cargo test -p launch-pool --locked
+      - name: Install pinned build-only SBF tool
+        run: cargo install cargo-build-sbf --version 4.2.0 --locked --root .tools
+      - name: Build current SBPF format, reject stack diagnostics
+        run: bash scripts/check-sbf.sh
+      - name: Execute compiled program offline
+        run: cargo test --workspace --features svm-tests --locked
+      - name: Rust lint
+        run: cargo clippy --workspace --all-targets --features svm-tests --locked -- -D warnings
+      # No RPC credentials, wallet keys, deployments, or authority operations in CI.
 
   contracts:
     name: contracts · build + unit tests
