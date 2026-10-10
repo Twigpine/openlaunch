@@ -10,7 +10,7 @@ import { isChainKey } from "@/lib/chainPublic";
 import { BRAND, BRAND_TLD } from "@/lib/brand";
 import { isOwnImageUrl } from "@/lib/launchpad/images";
 import { imagePublicBase, readImage } from "@/lib/launchpad/imageStore";
-import sharp from "sharp";
+import { rasterSharp } from "@/lib/launchpad/imageProcess";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GITLAWB_LOGO_BG, GITLAWB_LOGO_PATH } from "@/lib/launchpad/gitlawb";
@@ -58,7 +58,7 @@ async function ownLogo(url: string | null): Promise<string | null> {
     const key = (url as string).slice((base as string).replace(/\/+$/, "").length + 1);
     const buf = await readImage(key);
     if (!buf) return null;
-    const png = await sharp(buf).resize(220, 220).png().toBuffer();
+    const png = await rasterSharp(buf).resize(220, 220).png().toBuffer();
     return `data:image/png;base64,${png.toString("base64")}`;
   } catch {
     return null;

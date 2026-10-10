@@ -28,7 +28,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "server-only": "^0.0.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.6.0",
     "viem": "^2.47.6",
     "wagmi": "^3.5.0"

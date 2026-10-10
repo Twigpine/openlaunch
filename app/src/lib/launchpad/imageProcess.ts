@@ -3,13 +3,24 @@
  * the decoder is the real validator, output is always a square WebP with metadata stripped.
  * No "@/" imports so node --test can load it.
  */
-import sharp from "sharp";
-import { BANNER_HEIGHT, BANNER_WIDTH, IMAGE_SIZE } from "./images.ts";
+import sharp, { type Sharp, type SharpOptions } from "sharp";
+import { BANNER_HEIGHT, BANNER_WIDTH, IMAGE_SIZE, sniffImage } from "./images.ts";
 
 export const MAX_INPUT_PIXELS = 30_000_000; // 30 MP decode ceiling (decompression-bomb guard)
 
+/**
+ * sharp for an image we decode ourselves: PNG, JPEG, WebP or GIF by magic bytes, anything else refused before any
+ * decoder runs. sharp would otherwise pick a decoder from the bytes, SVG included (librsvg: CVE-2026-96889), so this
+ * is the one way our code hands bytes to sharp (imageProcess.test.ts checks). SVG cannot be switched off process-wide:
+ * next/og renders every share card by passing satori's SVG through sharp.
+ */
+export function rasterSharp(input: Uint8Array, options?: SharpOptions): Sharp {
+  if (!sniffImage(input)) throw new Error("not a PNG, JPEG, WebP or GIF");
+  return sharp(Buffer.from(input), options);
+}
+
 export async function toLogoWebp(input: Uint8Array): Promise<Buffer> {
-  const img = sharp(Buffer.from(input), { animated: false, limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" });
+  const img = rasterSharp(input, { animated: false, limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" });
   const meta = await img.metadata();
   if (!meta.width || !meta.height || meta.width < 16 || meta.height < 16) throw new Error("image too small (min 16×16)");
   return img
@@ -22,7 +33,7 @@ export async function toLogoWebp(input: Uint8Array): Promise<Buffer> {
 
 /** The same treatment for a banner: decoded, cropped to BANNER_WIDTH×BANNER_HEIGHT around the subject, re-encoded. */
 export async function toBannerWebp(input: Uint8Array): Promise<Buffer> {
-  const img = sharp(Buffer.from(input), { animated: false, limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" });
+  const img = rasterSharp(input, { animated: false, limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" });
   const meta = await img.metadata();
   if (!meta.width || !meta.height || meta.width < 300 || meta.height < 100) throw new Error("banner too small (min 300×100)");
   return img

@@ -1,5 +1,5 @@
 import "server-only";
-import sharp from "sharp";
+import { rasterSharp } from "./imageProcess";
 import { readImage } from "./imageStore";
 import { storedImageKey } from "./images";
 import { fallbackTint, tintFromPixels, type TokenTint } from "./tint";
@@ -23,7 +23,7 @@ export async function tokenTint(image: string | null, token: string): Promise<To
   try {
     const bytes = await readImage(key);
     if (bytes) {
-      const { data, info } = await sharp(bytes, { limitInputPixels: 4_096 * 4_096 }).resize(SAMPLE, SAMPLE, { fit: "cover" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const { data, info } = await rasterSharp(bytes, { limitInputPixels: 4_096 * 4_096 }).resize(SAMPLE, SAMPLE, { fit: "cover" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
       tint = tintFromPixels(data, info.channels === 3 ? 3 : 4);
     }
   } catch {

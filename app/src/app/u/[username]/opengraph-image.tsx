@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import sharp from "sharp";
+import { rasterSharp } from "@/lib/launchpad/imageProcess";
 import { loadOgFonts } from "@/lib/ogFonts";
 import { memo } from "@/lib/launchpad/memo";
 import { readImage } from "@/lib/launchpad/imageStore";
@@ -28,7 +28,7 @@ async function avatarPng(url: string | null): Promise<string | null> {
   try {
     const buf = await readImage(key);
     if (!buf) return null;
-    const png = await sharp(buf).resize(240, 240).png().toBuffer();
+    const png = await rasterSharp(buf).resize(240, 240).png().toBuffer();
     return `data:image/png;base64,${png.toString("base64")}`;
   } catch {
     return null;
