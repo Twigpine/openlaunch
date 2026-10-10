@@ -7,5 +7,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const w = (new URL(req.url).searchParams.get("wallet") ?? "").toLowerCase();
   if (!adminWallets().has(w)) return NextResponse.json({ error: "admin only" }, { status: 403 });
-  return NextResponse.json({ posts: await listReported() }, { headers: { "cache-control": "no-store" } });
+  try {
+    return NextResponse.json({ posts: await listReported() }, { headers: { "cache-control": "no-store" } });
+  } catch (err) {
+    console.error("[posts] reported failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "could not load reported posts" }, { status: 502, headers: { "cache-control": "no-store" } });
+  }
 }
