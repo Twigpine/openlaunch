@@ -1,7 +1,26 @@
 import { Buffer } from "buffer";
-import { PublicKey, Transaction, VersionedTransaction, type Connection, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, Transaction, VersionedTransaction, type Connection, type TransactionInstruction } from "@solana/web3.js";
 
 export const MAX_TRANSACTION_BYTES = 1232;
+/** `PoolError` messages in program order: Anchor numbers custom errors from 6000. */
+const POOL_ERRORS = [
+  "Arithmetic limit exceeded", "Invalid immutable fee tier", "Invalid fixed recipients", "Invalid token inventory",
+  "Virtual SOL is outside the supported range", "Actual reserves do not cover accounted obligations",
+  "Trade or claim amount rounds to zero", "Operation is not allowed in this pool state", "Invalid mint authority, supply, or decimals",
+  "Invalid custody vault", "Minimum output not met", "Protocol account aliases are not permitted", "Unsupported pool version",
+  "Invalid or oversized metadata", "Activation requires this exact program to be immutable", "Quote expired at its maximum slot",
+];
+/** A readable reason for a failed simulation or a refused send: the program's own error message when there is one. */
+export function describeTransactionError(err: unknown, logs: readonly string[] = []): string {
+  for (const line of logs) {
+    const anchor = /Error Message: (.+?)\.?$/.exec(line);
+    if (anchor) return anchor[1];
+  }
+  const text = typeof err === "string" ? err : JSON.stringify(err) ?? "";
+  const custom = /"Custom":(\d+)/.exec(text);
+  if (custom) return POOL_ERRORS[Number(custom[1]) - 6000] ?? `Program error ${custom[1]}`;
+  return text;
+}
 export type PreparedTransaction = {
   transaction: Transaction; wireBytes: Uint8Array; messageBytes: Uint8Array;
   blockhash: string; lastValidBlockHeight: number;
@@ -17,7 +36,7 @@ export async function prepareTransaction(connection: Connection, payer: PublicKe
 export async function simulatePreparedTransaction(connection: Connection, prepared: PreparedTransaction): Promise<{ unitsConsumed: number | undefined; logs: string[] }> {
   const transaction = VersionedTransaction.deserialize(prepared.wireBytes);
   const result = await connection.simulateTransaction(transaction, { sigVerify: false, replaceRecentBlockhash: false, commitment: "confirmed" });
-  if (result.value.err) throw new Error(`Simulation failed: ${JSON.stringify(result.value.err)}`);
+  if (result.value.err) throw new Error(`Simulation failed: ${describeTransactionError(result.value.err, result.value.logs ?? [])}`);
   return { unitsConsumed: result.value.unitsConsumed, logs: result.value.logs ?? [] };
 }
 
@@ -41,22 +60,42 @@ export function validateSignedTransaction(expectedMessage: Uint8Array, signedByt
   const bytes = transaction.serialize({ requireAllSignatures: true, verifySignatures: true });
   return { bytes, signature: encodeBase58(transaction.signature) };
 }
-export type SubmissionResult = { signature: string; status: "submitted" | "unknown"; error?: string };
-/** Persist the local signature + expiry BEFORE calling. A transport error is not a failed transaction. */
+export type SubmissionResult = { signature: string; status: "submitted" | "rejected" | "unknown"; error?: string };
+/**
+ * Persist the local signature + expiry BEFORE calling. A transport error is not a failed transaction ("unknown"). An
+ * error the RPC returns for this preflighted send, or a 429 from the proxy or provider, means the transaction was not
+ * forwarded ("rejected"): it cannot land, so a fresh review is safe. The one exception is "AlreadyProcessed", which
+ * means the same signature already landed and must be reconciled.
+ */
 export async function submitSignedTransaction(connection: Connection, signed: ValidatedSignedTransaction): Promise<SubmissionResult> {
   try {
-    const returned = await connection.sendRawTransaction(signed.bytes, { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 0 });
+    // No maxRetries: the RPC keeps forwarding the signed bytes until the blockhash expires.
+    const returned = await connection.sendRawTransaction(signed.bytes, { skipPreflight: false, preflightCommitment: "confirmed" });
     if (returned !== signed.signature) return { signature: signed.signature, status: "unknown", error: "RPC returned an unexpected signature; reconcile the locally signed transaction" };
     return { signature: signed.signature, status: "submitted" };
-  } catch {
+  } catch (e) {
+    if (e instanceof SendTransactionError && !/AlreadyProcessed/.test(e.transactionError.message ?? ""))
+      return { signature: signed.signature, status: "rejected", error: describeTransactionError(e.transactionError.message, e.transactionError.logs) };
+    if (!(e instanceof SendTransactionError) && e instanceof Error && /^429\b/.test(e.message))
+      return { signature: signed.signature, status: "rejected", error: "Solana RPC is busy" };
     return { signature: signed.signature, status: "unknown", error: "Submission result unknown. Check this signature before submitting a replacement." };
   }
 }
-export type Reconciliation = { status: "confirmed" | "finalized" | "failed" | "pending" | "expired"; error?: unknown };
+/** Re-send the identical signed bytes while the signature is unseen. A signature lands at most once, so this cannot duplicate. */
+export async function rebroadcastSignedTransaction(connection: Connection, bytes: Uint8Array): Promise<void> {
+  try {
+    await connection.sendRawTransaction(bytes, { skipPreflight: false, preflightCommitment: "confirmed" });
+  } catch {
+    // Already processed, expired or refused for now: reconciliation decides what happened.
+  }
+}
+/** `unseen`: no node has reported the signature yet, so re-sending its bytes may still help it land. */
+export type Reconciliation = { status: "confirmed" | "finalized" | "failed" | "pending" | "expired"; error?: unknown; unseen?: true };
 export async function reconcileTransaction(connection: Connection, signature: string, lastValidBlockHeight: number): Promise<Reconciliation> {
   if (!Number.isSafeInteger(lastValidBlockHeight) || lastValidBlockHeight <= 0) throw new Error("Invalid transaction expiry");
-  // Check finalized block height before historical status: if expired, no new landing can race this read.
-  const height = await connection.getBlockHeight("finalized");
+  // One finalized bank gives both the slot and the block height. Read it before historical status: if it is past the
+  // expiry, no new landing can race the status read.
+  const finalized = await connection.getEpochInfo("finalized");
   const result = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
   const status = result.value[0];
   if (status) {
@@ -67,5 +106,10 @@ export async function reconcileTransaction(connection: Connection, signature: st
     if (status.confirmationStatus === "confirmed") return { status: "confirmed" };
     return { status: "pending" };
   }
-  return { status: height > lastValidBlockHeight ? "expired" : "pending" };
+  const height = finalized.blockHeight;
+  if (height === undefined || !Number.isSafeInteger(height) || height <= lastValidBlockHeight) return { status: "pending", unseen: true };
+  // The two reads can reach different nodes behind a load balancer. "Not found" proves expiry only from a node that had
+  // already processed the finalized bank past the expiry; a lagging node would miss a transaction that landed.
+  if (result.context.slot < finalized.absoluteSlot) return { status: "pending", unseen: true };
+  return { status: "expired" };
 }

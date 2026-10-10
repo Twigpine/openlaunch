@@ -384,7 +384,11 @@ test("RPC history scanning is bounded, filters failed signatures and reports una
 
 test("cache deduplicates requests and limits concurrent and per-minute upstream starts", async () => {
   let now = 60_001;
-  const cached = createHistoryCache<number>(() => now);
+  const cached = createHistoryCache<number>(() => now, {
+    maxPending: 2,
+    startsPerMinute: 6,
+    ttlMs: 15_000,
+  });
   let resolve: (n: number) => void = () => {};
   let starts = 0;
   const loader = () => {
@@ -414,4 +418,42 @@ test("cache deduplicates requests and limits concurrent and per-minute upstream 
   );
   now += 60_000;
   assert.equal(await cached("g", async () => 7), 7);
+});
+
+test("refreshes reuse confirmed transactions and refetch a signature the listing moved to another slot", async () => {
+  const logs = [
+    invoke(other),
+    invoke(program, 2),
+    emit(first.bytes),
+    success(program),
+    success(other),
+  ];
+  let calls = 0;
+  let listedSlot = 50;
+  const fake = {
+    getSignaturesForAddress: async () => [
+      {
+        signature: "signature",
+        slot: listedSlot,
+        err: null,
+        memo: null,
+        confirmationStatus: "confirmed",
+      },
+    ],
+    getTransaction: async () => {
+      calls++;
+      return transaction(logs, { slot: listedSlot });
+    },
+  } as unknown as Connection;
+  const transactions = new Map();
+  const a = await fetchRecentSolanaHistory(fake, program, snapshot(), transactions);
+  const b = await fetchRecentSolanaHistory(fake, program, snapshot(), transactions);
+  assert.equal(a.tradeCount, 1);
+  assert.equal(b.tradeCount, 1);
+  assert.equal(calls, 1);
+  // The listing now places the signature at another slot: the cached copy is not trusted, the RPC is asked again.
+  listedSlot = 49;
+  await fetchRecentSolanaHistory(fake, program, snapshot(), transactions);
+  assert.equal(calls, 2);
+  assert.equal(transactions.get("signature")?.slot, 49);
 });

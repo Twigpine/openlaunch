@@ -144,3 +144,13 @@ test("RPC sends only fully signed program transactions; simulation never signs",
     false,
   );
 });
+
+test("RPC allows the epoch read that pairs a slot with its block height", () => {
+  assert.equal(
+    allowedSolanaRpc(
+      request("getEpochInfo", [{ commitment: "finalized" }]),
+      program.toBase58(),
+    ),
+    true,
+  );
+});

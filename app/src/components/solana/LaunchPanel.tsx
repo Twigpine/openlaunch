@@ -8,7 +8,7 @@ import {
   POOL_ACCOUNT_SPACE,
 } from "@openlaunch/solana-sdk";
 import { btn, input, label, helper } from "@/components/ui";
-import { formatUnits, parseUnits } from "@/lib/solana/config";
+import { formatUnits, parseUnits, requireRent } from "@/lib/solana/config";
 import type { SolanaPanelProps } from "./SolanaWorkspace";
 
 export default function LaunchPanel({
@@ -91,8 +91,9 @@ export default function LaunchPanel({
       const addresses = derivePoolAddresses(program, creator, nonce);
       const pool = addresses.pool.toBase58();
       // Pool::SPACE is ABI-v1 fixed maximum allocation, even with shorter text.
-      const rent =
-        await connection.getMinimumBalanceForRentExemption(POOL_ACCOUNT_SPACE);
+      const rent = requireRent(
+        await connection.getMinimumBalanceForRentExemption(POOL_ACCOUNT_SPACE),
+      );
       await actions.prepare(
         "Prepare launch",
         [ix],

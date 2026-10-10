@@ -13,8 +13,7 @@ import {
   Wallet,
 } from "lucide-react";
 import {
-  decodePoolAccount,
-  encodeBase58,
+  fetchActivePools,
   fetchPoolSnapshot,
   verifyImmutableProgram,
   type PoolSnapshot,
@@ -121,39 +120,21 @@ export default function SolanaWorkspace({
           );
           if (alive) setSnapshot(result);
         } else {
-          const digest = new Uint8Array(
-            await crypto.subtle.digest(
-              "SHA-256",
-              new TextEncoder().encode("account:Pool"),
-            ),
+          // Active pools only, addresses first: tombstoned pools never travel, so the list cannot outgrow the proxy.
+          const { total, pools } = await fetchActivePools(
+            connection,
+            programId,
+            50,
           );
-          const rows = await connection.getProgramAccounts(programId, {
-            commitment: "confirmed",
-            filters: [
-              {
-                memcmp: { offset: 0, bytes: encodeBase58(digest.slice(0, 8)) },
-              },
-            ],
-          });
-          const active = rows.flatMap((row) => {
-            try {
-              const p = decodePoolAccount(row.pubkey, row.account, programId);
-              return p.status === "active"
-                ? [
-                    {
-                      key: row.pubkey.toBase58(),
-                      name: p.name,
-                      symbol: p.symbol,
-                    },
-                  ]
-                : [];
-            } catch {
-              return [];
-            }
-          });
           if (alive) {
-            setList(active.slice(0, 50));
-            setListTotal(active.length);
+            setList(
+              pools.map(({ address, pool }) => ({
+                key: address.toBase58(),
+                name: pool.name,
+                symbol: pool.symbol,
+              })),
+            );
+            setListTotal(total);
           }
         }
       } catch (e) {

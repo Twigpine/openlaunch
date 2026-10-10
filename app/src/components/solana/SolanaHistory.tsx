@@ -152,8 +152,8 @@ export default function SolanaHistory({
       }
     }
     void load();
-    // The API caches for 15 seconds. Retry even when no further swap changes
-    // sequence, including after an initially unavailable RPC transaction.
+    // The API caches each pool and sequence for 30 seconds. Retry even when no
+    // further swap changes sequence, including after an initially unavailable RPC transaction.
     const timer = setInterval(() => void load(), 20_000);
     document.addEventListener("visibilitychange", load);
     return () => {
@@ -168,7 +168,8 @@ export default function SolanaHistory({
       <p className="mt-1 text-xs text-muted">
         SOL per token · 5-minute candles · Confirmed program events
       </p>
-      {error ? (
+      {/* A failed refresh keeps the last loaded trades on screen; the error replaces nothing it can't. */}
+      {error && !result ? (
         <p className="py-6 text-sm text-muted" role="status">
           {error}
         </p>
@@ -197,6 +198,9 @@ export default function SolanaHistory({
               : ""}
             {result.coverage.unavailableTransactions > 0
               ? " Some transactions are unavailable from the RPC."
+              : ""}
+            {error
+              ? " The latest refresh failed, so this shows the last trades loaded."
               : ""}
           </p>
           <ul className="divide-y divide-line">

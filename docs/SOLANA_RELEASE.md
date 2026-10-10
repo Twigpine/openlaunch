@@ -47,7 +47,7 @@ For app inspection with default configuration, run `npm run dev` in `app/` and v
 
 ## Required product and operations work before broad mainnet rollout
 
-- [ ] Durable paginated discovery and history. Current discovery reads all program pool accounts and displays at most 50; the RPC response cap is 4 MiB. Recent history reads at most 100 signatures. Neither is a production-scale indexer.
+- [ ] Durable paginated discovery and history. Current discovery lists active pools only (status-byte filter, addresses without data, so roughly 18,000 fit under the 4 MiB RPC response cap) and reads data for at most 50, in address order rather than by activity. Recent history reads at most 100 signatures, refetching only transactions it has not already cached. Neither is a production-scale indexer.
 - [ ] Finalized checkpoint/reorg recovery, backfill and independent account reconciliation; full holder/transfer indexing before showing holder counts, lifetime volume or complete history.
 - [ ] RPC provider quotas, edge-level rate limiting and monitoring. Current per-IP and process-wide budgets are a backstop, not a distributed abuse-control system. Account-provider outages must not cause automatic financial retries.
 - [ ] Approve immutable metadata hosting/hash policy. Canonical name/symbol/URI live in the pool; no Metaplex metadata mirror is supplied, so third-party wallets may show the mint address rather than branded token metadata.

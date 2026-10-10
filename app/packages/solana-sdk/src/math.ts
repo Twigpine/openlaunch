@@ -103,6 +103,9 @@ export function formatAmount(value: bigint, decimals: number): string {
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) throw new RangeError("Invalid decimal precision");
   const text = value.toString().padStart(decimals + 1, "0");
   if (decimals === 0) return text;
-  const fraction = text.slice(-decimals).replace(/0+$/, "");
+  // Trailing zeros trimmed by index, not by regex: the input is library data (CodeQL js/polynomial-redos).
+  let end = decimals;
+  while (end > 0 && text[text.length - decimals + end - 1] === "0") end--;
+  const fraction = text.slice(text.length - decimals, text.length - decimals + end);
   return `${text.slice(0, -decimals)}${fraction ? `.${fraction}` : ""}`;
 }

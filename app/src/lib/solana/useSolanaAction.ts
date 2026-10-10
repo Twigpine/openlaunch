@@ -18,6 +18,7 @@ import {
   simulatePreparedTransaction,
   validateSignedTransaction,
   submitSignedTransaction,
+  rebroadcastSignedTransaction,
   reconcileTransaction,
   verifyImmutableProgram,
   type PreparedTransaction,
@@ -44,7 +45,13 @@ export type ActionReview = {
   payer: string;
   pool: string | null;
   networkFee: number;
+  /** The program's own deadline for a trade (its expiry slot), checked with the blockhash before signing. */
+  expirySlot: bigint | null;
 };
+/** Slots of headroom a trade review keeps before its expiry slot: about 8 seconds to approve in the wallet. */
+const EXPIRY_MARGIN_SLOTS = 20n;
+/** While a signature is unseen, its identical bytes are sent again at most this often. */
+const REBROADCAST_MS = 8_000;
 type Recovery = {
   context: ActionContext;
   pending: PendingSolanaAction | null;
@@ -78,6 +85,8 @@ export function useSolanaAction(
   const [busy, setBusy] = useState(false);
   const gate = useRef(false);
   const checks = useRef(new Set<string>());
+  // The signed bytes of this tab's latest send, kept in memory only, so a dropped packet can be sent again.
+  const sent = useRef<{ signature: string; bytes: Uint8Array; at: number } | null>(null);
   const currentContext = useRef<ActionContext>(context);
   const currentScope = useRef<ReviewScope | null>(scope);
   const settled = useRef(onSettled);
@@ -214,7 +223,17 @@ export function useSolanaAction(
         pending.lastValidBlockHeight,
       );
       if (!live()) return;
+      const bytes = sent.current;
+      if (
+        result.unseen &&
+        bytes?.signature === pending.signature &&
+        Date.now() - bytes.at >= REBROADCAST_MS
+      ) {
+        bytes.at = Date.now();
+        void rebroadcastSignedTransaction(connection, bytes.bytes);
+      }
       if (["finalized", "failed", "expired"].includes(result.status)) {
+        if (sent.current?.signature === pending.signature) sent.current = null;
         if (!navigator.locks) throw new Error("Web Locks unavailable");
         await navigator.locks.request(key, { ifAvailable: true }, (lock) => {
           if (!lock || !live()) return;
@@ -283,6 +302,7 @@ export function useSolanaAction(
     instructions: TransactionInstruction[],
     lines: [string, string][],
     pool: string | null,
+    expirySlot: bigint | null = null,
   ) {
     if (
       gate.current ||
@@ -356,6 +376,7 @@ export function useSolanaAction(
           payer: address,
           pool,
           networkFee: fee.value,
+          expirySlot,
         },
       });
     } catch (e) {
@@ -404,9 +425,15 @@ export function useSolanaAction(
             throw new Error(
               "The wallet or selected pool changed. Review again.",
             );
+          // One bank gives both deadlines: the blockhash's block height and the trade's own expiry slot.
+          const epoch = await connection.getEpochInfo("confirmed");
+          const height =
+            epoch.blockHeight ?? (await connection.getBlockHeight("confirmed"));
           if (
-            (await connection.getBlockHeight("confirmed")) >
-            review.prepared.lastValidBlockHeight
+            height > review.prepared.lastValidBlockHeight ||
+            (review.expirySlot !== null &&
+              BigInt(epoch.absoluteSlot) + EXPIRY_MARGIN_SLOTS >
+                review.expirySlot)
           )
             throw new Error("This review expired. Refresh it before signing.");
           if (!reviewLive())
@@ -443,7 +470,28 @@ export function useSolanaAction(
           persistJournalForSession(localStorage, key, record, reviewLive);
           setRecovery({ context, pending: record, ready: true, error: "" });
           setReview(null);
+          sent.current = {
+            signature: signed.signature,
+            bytes: signed.bytes,
+            at: Date.now(),
+          };
           const result = await submitSignedTransaction(connection, signed);
+          if (result.status === "rejected") {
+            // Refused before it was forwarded, so these signed bytes can never land: release the wallet (we still
+            // hold its lock) and say why, instead of waiting out the blockhash as an uncertain submission.
+            sent.current = null;
+            clearJournalIfCurrent(localStorage, key, record);
+            setRecovery((old) =>
+              old &&
+              sameActionContext(old.context, context) &&
+              samePendingAction(old.pending, record)
+                ? { ...old, pending: null, error: "" }
+                : old,
+            );
+            throw new Error(
+              `${result.error ?? "Solana RPC refused the transaction"}. Nothing was sent. Review again to retry.`,
+            );
+          }
           if (live())
             setMessage(
               result.status === "unknown"

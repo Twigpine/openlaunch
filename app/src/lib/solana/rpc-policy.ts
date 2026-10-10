@@ -8,6 +8,7 @@ const READS = new Set([
   "getBalance",
   "getLatestBlockhash",
   "getBlockHeight",
+  "getEpochInfo",
   "getSlot",
   "getGenesisHash",
   "getFeeForMessage",

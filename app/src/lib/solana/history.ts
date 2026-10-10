@@ -374,10 +374,16 @@ export function recentHistoryFromEvents(
   };
 }
 
+/** Confirmed transactions by signature, re-parsed against each new snapshot: a refresh fetches only the new ones. */
+export type TransactionCache = Map<string, VersionedTransactionResponse>;
+const TRANSACTION_CACHE_LIMIT = 1_000;
+const transactionCache: TransactionCache = new Map();
+
 export async function fetchRecentSolanaHistory(
   connection: Connection,
   programId: PublicKey,
   snapshot: PoolSnapshot,
+  transactions: TransactionCache = transactionCache,
 ): Promise<SolanaHistory> {
   const signatures = (
     await connection.getSignaturesForAddress(
@@ -413,13 +419,24 @@ export async function fetchRecentSolanaHistory(
         }
         const signature = candidates[next++];
         try {
-          const tx = await connection.getTransaction(signature.signature, {
-            commitment: "confirmed",
-            maxSupportedTransactionVersion: 0,
-          });
+          // A cached copy counts only at the slot the listing reports: a fork can move or drop a confirmed signature.
+          const known = transactions.get(signature.signature);
+          const tx =
+            known && known.slot === signature.slot
+              ? known
+              : await connection.getTransaction(signature.signature, {
+                  commitment: "confirmed",
+                  maxSupportedTransactionVersion: 0,
+                });
           if (!tx) {
             unavailableTransactions++;
             continue;
+          }
+          if (tx !== known) {
+            transactions.delete(signature.signature);
+            transactions.set(signature.signature, tx);
+            if (transactions.size > TRANSACTION_CACHE_LIMIT)
+              transactions.delete(transactions.keys().next().value!);
           }
           const parsed = parseSolanaTransaction(
             tx,
@@ -456,8 +473,16 @@ export async function fetchRecentSolanaHistory(
   };
 }
 
-/** Per-process load shedding, not a distributed quota or durable indexer. */
-export function createHistoryCache<T>(now: () => number = Date.now) {
+/**
+ * Per-process load shedding, not a distributed quota or durable indexer. Callers charge it only for pools that exist
+ * (the route checks the snapshot first) and key it by pool and sequence, so made-up addresses cost nothing here and a
+ * pool's result is reused until it trades again or the TTL passes. Loads are incremental (`TransactionCache`), so the
+ * limits are set for many watched pools, not for full 100-transaction rescans.
+ */
+export function createHistoryCache<T>(
+  now: () => number = Date.now,
+  { maxPending = 4, startsPerMinute = 30, ttlMs = 30_000 } = {},
+) {
   const cache = new Map<string, { expires: number; value: T }>();
   const pending = new Map<string, Promise<T>>();
   let windowAt = 0;
@@ -472,7 +497,8 @@ export function createHistoryCache<T>(now: () => number = Date.now) {
       windowAt = time;
       starts = 0;
     }
-    if (pending.size >= 2 || starts >= 6) throw new Error("HISTORY_BUSY");
+    if (pending.size >= maxPending || starts >= startsPerMinute)
+      throw new Error("HISTORY_BUSY");
     starts++;
     const task = Promise.resolve()
       .then(load)
@@ -480,7 +506,7 @@ export function createHistoryCache<T>(now: () => number = Date.now) {
         for (const [id, entry] of cache)
           if (entry.expires <= now()) cache.delete(id);
         if (cache.size >= 128) cache.delete(cache.keys().next().value!);
-        cache.set(key, { expires: now() + 15_000, value });
+        cache.set(key, { expires: now() + ttlMs, value });
         return value;
       })
       .finally(() => pending.delete(key));

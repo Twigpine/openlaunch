@@ -16,13 +16,25 @@ import {
   minimumAfterSlippage,
   quoteBuy,
   quoteSell,
+  readPoolSnapshot,
   TOKEN_PROGRAM_ID,
   type PoolSnapshot,
 } from "@openlaunch/solana-sdk";
 import { btn, input, label } from "@/components/ui";
-import { explorerUrl, formatUnits, parseUnits } from "@/lib/solana/config";
+import {
+  explorerUrl,
+  formatUnits,
+  parseUnits,
+  requireRent,
+} from "@/lib/solana/config";
 import type { SolanaPanelProps } from "./SolanaWorkspace";
 import SolanaHistory from "./SolanaHistory";
+
+/**
+ * Slots a trade quote stays valid on-chain: longer than the blockhash (about 150 blocks), so the blockhash expiry the
+ * client checks always comes first, and a slow wallet approval never meets a raw program "Expired" error.
+ */
+const TRADE_EXPIRY_SLOTS = 300n;
 
 export default function PoolPanel({
   connection,
@@ -63,24 +75,26 @@ export default function PoolPanel({
       if (reading) return;
       reading = true;
       try {
-        const result = await fetchPoolSnapshot(
+        // One call per poll: the pool, its custody, the wallet and its token account, all from one bank.
+        const owner = address ? new PublicKey(address) : null;
+        const { snapshot: result, extra } = await readPoolSnapshot(
           connection,
           program,
           snapshot.address,
+          owner
+            ? [
+                owner,
+                deriveAssociatedTokenAddress(snapshot.addresses.mint, owner),
+              ]
+            : [],
         );
         if (!alive) return;
         setFresh(result);
         setLastRead(Date.now());
         setQuoteError("");
-        if (address) {
-          const owner = new PublicKey(address);
-          const [sol, token] = await Promise.all([
-            connection.getBalance(owner, "confirmed"),
-            connection.getAccountInfo(
-              deriveAssociatedTokenAddress(result.addresses.mint, owner),
-              "confirmed",
-            ),
-          ]);
+        if (owner && address) {
+          const [wallet, token] = extra;
+          const sol = wallet?.lamports ?? 0;
           if (!Number.isSafeInteger(sol))
             throw new Error(
               "Balance precision is unsupported by this RPC client.",
@@ -140,11 +154,13 @@ export default function PoolPanel({
     if (!address || working) return;
     setWorking(true);
     try {
-      const current = await fetchPoolSnapshot(
-        connection,
-        program,
-        snapshot.address,
-      );
+      const trader = new PublicKey(address);
+      const {
+        snapshot: current,
+        extra: [ata],
+      } = await readPoolSnapshot(connection, program, snapshot.address, [
+        deriveAssociatedTokenAddress(snapshot.addresses.mint, trader),
+      ]);
       if (current.pool.status !== "active")
         throw new Error("This pool is not active.");
       const amountIn = parseUnits(amount, side === "buy" ? 9 : 6);
@@ -153,8 +169,7 @@ export default function PoolPanel({
           ? quoteBuy(current.pool, amountIn)
           : quoteSell(current.pool, amountIn);
       const minimumOut = minimumAfterSlippage(quote.amountOut, 100);
-      const trader = new PublicKey(address);
-      const expirySlot = BigInt(await connection.getSlot("confirmed")) + 120n;
+      const expirySlot = BigInt(current.slot) + TRADE_EXPIRY_SLOTS;
       const args = {
         creator: current.pool.creator,
         nonce: current.pool.nonce,
@@ -174,13 +189,9 @@ export default function PoolPanel({
               buildBuyInstruction(program, args),
             ]
           : [buildSellInstruction(program, args)];
-      const ata = await connection.getAccountInfo(
-        deriveAssociatedTokenAddress(current.addresses.mint, trader),
-        "confirmed",
-      );
       const extraRent =
         side === "buy" && !ata
-          ? await connection.getMinimumBalanceForRentExemption(165)
+          ? requireRent(await connection.getMinimumBalanceForRentExemption(165))
           : 0;
       await actions.prepare(
         side === "buy" ? "Buy tokens" : "Sell tokens",
@@ -207,6 +218,7 @@ export default function PoolPanel({
           ["Expiry slot", expirySlot.toString()],
         ],
         snapshot.address.toBase58(),
+        expirySlot,
       );
     } catch (e) {
       actions.setError(
@@ -236,8 +248,10 @@ export default function PoolPanel({
       const rent = activate
         ? (
             await Promise.all(
-              [82, 165, 49, 49].map((space) =>
-                connection.getMinimumBalanceForRentExemption(space),
+              [82, 165, 49, 49].map(async (space) =>
+                requireRent(
+                  await connection.getMinimumBalanceForRentExemption(space),
+                ),
               ),
             )
           ).reduce((sum, n) => sum + n, 0)
