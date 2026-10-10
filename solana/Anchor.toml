@@ -1,0 +1,17 @@
+[toolchain]
+anchor_version = "0.31.1"
+# Use scripts/check-sbf.sh for the independently pinned modern SBPFv3 compiler.
+# The historical Anchor 0.31 recommended Agave 2.1 is not a release requirement.
+
+[features]
+resolution = true
+skip-lint = false
+
+# Compilation/test fixture only. Kevin must bind the reviewed source and SDK to
+# a real deployment ID before reproducible build and immutable release review.
+[programs.localnet]
+launch_pool = "Fg6PaFpoGXkYsidMpWxTWqkZPknxNpEMTZfkhHQjBcqr"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"

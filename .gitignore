@@ -10,6 +10,13 @@ broadcast/
 .DS_Store
 *.tsbuildinfo
 
+# Solana build products and local-only test/deployment keys
+solana/target/
+solana/.anchor/
+solana/.tools/
+**/*-keypair.json
+app/packages/solana-sdk/dist/
+
 # editor/agent scratch + local deploy metadata
 AGENTS.md
 CLAUDE.md

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "cluster": "mainnet-beta",
+  "genesisHash": null,
+  "programId": null,
+  "programData": null,
+  "sourceCommit": null,
+  "binarySha256": null,
+  "verifiedSlot": null,
+  "securityReview": null,
+  "economicReview": null,
+  "releaseApproved": false
+}
