@@ -76,7 +76,8 @@ test("symbols are cleaned: ASCII word characters only, bounded, no control or ma
 
 test("the server resolves unlisted quotes from bb_quote_tokens, fails soft, and keeps them out of Trending", () => {
   const q = src("queries.ts");
-  assert.match(q, /return unlistedQuote\(address, quoteTokensNow\.get\(`\$\{chainIdOf\(chain\)\}:\$\{address\.toLowerCase\(\)\}`\)/);
+  assert.match(q, /return unlistedQuote\(address, st\.quoteTokens\.get\(`\$\{chainIdOf\(chain\)\}:\$\{address\.toLowerCase\(\)\}`\)/);
+  assert.match(q, /const priceState = \(\): PriceState => \(\{[^\n]*quoteTokens: quoteTokensNow,/);
   assert.match(q, /quoteTokensNow = await memo\("quote-tokens"/);
   assert.match(q, /\/\* fail soft \(table not migrated yet/);
   assert.match(q, /rankTrending\(rows\.filter\(\(r\) => r\.quote_key !== "other"\)/);

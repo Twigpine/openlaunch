@@ -114,16 +114,23 @@ let museworldUsdNow: number | null = null;
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
 
-/** Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a registry stock, else an unlisted quote. */
-function quoteInfo(chain: ChainKey, address: string): Quote {
+/** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
+type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
+const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
+
+/**
+ * Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a
+ * registry stock, else an unlisted quote. Priced from `st` (the prices loaded now unless a snapshot is passed).
+ */
+function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState()): Quote {
   const q = staticQuoteInfo(chain, address);
-  const linked = gitlawbLinkedUsd(q.key, gitlawbUsdNow); // GITLAWB, and TWIG at the same price
+  const linked = gitlawbLinkedUsd(q.key, st.gitlawb); // GITLAWB, and TWIG at the same price
   if (linked !== undefined) return { ...q, usd: linked };
-  if (q.key === "museworld") return { ...q, usd: museworldUsdNow };
+  if (q.key === "museworld") return { ...q, usd: st.museworld };
   if (q.key !== "other") return q;
-  const st = stockByAddress(chain, address);
-  if (st) return { key: "stock", address: st.address as Quote["address"], symbol: st.symbol, decimals: st.decimals, usd: stockUsdNow.get(st.address) ?? null, name: st.name, logo: st.logo };
-  return unlistedQuote(address, quoteTokensNow.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, stockSymbolsNow.get(chain) ?? []);
+  const stock = stockByAddress(chain, address);
+  if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo };
+  return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, st.stockSymbols.get(chain) ?? []);
 }
 
 /**
@@ -190,10 +197,12 @@ async function withStocks(): Promise<void> {
   }
 }
 
+/** A quote's USD price (ETH-quoted through the ETH price; null when unknown). */
 function quoteUsd(q: Quote, ethUsd: number | null): number | null {
   return quoteUsdOf(q, ethUsd);
 }
 
+/** A launch row as the app uses it: indexer-only bigint columns dropped (JSON-safe), price, FDV and USD figures worked out. */
 function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null): LaunchRow {
   // drop indexer-only bigint columns so the row is JSON-safe
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -386,6 +395,7 @@ export async function listLaunches(opts: ListOpts = {}): Promise<LaunchRow[]> {
   return (await listLaunchesPage(opts)).items;
 }
 
+/** One launch by chain and token, or null. */
 export async function getLaunch(chain: ChainKey, token: string, ethUsd: number | null = null): Promise<LaunchRow | null> {
   const db = maybeDb();
   if (!db) return null;
@@ -420,6 +430,7 @@ export async function findLaunchChain(token: string): Promise<ChainKey | null> {
 
 export type SwapRow = { tx_hash: string; log_index: number; token: string; trader: string | null; amount0: string; amount1: string; is_buy: boolean; block_time: string; price_quote: number };
 
+/** A token's newest swaps, newest first, with amounts in display units. */
 export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: number, limit = 50): Promise<SwapRow[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -457,6 +468,7 @@ async function pictureCopies(db: NonNullable<ReturnType<typeof maybeDb>>, launch
   }
 }
 
+/** The newest launches and trades across every chain, merged newest first, for the home feed. */
 export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): Promise<FeedItem[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -522,6 +534,7 @@ export type LaunchTotals = {
   by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
 };
 
+/** Platform totals (launches, trades, USD volume, fees burned and paid to creators, GITLAWB burned); zeros without a database. */
 export async function getLaunchTotals(ethUsd: number | null = null): Promise<LaunchTotals> {
   const empty = (): LaunchTotals => ({
     launches: 0,
@@ -587,6 +600,7 @@ export const getLaunchTotalsForRequest = cache(getLaunchTotals);
 
 export type FeeEventRow = { tx_hash: string; kind: string; currency: string | null; account: string | null; amount: string | null; quote_amount: string | null; token_amount: string | null; block_time: string };
 
+/** A token's newest fee collections and burns. */
 export async function getFeeEvents(chain: ChainKey, token: string, limit = 30): Promise<FeeEventRow[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -597,6 +611,7 @@ export async function getFeeEvents(chain: ChainKey, token: string, limit = 30): 
 
 export type SyncCursor = { chain: ChainKey; cursor_block: number; head_block: number | null; last_run_at: string | null; last_error: string | null };
 
+/** How far the indexer has read on each chain. */
 export async function launchSyncCursors(): Promise<SyncCursor[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -701,6 +716,7 @@ export async function getWalletTokens(wallet: string, ethUsd: number | null = nu
 
 export type WalletTrade = { chain: ChainKey; token: string; symbol: string; name: string; tx_hash: string; log_index: number; is_buy: boolean; quote_raw: string; quote_symbol: string; quote_decimals: number; usd: number | null; tokens: string; block_time: string };
 
+/** One wallet's newest trades across every chain, keyed by chain, transaction and log index. */
 export async function getWalletTrades(wallet: string, ethUsd: number | null = null, limit = 50): Promise<WalletTrade[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -783,4 +799,18 @@ export async function withBoardTape(snap: TrendingSnap): Promise<TrendingSnap> {
 export async function getTrending(ethUsd: number | null = null): Promise<TrendingSnap> {
   const page = await listLaunchesPage({ sort: "live", limit: TRENDING_CANDIDATES, ethUsd });
   return trendingFrom(page.items);
+}
+
+/**
+ * The quote pricing the lists use, as a function, for code that prices many launches at once (season points):
+ * decimals and USD per whole quote unit (null = unpriced) for a launch's quote on its chain.
+ */
+export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: string; decimals: number; usd: number | null }> {
+  await withStocks();
+  // one snapshot for the caller's whole run: a page refresh loading new prices meanwhile must not change it halfway
+  const snap = priceState();
+  return (chain, quote) => {
+    const q = quoteInfo(chain, quote, snap);
+    return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd) };
+  };
 }

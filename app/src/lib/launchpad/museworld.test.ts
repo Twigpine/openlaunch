@@ -55,7 +55,9 @@ test("time-weighted price: a one-block push barely moves a 30-minute average", (
 
 test("server: priced from its own GITLAWB pool, guarded by the average, fails soft, ranks in USD sorts", () => {
   const q = src("queries.ts");
-  assert.match(q, /if \(q\.key === "museworld"\) return \{ \.\.\.q, usd: museworldUsdNow \};/);
+  // quoteInfo prices from one snapshot of the loaded prices (priceState), MUSEWORLD from museworldUsdNow
+  assert.match(q, /if \(q\.key === "museworld"\) return \{ \.\.\.q, usd: st\.museworld \};/);
+  assert.match(q, /const priceState = \(\): PriceState => \(\{[^\n]*museworld: museworldUsdNow,/);
   assert.match(q, /row\.quote !== GITLAWB_ADDRESS\.toLowerCase\(\)\) return null;/, "only the MUSEWORLD/GITLAWB pool may price it");
   assert.match(q, /reconcileGitlawbUsd\(spot > 0 \? spot : null, twap\)/);
   assert.match(q, /perMuseworld \* gitlawbUsd/);

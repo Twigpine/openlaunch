@@ -265,7 +265,16 @@ async function consumeNonce(db: Db, nonce: string, wallet: string): Promise<bool
   }
 }
 
-type Signed = { chain?: unknown; wallet: unknown; nonce: unknown; ts: unknown; signature: unknown };
+export type Signed = { chain?: unknown; wallet: unknown; nonce: unknown; ts: unknown; signature: unknown };
+
+/** An admin-signed request from another feature (points): admin wallet, then the same front as every signed write. */
+export async function admitAdmin(s: Signed, message: (w: string, nonce: string, ts: number) => string): Promise<{ ok: true; wallet: string } | Fail> {
+  const db = maybeDb();
+  if (!db) return fail("db unconfigured", 503);
+  if (typeof s.wallet !== "string" || !adminWallets().has(s.wallet.toLowerCase())) return fail("not an admin", 403);
+  const a = await admit(db, s, message);
+  return a.ok ? { ok: true, wallet: a.wallet } : a;
+}
 
 /**
  * Shared front of every signed write: shapes, freshness, signature, then (only then) the rate-limit bucket and the
