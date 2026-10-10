@@ -14,6 +14,7 @@ import {
   type SolanaConfig,
 } from "@/lib/solana/config";
 import type { SolanaHistory as SolanaHistoryResponse } from "@/lib/solana/history";
+import { linkedTimeoutSignal } from "@/lib/bridge/client";
 
 function Candles({ candles }: { candles: SolanaHistoryResponse["candles"] }) {
   const box = useRef<HTMLDivElement>(null);
@@ -121,10 +122,8 @@ export default function SolanaHistory({
         const response = await fetch(
           `/api/solana/history/${encodeURIComponent(pool)}`,
           {
-            signal: AbortSignal.any([
-              abort.signal,
-              AbortSignal.timeout(20_000),
-            ]),
+            // Not AbortSignal.any: older wallet in-app browsers lack it, and history would never load there.
+            signal: linkedTimeoutSignal(abort.signal, 20_000),
             cache: "no-store",
           },
         );

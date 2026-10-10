@@ -53,6 +53,9 @@ jobs:
         working-directory: solana
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Nothing here pushes or fetches with the token; keep it out of .git/config for cargo install and build tools.
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.97.1

@@ -8,6 +8,11 @@ export type DeploymentManifest = {
   genesisHash: string; sourceCommit: string; binarySha256: string;
   verifiedSlot: number | null; securityReview: string | null; economicReview: string | null; releaseApproved: boolean;
 };
+/** Each supported cluster's genesis hash: release evidence must name the cluster it was actually checked on. */
+export const CLUSTER_GENESIS = {
+  "mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+  devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+} as const;
 export function validateDeploymentManifest(input: unknown): DeploymentManifest {
   if (!input || typeof input !== "object") throw new Error("Invalid manifest");
   const m = input as Record<string, unknown>;
@@ -16,6 +21,7 @@ export function validateDeploymentManifest(input: unknown): DeploymentManifest {
   if (program.equals(PublicKey.default) || program.toBase58() === "Fg6PaFpoGXkYsidMpWxTWqkZPknxNpEMTZfkhHQjBcqr") throw new Error("Test fixture is not a deployment identity");
   if (!programDataAddress(program).equals(new PublicKey(m.programData))) throw new Error("Manifest ProgramData mismatch");
   if (new PublicKey(m.genesisHash).toBase58() !== m.genesisHash) throw new Error("Invalid genesis hash");
+  if (m.genesisHash !== CLUSTER_GENESIS[m.cluster as keyof typeof CLUSTER_GENESIS]) throw new Error("Genesis hash does not match the declared cluster");
   if (m.verifiedSlot !== null && (!Number.isSafeInteger(m.verifiedSlot) || Number(m.verifiedSlot) < 0)) throw new Error("Invalid verified slot");
   if (typeof m.releaseApproved !== "boolean" || (m.securityReview !== null && typeof m.securityReview !== "string") || (m.economicReview !== null && typeof m.economicReview !== "string")) throw new Error("Invalid review metadata");
   if (m.releaseApproved && (!m.securityReview || !m.economicReview || !m.verifiedSlot)) throw new Error("Release approval requires review evidence");
