@@ -351,3 +351,109 @@ CREATE TABLE IF NOT EXISTS bb_launch_suite_cursor (
 -- An optional wide image the creator uploads beside the logo. Same rules as image_url (https only; uploads are
 -- re-encoded server-side, here to a 1500×500 WebP). NULL means no banner: the market cards draw one from the logo.
 ALTER TABLE bb_launch_meta ADD COLUMN IF NOT EXISTS banner_url text;
+
+-- ── profiles (2026-10-07) ──────────────────────────────────────────────────
+-- Optional public profile per wallet: a unique username shown wherever the wallet appears (trades, holders, posts,
+-- "launched by"). Every write is a wallet signature (src/lib/profiles). The X tick comes only from a public post
+-- that carries a one-time code bound to this wallet and the claimed handle (lib/profiles/xpost.ts); the claimed
+-- handle is never shown until it is verified. No email, no IP, no off-site identity beyond the public X account.
+CREATE TABLE IF NOT EXISTS bb_profiles (
+  wallet              text PRIMARY KEY,                    -- lowercase hex
+  username            text NOT NULL,                       -- lowercase [a-z0-9_]{3,20}
+  display_name        text NOT NULL,
+  bio                 text,
+  avatar_key          text,                                -- t/<hex>.webp in our image store, served same-origin
+  x_handle            text,                                -- claimed handle (lowercase); public only once verified
+  x_user_id           text,                                -- X account id ('h:<handle>' when only the handle was readable)
+  x_post_id           text,
+  x_verified_at       timestamptz,
+  x_account_created   timestamptz,
+  x_followers         integer,
+  x_status            text NOT NULL DEFAULT 'none' CHECK (x_status IN ('none','verified','post_missing','pending_review')),
+  x_checked_at        timestamptz,
+  hidden              boolean NOT NULL DEFAULT false,      -- admin: the wallet shows as a plain address again
+  points_flag         text,                                -- admin: 'excluded' keeps the wallet off any points board
+  points_flag_reason  text,
+  username_changed_at timestamptz,
+  deleted_at          timestamptz,                         -- deleted by its owner: the row stays (flags, created_at and the rename clock survive a re-create)
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bb_profiles_username_uq ON bb_profiles (username);
+CREATE UNIQUE INDEX IF NOT EXISTS bb_profiles_x_user_uq ON bb_profiles (x_user_id) WHERE x_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS bb_profiles_x_review_idx ON bb_profiles (x_status, updated_at DESC) WHERE x_status <> 'none';
+-- A released username (rename or delete) stays reserved for its previous wallet for 30 days.
+CREATE TABLE IF NOT EXISTS bb_username_holds (
+  username    text PRIMARY KEY,
+  wallet      text NOT NULL,
+  released_at timestamptz NOT NULL DEFAULT now()
+);
+-- single-use nonces for profile / profile-moderation signatures (client-generated, server-consumed)
+CREATE TABLE IF NOT EXISTS bb_profile_nonces (
+  nonce      text PRIMARY KEY,
+  wallet     text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- One-time X verification codes: bound to the wallet AND the handle the wallet signed for, so a copied code is
+-- useless from any other account. The code goes into a public post, so verifying also needs a private key that was
+-- returned only to the signer (kept here as a hash). review: NULL until a post is submitted while every lookup is down.
+CREATE TABLE IF NOT EXISTS bb_x_codes (
+  code         text PRIMARY KEY,                           -- OL-XXXXXXXX
+  wallet       text NOT NULL,
+  x_handle     text NOT NULL,                              -- lowercase
+  issued_at    timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  used_at      timestamptz,
+  post_id      text,
+  submitted_at timestamptz,
+  review       text CHECK (review IN ('pending','approved','rejected')),
+  secret_hash  text                                        -- sha256 of the private verify key only the signer was given
+);
+ALTER TABLE bb_x_codes ADD COLUMN IF NOT EXISTS secret_hash text;
+CREATE INDEX IF NOT EXISTS bb_x_codes_wallet_idx ON bb_x_codes (wallet, issued_at DESC);
+
+-- ── swap attribution (2026-10-07) ───────────────────────────────────────────
+-- trader is tx.from, except with proof another account authorized the call (lib/launchpad/attribution.ts): an ERC-4337
+-- EntryPoint transaction credits the sender of the user operation whose execution contains the swap ('userop').
+-- tx_from keeps the sender; trader_via NULL = not checked yet, 'receipt_pending' = an EntryPoint call whose receipt is not
+-- read yet (retried), 'unread' = the evidence could not be read (sender kept). Both open states are settled from the chain.
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_via text;
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS tx_from text;
+-- its indexes (the unchecked set, receipt-pending calls, one wallet's trades) are in db/concurrent-indexes.sql: built
+-- concurrently after this transaction, so no query on swaps waits for them
+
+-- ── points, Season 1 (2026-10-07) ──────────────────────────────────────────
+-- Reputation points for launching and trading, recomputed from scratch every hour from the chain index
+-- (lib/points/score.ts). No cash value, not a token. An admin starts a season (a shadow run only admins see, to tune the
+-- rules on real data); publishing starts the season's clock for everyone; an ended season keeps its final standings.
+CREATE TABLE IF NOT EXISTS bb_seasons (
+  id         integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  slug       text NOT NULL,                                -- s1, s2…
+  name       text NOT NULL,
+  starts_at  timestamptz NOT NULL,
+  ends_at    timestamptz NOT NULL,
+  public     boolean NOT NULL DEFAULT false,
+  computed_at timestamptz,                                 -- last successful compute (also with zero rows)
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bb_seasons_slug_uq ON bb_seasons (slug);
+-- One row per wallet with points in a season (eligible or not: an unverified wallet sees what it would unlock).
+CREATE TABLE IF NOT EXISTS bb_points (
+  season_id   integer NOT NULL,
+  wallet      text NOT NULL,
+  creator     integer NOT NULL DEFAULT 0,
+  scout       integer NOT NULL DEFAULT 0,
+  total       integer NOT NULL DEFAULT 0,
+  eligible    boolean NOT NULL DEFAULT false,
+  rank_creator integer,                                    -- among eligible wallets only
+  rank_scout  integer,
+  breakdown   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  computed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (season_id, wallet)
+);
+-- added after the table was first written (a database built from the first draft lacks them)
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS computed_at timestamptz;
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS computed_until timestamptz;   -- the data cut-off of the last compute
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS published_at timestamptz;     -- first publish: the season's clock starts here
+CREATE INDEX IF NOT EXISTS bb_points_creator_idx ON bb_points (season_id, rank_creator) WHERE rank_creator IS NOT NULL;
+CREATE INDEX IF NOT EXISTS bb_points_scout_idx ON bb_points (season_id, rank_scout) WHERE rank_scout IS NOT NULL;

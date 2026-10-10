@@ -9,7 +9,6 @@ import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner, ChainLogoStack } from "./ChainLogo";
-import WalletAvatar from "@/components/WalletAvatar";
 import { QuoteBrandBadge } from "./MuseworldBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
@@ -26,16 +25,19 @@ import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
 import type { EditFields } from "@/lib/launchpad/editAuth";
 import { ago } from "@/lib/launchpad/time";
-import { CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_SHORT, explorerTx, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
+import ProfileIdentity from "@/components/profile/ProfileIdentity";
+import SeasonCard from "@/components/points/SeasonCard";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
 type Pending = Record<string, FeeSides | null>; // key chain:token → uncollected fees on both sides (raw), null = unknown
 type Balances = Record<string, bigint | null>;
 
+/** A launch's key in the balances map (chain and token). */
 const key = (l: { chain: ChainKey; token: string }) => `${l.chain}:${l.token}`;
 
 /**
@@ -49,6 +51,7 @@ export default function MeDashboard() {
   return <WalletDashboard key={address?.toLowerCase() ?? "disconnected"} address={address} isConnected={isConnected} />;
 }
 
+/** The dashboard for one connected wallet: its profile card, figures, launches, holdings and trades. */
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
   const config = useConfig();
   const [me, setMe] = useState<Me | null>(null);
@@ -193,14 +196,17 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
   const walletBar = <div className={styles.walletBar}>
-    <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><WalletAvatar address={address} size={40} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
+    <div className={styles.identity}><ProfileIdentity address={address} avatarClass={styles.walletIcon} labelClass={styles.identityLabel} addressClass={styles.address} /></div>
     <div className={styles.walletUtilities}><span className={styles.updateNote}><ChainLogoStack chains={VISIBLE_CHAINS} size={16} />{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
   </div>;
 
   if (!me) {
+    // the season card sits in the same place in every state (points come from their own endpoint, so they show even
+    // when the dashboard could not load), and React keeps the same card as the dashboard arrives
     return (
       <div className={styles.dashboard}>
         {walletBar}
+        <SeasonCard address={address} />
         {err ? <div className={styles.error} role="alert"><h2>We couldn’t load your dashboard.</h2><p>{err}. Your wallet and tokens are unchanged.</p><button type="button" className={styles.outlineButton} onClick={() => void load()} disabled={refreshing}>Try again<RefreshCw size={14} aria-hidden="true" /></button></div> : <div className={styles.loading} aria-busy="true" aria-label="Loading your dashboard"><dl className={styles.loadingStats}>{Array.from({ length: 4 }, (_, k) => <SkStat key={k} />)}</dl><ul className={styles.loadingRows}>{Array.from({ length: 3 }, (_, k) => <SkRow key={k} i={k} />)}</ul></div>}
       </div>
     );
@@ -208,6 +214,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   return (
     <div className={styles.dashboard}>
       {walletBar}
+      <SeasonCard address={address} />
       {err ? <p className={styles.error} role="alert">Refresh failed: {err}. Showing the last loaded data. Try Refresh again.</p> : null}
       <dl className={styles.stats}>
         <Stat k="Your launches" icon={<Layers3 size={14} />} v={String(me.launches.length)} hint="Across all chains" />
@@ -333,7 +340,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
               <thead><tr><th scope="col">Side</th><th scope="col">Token / chain</th><th scope="col">Amount</th><th scope="col" className={styles.usdColumn}>USD value</th><th scope="col">Transaction</th></tr></thead>
               <tbody className="font-mono tnum">
                 {me.trades.map((t) => (
-                  <tr key={t.tx_hash} className="border-b border-line last:border-0">
+                  <tr key={`${t.chain}:${t.tx_hash}:${t.log_index}`} className="border-b border-line last:border-0">
                     <td><span className={styles.tradeSide} data-side={t.is_buy ? "buy" : "sell"}>{t.is_buy ? <ArrowDownLeft size={14} aria-hidden="true" /> : <ArrowUpRight size={14} aria-hidden="true" />}{t.is_buy ? "Buy" : "Sell"}</span></td>
                     <td><Link href={`/t/${t.chain}/${t.token}`}>{t.symbol}</Link> <span className={styles.tradeChain}>{CHAIN_SHORT[t.chain]}</span></td>
                     <td>{fmtQuote(t.quote_raw, t.quote_decimals, t.quote_symbol)}</td>
@@ -369,6 +376,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   );
 }
 
+/** One figure in the dashboard's stats row. */
 function Stat({ k, icon, v, hint, accent }: { k: string; icon: React.ReactNode; v: string; hint: string; accent?: "up" | "warm" }) {
   return (
     <div className={styles.stat}>
@@ -379,6 +387,7 @@ function Stat({ k, icon, v, hint, accent }: { k: string; icon: React.ReactNode; 
   );
 }
 
+/** What a dashboard section shows when it has nothing yet, with the one next step. */
 function EmptyState({ icon, title, description, href, action }: { icon: "launches" | "holdings" | "trades"; title: string; description: string; href: string; action: string }) {
   const Icon = icon === "launches" ? Layers3 : icon === "holdings" ? Wallet : ArrowDownLeft;
   return <div className={styles.empty}><span className={styles.emptyIcon} aria-hidden="true"><Icon size={24} strokeWidth={1.5} /></span><h3>{title}</h3><p>{description}</p><Link href={href} className={styles.outlineButton}>{action}<ArrowRight size={15} aria-hidden="true" /></Link></div>;

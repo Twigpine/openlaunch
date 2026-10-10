@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowUpRight, MessageSquare, MessagesSquare, RefreshCw, Search, Signature, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
-import WalletAvatar from "@/components/WalletAvatar";
+import { WhoAvatar, WhoName } from "@/components/profile/Who";
+import { NamesContext } from "@/components/profile/NamesProvider";
+import { cachedName, namesVersion, subscribeNames } from "@/lib/profiles/names-client";
 import { useLive } from "@/components/launchpad/LiveProvider";
 import { CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
@@ -20,6 +22,7 @@ import styles from "./CommunityFeed.module.css";
 /** A post's standing on its token, worded and coloured as on the home page's posts. */
 const ROLE: Record<NonNullable<PostRow["tag"]>, string> = { creator: "Creator", whale: "Whale", holder: "Holder" };
 
+/** The community page's post stream, each author shown by their profile name and picture. */
 export default function CommunityFeed({ initial, loadError = false }: { initial: PostRow[]; loadError?: boolean }) {
   const router = useRouter();
   const { subscribe } = useLive();
@@ -49,7 +52,11 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
     return () => { clearTimeout(timer); unsubscribe(); };
   }, [initial, router, subscribe]);
 
-  const shown = filterCommunityPosts(initial, chain, query);
+  // authors are searchable by the names the feed shows: the server's seed first, then the browser's store (re-filtered
+  // as names arrive)
+  const seeded = useContext(NamesContext);
+  useSyncExternalStore(subscribeNames, namesVersion, () => 0);
+  const shown = filterCommunityPosts(initial, chain, query, (w) => cachedName(w) ?? seeded?.[w.toLowerCase()]);
   const filtered = Boolean(chain || query.trim());
   function reset() { setChain(null); setQuery(""); }
 
@@ -85,9 +92,9 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
           <article className={styles.post}>
             <Link href={`/t/${post.chain}/${post.token}#comments`} className={styles.postLink}>
               <div className={styles.postHeading}>
-                <WalletAvatar address={post.wallet} size={40} />
+                <WhoAvatar address={post.wallet} size={40} />
                 <div className={styles.postAuthor}>
-                  <h3 title={post.wallet}><span className="sr-only">Post by </span>{shortAddr(post.wallet)}</h3>
+                  <h3 title={post.wallet}><span className="sr-only">Post by </span><WhoName address={post.wallet} link={false} fallback={shortAddr(post.wallet)} /></h3>
                   <p>
                     {post.tag ? <span className={styles.role} data-tag={post.tag}>{ROLE[post.tag]}</span> : null}
                     <time dateTime={post.created_at} title={post.created_at} suppressHydrationWarning>{now ? `${ago(post.created_at, now)} ago` : ""}</time>

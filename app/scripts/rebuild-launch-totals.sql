@@ -39,11 +39,12 @@ UPDATE bb_launches l SET sqrt_price_x96 = x.sqrt_price_x96, tick = x.tick, last_
   FROM (SELECT DISTINCT ON (chain_id, token) chain_id, token, sqrt_price_x96, tick, block_number, log_index
           FROM bb_launch_swaps ORDER BY chain_id, token, block_number DESC, log_index DESC) x
  WHERE l.chain_id = x.chain_id AND l.token = x.token;
--- fee events written before their launch was indexed carry token NULL; attach them by position id first so
--- the totals below (which join on token) count them
+-- Attach orphan fee events by the emitting fee contract and position id. Historical events without a recorded
+-- emitter belong to the original suite; they must never be assigned to a quote-only launch with the same id.
 UPDATE bb_launch_fee_events e SET token = l.token
   FROM bb_launches l
- WHERE e.token IS NULL AND e.token_id IS NOT NULL AND e.chain_id = l.chain_id AND e.token_id = l.token_id;
+ WHERE e.token IS NULL AND e.token_id IS NOT NULL AND e.chain_id = l.chain_id AND e.token_id = l.token_id
+   AND (e.fee_contract_address = l.fee_contract_address OR (e.fee_contract_address IS NULL AND l.suite_id = 'lp-v1'));
 -- fee events → collected / burned totals
 UPDATE bb_launches l SET
   fees_quote_collected = f.qc, fees_token_collected = f.tc, fees_quote_burned = f.qb, fees_token_burned = f.tb

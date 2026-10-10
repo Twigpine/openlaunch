@@ -24,7 +24,7 @@ test("the tint comes from the stored logo by key, per theme, and never reaches a
 });
 
 test("the Proof panel is built from facts with a link for each, holder facts gated on the index", () => {
-  assert.match(page, /proofFacts\(\{ holders, symbol: l\.symbol, launcher: l\.launcher, lpFee: l\.lp_fee, mode, recipients: l\.recipients\.length \}\)/);
+  assert.match(page, /proofFacts\(\{ holders, symbol: l\.symbol, launcher: l\.launcher, launcherName: names\[l\.launcher\.toLowerCase\(\)\]\?\.u \?\? null, lpFee: l\.lp_fee, mode, recipients: l\.recipients\.length \}\)/);
   for (const key of ["lock", "creator", "spread", "launch", "fees"]) assert.match(page, new RegExp(`${key}: \\{ href: `), `link for ${key}`);
   assert.match(page, /bar=\{proof\.holdersReady && holders \?/);
 });

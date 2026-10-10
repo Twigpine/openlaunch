@@ -11,12 +11,7 @@ import type { PostRow } from "@/lib/launchpad/postsServer";
 import { CHAINS, shortAddr } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
-
-function nonce(): string {
-  const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
-  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
+import { nonce } from "@/lib/nonce";
 
 /** Moderation queue: reported posts, hide/unhide with an admin-wallet signature. */
 export default function AdminQueue() {

@@ -41,6 +41,8 @@ Core `PoolManager.Swap` deltas and `QuoteSwap` trader deltas are both preserved.
 
 Fee event position IDs are bound to the emitting fee contract. Receipt and range ingestion use the same apply functions and dedupe keys. Each suite/factory has a cursor, so adding a deployment behind an existing chain cursor backfills its history. The per-chain cursor that `/api/health` reads is the slowest suite's, so a suite that is behind shows as lag. Accrued quote fees are totalled from `QuoteSwap.quoteFee` with each swap; the vault emits no accrual event. The migration labels existing rows as v1 and keeps nullable pool-rate fields compatible with legacy writers during rolling deploys. The poller fills missing v1 contract addresses once from the original deployment registry.
 
+Smart-wallet attribution uses the same EntryPoint receipt evidence for both suites, preserving the transaction sender separately from the credited trader. Season points use trader amounts for qualifying buys and the hook's recorded quote fee for creator and scout fee points, including fees rounded to zero. Legacy pools retain their rate-based fee calculation. Season history starts at the earliest configured suite deployment. The totals repair script also matches orphan fee events by fee contract; historical events without an emitter are eligible only for the original suite.
+
 ## Deploy and enable
 
 1. Review the contracts and run the checks below.
@@ -107,6 +109,13 @@ After review the vault no longer keeps a per-quote `pendingClaims` total or emit
 - Circle Arc Foundry `v0.8.0-2` (`forge 1.7.1-dev`): **11 passed**, the two quote-only Arc tests and the nine existing Arc tests, forked from Arc's latest head. The aarch64 Linux build ran in an `ubuntu:24.04` container; its SHA-256 matched Circle's published `.sha256` file and GitHub's asset digest. The macOS build needs Homebrew's `libusb`.
 - After merging `main` (which added the ETH route): `test_fork_ethRouteBuysTwigQuotedLaunchInOneCall` buys a TWIG-quoted quote-only launch with 0.01 ETH through the real Universal Router in one call. The quoter's `quoteExactInput` over the three-hop path matched the tokens received exactly, the vault accrued `feeAmount(twigIn, 10000)` where `twigIn` is hop 1's GITLAWB output wrapped 1:1, and `collect` paid the recipient in TWIG. Base fork suite: **5 passed** with the B20 test skipped.
 - Not re-run: the B20 stock test. On 6 October 2026 the `foundry_nightly_darwin_arm64.tar.gz` asset under Base's commit-pinned tag `nightly-98e7839c…` was replaced (SHA-256 now `7b4f41db…`, previously `39c8e7e7…`), and GitHub returned no build attestation for either version. The replacement was not run.
+
+### Upstream integration — 10 October 2026
+
+- Merged upstream `main` through `ef8b642`, including profiles, smart-wallet attribution, season points and the image-processing security update. The quote contracts and their deployment script are unchanged by this merge.
+- App lint, type checking and the production build with CI's public configuration passed. **1,156 tests passed**, with ten optional live checks skipped. The new points regression checks exact quote fees, zero fees and the legacy calculation.
+- All **28 quote-fee contract tests passed**, including the fuzz cases. Live fork and native-runtime suites were not re-run for this app/indexer integration update.
+- PostgreSQL 16 integration passed against a disposable local database: schema replay, duplicate receipts, quote/core amounts, receipt and range ingestion of smart-wallet swaps, suite/NFT isolation, paid earnings, cursor backfill and orphan-event repair. The repair retained unknown emitters as unassigned and rebuilt quote volume from trader amounts.
 
 ## Reference and attribution
 

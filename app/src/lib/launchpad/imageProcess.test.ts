@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
-import { describeWebp, toBannerWebp, toLogoWebp } from "./imageProcess.ts";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { describeWebp, rasterSharp, toBannerWebp, toLogoWebp } from "./imageProcess.ts";
 import { BANNER_HEIGHT, BANNER_WIDTH, IMAGE_SIZE, sniffImage } from "./images.ts";
 
 async function fixture(format: "png" | "jpeg" | "webp" | "gif", w: number, h: number, extra?: (s: sharp.Sharp) => sharp.Sharp): Promise<Uint8Array> {
@@ -65,4 +67,38 @@ test("a banner is re-encoded to a 1500×500 WebP whatever its shape, and a tiny 
   }
   await assert.rejects(toBannerWebp(await fixture("png", 200, 80)), /too small/);
   await assert.rejects(toBannerWebp(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])));
+});
+
+// CVE-2026-96889 (librsvg, reached through sharp): our code never hands sharp anything but PNG, JPEG, WebP or GIF
+test("an SVG is never decoded by our code, even when the encoders are called without the route's sniff", async () => {
+  const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"><rect width="600" height="600" fill="#0052ff"/></svg>');
+  await assert.rejects(() => toLogoWebp(svg), /not a PNG, JPEG, WebP or GIF/);
+  await assert.rejects(() => toBannerWebp(svg), /not a PNG, JPEG, WebP or GIF/);
+  assert.throws(() => rasterSharp(svg), /not a PNG, JPEG, WebP or GIF/);
+  // padded, XML-declared, or behind PNG magic bytes: refused the same way (the last one by the PNG decoder)
+  await assert.rejects(() => toLogoWebp(new TextEncoder().encode(`  \n<?xml version="1.0"?>${new TextDecoder().decode(svg)}`)));
+  const disguised = new Uint8Array(8 + svg.length);
+  disguised.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  disguised.set(svg, 8);
+  await assert.rejects(() => toLogoWebp(disguised));
+  // the four formats we take still go through
+  for (const fmt of ["png", "jpeg", "webp", "gif"] as const) assert.equal((await rasterSharp(await fixture(fmt, 32, 32)).metadata()).format, fmt);
+});
+
+test("every sharp call in the app goes through rasterSharp (imageProcess.ts is the only file that imports sharp)", () => {
+  const src = path.join(import.meta.dirname, "../..");
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = path.join(dir, f);
+      return statSync(p).isDirectory() ? files(p) : /\.(ts|tsx|mts)$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p] : [];
+    });
+  const direct = files(src)
+    .filter((f) => /from\s+["']sharp["']|import\(\s*["']sharp["']\s*\)|require\(\s*["']sharp["']\s*\)/.test(readFileSync(f, "utf8")))
+    .map((f) => path.relative(src, f));
+  assert.deepEqual(direct, [path.join("lib", "launchpad", "imageProcess.ts")]);
+});
+
+test("the bundled librsvg is the patched one (2.63.2 or later)", () => {
+  const [maj, min, patch] = String(sharp.versions.rsvg ?? "0.0.0").split(".").map(Number);
+  assert.ok(maj > 2 || (maj === 2 && (min > 63 || (min === 63 && patch >= 2))), `librsvg ${sharp.versions.rsvg}`);
 });
