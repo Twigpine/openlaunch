@@ -1,0 +1,66 @@
+[
+  {
+    "name": "buy-1sol-fee0",
+    "side": "buy",
+    "state": { "tokenInventory": "1000000000000000", "realSolReserves": "0", "virtualSol": "30000000000", "feeBps": 0 },
+    "input": "1000000000",
+    "minOutput": "1",
+    "expected": { "amountOut": "32258064516129", "fee": "0", "nextTokenInventory": "967741935483871", "nextRealSolReserves": "1000000000" }
+  },
+  {
+    "name": "sell-all-fee0",
+    "side": "sell",
+    "state": { "tokenInventory": "967741935483871", "realSolReserves": "1000000000", "virtualSol": "30000000000", "feeBps": 0 },
+    "input": "32258064516129",
+    "minOutput": "1",
+    "expected": { "amountOut": "999999999", "fee": "0", "nextTokenInventory": "1000000000000000", "nextRealSolReserves": "1" }
+  },
+  {
+    "name": "buy-1sol-fee100",
+    "side": "buy",
+    "state": { "tokenInventory": "1000000000000000", "realSolReserves": "0", "virtualSol": "30000000000", "feeBps": 100 },
+    "input": "1000000000",
+    "minOutput": "1",
+    "expected": { "amountOut": "31945788964181", "fee": "10000000", "nextTokenInventory": "968054211035819", "nextRealSolReserves": "990000000" }
+  },
+  {
+    "name": "sell-all-fee100",
+    "side": "sell",
+    "state": { "tokenInventory": "968054211035819", "realSolReserves": "990000000", "virtualSol": "30000000000", "feeBps": 100 },
+    "input": "31945788964181",
+    "minOutput": "1",
+    "expected": { "amountOut": "980099999", "fee": "9900000", "nextTokenInventory": "1000000000000000", "nextRealSolReserves": "1" }
+  },
+  {
+    "name": "buy-1sol-fee300",
+    "side": "buy",
+    "state": { "tokenInventory": "1000000000000000", "realSolReserves": "0", "virtualSol": "30000000000", "feeBps": 300 },
+    "input": "1000000000",
+    "minOutput": "1",
+    "expected": { "amountOut": "31320632870519", "fee": "30000000", "nextTokenInventory": "968679367129481", "nextRealSolReserves": "970000000" }
+  },
+  {
+    "name": "sell-all-fee300",
+    "side": "sell",
+    "state": { "tokenInventory": "968679367129481", "realSolReserves": "970000000", "virtualSol": "30000000000", "feeBps": 300 },
+    "input": "31320632870519",
+    "minOutput": "1",
+    "expected": { "amountOut": "940899999", "fee": "29100000", "nextTokenInventory": "1000000000000000", "nextRealSolReserves": "1" }
+  },
+  {
+    "name": "minimum-offset-dust",
+    "side": "buy",
+    "state": { "tokenInventory": "1000000000000000", "realSolReserves": "0", "virtualSol": "1000000000", "feeBps": 300 },
+    "input": "2",
+    "minOutput": "1",
+    "expected": { "amountOut": "999999", "fee": "1", "nextTokenInventory": "999999999000001", "nextRealSolReserves": "1" }
+  },
+  {
+    "name": "maximum-offset-large",
+    "side": "buy",
+    "state": { "tokenInventory": "1000000000000000", "realSolReserves": "0", "virtualSol": "1000000000000000", "feeBps": 300 },
+    "input": "5000000000000000000",
+    "minOutput": "1",
+    "expected": { "amountOut": "999793856936714", "fee": "150000000000000000", "nextTokenInventory": "206143063286", "nextRealSolReserves": "4850000000000000000" }
+  }
+]
