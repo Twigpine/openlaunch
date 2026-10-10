@@ -27,7 +27,7 @@ Anyone can call `vault.collect(tokenId)` or `collectMany(ids)`. Collection clear
 
 Recipients and shares are fixed at launch. Up to seven nonzero recipients must sum to 10,000 bps. Empty recipients mean 100% to `0x…dEaD`. Each share floors its allocation; the final recipient receives the remainder. Duplicate recipients are handled by adding their credits and indexing their separate payout events.
 
-Recipient transfers execute in a bounded self-call (200,000 gas). A revert, false return, malformed return, or reentrant collection attempt rolls that transfer back and creates a reserved credit for that recipient and launch. Other recipients can still be paid. `claim(tokenId)` and permissionless `claimFor(tokenId, account)` pay the recorded account; there is no arbitrary destination. A failed claim reverts and preserves the credit. Burn transfers must succeed or the entire collection reverts. Shares are sent to the dead address, not removed from quote total supply.
+Recipient transfers execute in a bounded self-call (200,000 gas). Before each self-call, the vault checks that enough gas remains to forward the full budget under EIP-150, including call overhead. An underfunded collection reverts atomically, preserving pending fees and rolling back earlier payouts. A revert, false return, malformed return, or reentrant collection attempt within a fully funded payout rolls that transfer back and creates a reserved credit for that recipient and launch. Other recipients can still be paid. `claim(tokenId)` and permissionless `claimFor(tokenId, account)` pay the recorded account; there is no arbitrary destination. A failed claim reverts and preserves the credit. Burn transfers must succeed or the entire collection reverts. Shares are sent to the dead address, not removed from quote total supply.
 
 PoolManager claims back pending fees; real vault balances back reserved credits. Multiple launches sharing one quote cannot collect one another's recorded fees. Collection leaves NFT ownership and liquidity unchanged. The legacy locker remains the immutable custody contract. Its separate LP collection path has no swap LP fees in these zero-LP-fee pools; donations and unrelated transfers are not creator swap fees.
 
@@ -116,6 +116,14 @@ After review the vault no longer keeps a per-quote `pendingClaims` total or emit
 - App lint, type checking and the production build with CI's public configuration passed. **1,156 tests passed**, with ten optional live checks skipped. The new points regression checks exact quote fees, zero fees and the legacy calculation.
 - All **28 quote-fee contract tests passed**, including the fuzz cases. Live fork and native-runtime suites were not re-run for this app/indexer integration update.
 - PostgreSQL 16 integration passed against a disposable local database: schema replay, duplicate receipts, quote/core amounts, receipt and range ingestion of smart-wallet swaps, suite/NFT isolation, paid earnings, cursor backfill and orphan-event repair. The repair retained unknown emitters as unassigned and rebuilt quote volume from trader amounts.
+
+### Payout gas review follow-up — 10 October 2026
+
+- Reproduced an underfunded `collect` call that created a credit for a native recipient that accepts a fully funded payout. The vault now checks the gas budget before every payout self-call and reverts the whole collection if it cannot forward the full 200,000 gas.
+- Three regression tests cover native and ERC-20 collection, rollback after an earlier recipient has been paid, preservation of pending fees and PoolManager claims, and successful retries with enough gas. Existing recipient-failure and reserved-credit tests still pass.
+- Clean ordinary Foundry build with fork tests disabled: **90 passed**, 25 skipped, including all **31 quote-fee tests** and 256 iterations of each fuzz test. Base and Robinhood quote-fee fork tests: **10 passed**, including native and ERC-20 payouts, burns, and the ETH route. The two Arc tests and the B20 stock test were skipped; their native runtimes were not re-run for this change.
+- `forge build --sizes`, formatting and diff checks passed. Runtime sizes in bytes: vault **6,057**, hook **5,261**, factory **14,752**. Factory init code is **34,079** bytes. These sizes supersede the earlier figures; no production deployment was made.
+- App and database code are unchanged by this fix; their integration results above still describe the latest app checks.
 
 ## Reference and attribution
 

@@ -149,6 +149,8 @@ contract QuoteFeeVault is IUnlockCallback, ReentrancyGuard {
                 _pay(p.quote, DEAD, share);
                 emit Burned(tokenId, p.quote, share);
             } else {
+                // Reserve EIP-150's retained gas plus encoding/call overhead so the full payout budget is forwarded.
+                if (gasleft() < PAYOUT_GAS + PAYOUT_GAS / 63 + 10_000) revert TransferFailed();
                 // The self-call rolls back a token that transfers but returns false/malformed data.
                 (bool ok,) =
                     address(this).call{gas: PAYOUT_GAS}(abi.encodeCall(this.executePayout, (p.quote, r.payout, share)));

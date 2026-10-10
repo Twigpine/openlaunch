@@ -84,6 +84,21 @@ contract QuoteGasConsumer {
     }
 }
 
+/// @dev A recipient that rejects underfunded calls and can spend gas before another recipient is paid.
+contract QuoteGasRequirement {
+    uint256 private immutable _work;
+
+    constructor(uint256 work) {
+        _work = work;
+    }
+
+    receive() external payable {
+        require(gasleft() >= 180_000, "payout underfunded");
+        uint256 until = gasleft() - _work;
+        while (gasleft() > until) {}
+    }
+}
+
 contract QuoteFeesTest is Test, DeployPermit2 {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
@@ -523,6 +538,75 @@ contract QuoteFeesTest is Test, DeployPermit2 {
         assertEq(vault.claimable(id, address(receiver)), 0.005 ether);
         assertEq(bob.balance, 0.005 ether);
         assertEq(address(vault).balance, vault.reserved(address(0)));
+    }
+
+    function test_underfundedCollectCannotForceNativeCredit() public {
+        QuoteGasRequirement receiver = new QuoteGasRequirement(0);
+        LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
+        r[0] = LaunchLocker.Recipient(address(receiver), 10_000);
+        (address token, uint256 id) = factory.launch(_params("low-gas-native", r));
+        _buy(token, 1 ether);
+
+        (bool ok, bytes memory reason) = address(vault).call{gas: 180_000}(abi.encodeCall(vault.collect, (id)));
+        assertFalse(ok, "underfunded collection must revert instead of creating a credit");
+        assertEq(reason, abi.encodeWithSelector(QuoteFeeVault.TransferFailed.selector));
+        assertEq(vault.pendingFees(id), 0.01 ether);
+        assertEq(manager.balanceOf(address(vault), 0), 0.01 ether);
+        assertEq(vault.claimable(id, address(receiver)), 0);
+        assertEq(vault.reserved(address(0)), 0);
+        assertEq(address(vault).balance, 0);
+        assertEq(address(receiver).balance, 0);
+
+        vault.collect(id);
+        assertEq(address(receiver).balance, 0.01 ether);
+        assertEq(vault.pendingFees(id), 0);
+        assertEq(vault.claimable(id, address(receiver)), 0);
+    }
+
+    function test_underfundedLaterPayoutRollsBackEarlierPayments() public {
+        QuoteGasRequirement receiver = new QuoteGasRequirement(90_000);
+        LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](2);
+        r[0] = LaunchLocker.Recipient(address(receiver), 5000);
+        r[1] = LaunchLocker.Recipient(bob, 5000);
+        (address token, uint256 id) = factory.launch(_params("low-gas-later", r));
+        _buy(token, 1 ether);
+
+        // The first payment executes in both attempts; the low-gas attempt fails before the second payment.
+        vm.expectCall(address(receiver), 0.005 ether, bytes(""), 2);
+        (bool ok, bytes memory reason) = address(vault).call{gas: 350_000}(abi.encodeCall(vault.collect, (id)));
+        assertFalse(ok, "each payout must receive its full gas budget");
+        assertEq(reason, abi.encodeWithSelector(QuoteFeeVault.TransferFailed.selector));
+        assertEq(address(receiver).balance, 0);
+        assertEq(bob.balance, 0);
+        assertEq(vault.pendingFees(id), 0.01 ether);
+        assertEq(manager.balanceOf(address(vault), 0), 0.01 ether);
+        assertEq(vault.claimable(id, address(receiver)) + vault.claimable(id, bob), 0);
+        assertEq(vault.reserved(address(0)), 0);
+        assertEq(address(vault).balance, 0);
+
+        vault.collect(id);
+        assertEq(address(receiver).balance, 0.005 ether);
+        assertEq(bob.balance, 0.005 ether);
+        assertEq(vault.pendingFees(id), 0);
+    }
+
+    function test_underfundedERC20CollectRevertsAndCanBeRetried() public {
+        (QuoteBadToken quote, address token, uint256 id) = _erc20Launch("low-gas-erc20", _recipients());
+        _buyQuote(quote, token, 100e6);
+
+        (bool ok, bytes memory reason) = address(vault).call{gas: 180_000}(abi.encodeCall(vault.collect, (id)));
+        assertFalse(ok, "ERC20 payouts need the same full self-call budget");
+        assertEq(reason, abi.encodeWithSelector(QuoteFeeVault.TransferFailed.selector));
+        assertEq(vault.pendingFees(id), 1e6);
+        assertEq(manager.balanceOf(address(vault), uint160(address(quote))), 1e6);
+        assertEq(vault.claimable(id, alice) + vault.claimable(id, bob), 0);
+        assertEq(vault.reserved(address(quote)), 0);
+        assertEq(quote.balanceOf(address(vault)) + quote.balanceOf(alice) + quote.balanceOf(bob), 0);
+
+        vault.collect(id);
+        assertEq(quote.balanceOf(alice), 600_000);
+        assertEq(quote.balanceOf(bob), 400_000);
+        assertEq(vault.pendingFees(id), 0);
     }
 
     function test_badRateAndRecipientsRollbackLaunch() public {
