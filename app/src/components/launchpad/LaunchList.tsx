@@ -19,7 +19,8 @@ import type { LaunchRow as L, LaunchSort, VolumeWindow } from "@/lib/launchpad/q
 import { CHAIN_SHORT, type ChainKey } from "@/lib/chainPublic";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import { FILTERS, filterOnChain, isAddressQuery, matchesFilter, matchesQuery, normalizeQuery, rankHit, type LaunchFilter } from "@/lib/launchpad/search";
-import { launchKey, mergeLaunches, refreshInPlace } from "@/lib/launchpad/list-state";
+import { launchKey, matchesListSelection, mergeLaunches, refreshInPlace } from "@/lib/launchpad/list-state";
+import { MCAP_FILTER_DESCRIPTION, type McapMode } from "@/lib/launchpad/mcap-policy";
 import { liveChip, liveChipParts, liveTier } from "@/lib/launchpad/ranking";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { Spinner } from "@/components/Skeleton";
@@ -45,7 +46,7 @@ const REORDER_QUIET_MS = 3_000;
 /** When the live order changes, rows and cards glide to their new places instead of jumping. */
 const REORDER = { type: "spring", stiffness: 380, damping: 38 } as const;
 
-type Selection = { sort: LaunchSort; window: VolumeWindow; chain: ChainKey | null; filter: LaunchFilter | null };
+type Selection = { sort: LaunchSort; window: VolumeWindow; chain: ChainKey | null; filter: LaunchFilter | null; mcap: McapMode };
 type SearchResult = { query: string; chain: ChainKey | null; rows: L[]; error?: boolean };
 export type ListView = "market" | "watchlist";
 
@@ -53,11 +54,11 @@ export type ListView = "market" | "watchlist";
  * Shared live data, stable pointer targets, URL-backed filters and scoped async results. `serverNow` is the time the
  * page rendered: the clock starts there, so hydration sees the same tiers, filters and divider as the server's HTML.
  */
-export default function LaunchList({ initial, initialHasMore = false, initialSort, initialWindow, initialChain, initialFilter = null, initialView = "market", initialLayout = "list", frame = "rounded-2xl border border-line bg-paper", bare = false, hasDb, serverNow }: { initial: L[]; serverNow: number; frame?: string; bare?: boolean; initialHasMore?: boolean; initialSort: LaunchSort; initialWindow: VolumeWindow; initialChain: ChainKey | null; initialFilter?: LaunchFilter | null; initialView?: ListView; initialLayout?: ListLayout; ethUsd?: number | null; hasDb: boolean }) {
+export default function LaunchList({ initial, initialHasMore = false, initialSort, initialWindow, initialChain, initialFilter = null, initialMcap = "filtered", initialView = "market", initialLayout = "list", frame = "rounded-2xl border border-line bg-paper", bare = false, hasDb, serverNow }: { initial: L[]; serverNow: number; frame?: string; bare?: boolean; initialHasMore?: boolean; initialSort: LaunchSort; initialWindow: VolumeWindow; initialChain: ChainKey | null; initialFilter?: LaunchFilter | null; initialMcap?: McapMode; initialView?: ListView; initialLayout?: ListLayout; ethUsd?: number | null; hasDb: boolean }) {
   const router = useRouter();
   const { live, setListParams, subscribe } = useLive();
-  const [selection, setSelection] = useState<Selection>({ sort: initialSort, window: initialWindow, chain: initialChain, filter: initialFilter });
-  const { sort, window: window_, chain, filter } = selection;
+  const [selection, setSelection] = useState<Selection>({ sort: initialSort, window: initialWindow, chain: initialChain, filter: initialFilter, mcap: initialMcap });
+  const { sort, window: window_, chain, filter, mcap } = selection;
   const [view, setView] = useState<ListView>(initialView);
   const [layout, setLayout] = useState<ListLayout>(initialLayout);
   // `bare`: the list sits on the page (the full-screen home) instead of in its own box, aligned to the page column
@@ -113,7 +114,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   useEffect(() => subscribe((snap) => {
     const current = selectionRef.current;
     const incoming = snap.launches;
-    if (!incoming || snap.sort !== current.sort || snap.window !== current.window || (snap.chain ?? null) !== current.chain || (snap.filter ?? null) !== current.filter || (snap.limit !== undefined && snap.limit !== limitRef.current)) return;
+    if (!incoming || !matchesListSelection({ ...current, limit: limitRef.current }, snap)) return;
     const t = Date.now();
     const changes = new Map<string, RowHighlight>();
     for (const row of incoming) {
@@ -150,6 +151,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     if (next.window !== "all") p.set("window", next.window);
     if (next.chain) p.set("chain", next.chain);
     if (next.filter) p.set("filter", next.filter);
+    if (next.mcap === "all") p.set("mcap", "all");
     if (v === "watchlist") p.set("view", "watchlist");
     const href = p.size ? `/?${p}` : "/";
     if (window.location.pathname === "/") window.history.replaceState(null, "", href);
@@ -157,8 +159,8 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     return p;
   }
 
-  function pick(s: LaunchSort, w: VolumeWindow = window_, c: ChainKey | null = chain, f: LaunchFilter | null = filter, v: ListView = view) {
-    const next = { sort: s, window: w, chain: c, filter: f };
+  function pick(s: LaunchSort, w: VolumeWindow = window_, c: ChainKey | null = chain, f: LaunchFilter | null = filter, v: ListView = view, m: McapMode = mcap) {
+    const next = { sort: s, window: w, chain: c, filter: f, mcap: m };
     if (JSON.stringify(next) === JSON.stringify(selectionRef.current)) {
       if (v !== view) { setView(v); syncUrl(next, v); }
       return;
@@ -184,13 +186,15 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     setUpdating(true);
     setLoadError(null);
     const request = new URLSearchParams({ sort: next.sort, window: next.window, limit: String(PAGE_SIZE) }); // the API defaults the sort to "new": the request must always carry it
+    request.set("mcap", next.mcap);
     if (next.chain) request.set("chain", next.chain);
     if (next.filter) request.set("filter", next.filter);
     void fetch(`/api/launch/list?${request}`, { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error("List unavailable");
-        const data = await res.json() as { launches: L[]; has_more: boolean };
+        const data = await res.json() as { launches: L[]; has_more: boolean } & Parameters<typeof matchesListSelection>[1];
         if (controller.signal.aborted || generation.current !== version) return;
+        if (!matchesListSelection({ ...next, limit: PAGE_SIZE }, data)) throw new Error("List selection changed");
         previous.current = new Map(data.launches.map((row) => [launchKey(row), row]));
         pendingOrder.current = null;
         setRows(data.launches);
@@ -231,12 +235,14 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     setLoadError(null);
     try {
       const p = new URLSearchParams({ sort, window: window_, limit: String(PAGE_SIZE), offset: String(rows.length) });
+      p.set("mcap", mcap);
       if (chain) p.set("chain", chain);
       if (filter) p.set("filter", filter);
       const res = await fetch(`/api/launch/list?${p}`, { cache: "no-store" });
       if (!res.ok) throw new Error("List unavailable");
-      const data = await res.json() as { launches: L[]; has_more: boolean };
+      const data = await res.json() as { launches: L[]; has_more: boolean } & Parameters<typeof matchesListSelection>[1];
       if (generation.current !== version) return;
+      if (!matchesListSelection({ ...selectionRef.current, limit: PAGE_SIZE }, data)) throw new Error("List selection changed");
       const merged = mergeLaunches(rows, data.launches);
       for (const row of data.launches) previous.current.set(launchKey(row), row);
       pendingOrder.current = null;
@@ -263,7 +269,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const shown = candidates.filter((row) => (!chain || row.chain === chain) && matchesFilter(row, filter, now) && (!nq || matchesQuery(row, nq)));
   if (nq) shown.sort((a, b) => rankHit(a, nq) - rankHit(b, nq));
   const showWindow = sort === "volume";
-  const reset = () => { setQ(""); pick("live", "all", null, null); };
+  const reset = () => { setQ(""); pick("live", "all", null, null, "market", "filtered"); };
   const ranked = sort === "live" && !nq; // tiers, chips and the quiet divider apply to the live view only
   const firstQuiet = ranked ? shown.findIndex((row) => liveTier(row, now) === "quiet") : -1; // one divider, where the database's order enters the quiet tier
 
@@ -276,7 +282,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
               <h2 id="launches-heading" className={`font-semibold tracking-tight text-ink ${bare ? "text-xl" : "text-base"}`}>Launches</h2>
               <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-muted tnum" title="Total launches across all chains">{live.totals.launches}</span>
             </div>
-            <p className="mt-1 text-xs text-muted">{view === "watchlist" ? "The tokens you starred, and what changed since you last looked." : sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
+            <p className="mt-1 text-xs text-muted">{view === "watchlist" ? "The tokens you starred, and what changed since you last looked." : nq ? "Search covers all launches." : sort === "mcap" && mcap === "filtered" ? "Extreme starting valuations with limited outside trading are hidden." : sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
           </div>
           <div className={`relative w-full sm:w-64 ${view === "watchlist" ? "hidden" : ""}`}>
             <label htmlFor="launch-search" className="sr-only">Search launches</label>
@@ -296,6 +302,13 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         </div>
       </div>
       <div className={`space-y-3 border-t border-line py-3 ${pad}`}>
+        {sort === "mcap" && view === "market" && !nq ? <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className="flex min-h-10 cursor-pointer items-center gap-2 text-xs text-body">
+            <input type="checkbox" checked={mcap === "all"} onChange={(e) => pick(sort, window_, chain, filter, view, e.target.checked ? "all" : "filtered")} className="size-4 accent-brand" aria-describedby="mcap-filter-description" />
+            Include all valuations
+          </label>
+          <details className="text-xs text-muted"><summary className="cursor-pointer py-2">How this filter works</summary><p id="mcap-filter-description" className="max-w-2xl pb-2 leading-relaxed">{MCAP_FILTER_DESCRIPTION} Market cap is price × total supply (FDV).</p></details>
+        </div> : null}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <ToggleGroup aria-label="Chain" value={[chain ?? "all"]} onValueChange={(values) => { const value = values[0]; if (!value) return; const c = value === "all" ? null : (value as ChainKey); const keep = !filter || FILTERS.some((f) => f.key === filter && filterOnChain(f, c)); pick(sort, window_, c, keep ? filter : null); }}>
             {CHAIN_FILTERS.map((c) => <ToggleGroupItem key={c.key ?? "all"} value={c.key ?? "all"} title={c.label}>{c.key ? <ChainLogo chain={c.key} size={16} /> : null}<span className={c.key ? "max-sm:sr-only" : undefined}>{c.label}</span></ToggleGroupItem>)}

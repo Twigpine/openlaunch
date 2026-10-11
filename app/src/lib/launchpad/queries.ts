@@ -3,7 +3,7 @@ import { cache } from "react";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
 import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
-import { ensureRegistry, stockByAddress, stockList, stockUsdInUse } from "./stocksServer";
+import { ensureRegistry, stockList, stockUsdInUse, type Stock } from "./stocksServer";
 import { unlistedQuote, type QuoteTokenMeta } from "./unlisted-quote";
 import { memo } from "./memo";
 import { gitlawbUsd } from "./gitlawbServer";
@@ -17,6 +17,8 @@ import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
 import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, tapeOrNone, type Pip } from "./trending-live";
 import { launchKey } from "./list-state";
+import { classifyMcap, parseMcapMode, type McapFacts, type McapClassification, type McapMode } from "./mcap-policy";
+import { mcapPageQuery, type McapColumns } from "./mcap-query";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
 import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSearchHitByHolders, type LaunchFilter } from "./search";
@@ -86,6 +88,8 @@ export type LaunchRow = {
   volume_usd: number | null;
   volume_1h_usd: number | null;
   volume_24h_usd: number | null;
+  /** Present on the market-cap list; the facts behind the optional browsing filter. */
+  mcap?: McapFacts & { classification: McapClassification };
 };
 
 type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "quote_decimals_known" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "traders_1h_ex" | "trades_24h" | "traders_24h_ex" | "last_outside_trade_at" | "live_tier" | "launcher_collapsed" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
@@ -109,14 +113,15 @@ let stockUsdNow = new Map<string, number | null>();
 /** Unlisted quotes' on-chain symbol / decimals (bb_quote_tokens, keyed `${chain_id}:${address}`), and each chain's stock tickers they may not borrow. */
 let quoteTokensNow = new Map<string, QuoteTokenMeta>();
 let stockSymbolsNow = new Map<ChainKey, string[]>();
+let stockQuotesNow = new Map<string, Stock>();
 /** MUSEWORLD USD for this request (filled by `withStocks` from its own GITLAWB pool; null = unknown → no USD, 0 weight in USD sorts). */
 let museworldUsdNow: number | null = null;
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
 
 /** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
-type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
-const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
+type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]>; stockQuotes: Map<string, Stock> };
+const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow, stockQuotes: stockQuotesNow });
 
 /**
  * Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a
@@ -128,7 +133,7 @@ function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState
   if (linked !== undefined) return { ...q, usd: linked };
   if (q.key === "museworld") return { ...q, usd: st.museworld };
   if (q.key !== "other") return q;
-  const stock = stockByAddress(chain, address);
+  const stock = st.stockQuotes.get(`${chain}:${address.toLowerCase()}`);
   if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo };
   return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, st.stockSymbols.get(chain) ?? []);
 }
@@ -175,26 +180,37 @@ async function loadQuoteTokens(): Promise<Map<string, QuoteTokenMeta>> {
 }
 
 /** Warm the stock registry + prices for the stocks in use (and the GITLAWB price), so `shape()` can stay synchronous. */
-async function withStocks(): Promise<void> {
-  gitlawbUsdNow = await gitlawbUsd(); // never throws; served from cache once warm (stale-while-revalidate)
+async function withStocks(): Promise<PriceState> {
+  const gitlawb = await gitlawbUsd(); // never throws; served from cache once warm (stale-while-revalidate)
+  let stocks = new Map<string, number | null>();
+  let museworld: number | null = null;
+  let quoteTokens = new Map<string, QuoteTokenMeta>();
   try {
     await ensureRegistry(); // robinhood registry (fail-soft); the Base list is static
-    stockUsdNow = await stockUsdInUse();
+    stocks = new Map(await stockUsdInUse());
   } catch {
     /* fail soft: stocks show without USD */
   }
   try {
-    museworldUsdNow = await memo("museworld-usd", 15_000, () => readMuseworldUsd(gitlawbUsdNow));
+    museworld = await memo(`museworld-usd:${gitlawb}`, 15_000, () => readMuseworldUsd(gitlawb));
   } catch (err) {
-    museworldUsdNow = null; // fail soft: MUSEWORLD pools show without USD
     console.warn("[museworld] price read failed:", err instanceof Error ? err.message : err);
   }
-  stockSymbolsNow = new Map(CHAIN_KEYS.map((k) => [k, stockList(k).map((s) => s.symbol)]));
+  const stockSymbols = new Map(CHAIN_KEYS.map((k) => [k, stockList(k).map((s) => s.symbol)]));
+  const stockQuotes = new Map(CHAIN_KEYS.flatMap((k) => stockList(k).map((s) => [`${k}:${s.address.toLowerCase()}`, s] as const)));
   try {
-    quoteTokensNow = await memo("quote-tokens", 30_000, loadQuoteTokens);
+    quoteTokens = new Map(await memo("quote-tokens", 30_000, loadQuoteTokens));
   } catch {
     /* fail soft (table not migrated yet, db blip): unlisted quotes show by address and do not trade */
   }
+  // Publish atomically for older readers; list requests retain their own snapshot across awaits.
+  gitlawbUsdNow = gitlawb;
+  museworldUsdNow = museworld;
+  stockUsdNow = stocks;
+  quoteTokensNow = quoteTokens;
+  stockSymbolsNow = stockSymbols;
+  stockQuotesNow = stockQuotes;
+  return { gitlawb, museworld, stocks, quoteTokens, stockSymbols, stockQuotes };
 }
 
 /** A quote's USD price (ETH-quoted through the ETH price; null when unknown). */
@@ -203,18 +219,21 @@ function quoteUsd(q: Quote, ethUsd: number | null): number | null {
 }
 
 /** A launch row as the app uses it: indexer-only bigint columns dropped (JSON-safe), price, FDV and USD figures worked out. */
-function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null): LaunchRow {
+function shape(raw: Raw & Partial<McapColumns> & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null, prices: PriceState = priceState()): LaunchRow {
   // drop indexer-only bigint columns so the row is JSON-safe
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { last_swap_block, last_swap_log, log_index, holders_synced_block, ...r } = raw;
+  const { last_swap_block, last_swap_log, log_index, holders_synced_block, _mcap_fdv_quote, _mcap_start_quote, _mcap_outside_quote, _mcap_traders, ...r } = raw;
   const chain = chainKeyOf(r.chain_id) ?? DEFAULT_CHAIN;
-  const q = quoteInfo(chain, r.quote);
+  const q = quoteInfo(chain, r.quote, prices);
   const supply = BigInt(r.supply);
   const tick = r.tick ?? r.start_tick;
-  const price = r.sqrt_price_x96 ? quotePerToken(BigInt(r.sqrt_price_x96), q.decimals) : 1 / tickToTokensPerQuote(tick, q.decimals);
-  const fdv = r.sqrt_price_x96 ? fdvQuote(BigInt(r.sqrt_price_x96), supply, q.decimals) : price * (Number(supply) / 1e18);
-  const launchFdv = (1 / tickToTokensPerQuote(r.start_tick, q.decimals)) * (Number(supply) / 1e18);
-  const qu = quoteUsd(q, ethUsd);
+  const calculatedPrice = r.sqrt_price_x96 ? quotePerToken(BigInt(r.sqrt_price_x96), q.decimals) : 1 / tickToTokensPerQuote(tick, q.decimals);
+  const fdv = _mcap_fdv_quote !== undefined ? (_mcap_fdv_quote ?? Number.NaN) : r.sqrt_price_x96 ? fdvQuote(BigInt(r.sqrt_price_x96), supply, q.decimals) : calculatedPrice * (Number(supply) / 1e18);
+  const price = _mcap_fdv_quote !== undefined ? fdv / (Number(supply) / 1e18) : calculatedPrice;
+  const launchFdv = _mcap_start_quote !== undefined ? (_mcap_start_quote ?? Number.NaN) : (1 / tickToTokensPerQuote(r.start_tick, q.decimals)) * (Number(supply) / 1e18);
+  const quRaw = quoteUsd(q, ethUsd);
+  const qu = quRaw !== null && Number.isFinite(quRaw) && quRaw > 0 ? quRaw : null;
+  const mcapFacts: McapFacts = { startFdvQuote: launchFdv, fdvQuote: fdv, quoteUsd: qu, outsideVolumeQuote: _mcap_outside_quote ?? null, outsideTraders: _mcap_traders ?? null };
   const usd = (raw: string) => (qu === null ? null : units(raw, q.decimals) * qu);
   return {
     ...r,
@@ -243,11 +262,12 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
     image_url: canonicalImageUrl(r.image_url, imagePublicBase()),
     banner_url: canonicalImageUrl(r.banner_url, imagePublicBase()),
     quote_usd: qu,
-    price_usd: qu === null ? null : price * qu,
-    fdv_usd: qu === null ? null : fdv * qu,
+    price_usd: qu === null || !Number.isFinite(price * qu) ? null : price * qu,
+    fdv_usd: qu === null || !Number.isFinite(fdv * qu) ? null : fdv * qu,
     volume_usd: usd(r.volume_quote),
     volume_1h_usd: usd(String(r.volume_1h ?? "0")),
     volume_24h_usd: usd(String(r.volume_24h ?? "0")),
+    ...(_mcap_fdv_quote !== undefined ? { mcap: { ...mcapFacts, classification: classifyMcap(mcapFacts) } } : {}),
   };
 }
 
@@ -285,7 +305,7 @@ export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 /** The raw-quote volume a Volume sort ranks by, per window: the lateral `w` in SELECT carries v1 and v24; "all" is the launch's own total. */
 export const VOLUME_COLUMN_SQL: Record<VolumeWindow, string> = { "1h": "w.v1::numeric", "24h": "w.v24::numeric", all: "l.volume_quote" };
 
-export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
+export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; mcap?: McapMode; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
 const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
 const DEAD_ADDR = "0x000000000000000000000000000000000000dead";
 
@@ -306,15 +326,15 @@ export type ListPage = { items: LaunchRow[]; hasMore: boolean };
 export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const db = maybeDb();
   if (!db) return { items: [], hasMore: false };
-  await withStocks();
+  const prices = await withStocks();
   const limit = Math.min(200, Math.max(1, opts.limit ?? 40));
   const offset = Math.max(0, opts.offset ?? 0);
   const sort = opts.sort ?? "new";
   const win = opts.window ?? "all";
   const ethUsd = opts.ethUsd ?? null;
-  const ethFactor = ethUsd ?? 1; // no ETH price → rank ETH pools in ETH units (still monotonic within the chain)
+  const ethFactor = ethUsd !== null && Number.isFinite(ethUsd) && ethUsd > 0 ? ethUsd : null;
   // stock quotes: per-address USD factors known this request (empty → treated like unknown = 0 weight in USD sorts)
-  const stockEntries = [...stockUsdNow.entries()].filter(([, v]) => v !== null && v > 0) as [string, number][];
+  const stockEntries = [...prices.stocks.entries()].filter(([, v]) => v !== null && Number.isFinite(v) && v > 0) as [string, number][];
   const conds = [] as ReturnType<typeof db>[];
   if (opts.chain) conds.push(db`l.chain_id = ${chainIdOf(opts.chain)}`);
   if (opts.launcher) conds.push(db`l.launcher = ${opts.launcher.toLowerCase()}`);
@@ -336,26 +356,34 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
   // a registry stock is matched per (chain, address) like every other arm: the address is only a stock on the chain whose registry lists it
-  const stockChains = (a: string) => CHAIN_KEYS.filter((k) => stockByAddress(k, a) !== null);
+  const stockChains = (a: string) => CHAIN_KEYS.filter((k) => prices.stockQuotes.has(`${k}:${a.toLowerCase()}`));
   const stockArms = stockEntries.flatMap(([a, v]) => stockChains(a).map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${v}::double precision`));
   const stockCase = stockArms.length ? stockArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
-  const museworldFactor = museworldUsdNow !== null && museworldUsdNow > 0 ? museworldUsdNow : 0;
+  const gitlawbFactor = prices.gitlawb !== null && Number.isFinite(prices.gitlawb) && prices.gitlawb > 0 ? prices.gitlawb : null;
+  const museworldFactor = prices.museworld !== null && Number.isFinite(prices.museworld) && prices.museworld > 0 ? prices.museworld : null;
   const stables = fixedUsdQuotes();
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
   const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
   const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
-  const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE NULL::double precision END)`;
+  const stockDecArms = [...prices.stockQuotes.values()].filter((s) => s.decimals !== 18).map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address.toLowerCase()}) THEN ${s.decimals}`);
+  const unlistedDecArms = [...prices.quoteTokens.entries()].flatMap(([key, meta]) => {
+    const [cid, address] = key.split(":");
+    return meta.decimals !== null && meta.decimals >= 0 && meta.decimals <= 36 ? [db`WHEN (l.chain_id = ${Number(cid)} AND l.quote = ${address}) THEN ${meta.decimals}`] : [];
+  });
+  stockDecArms.push(...unlistedDecArms);
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const qd = db`(CASE ${stableDecCase} ${decCase} ELSE 18 END)`;
   const volCol = db.unsafe(VOLUME_COLUMN_SQL[win]);
-  const volUsd = db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
-  // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
-  const mcapUsd = db`((1.0 / (power(1.0001, COALESCE(l.tick, l.start_tick)::double precision) * power(10, ${qd} - 18))) * (l.supply / 1e18) * ${usdPerUnit})`;
+  const volUsd = db`(${volCol} / power(10, ${qd}) * COALESCE(${usdPerUnit}, 0))`;
+  if (sort === "mcap") {
+    const rows = await mcapPageQuery(db, { where, quoteDecimals: qd, quoteUsd: usdPerUnit, mode: parseMcapMode(opts.mcap), limit, offset, select: SELECT }) as unknown as (Raw & McapColumns)[];
+    const shaped = rows.map((r) => shape(r, ethUsd, prices));
+    return { items: shaped.slice(0, limit), hasMore: shaped.length > limit };
+  }
   const newest = db`l.block_time DESC, l.chain_id DESC, l.block_number DESC`;
   if (sort === "live") {
     const rows = await db<Raw[]>`
@@ -372,21 +400,19 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
        WHERE base.live_tier = 0 OR rest.rn = 1
        ORDER BY base.live_tier, base.traders_1h_ex DESC, base.traders_24h_ex DESC, base.last_outside_trade_at DESC NULLS LAST, base.block_time DESC, base.chain_id DESC, base.block_number DESC
        LIMIT ${limit + 1} OFFSET ${offset}`;
-    const shaped = rows.map((r) => shape(r, ethUsd));
+    const shaped = rows.map((r) => shape(r, ethUsd, prices));
     return { items: shaped.slice(0, limit), hasMore: shaped.length > limit };
   }
   const order =
     sort === "volume"
       ? db`ORDER BY ${volUsd} DESC, ${newest}`
-      : sort === "mcap"
-        ? db`ORDER BY ${mcapUsd} DESC, ${newest}`
-        : sort === "gainers"
+      : sort === "gainers"
           ? db`ORDER BY (l.start_tick - COALESCE(l.tick, l.start_tick)) DESC, ${newest}`
           : sort === "holders"
             ? db`ORDER BY l.holders DESC, ${newest}`
             : db`ORDER BY ${newest}`;
   const rows = await db<Raw[]>`${db.unsafe(SELECT)} ${where} ${order} LIMIT ${limit + 1} OFFSET ${offset}`;
-  const shaped = rows.map((r) => shape(r, ethUsd));
+  const shaped = rows.map((r) => shape(r, ethUsd, prices));
   return { items: shaped.slice(0, limit), hasMore: shaped.length > limit };
 }
 
