@@ -11,9 +11,13 @@ export type McapColumns = {
   _mcap_traders: number | null;
 };
 
-/** One statement: assess before paging, then hydrate only the selected launches with rolling stats and metadata. */
+/**
+ * Assess valuations and outside trading before paging, then hydrate the page with rolling stats and metadata.
+ * @throws If the hydration SELECT loses its expected prefix, rather than silently omitting market-cap facts.
+ */
 export function mcapPageQuery(db: Db, opts: { where: Fragment; quoteDecimals: Fragment; quoteUsd: Fragment; mode: McapMode; limit: number; offset: number; select: string }) {
   const { where, quoteDecimals: qd, quoteUsd: usd, mode, limit, offset } = opts;
+  if (!opts.select.startsWith("SELECT l.*,")) throw new Error("mcapPageQuery: unexpected SELECT prefix");
   const select = opts.select.replace("SELECT l.*,", "SELECT l.*, page._mcap_fdv_quote, page._mcap_start_quote, page._mcap_outside_quote, page._mcap_traders,");
   return db`
     WITH valued AS MATERIALIZED (

@@ -14,6 +14,7 @@ function verificationLine(label: string, c: { factory: string | null; locker: st
   return `- ${label}: ${parts.join("; ")}`;
 }
 
+/** Serve the plain-text agent reference, including chain deployments, API parameters and browsing rules. */
 export function GET() {
   const b = launchpad("base");
   const r = launchpad("robinhood");

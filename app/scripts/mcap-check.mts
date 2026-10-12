@@ -17,15 +17,17 @@ globalThis.fetch = async (input) => {
   if (u.includes("/rhj/prices/")) return Response.json({ quotes: [{ tokenSymbol: "TEST", bid: "200", ask: "200" }] });
   throw new Error(`Unexpected fetch in market-cap test: ${u}`);
 };
-const [{ db }, { publicClient }, { listLaunchesPage, getLaunch }, { startTickForFdv }, { classifyMcap, MCAP_POLICY_VERSION }, { clearMemo }] = await Promise.all([
-  import("../src/lib/db"), import("../src/lib/chain"), import("../src/lib/launchpad/queries"), import("../src/lib/launchpad/math"), import("../src/lib/launchpad/mcap-policy"), import("../src/lib/launchpad/memo"),
+const [{ db }, { publicClient }, { listLaunchesPage, getLaunch }, { startTickForFdv }, { classifyMcap, MCAP_POLICY_VERSION }, { clearMemo }, { mcapPageQuery }] = await Promise.all([
+  import("../src/lib/db"), import("../src/lib/chain"), import("../src/lib/launchpad/queries"), import("../src/lib/launchpad/math"), import("../src/lib/launchpad/mcap-policy"), import("../src/lib/launchpad/memo"), import("../src/lib/launchpad/mcap-query"),
 ]);
 publicClient("base").readContract = (async () => { throw new Error("No on-chain price feed in this test"); }) as ReturnType<typeof publicClient>["readContract"];
 const sql = db();
 const creator = `0x${"c".repeat(40)}`;
+/** Derive a deterministic address so fixtures can reuse a wallet or deliberately use distinct wallets. */
 const wallet = (id: number) => `0x${id.toString(16).padStart(40, "0")}`;
 let seq = 0;
 const launches = new Map<string, { token: string; chain: number; decimals: number; quoteUsd: number; block: number }>();
+/** Insert a launch with configurable FDVs and quote units, retaining its identity for subsequent swap fixtures. */
 async function launch(name: string, args: { chain?: number; quote?: string; decimals?: number; quoteUsd?: number; start?: number; current?: number; time?: string; sqrt?: boolean } = {}) {
   const id = ++seq, chain = args.chain ?? 5042, decimals = args.decimals ?? 6, quoteUsd = args.quoteUsd ?? 1;
   const start = args.start ?? 25_000, current = args.current ?? start;
@@ -36,6 +38,7 @@ async function launch(name: string, args: { chain?: number; quote?: string; deci
     VALUES (${chain},${row.token},${id},${creator},${args.quote ?? "0x3600000000000000000000000000000000000000"},${`0x${id.toString(16).padStart(64,"0")}`},${startTickForFdv(start / quoteUsd, decimals)},0,'1000000000000000000000000000',${name},${name.slice(0,8)},100,${args.time ?? "2026-01-01T00:00:00Z"},${`0x${id.toString(16).padStart(64,"0")}`},0,${args.sqrt === false ? null : sqrt},${Math.floor(Math.log(rawRatio)/Math.log(1.0001))})`;
   launches.set(name, row);
 }
+/** Record a USD-sized swap in the launch's raw quote units and update its indexed lifetime volume. */
 async function swap(name: string, dollars: number, who: string | null, block = 104) {
   const row = launches.get(name)!;
   const amount = BigInt(Math.round(dollars / row.quoteUsd * 10 ** row.decimals));
@@ -44,12 +47,15 @@ async function swap(name: string, dollars: number, who: string | null, block = 1
     SELECT chain_id,${`0x${(10000+id).toString(16).padStart(64,"0")}`},0,token,pool_id,${who},${(-amount).toString()},1,COALESCE(sqrt_price_x96,1),COALESCE(tick,start_tick),true,${block},'2026-02-01T00:00:00Z' FROM bb_launches WHERE chain_id=${row.chain} AND token=${row.token}`;
   await sql`UPDATE bb_launches SET volume_quote=volume_quote+${amount.toString()}::numeric,buys=buys+1 WHERE chain_id=${row.chain} AND token=${row.token}`;
 }
+/** Fetch the real read model using deterministic market-cap defaults, with overrides for individual checks. */
 const page = (opts: Parameters<typeof listLaunchesPage>[0] = {}) => listLaunchesPage({ sort: "mcap", limit: 200, ethUsd: 2500, ...opts });
+/** Extract names in result order to compare filtering and pagination against the same fixture identities. */
 const names = (p: Awaited<ReturnType<typeof page>>) => p.items.map((r) => r.name);
 try {
   const schema = await readFile(new URL("../db/schema.sql", import.meta.url), "utf8");
   await sql.begin((tx) => tx.unsafe(schema));
   assert.equal((await sql`SELECT count(*) AS n FROM bb_launches`)[0].n, 0n, "use an empty test database");
+  assert.throws(() => mcapPageQuery(sql, { where: sql``, quoteDecimals: sql`6`, quoteUsd: sql`1`, mode: "filtered", limit: 40, offset: 0, select: "SELECT * FROM bb_launches l" }), /unexpected SELECT prefix/, "a changed hydration SELECT must not silently drop market-cap facts");
   await launch("ArcMOON", { start: 1e35 }); await swap("ArcMOON", 0.02, creator);
   await launch("DOTTIE", { chain: 4663, quote: wallet(0), decimals: 18, quoteUsd: 2500, start: 5000, current: 25_700 });
   await launch("Small zero-volume", { start: 5000 });

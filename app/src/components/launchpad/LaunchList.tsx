@@ -159,6 +159,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     return p;
   }
 
+  /** Apply a selection, clear the held order and pagination, persist the URL, and request its first page. */
   function pick(s: LaunchSort, w: VolumeWindow = window_, c: ChainKey | null = chain, f: LaunchFilter | null = filter, v: ListView = view, m: McapMode = mcap) {
     const next = { sort: s, window: w, chain: c, filter: f, mcap: m };
     if (JSON.stringify(next) === JSON.stringify(selectionRef.current)) {
@@ -227,6 +228,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     return () => { controller.abort(); clearTimeout(timer); };
   }, [nq, chain, router]);
 
+  /** Append the next page only if its selection still matches, then expand the live refresh limit. */
   async function loadMore() {
     if (loadingMore || updating) return;
     selectionRequest.current?.abort();
@@ -269,6 +271,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const shown = candidates.filter((row) => (!chain || row.chain === chain) && matchesFilter(row, filter, now) && (!nq || matchesQuery(row, nq)));
   if (nq) shown.sort((a, b) => rankHit(a, nq) - rankHit(b, nq));
   const showWindow = sort === "volume";
+  /** Clear search and filters, returning to the default active market view with valuation filtering enabled. */
   const reset = () => { setQ(""); pick("live", "all", null, null, "market", "filtered"); };
   const ranked = sort === "live" && !nq; // tiers, chips and the quiet divider apply to the live view only
   const firstQuiet = ranked ? shown.findIndex((row) => liveTier(row, now) === "quiet") : -1; // one divider, where the database's order enters the quiet tier

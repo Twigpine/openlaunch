@@ -121,6 +121,7 @@ let gitlawbUsdNow: number | null = null;
 
 /** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
 type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]>; stockQuotes: Map<string, Stock> };
+/** Capture the last published quote snapshot for readers that do not supply their own request-local snapshot. */
 const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow, stockQuotes: stockQuotesNow });
 
 /**
@@ -179,7 +180,7 @@ async function loadQuoteTokens(): Promise<Map<string, QuoteTokenMeta>> {
   return new Map(rows.map((r) => [`${r.chain_id}:${r.address}`, { symbol: r.symbol, name: r.name, decimals: r.decimals }]));
 }
 
-/** Warm the stock registry + prices for the stocks in use (and the GITLAWB price), so `shape()` can stay synchronous. */
+/** Load quote prices and metadata into a request-local snapshot; unavailable feeds retain null USD prices. */
 async function withStocks(): Promise<PriceState> {
   const gitlawb = await gitlawbUsd(); // never throws; served from cache once warm (stale-while-revalidate)
   let stocks = new Map<string, number | null>();
@@ -356,6 +357,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
   // a registry stock is matched per (chain, address) like every other arm: the address is only a stock on the chain whose registry lists it
+  /** Find the chains that list this stock address in this request's registry snapshot. */
   const stockChains = (a: string) => CHAIN_KEYS.filter((k) => prices.stockQuotes.has(`${k}:${a.toLowerCase()}`));
   const stockArms = stockEntries.flatMap(([a, v]) => stockChains(a).map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${v}::double precision`));
   const stockCase = stockArms.length ? stockArms.reduce((acc, c) => db`${acc} ${c}`) : db``;

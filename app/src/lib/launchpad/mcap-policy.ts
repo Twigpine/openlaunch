@@ -6,6 +6,7 @@ export const MCAP_MIN_WALLET_USD = 1;
 export const MCAP_POLICY_VERSION = 1;
 
 export type McapMode = "filtered" | "all";
+/** Accept only the explicit all-valuations opt-out; missing or unknown URL values keep filtering enabled. */
 export function parseMcapMode(raw: unknown): McapMode {
   return raw === "all" ? "all" : "filtered";
 }
@@ -20,6 +21,10 @@ export type McapFacts = {
 };
 export type McapClassification = "included" | "limited-outside-trading" | "unpriced";
 
+/**
+ * Classify quote-denominated FDVs using the current quote/USD price and lifetime outside-trading facts.
+ * Invalid valuations stay unpriced; small starting or current valuations never need trading support.
+ */
 export function classifyMcap(facts: McapFacts): McapClassification {
   const { startFdvQuote, fdvQuote, quoteUsd, outsideVolumeQuote, outsideTraders } = facts;
   if (quoteUsd === null || !Number.isFinite(quoteUsd) || quoteUsd <= 0 ||

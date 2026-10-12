@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyMcap, MCAP_HIGH_USD, MCAP_SUPPORT_RATIO, parseMcapMode, type McapFacts } from "./mcap-policy.ts";
 
+/** Start with an unsupported high valuation and override only the facts relevant to each policy boundary. */
 const facts = (overrides: Partial<McapFacts> = {}): McapFacts => ({ startFdvQuote: 20_000_000, fdvQuote: 20_000_000, quoteUsd: 1, outsideVolumeQuote: 0, outsideTraders: 0, ...overrides });
 
 test("small launches need no volume, trades or holders; DOTTIE remains included on a quiet day", () => {

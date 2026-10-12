@@ -43,6 +43,7 @@ type Ctx = {
 const LiveCtx = createContext<Ctx | null>(null);
 const POLL_MS = 5_000;
 
+/** Share visibility-aware polling across the page and discard launch lists for selections that changed in flight. */
 export default function LiveProvider({ initial, children }: { initial: Omit<Live, "launches" | "sort" | "window" | "chain"> & Partial<Pick<Live, "launches" | "sort" | "window" | "chain">>; children: React.ReactNode }) {
   const [live, setLive] = useState<Live>({ launches: null, sort: null, window: "all", chain: null, ...initial });
   const params = useRef<ListParams | null>(initial.sort ? { sort: initial.sort, window: initial.window ?? "all", chain: initial.chain ?? null, filter: initial.filter ?? null, mcap: initial.mcap ?? "filtered", limit: initial.limit ?? 40 } : null);
@@ -50,6 +51,7 @@ export default function LiveProvider({ initial, children }: { initial: Omit<Live
   const listeners = useRef(new Set<Listener>());
   const last = useRef<Live>(live);
 
+  /** Poll once when visible, merge available totals, and publish only the currently requested list. */
   const tick = useCallback(async () => {
     if (inflight.current || document.visibilityState !== "visible") return;
     inflight.current = true;

@@ -28,6 +28,7 @@ export const metadata: Metadata = { alternates: { canonical: "/" } };
 /** The river starts from the newest events (getLaunchFeed's ceiling) and keeps the ones from the last 30 minutes. */
 const RIVER_SEED = 100;
 
+/** Render the home page with a URL-selected launch list, its valuation mode, and initial live activity. */
 export default async function Home({ searchParams }: { searchParams: Promise<{ sort?: string; window?: string; chain?: string; filter?: string; view?: string; mcap?: string }> }) {
   const sp = await searchParams;
   const sort = parseSort(sp.sort, "live");
