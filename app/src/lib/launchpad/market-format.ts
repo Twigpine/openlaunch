@@ -3,6 +3,7 @@ export function marketUsd(value: number): string {
   if (!Number.isFinite(value)) return "—";
   if (value === 0) return "$0";
   if (value > 0 && value < 0.01) return "<$0.01";
+  if (Math.abs(value) >= 1e15) return `$${value.toExponential(1)}`;
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: Math.abs(value) >= 1_000 ? "compact" : "standard", maximumFractionDigits: Math.abs(value) >= 1_000 ? 1 : 2, minimumFractionDigits: 0 }).format(value);
 }
 

@@ -61,7 +61,8 @@ test("server: priced from its own GITLAWB pool, guarded by the average, fails so
   assert.match(q, /row\.quote !== GITLAWB_ADDRESS\.toLowerCase\(\)\) return null;/, "only the MUSEWORLD/GITLAWB pool may price it");
   assert.match(q, /reconcileGitlawbUsd\(spot > 0 \? spot : null, twap\)/);
   assert.match(q, /perMuseworld \* gitlawbUsd/);
-  assert.match(q, /museworldUsdNow = null; \/\/ fail soft/);
+  assert.match(q, /let museworld: number \| null = null;/, "each request starts fail-soft instead of borrowing another request's price");
+  assert.match(q, /museworldUsdNow = museworld;/);
   assert.match(q, /WHEN \$\{quoteArms\("museworld"\)\} THEN \$\{museworldFactor\}::double precision/);
 });
 
