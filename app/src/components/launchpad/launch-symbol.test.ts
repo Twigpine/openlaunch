@@ -136,7 +136,12 @@ test("Symbol guidance is associated with the field and the existing launch rules
   assert.match(source, /A.Z.*0.9/);
   assert.match(source, /const symbolClean = symbol\.trim\(\)\.toUpperCase\(\)/);
   assert.match(source, /symbol: symbolClean/);
-  assert.match(source, /className="[^"]*truncate"[^>]*>\{symbolClean \|\| "TICKER"\}/, "Overlong input must not overflow the preview");
+  // the preview draws the board card and a mini token page from the form; both truncate the ticker, and a blank one reads TICKER
+  const preview = readFileSync(new URL("./LaunchPreview.tsx", import.meta.url), "utf8");
+  const card = readFileSync(new URL("./LaunchCard.tsx", import.meta.url), "utf8");
+  assert.match(preview, /<span className="[^"]*truncate[^"]*">\{row\.symbol\}<\/span>/, "Overlong input must not overflow the token page preview");
+  assert.match(card, /<span className="truncate"><span className="font-mono text-body">\{l\.symbol\}<\/span>/, "Overlong input must not overflow the card preview");
+  assert.match(readFileSync(new URL("../../lib/launchpad/launch-preview.ts", import.meta.url), "utf8"), /const symbol = p\.symbol \|\| "TICKER";/);
   assert.match(source, /className="break-all">\{symbolClean \|\| "tokens"\}/, "The buy estimate must wrap overlong input too");
   const base = { chain: "base" as const, launcher: "0x00000000000000000000000000000000000c0ffe", salt: `0x${"a".repeat(64)}`, name: "中文" };
   for (const [symbol, valid] of [[" sky9 ", true], ["ABCDEFGHIJ", true], ["ABCDEFGHIJK", false], ["中文", false], ["தமிழ்", false], ["SK Y", false], ["", false]] as const) {

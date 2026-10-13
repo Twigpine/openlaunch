@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ArrowUpRight, MessageSquare, RefreshCw, Search, Signature, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, MessageSquare, MessagesSquare, RefreshCw, Search, Signature, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
-import WalletAvatar from "@/components/WalletAvatar";
+import { ChainLogo } from "@/components/launchpad/ChainLogo";
+import { WhoAvatar, WhoName } from "@/components/profile/Who";
+import { NamesContext } from "@/components/profile/NamesProvider";
+import { cachedName, namesVersion, subscribeNames } from "@/lib/profiles/names-client";
 import { useLive } from "@/components/launchpad/LiveProvider";
 import { CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
@@ -16,6 +19,10 @@ import { communityFingerprint, filterCommunityPosts } from "@/lib/launchpad/comm
 import shell from "./SectionShell.module.css";
 import styles from "./CommunityFeed.module.css";
 
+/** A post's standing on its token, worded and coloured as on the home page's posts. */
+const ROLE: Record<NonNullable<PostRow["tag"]>, string> = { creator: "Creator", whale: "Whale", holder: "Holder" };
+
+/** The community page's post stream, each author shown by their profile name and picture. */
 export default function CommunityFeed({ initial, loadError = false }: { initial: PostRow[]; loadError?: boolean }) {
   const router = useRouter();
   const { subscribe } = useLive();
@@ -45,20 +52,25 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
     return () => { clearTimeout(timer); unsubscribe(); };
   }, [initial, router, subscribe]);
 
-  const shown = filterCommunityPosts(initial, chain, query);
+  // authors are searchable by the names the feed shows: the server's seed first, then the browser's store (re-filtered
+  // as names arrive)
+  const seeded = useContext(NamesContext);
+  useSyncExternalStore(subscribeNames, namesVersion, () => 0);
+  const shown = filterCommunityPosts(initial, chain, query, (w) => cachedName(w) ?? seeded?.[w.toLowerCase()]);
   const filtered = Boolean(chain || query.trim());
   function reset() { setChain(null); setQuery(""); }
 
   return <div className={styles.layout}>
     <section className={shell.panel} aria-label="Recent community posts" aria-busy={refreshing}>
       <div className={styles.toolbar}>
-        <div className={styles.feedTitle}><MessageSquare size={17} aria-hidden="true" /><h2>Community feed</h2><span>Newest first</span></div>
+        <div className={styles.feedTitle}><span className={styles.titleIcon} aria-hidden="true"><MessagesSquare size={16} /></span><h2>Community feed</h2><span>Newest first</span></div>
         <button type="button" className={styles.refresh} onClick={() => startTransition(() => router.refresh())} disabled={refreshing} aria-label="Refresh posts" title="Refresh posts"><RefreshCw size={15} aria-hidden="true" /></button>
       </div>
       <div className={styles.filters}>
         <ToggleGroup multiple={false} value={[chain ?? "all"]} onValueChange={(values) => { if (values[0]) setChain(values[0] === "all" ? null : values[0] as ChainKey); }} aria-label="Filter posts by chain">
           <ToggleGroupItem value="all" className="min-h-11">All chains</ToggleGroupItem>
-          {VISIBLE_CHAINS.map((k) => <ToggleGroupItem key={k} value={k} className="min-h-11">{CHAIN_SHORT[k]}</ToggleGroupItem>)}
+          {/* the market board's chain filter: each chain's mark, its name from sm up */}
+          {VISIBLE_CHAINS.map((k) => <ToggleGroupItem key={k} value={k} className="min-h-11" title={CHAIN_SHORT[k]}><ChainLogo chain={k} size={16} /><span className="max-sm:sr-only">{CHAIN_SHORT[k]}</span></ToggleGroupItem>)}
         </ToggleGroup>
         <div className={styles.search}>
           <Search size={15} aria-hidden="true" />
@@ -80,11 +92,11 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
           <article className={styles.post}>
             <Link href={`/t/${post.chain}/${post.token}#comments`} className={styles.postLink}>
               <div className={styles.postHeading}>
-                <WalletAvatar address={post.wallet} size={40} />
+                <WhoAvatar address={post.wallet} size={40} />
                 <div className={styles.postAuthor}>
-                  <h3 title={post.wallet}><span className="sr-only">Post by </span>{shortAddr(post.wallet)}</h3>
+                  <h3 title={post.wallet}><span className="sr-only">Post by </span><WhoName address={post.wallet} link={false} fallback={shortAddr(post.wallet)} /></h3>
                   <p>
-                    {post.tag ? <span className={styles.role}>{post.tag}</span> : null}
+                    {post.tag ? <span className={styles.role} data-tag={post.tag}>{ROLE[post.tag]}</span> : null}
                     <time dateTime={post.created_at} title={post.created_at} suppressHydrationWarning>{now ? `${ago(post.created_at, now)} ago` : ""}</time>
                   </p>
                 </div>
@@ -108,18 +120,17 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
 
     <aside className={styles.aside} aria-label="About the community">
       <section className={styles.guide}>
-        <p className={styles.asideEyebrow}>A little context goes a long way</p>
         <h2>Join from the token.</h2>
         <p>Every post belongs to a token. The full thread, the market and the contracts stay together.</p>
         <ol className={styles.steps}>
-          <li><span>01</span><div><h3>Find your token</h3><p>Browse launches on any chain.</p></div></li>
-          <li><span>02</span><div><h3>Open Conversation</h3><p>Read the thread or reply to a post.</p></div></li>
-          <li><span>03</span><div><h3>Sign your words</h3><p>A wallet signature, not a transaction.</p></div></li>
+          <li><span aria-hidden="true"><Search size={15} /></span><div><h3>Find your token</h3><p>Browse launches on any chain.</p></div></li>
+          <li><span aria-hidden="true"><MessageSquare size={15} /></span><div><h3>Open Conversation</h3><p>Read the thread or reply to a post.</p></div></li>
+          <li><span aria-hidden="true"><Signature size={15} /></span><div><h3>Sign your words</h3><p>A wallet signature, not a transaction.</p></div></li>
         </ol>
         <Link href="/#launches" className={shell.textLink}>Explore launches <ArrowUpRight size={15} aria-hidden="true" /></Link>
       </section>
       <section className={styles.note}>
-        <Signature size={21} aria-hidden="true" />
+        <span className={styles.noteIcon} aria-hidden="true"><Signature size={16} /></span>
         <h2>A wallet behind every post.</h2>
         <p>Posting is open to creators, token holders, and wallets that have traded or launched here. No account to create. No gas to post.</p>
         <p className={styles.caution}>Posts are community opinions, not endorsements. Check the token and its contracts for yourself.</p>

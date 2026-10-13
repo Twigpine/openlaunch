@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { eligible1h, eligible24h, liveChip, liveTier, orderWithKing, rankTrending, stickyKing, trendingScore } from "./ranking.ts";
+import { eligible1h, eligible24h, liveChip, liveChipParts, liveTier, orderWithKing, rankTrending, stickyKing, trendingScore } from "./ranking.ts";
 
 const now = Date.parse("2026-09-07T03:00:00Z");
 const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
@@ -99,4 +99,14 @@ test("orderWithKing puts the king first and keeps the rest in score order", () =
   assert.deepEqual(orderWithKing(items, "y").map((i) => i.token), ["y", "x", "z"]);
   assert.deepEqual(orderWithKing(items, "nope").map((i) => i.token), ["x", "y", "z"]);
   assert.deepEqual(orderWithKing(items, null).map((i) => i.token), ["x", "y", "z"]);
+});
+
+test("liveChipParts: the same facts as the chip, with the count set apart for the cards", () => {
+  assert.deepEqual(liveChipParts(row({ token: "a", traders_1h_ex: 14, traders_24h_ex: 20, last_outside_trade_at: at(21) }), now), { tier: "live", count: 14, label: "wallets this hour", when: "21m ago", more: null });
+  assert.deepEqual(liveChipParts(row({ token: "b", traders_24h_ex: 1, last_outside_trade_at: at(5 * 60) }), now), { tier: "live", count: 1, label: "wallet today", when: "5h ago", more: null });
+  assert.deepEqual(liveChipParts(row({ token: "c", block_time: at(4) }), now), { tier: "new", count: null, label: "just launched", when: "4m", more: null });
+  for (const r of [row({ token: "d", traders_1h_ex: 2, traders_24h_ex: 2 }), row({ token: "e", block_time: at(4), launcher_collapsed: 3 }), row({ token: "f", block_time: at(600), launcher_collapsed: 4 })]) {
+    const p = liveChipParts(r, now);
+    assert.equal([p.count === null ? p.label : `${p.count} ${p.label}`, p.when, p.more].filter(Boolean).join(" · "), liveChip(r, now).text, "the parts join back into the chip");
+  }
 });

@@ -1,4 +1,4 @@
-.machine { --cycle: 7.2s; --motion-state: paused; min-width: 0; width: 100%; max-width: 560px; margin-inline: auto; }
+.machine { --cycle: 7.2s; --motion-state: paused; min-width: 0; width: 100%; max-width: var(--machine-max, 560px); margin-inline: auto; }
 .heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 2px; }
 .eyebrow { display: flex; align-items: center; gap: 9px; color: var(--color-muted); font-size: 11px; }
 .crosshair { width: 9px; height: 9px; position: relative; }
@@ -150,7 +150,10 @@
   40% { transform: scaleX(1); opacity: 1; }
   40.001%, 100% { transform: scaleX(1); opacity: 0; }
 }
-.detail { display: grid; align-content: start; padding: 16px 8px 0; min-height: 105px; }
+/* the host may tighten both (the home hero does on short screens): --machine-max caps the drawing, --detail-min the reserved copy height */
+.detail { display: grid; align-content: start; padding: 16px 8px 0; min-height: var(--detail-min, 105px); }
+/* from 1024px the copy is two lines at most, so less height is held for it */
+@media (min-width: 1024px) { .detail { min-height: var(--detail-min, 84px); } }
 .detailContent { grid-area: 1 / 1; }
 .detailContent[aria-hidden="true"] { visibility: hidden; }
 .machine[data-loop="true"] .detailContent[aria-hidden="false"] { animation: detail-enter 180ms ease-out both; animation-play-state: var(--motion-state); }
@@ -176,6 +179,17 @@
   .stageButton { gap: 6px; padding-inline: 6px; font-size: 11px; }
   .stageButton::after, .stageProgress { left: 6px; right: 6px; }
   .stageDot { display: none; }
-  .detail { min-height: 115px; padding-inline: 6px; }
+  .detail { min-height: 80px; padding: 12px 6px 0; }
   .proof { padding-inline: 6px; }
 }
+
+/* A real launch's picture on the coin's face. It pops in, rides the coin down into the pool, and is gone by 15 s whether or not
+   the next poll has dropped it: the last keyframe leaves it invisible. Wall-clock, so it does not wait on the loop's own pause. */
+.coinFace { transform-box: fill-box; transform-origin: center; animation: coin-in 520ms cubic-bezier(.3, 1.4, .5, 1) backwards, coin-out 700ms ease-in 14.3s forwards; }
+.coinDisc { fill: var(--color-card); }
+.coinRing { fill: none; stroke: color-mix(in srgb, var(--color-card) 92%, transparent); stroke-width: 1.5; }
+@keyframes coin-in { from { opacity: 0; transform: scale(.6); } }
+@keyframes coin-out { to { opacity: 0; } }
+@keyframes coin-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .coinFace { animation: coin-fade 300ms ease-out backwards, coin-out 700ms ease-in 14.3s forwards; } }
+

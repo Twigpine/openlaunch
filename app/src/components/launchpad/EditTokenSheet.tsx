@@ -17,7 +17,7 @@ import { friendlyError } from "@/lib/errors";
 export default function EditTokenSheet({ chain, token, symbol, initial, onClose, onSaved }: { chain: ChainKey; token: string; symbol: string; initial: EditFields; onClose: () => void; onSaved: (f: EditFields) => void }) {
   const config = useConfig();
   const { address } = useAccount();
-  const [f, setF] = useState<EditFields>({ description: initial.description ?? "", image_url: initial.image_url ?? "", website: initial.website ?? "", x_handle: initial.x_handle ?? "" });
+  const [f, setF] = useState<EditFields>({ description: initial.description ?? "", image_url: initial.image_url ?? "", banner_url: initial.banner_url ?? "", website: initial.website ?? "", x_handle: initial.x_handle ?? "" });
   const [phase, setPhase] = useState<"idle" | "nonce" | "sign" | "save" | "done">("idle");
   const [err, setErr] = useState<string | null>(null);
   const v = validateEdit(f);
@@ -60,6 +60,10 @@ export default function EditTokenSheet({ chain, token, symbol, initial, onClose,
         <div>
           <p className={label}>Image</p>
           <ImageUpload compact value={f.image_url ?? ""} onChange={(url) => setF({ ...f, image_url: url })} wallet={address} />
+        </div>
+        <div>
+          <p className={label}>Banner</p>
+          <ImageUpload kind="banner" value={f.banner_url ?? ""} onChange={(url) => setF({ ...f, banner_url: url })} wallet={address} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

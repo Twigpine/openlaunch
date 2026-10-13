@@ -35,7 +35,7 @@ export default async function OgImage() {
   const stat = totals && totals.launches > 0 ? `${totals.launches} launches · ${fmtUsd(totals.volume_usd, { compact: true })} traded · $0 in fees, ever` : "no platform fee, ever";
   return new ImageResponse(
     (
-      <div style={{ width: "100%", height: "100%", background: PAPER, display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif", position: "relative", overflow: "hidden", color: INK }}>
+      <div style={{ width: "100%", height: "100%", background: PAPER, display: "flex", flexDirection: "column", fontFamily: "Geist, sans-serif", position: "relative", overflow: "hidden", color: INK }}>
         <div style={{ position: "absolute", top: -320, left: -120, width: 900, height: 640, borderRadius: "50%", background: "radial-gradient(closest-side, #EAF0FF 0%, rgba(234,240,255,0) 100%)" }} />
         <div style={{ position: "absolute", right: -140, bottom: -260, width: 620, height: 620, borderRadius: "50%", border: `18px solid ${LINE}`, opacity: 0.7 }} />
 
@@ -48,12 +48,12 @@ export default async function OgImage() {
               <span style={{ color: BLUE }}>{BRAND_TLD}</span>
             </span>
           </div>
-          <span style={{ fontSize: 18, color: MUTED, fontFamily: "Space Mono, monospace" }}>{stat}</span>
+          <span style={{ fontSize: 18, color: MUTED, fontFamily: "Geist, sans-serif" }}>{stat}</span>
         </div>
 
         {/* headline */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 64px" }}>
-          <div style={{ fontFamily: "Unbounded, Inter, sans-serif", fontWeight: 700, fontSize: 86, lineHeight: 1.0, letterSpacing: -3, display: "flex", flexDirection: "column" }}>
+          <div style={{ fontFamily: "Geist, sans-serif", fontWeight: 700, fontSize: 86, lineHeight: 1.0, letterSpacing: -3, display: "flex", flexDirection: "column" }}>
             <span style={{ display: "flex" }}>
               Launch a token.&nbsp;<span style={{ color: BLUE }}>Free.</span>
             </span>

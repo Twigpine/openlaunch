@@ -27,7 +27,8 @@ Next 16 app router, React 19, Tailwind 4, wagmi 3 + viem 2, Postgres (postgres.j
 
 ## Token charts
 
-Token pages prefer GeckoTerminal’s hosted advanced chart. The lookup validates the
+Token pages default to Openlaunch’s on-chain chart. GeckoTerminal’s hosted advanced
+chart is optional and checked only when selected. The lookup validates the
 exact chain, Uniswap v4 pool ID, launched base token and quote. Reversed listings
 are not used, because the embed would chart the quote asset instead of the token.
 Base, Robinhood and Arc use their own provider network IDs. Arc pools retain the
@@ -38,9 +39,10 @@ indexed candles. **On-chain** is also available manually if a provider frame is
 blank, blocked or slow; an iframe load event cannot prove its chart rendered.
 Tokens without indexed swaps show **No trades yet**, not fabricated launch-price
 candles. The existing shared live clock refreshes native history and can discover
-the first swap. Retry Advanced to recheck a previously unavailable provider.
+the first swap without changing the selected chart source. Reload GeckoTerminal
+to recheck a previously unavailable provider.
 
-The native renderer is lazy-loaded and retains extreme-value normalization,
+The native renderer retains extreme-value normalization,
 quote/USD and price/market-cap modes, volume, read-only wallet markers and bounded
 history. The swap panel, stats, indexer and public candle API are unchanged.
 
@@ -72,8 +74,9 @@ proxy reads the public production
 API without forwarding wallets, cookies or credentials. Both preview endpoints
 return 404 in production. See its [test notes](src/app/ui-review-charts/README.md).
 
-No schema migration is required. Reverting the chart integration restores the
-previous native-only UI; stored candle history remains untouched.
+No schema migration is required. Reverting the recovery and development preview
+changes preserves main’s native-first chart and optional GeckoTerminal selection;
+stored candle history remains untouched.
 
 ## Local dev against a Base fork
 ```

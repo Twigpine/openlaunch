@@ -1,0 +1,14 @@
+/* The hero's last line: the newest event on the network. A hairline row, quiet until something new arrives. */
+.ticker { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 0 14px; border: 1px solid var(--color-line); border-radius: 12px; background: color-mix(in srgb, var(--color-card) 70%, transparent); font-size: 13px; color: var(--color-body); }
+.dot { flex: none; width: 7px; height: 7px; border-radius: 9999px; background: var(--color-brand); }
+.buy .dot { background: var(--color-up); }
+.sell .dot { background: var(--color-down); }
+.label { flex: none; font-size: 11px; font-weight: 500; line-height: 1; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted); }
+.what { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 32px; font-weight: 500; color: var(--color-ink); }
+.what:hover .arrow { opacity: 1; transform: translate(1px, -1px); }
+.arrow { flex: none; opacity: .45; transition: opacity 150ms, transform 150ms; }
+.age { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+/* a new event settles in; the key on the link replays it per event. It ends fully visible, so nothing is left to hide */
+.enter { animation: tickerIn 320ms cubic-bezier(.2, .7, .3, 1) backwards; }
+@keyframes tickerIn { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .enter { animation: none; } .arrow { transition: none; } }

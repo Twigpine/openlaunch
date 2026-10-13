@@ -1,6 +1,8 @@
 /** Pure paging helpers (node --test loads this directly). */
 export const PAGE_SIZE = 40;
 export const MAX_LIMIT = 200;
+/** Rows in the home page's Just launched rail. */
+export const JUST_LAUNCHED_SIZE = 8;
 
 export function clampLimit(v: unknown, fallback = PAGE_SIZE): number {
   const n = Number(v);

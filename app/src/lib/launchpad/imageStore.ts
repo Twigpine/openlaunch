@@ -39,6 +39,15 @@ export function imagePublicBase(): string | null {
   return c.kind === "off" ? null : c.publicBase;
 }
 
+/**
+ * The hero coin wears a new launch's picture unless HERO_COIN_PICTURES=off (a Fly secret: setting it restarts the app, no
+ * deploy). The coin's rules are speed bumps (hero-coin.ts), so this is the switch for a day a creator's picture should not
+ * be on the front page. Off, the caption still reacts and the coin stays plain.
+ */
+export function coinPicturesEnabled(): boolean {
+  return process.env.HERO_COIN_PICTURES?.trim().toLowerCase() !== "off";
+}
+
 export function imageUploadsEnabled(): boolean {
   return config().kind !== "off";
 }
@@ -58,6 +67,29 @@ export async function putImage(key: string, body: Buffer): Promise<string> {
   return imageUrlFor(c.publicBase, key);
 }
 
+const READ_TIMEOUT_MS = 3_000;
+type ObjectClient = Pick<S3Client, "send">;
+
+/**
+ * One bucket read that gives up after `timeoutMs`: the abort signal cancels the request, and the race also covers a body
+ * that stalls after the headers arrive. A timeout is a miss (null), like any other failed read, and never throws.
+ */
+export async function readObject(client: ObjectClient, bucket: string, key: string, timeoutMs = READ_TIMEOUT_MS): Promise<Buffer | null> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  try {
+    const read = (async () => {
+      const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: abort.signal });
+      const bytes = await r.Body?.transformToByteArray();
+      return bytes ? Buffer.from(bytes) : null;
+    })().catch(() => null);
+    const timedOut = new Promise<null>((resolve) => abort.signal.addEventListener("abort", () => resolve(null), { once: true }));
+    return await Promise.race([read, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const KEY_RE = /^t\/[0-9a-f]{48}\.webp$/;
 
 /**
@@ -70,9 +102,7 @@ export async function readImage(key: string): Promise<Buffer | null> {
   if (c.kind === "off" || !KEY_RE.test(key)) return null;
   try {
     if (c.kind === "local") return await readFile(path.join(c.dir, key));
-    const r = await c.client.send(new GetObjectCommand({ Bucket: c.bucket, Key: key }));
-    const bytes = await r.Body?.transformToByteArray();
-    return bytes ? Buffer.from(bytes) : null;
+    return await readObject(c.client, c.bucket, key);
   } catch {
     return null;
   }

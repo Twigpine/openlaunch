@@ -9,14 +9,17 @@ import { memo } from "./memo";
 import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
-import { canonicalImageUrl } from "./images";
-import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
-import { SNIPER_BLOCKS } from "./holders";
+import { gitlawbLinkedUsd } from "./twig";
+import { canonicalImageUrl, pictureKey, reusedPictures, type PictureUse } from "./images";
+import { GRACE_HOURS, LIVE_WINDOW_HOURS, STRIP_SIZE, rankTrending, type LiveTier } from "./ranking";
+import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
 import { imagePublicBase } from "./imageStore";
 import { collectNonDust } from "./feed-dust";
+import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, tapeOrNone, type Pip } from "./trending-live";
+import { launchKey } from "./list-state";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
-import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, type LaunchFilter } from "./search";
+import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSearchHitByHolders, type LaunchFilter } from "./search";
 
 /**
  * Read model for the UI. Every money field comes in two flavours: raw quote
@@ -31,7 +34,7 @@ export type LaunchRow = {
   token_id: number;
   launcher: string;
   quote: string;
-  quote_key: Quote["key"]; // eth | usdg | usdc | gitlawb | stock (a registry stock) | other (an unlisted ERC-20, unlisted-quote.ts)
+  quote_key: Quote["key"]; // eth | usdg | usdc | gitlawb | twig | museworld | stock (a registry stock) | other (an unlisted ERC-20, unlisted-quote.ts)
   quote_symbol: string;
   quote_decimals: number;
   quote_decimals_known: boolean; // false only for an unlisted quote not read yet: quote_decimals is a placeholder, do not trade
@@ -68,6 +71,8 @@ export type LaunchRow = {
   launcher_collapsed: number; // sort "live" only: further rows of this launcher folded into this one
   description: string | null;
   image_url: string | null;
+  /** A creator-uploaded banner (null when none; the cards then draw one from the logo). */
+  banner_url: string | null;
   holders: number;
   website: string | null;
   x_handle: string | null;
@@ -109,15 +114,23 @@ let museworldUsdNow: number | null = null;
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
 
-/** Server-side quote resolution: static ETH/USDG/GITLAWB (GITLAWB gets the live price), else a registry stock, else an unlisted quote. */
-function quoteInfo(chain: ChainKey, address: string): Quote {
+/** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
+type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
+const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
+
+/**
+ * Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a
+ * registry stock, else an unlisted quote. Priced from `st` (the prices loaded now unless a snapshot is passed).
+ */
+function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState()): Quote {
   const q = staticQuoteInfo(chain, address);
-  if (q.key === "gitlawb") return { ...q, usd: gitlawbUsdNow };
-  if (q.key === "museworld") return { ...q, usd: museworldUsdNow };
+  const linked = gitlawbLinkedUsd(q.key, st.gitlawb); // GITLAWB, and TWIG at the same price
+  if (linked !== undefined) return { ...q, usd: linked };
+  if (q.key === "museworld") return { ...q, usd: st.museworld };
   if (q.key !== "other") return q;
-  const st = stockByAddress(chain, address);
-  if (st) return { key: "stock", address: st.address as Quote["address"], symbol: st.symbol, decimals: st.decimals, usd: stockUsdNow.get(st.address) ?? null, name: st.name, logo: st.logo };
-  return unlistedQuote(address, quoteTokensNow.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, stockSymbolsNow.get(chain) ?? []);
+  const stock = stockByAddress(chain, address);
+  if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo };
+  return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, st.stockSymbols.get(chain) ?? []);
 }
 
 /**
@@ -184,10 +197,12 @@ async function withStocks(): Promise<void> {
   }
 }
 
+/** A quote's USD price (ETH-quoted through the ETH price; null when unknown). */
 function quoteUsd(q: Quote, ethUsd: number | null): number | null {
   return quoteUsdOf(q, ethUsd);
 }
 
+/** A launch row as the app uses it: indexer-only bigint columns dropped (JSON-safe), price, FDV and USD figures worked out. */
 function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null): LaunchRow {
   // drop indexer-only bigint columns so the row is JSON-safe
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -226,6 +241,7 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
     fdv_quote: fdv,
     change_from_launch: launchFdv > 0 ? fdv / launchFdv - 1 : 0,
     image_url: canonicalImageUrl(r.image_url, imagePublicBase()),
+    banner_url: canonicalImageUrl(r.banner_url, imagePublicBase()),
     quote_usd: qu,
     price_usd: qu === null ? null : price * qu,
     fdv_usd: qu === null ? null : fdv * qu,
@@ -244,7 +260,7 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
 // bb_launches.last_trade_at also moves on the launcher's own swaps.
 const OUTSIDE = `s.trader <> l.launcher AND s.block_number > l.block_number + ${SNIPER_BLOCKS}`;
 const HOUR = `s.block_time > now() - interval '1 hour'`;
-const SELECT = `SELECT l.*, m.description, m.image_url, m.website, m.x_handle,
+export const SELECT = `SELECT l.*, m.description, m.image_url, m.banner_url, m.website, m.x_handle,
   w.n1 AS trades_1h, w.t1 AS traders_1h, w.t1_ex AS traders_1h_ex, w.v1 AS volume_1h, w.n24 AS trades_24h, w.t24_ex AS traders_24h_ex, w.v24 AS volume_24h, w.last_outside_at AS last_outside_trade_at
   FROM bb_launches l
   LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token
@@ -266,6 +282,8 @@ export function parseSort<F extends LaunchSort | null>(raw: string | null | unde
   return LAUNCH_SORTS.includes(raw as LaunchSort) ? (raw as LaunchSort) : fallback;
 }
 export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
+/** The raw-quote volume a Volume sort ranks by, per window: the lateral `w` in SELECT carries v1 and v24; "all" is the launch's own total. */
+export const VOLUME_COLUMN_SQL: Record<VolumeWindow, string> = { "1h": "w.v1::numeric", "24h": "w.v24::numeric", all: "l.volume_quote" };
 
 export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
 const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
@@ -310,7 +328,10 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   if (opts.filter === "usdg" || opts.filter === "usdc") conds.push(db`${quoteArms(opts.filter)}`);
   // GITLAWB has a different address per chain (and none on Arc): the same chain-scoped match
   const isGitlawb = () => quoteArms("gitlawb");
+  // the quotes that take GITLAWB's USD price in the sorts: GITLAWB, and TWIG (one TWIG unwraps to one GITLAWB; gitlawbLinkedUsd)
+  const isGitlawbPriced = () => db`(${isGitlawb()} OR ${quoteArms("twig")})`;
   if (opts.filter === "gitlawb") conds.push(db`${isGitlawb()}`);
+  if (opts.filter === "twig") conds.push(db`${quoteArms("twig")}`);
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
@@ -325,13 +346,13 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
   const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
   const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
   const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const qd = db`(CASE ${stableDecCase} ${decCase} ELSE 18 END)`;
-  const volCol = win === "1h" ? db`w1.v::numeric` : win === "24h" ? db`w24.v::numeric` : db`l.volume_quote`;
+  const volCol = db.unsafe(VOLUME_COLUMN_SQL[win]);
   const volUsd = db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
   // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
   const mcapUsd = db`((1.0 / (power(1.0001, COALESCE(l.tick, l.start_tick)::double precision) * power(10, ${qd} - 18))) * (l.supply / 1e18) * ${usdPerUnit})`;
@@ -374,12 +395,29 @@ export async function listLaunches(opts: ListOpts = {}): Promise<LaunchRow[]> {
   return (await listLaunchesPage(opts)).items;
 }
 
+/** One launch by chain and token, or null. */
 export async function getLaunch(chain: ChainKey, token: string, ethUsd: number | null = null): Promise<LaunchRow | null> {
   const db = maybeDb();
   if (!db) return null;
   await withStocks();
   const rows = await db<Raw[]>`${db.unsafe(SELECT)} WHERE l.chain_id = ${chainIdOf(chain)} AND l.token = ${token.toLowerCase()}`;
   return rows[0] ? shape(rows[0], ethUsd) : null;
+}
+
+/** A bounded watchlist lookup shares the market read model without one query per token. */
+export async function getLaunchesByRefs(refs: readonly { chain: ChainKey; token: string }[], ethUsd: number | null = null): Promise<{ launch: LaunchRow; holders: number | null }[]> {
+  if (refs.length > 50) throw new Error("too many launch references");
+  const db = maybeDb();
+  if (!db || refs.length === 0) return [];
+  await withStocks();
+  const matches = refs.map((ref) => db`(l.chain_id = ${chainIdOf(ref.chain)} AND l.token = ${ref.token.toLowerCase()})`);
+  const rows = await db<(Raw & { holders_synced_block: bigint | null })[]>`
+    ${db.unsafe(SELECT)} WHERE ${matches.reduce((a, b) => db`${a} OR ${b}`)}`;
+  return rows.map((r) => ({
+    launch: shape(r, ethUsd),
+    // Same completed-backfill sentinel as getHolderPanel. An unfinished index is not zero holders.
+    holders: r.holders_synced_block !== null && BigInt(r.holders_synced_block) === SYNCED_FOREVER ? Number(r.holders) : null,
+  }));
 }
 
 /** Find which chain a token lives on (for the legacy /t/<token> redirect). */
@@ -392,6 +430,7 @@ export async function findLaunchChain(token: string): Promise<ChainKey | null> {
 
 export type SwapRow = { tx_hash: string; log_index: number; token: string; trader: string | null; amount0: string; amount1: string; is_buy: boolean; block_time: string; price_quote: number };
 
+/** A token's newest swaps, newest first, with amounts in display units. */
 export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: number, limit = 50): Promise<SwapRow[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -403,11 +442,33 @@ export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: nu
 
 /** Home tape: launches + trades across chains, newest first. */
 export type FeedItem =
-  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; image_url: string | null }
+  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; image_url: string | null; image_reused?: true }
   | { kind: "swap"; chain: ChainKey; at: string; tx_hash: string; log_index: number; token: string; name: string; symbol: string; trader: string | null; is_buy: boolean; is_dev: boolean; quote_wei: string; quote_key: Quote["key"]; quote_symbol: string; quote_decimals: number; usd: number | null; image_url: string | null };
 
 export type FeedSwap = Extract<FeedItem, { kind: "swap" }>;
 
+/**
+ * Which of these launches wear a picture another token registered first (images.ts: reusedPictures). The hero's coin only
+ * shows a picture that is its token's own. When ownership cannot be checked (the read failed) every launch with a stored
+ * picture counts as a copy: the coin then shows no picture and its caption still reacts, until the next read answers.
+ */
+async function pictureCopies(db: NonNullable<ReturnType<typeof maybeDb>>, launches: readonly { chain_id: number; token: string; image_url: string | null }[]): Promise<Set<string>> {
+  const keys = [...new Set(launches.map((r) => pictureKey(r.image_url)).filter((k): k is string => k !== null))];
+  if (keys.length === 0) return new Set();
+  try {
+    // a scan of bb_launch_meta (about 30 ms at 5,000 rows), and the home page asks on every render: read it once per half minute for a
+    // given set of pictures. Stale is safe: a copy is judged against the earliest registration, which is older than any copy and
+    // already in the answer, and a launch with a new picture changes the set, so it is read fresh.
+    const sorted = [...keys].sort();
+    const all = await memo(`picture-owners:${sorted.join(",")}`, 30_000, () => db<PictureUse[]>`SELECT chain_id, token, created_at, image_url FROM bb_launch_meta WHERE image_url ILIKE ANY(${sorted.map((k) => `%/${k}%`)}::text[])`);
+    return reusedPictures(launches, all);
+  } catch (error) {
+    console.warn("[feed] picture ownership read failed:", error instanceof Error ? error.message : error);
+    return new Set(launches.filter((r) => pictureKey(r.image_url) !== null).map((r) => `${r.chain_id}:${r.token.toLowerCase()}`));
+  }
+}
+
+/** The newest launches and trades across every chain, merged newest first, for the home feed. */
 export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): Promise<FeedItem[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -443,9 +504,10 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
       (i) => `${i.chain}:${i.tx_hash}:${i.log_index}`,
     ),
   ]);
+  const reused = await pictureCopies(db, launches);
   const items: FeedItem[] = launches.map((r) => {
     const chain = chainKeyOf(r.chain_id) ?? DEFAULT_CHAIN;
-    return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.launcher ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: image(r.image_url) };
+    return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.launcher ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: image(r.image_url), ...(reused.has(`${r.chain_id}:${r.token.toLowerCase()}`) ? { image_reused: true as const } : {}) };
   });
   return [...items, ...swaps].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, n);
 }
@@ -464,9 +526,15 @@ export type LaunchTotals = {
    * bridged across two chains, so one figure and no per-chain split. Shown as an amount, never in USD.
    */
   gitlawb_burned: string;
-  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string }>;
+  /**
+   * TWIG sent to 0x…dEaD by launches quoted in it, raw 18-dec (Base only). Kept apart from gitlawb_burned: the GITLAWB
+   * behind burned TWIG stays in the TWIG contract, so it is TWIG that was burned, and it is shown as such.
+   */
+  twig_burned: string;
+  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
 };
 
+/** Platform totals (launches, trades, USD volume, fees burned and paid to creators, GITLAWB burned); zeros without a database. */
 export async function getLaunchTotals(ethUsd: number | null = null): Promise<LaunchTotals> {
   const empty = (): LaunchTotals => ({
     launches: 0,
@@ -476,7 +544,8 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     fees_to_creators_usd: 0,
     usd_partial: false,
     gitlawb_burned: "0",
-    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0" }])) as LaunchTotals["by_chain"],
+    twig_burned: "0",
+    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0", volume_quote_twig: "0" }])) as LaunchTotals["by_chain"],
   });
   const db = maybeDb();
   if (!db) return empty();
@@ -494,7 +563,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     const q = quoteInfo(chain, r.quote);
     const usd = quoteUsd(q, ethUsd);
     const qu = usd ?? 0;
-    // a quote that normally prices (ETH, GITLAWB, a registry stock) but has no price this instant → the USD sums undercount;
+    // a quote that normally prices (ETH, GITLAWB, TWIG, a registry stock) but has no price this instant → the USD sums undercount;
     // an unlisted ERC-20 (key "other") is unpriced by design and is left out of the USD figures silently, as always
     if (usd === null && q.key !== "other" && (BigInt(r.volume) > 0n || BigInt(r.burned) > 0n || BigInt(r.creators) > 0n)) t.usd_partial = true;
     t.launches += Number(r.launches);
@@ -513,6 +582,9 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
       bc.volume_quote_gitlawb = add(bc.volume_quote_gitlawb, r.volume);
       // GITLAWB is only ever the quote side (never a launched token), so the quote-fee burn is the whole GITLAWB burn
       t.gitlawb_burned = add(t.gitlawb_burned, r.burned);
+    } else if (q.key === "twig") {
+      bc.volume_quote_twig = add(bc.volume_quote_twig, r.volume);
+      t.twig_burned = add(t.twig_burned, r.burned); // TWIG is only ever the quote side here too
     }
   }
   return t;
@@ -528,6 +600,7 @@ export const getLaunchTotalsForRequest = cache(getLaunchTotals);
 
 export type FeeEventRow = { tx_hash: string; kind: string; currency: string | null; account: string | null; amount: string | null; quote_amount: string | null; token_amount: string | null; block_time: string };
 
+/** A token's newest fee collections and burns. */
 export async function getFeeEvents(chain: ChainKey, token: string, limit = 30): Promise<FeeEventRow[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -538,6 +611,7 @@ export async function getFeeEvents(chain: ChainKey, token: string, limit = 30): 
 
 export type SyncCursor = { chain: ChainKey; cursor_block: number; head_block: number | null; last_run_at: string | null; last_error: string | null };
 
+/** How far the indexer has read on each chain. */
 export async function launchSyncCursors(): Promise<SyncCursor[]> {
   const db = maybeDb();
   if (!db) return [];
@@ -548,7 +622,7 @@ export async function launchSyncCursors(): Promise<SyncCursor[]> {
 }
 
 /** Search by name / symbol (substring) or exact address, across chains. Ranked: symbol exact, symbol prefix, name prefix, substring. */
-export async function searchLaunches(q: string, opts: { chain?: ChainKey | null; limit?: number; ethUsd?: number | null } = {}): Promise<LaunchRow[]> {
+export async function searchLaunches(q: string, opts: { chain?: ChainKey | null; limit?: number; ethUsd?: number | null; order?: "newest" | "holders" } = {}): Promise<LaunchRow[]> {
   const db = maybeDb();
   const n = normalizeQuery(q);
   if (!db || !n) return [];
@@ -563,7 +637,7 @@ export async function searchLaunches(q: string, opts: { chain?: ChainKey | null;
     // Robinhood's, so the old ORDER BY hid exact matches on the low chain).
     : await db<Raw[]>`${db.unsafe(SELECT)} WHERE (l.name ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\\' OR l.symbol ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\\') ${chainCond} ORDER BY l.block_time DESC, l.chain_id DESC, l.block_number DESC LIMIT 200`;
   const shaped = rows.map((r) => shape(r, opts.ethUsd ?? null));
-  shaped.sort((a, b) => compareSearchHit(a, b, n));
+  shaped.sort((a, b) => (opts.order === "holders" ? compareSearchHitByHolders(a, b, n) : compareSearchHit(a, b, n)));
   return shaped.slice(0, limit);
 }
 
@@ -640,14 +714,15 @@ export async function getWalletTokens(wallet: string, ethUsd: number | null = nu
   return rows.map((r) => ({ ...shape(r, ethUsd), my_buys: Number(r.my_buys), my_sells: Number(r.my_sells), my_last_trade: r.my_last_trade }));
 }
 
-export type WalletTrade = { chain: ChainKey; token: string; symbol: string; name: string; tx_hash: string; is_buy: boolean; quote_raw: string; quote_symbol: string; quote_decimals: number; usd: number | null; tokens: string; block_time: string };
+export type WalletTrade = { chain: ChainKey; token: string; symbol: string; name: string; tx_hash: string; log_index: number; is_buy: boolean; quote_raw: string; quote_symbol: string; quote_decimals: number; usd: number | null; tokens: string; block_time: string };
 
+/** One wallet's newest trades across every chain, keyed by chain, transaction and log index. */
 export async function getWalletTrades(wallet: string, ethUsd: number | null = null, limit = 50): Promise<WalletTrade[]> {
   const db = maybeDb();
   if (!db) return [];
   await withStocks();
-  const rows = await db<{ chain_id: number; token: string; symbol: string; name: string; quote: string; tx_hash: string; is_buy: boolean; amount0: string; amount1: string; block_time: string }[]>`
-    SELECT s.chain_id, s.token, l.symbol, l.name, l.quote, s.tx_hash, s.is_buy, s.amount0, s.amount1, s.block_time
+  const rows = await db<{ chain_id: number; token: string; symbol: string; name: string; quote: string; tx_hash: string; log_index: number; is_buy: boolean; amount0: string; amount1: string; block_time: string }[]>`
+    SELECT s.chain_id, s.token, l.symbol, l.name, l.quote, s.tx_hash, s.log_index, s.is_buy, s.amount0, s.amount1, s.block_time
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
      WHERE s.trader = ${wallet.toLowerCase()} ORDER BY s.block_number DESC, s.log_index DESC LIMIT ${Math.min(200, limit)}`;
   return rows.map((r) => {
@@ -656,11 +731,12 @@ export async function getWalletTrades(wallet: string, ethUsd: number | null = nu
     const qu = quoteUsd(q, ethUsd);
     const raw = BigInt(r.amount0) < 0n ? (-BigInt(r.amount0)).toString() : r.amount0;
     const tok = BigInt(r.amount1) < 0n ? (-BigInt(r.amount1)).toString() : r.amount1;
-    return { chain, token: r.token, symbol: r.symbol, name: r.name, tx_hash: r.tx_hash, is_buy: r.is_buy, quote_raw: raw, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(raw, q.decimals) * qu, tokens: tok, block_time: r.block_time };
+    return { chain, token: r.token, symbol: r.symbol, name: r.name, tx_hash: r.tx_hash, log_index: r.log_index, is_buy: r.is_buy, quote_raw: raw, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(raw, q.decimals) * qu, tokens: tok, block_time: r.block_time };
   });
 }
 
-export type TrendingSnap = { window: "1h" | "24h"; items: LaunchRow[] };
+/** `tape`: each board token's recent trades (oldest first), keyed by launchKey. Only the page's seed carries it: the live poll adds trades itself. */
+export type TrendingSnap = { window: "1h" | "24h"; items: LaunchRow[]; tape?: Record<string, Pip[]> };
 
 export const TRENDING_CANDIDATES = 40;
 
@@ -677,8 +753,64 @@ export function isTrendingSource(opts: ListOpts): boolean {
   return opts.sort === "live" && !opts.chain && !opts.filter && (opts.window ?? "all") === "all" && !opts.offset && (opts.limit ?? 0) >= TRENDING_CANDIDATES;
 }
 
+/**
+ * Each board token's recent trades, oldest first, for the Trending cards' tapes: as many as its card has room for (the
+ * first row is the leader, the rest are runners). One read for the whole board:
+ * the newest swaps of each token off its (token, block_time) index, in the feed's own order. Dust is dropped after the read, as the feed does
+ * it, so twice the rows are read; dollars use the price the board row already carries.
+ */
+export async function getBoardTapes(rows: readonly LaunchRow[]): Promise<Record<string, Pip[]>> {
+  const db = maybeDb();
+  if (!db || rows.length === 0) return {};
+  const byId = new Map(rows.map((r) => [`${r.chain_id}:${r.token.toLowerCase()}`, r]));
+  const found = await db<{ chain_id: number; token: string; tx_hash: string; log_index: number; is_buy: boolean; quote_wei: string; at: Date; trader: string | null }[]>`
+    SELECT t.chain_id, t.token, s.tx_hash, s.log_index, s.is_buy, abs(s.amount0)::text AS quote_wei, s.block_time AS at, s.trader
+      FROM unnest(${rows.map((r) => r.chain_id)}::int[], ${rows.map((r) => r.token.toLowerCase())}::text[]) AS t(chain_id, token)
+      CROSS JOIN LATERAL (
+        SELECT tx_hash, log_index, is_buy, amount0, block_time, trader FROM bb_launch_swaps
+         WHERE chain_id = t.chain_id AND token = t.token
+         ORDER BY block_time DESC, log_index DESC LIMIT ${PIPS_LEADER * 2}
+      ) s`;
+  const tape: Record<string, Pip[]> = {};
+  for (const r of found) {
+    const row = byId.get(`${r.chain_id}:${r.token}`);
+    if (!row) continue;
+    const pip = pipFromSwapRow({ chain: row.chain, token: row.token, tx_hash: r.tx_hash, log_index: r.log_index, is_buy: r.is_buy, quote_wei: r.quote_wei, at: r.at, trader: r.trader }, row);
+    if (pip) (tape[launchKey(row)] ??= []).push(pip);
+  }
+  rows.forEach((row, i) => {
+    const key = launchKey(row);
+    if (tape[key]) tape[key] = tape[key].sort((a, b) => a.at - b.at).slice(-(i === 0 ? PIPS_LEADER : PIPS_RUNNER));
+  });
+  return tape;
+}
+
+/** A snapshot with its tapes: the page seeds the board with it; a quiet burst of page loads shares one read. */
+export async function withBoardTape(snap: TrendingSnap): Promise<TrendingSnap> {
+  if (snap.items.length === 0) return snap;
+  // the board shows STRIP_SIZE cards (the ranking returns no more); the cap keeps a larger snapshot from fetching history nobody draws
+  const shown = snap.items.slice(0, STRIP_SIZE + 1);
+  const key = `board-tape:${shown.map((r) => `${r.chain_id}:${r.token}`).join(",")}`;
+  const tape = await tapeOrNone(() => memo(key, 3_000, () => getBoardTapes(shown)), (error) => console.warn("[trending] tape read failed:", error instanceof Error ? error.message : error));
+  return tape ? { ...snap, tape } : snap;
+}
+
 /** "Hot right now": the top of the live sort, ranked for the strip by lib/launchpad/ranking.ts. */
 export async function getTrending(ethUsd: number | null = null): Promise<TrendingSnap> {
   const page = await listLaunchesPage({ sort: "live", limit: TRENDING_CANDIDATES, ethUsd });
   return trendingFrom(page.items);
+}
+
+/**
+ * The quote pricing the lists use, as a function, for code that prices many launches at once (season points):
+ * decimals and USD per whole quote unit (null = unpriced) for a launch's quote on its chain.
+ */
+export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: string; decimals: number; usd: number | null }> {
+  await withStocks();
+  // one snapshot for the caller's whole run: a page refresh loading new prices meanwhile must not change it halfway
+  const snap = priceState();
+  return (chain, quote) => {
+    const q = quoteInfo(chain, quote, snap);
+    return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd) };
+  };
 }

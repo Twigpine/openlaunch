@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import MeDashboard from "@/components/launchpad/MeDashboard";
+import { LayoutDashboard } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default function MePage() {
   return (
     <main className={shell.page}>
-      <SectionIntro eyebrow="Your dashboard" title="A space for your next move." description="Your launches, the fees they earn, and everything you trade. One wallet across Base, Robinhood Chain and Arc." />
+      <SectionIntro eyebrow="Your dashboard" icon={<LayoutDashboard />} title="A space for your next move." description="Your launches, the fees they earn, and everything you trade. One wallet across Base, Robinhood Chain and Arc." />
       <MeDashboard />
     </main>
   );

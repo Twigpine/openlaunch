@@ -45,7 +45,7 @@ export function explorerName(key: ChainKey): string {
   return EXPLORERS[key].name;
 }
 
-/** Gitlawb's Base builder code (ERC-8021). Public — attribution only. */
+/** Twigpine's (formerly Gitlawb's) Base builder code (ERC-8021). Public — attribution only. */
 export const BUILDER_CODE = "bc_ly9ism19";
 /** ERC-8021 data suffix for BUILDER_CODE (asserted by src/lib/builderCode.test.ts). Harmless on chains that ignore it. */
 export const BUILDER_DATA_SUFFIX = "0x62635f6c793969736d31390b0080218021802180218021802180218021" as const;

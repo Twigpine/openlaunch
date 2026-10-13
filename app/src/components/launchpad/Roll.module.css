@@ -1,0 +1,7 @@
+/* The window the figure rolls inside: it clips the sliding text, so the roll reads like a counter, not like text flying about. */
+.roll { position: relative; display: inline-block; max-width: 100%; overflow: hidden; vertical-align: top; text-overflow: ellipsis; white-space: nowrap; }
+.in { position: relative; animation: in 520ms cubic-bezier(.3, 1.3, .5, 1) var(--st, 0ms) backwards; }
+.out { position: absolute; inset-inline-start: 0; top: 0; pointer-events: none; animation: out 520ms cubic-bezier(.3, .8, .4, 1) var(--st, 0ms) both; }
+@keyframes in { from { opacity: 0; top: calc(var(--dir, -1) * -.6em); } }
+@keyframes out { to { opacity: 0; top: calc(var(--dir, -1) * .6em); } }
+@media (prefers-reduced-motion: reduce) { .in { animation: none; } .out { display: none; } }

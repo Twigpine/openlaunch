@@ -122,3 +122,17 @@ test("insert / update / select column lists match the schema", () => {
   }
   assert.ok(checked > 80, `expected to check many columns, checked ${checked}`);
 });
+
+test("db/concurrent-indexes.sql: only idempotent CONCURRENTLY index builds, on tables and columns schema.sql has", () => {
+  const text = readFileSync(path.join(ROOT, "db/concurrent-indexes.sql"), "utf8").replace(/--[^\n]*/g, "");
+  const stmts = text.split(";").map((s) => s.trim()).filter(Boolean);
+  assert.ok(stmts.length > 0);
+  for (const s of stmts) {
+    const m = /^CREATE INDEX CONCURRENTLY IF NOT EXISTS (\w+) ON (bb_\w+) \(([^)]*)\)/i.exec(s);
+    assert.ok(m, `not an idempotent concurrent index build: ${s.slice(0, 80)}`);
+    const cols = tables.get(m[2]);
+    assert.ok(cols, `unknown table ${m[2]}`);
+    for (const c of m[3].split(",").map((x) => x.trim().split(/\s+/)[0])) assert.ok(cols.has(c), `${m[2]}.${c} is not in schema.sql`);
+    assert.doesNotMatch(schema, new RegExp(`INDEX IF NOT EXISTS ${m[1]}\\b`), `${m[1]} is also built inside the schema transaction`);
+  }
+});

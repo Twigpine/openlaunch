@@ -14,7 +14,7 @@ import Footer from "@/components/Footer";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeProvider from "@/components/ThemeProvider";
 import { Suspense } from "react";
-import { inter, spaceMono, unbounded } from "./fonts";
+import { geist, geistMono } from "./fonts";
 
 const TITLE = SITE_TITLE;
 const DESCRIPTION = SITE_DESCRIPTION;
@@ -44,7 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Organization + WebSite + WebApplication: the entity record search engines reconcile the brand word against.
   const siteJsonLd = siteJsonLdHtml({ siteUrl: SITE_URL, brand: BRAND, domain: BRAND_DOMAIN, description: SITE_DESCRIPTION, sameAs: [`https://x.com/${BRAND_X}`, BRAND_GITHUB] });
   return (
-    <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <body id="site-top" tabIndex={-1} className="min-h-screen flex flex-col">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: siteJsonLd }} />
         <ThemeProvider nonce={nonce}>

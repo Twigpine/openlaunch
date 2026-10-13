@@ -12,7 +12,7 @@ import { isAddress, type Hex } from "viem";
 import { SITE_URL, isChainKey, type ChainKey, CHAIN_KEY_PATTERN } from "../chainPublic.ts";
 import { parseXHandle } from "./xHandle.ts";
 
-export type MetaInput = { chain: ChainKey; launcher: string; salt: Hex; meta_key: Hex; name: string; symbol: string; description?: string; image_url?: string; website?: string; x_handle?: string };
+export type MetaInput = { chain: ChainKey; launcher: string; salt: Hex; meta_key: Hex; name: string; symbol: string; description?: string; image_url?: string; banner_url?: string; website?: string; x_handle?: string };
 export const LIMITS = { name: 32, symbol: 10, description: 280 } as const;
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 
@@ -39,13 +39,15 @@ export function validateMeta(m: Partial<MetaInput> & { meta_key?: string }): { o
     }
   };
   const image_url = url(m.image_url);
+  const banner_url = url(m.banner_url);
   const website = url(m.website);
   if (image_url === null) return { ok: false, error: "image: https URL only" };
+  if (banner_url === null) return { ok: false, error: "banner: https URL only" };
   if (website === null) return { ok: false, error: "website: https URL only" };
   const x = parseXHandle(m.x_handle);
   if (!x.ok) return { ok: false, error: x.error };
   const x_handle = x.handle || undefined;
-  return { ok: true, value: { chain: m.chain, launcher: m.launcher, salt: m.salt as Hex, meta_key: meta_key.toLowerCase() as Hex, name, symbol, description, image_url, website, x_handle } };
+  return { ok: true, value: { chain: m.chain, launcher: m.launcher, salt: m.salt as Hex, meta_key: meta_key.toLowerCase() as Hex, name, symbol, description, image_url, banner_url, website, x_handle } };
 }
 
 /** The on-chain metadataURI: keyed by (launcher, meta_key) — stable across the salt search. */
@@ -53,7 +55,7 @@ export function metaUriFor(launcher: string, metaKey: string): string {
   return `${SITE_URL}/api/launch/meta/${launcher.toLowerCase()}/${metaKey.toLowerCase()}`;
 }
 
-export type MetaRow = { launcher: string; name: string; symbol: string; description: string | null; image_url: string | null; website: string | null; x_handle: string | null };
+export type MetaRow = { launcher: string; name: string; symbol: string; description: string | null; image_url: string | null; banner_url?: string | null; website: string | null; x_handle: string | null };
 
 /**
  * Unsigned writes are INSERT-only. The creator registers before broadcasting, while the salt is
@@ -69,6 +71,7 @@ export function metaWriteDecision(existing: MetaRow | null, incoming: MetaInput)
     existing.symbol === incoming.symbol &&
     (existing.description ?? null) === (incoming.description ?? null) &&
     (existing.image_url ?? null) === (incoming.image_url ?? null) &&
+    (existing.banner_url ?? null) === (incoming.banner_url ?? null) &&
     (existing.website ?? null) === (incoming.website ?? null) &&
     (existing.x_handle ?? null) === (incoming.x_handle ?? null);
   return same ? "same" : "conflict";

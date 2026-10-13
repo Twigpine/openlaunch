@@ -147,7 +147,7 @@ test("community posts lead with the author wallet and retain smaller token conte
   const bodyStart = feed.indexOf("<p className={styles.postBody}>", headingStart);
   assert.ok(headingStart >= 0 && bodyStart > headingStart);
   const heading = feed.slice(headingStart, bodyStart);
-  assert.match(heading, /<WalletAvatar address=\{post\.wallet\} size=\{40\}/);
+  assert.match(heading, /<(?:WalletAvatar|WhoAvatar) address=\{post\.wallet\} size=\{40\}/);
   assert.match(heading, /<h3 title=\{post\.wallet\}>[\s\S]*?shortAddr\(post\.wallet\)/);
   assert.doesNotMatch(heading, /<TokenAvatar/);
   assert.match(feed.slice(bodyStart), /<TokenAvatar chain=\{post\.chain\} token=\{post\.token\} symbol=\{post\.symbol \?\? "\?"\} size=\{20\}/);
@@ -161,13 +161,13 @@ test("homepage posts and shared token replies use the author's wallet avatar", (
   assert.ok(itemStart >= 0 && feedStart > itemStart);
   const item = posts.slice(itemStart, feedStart);
   const feed = posts.slice(feedStart);
-  assert.match(item, /<WalletAvatar address=\{p\.wallet\} size=\{24\}/);
+  assert.match(item, /<(?:WalletAvatar|WhoAvatar) address=\{p\.wallet\} size=\{24\}/);
   assert.match(item, /title=\{p\.wallet\}/);
-  assert.match(feed, /<WalletAvatar address=\{p\.wallet\}/);
-  assert.match(feed, /title=\{p\.wallet\}>\{shortAddr\(p\.wallet\)\}/);
+  assert.match(feed, /<(?:WalletAvatar|WhoAvatar) address=\{p\.wallet\}/);
+  assert.match(feed, /title=\{p\.wallet\}>\{shortAddr\(p\.wallet\)\}/, "no profile: the short address, as before");
   assert.match(posts.slice(0, itemStart), /<PostItem p=\{p\}/);
   assert.match(posts.slice(0, itemStart), /<PostItem p=\{r\}/);
-  assert.doesNotMatch(posts, /<WalletAvatar[^>]*address=\{[^}]*(?:token|chain)\}/);
+  assert.doesNotMatch(posts, /<(?:WalletAvatar|WhoAvatar)[^>]*address=\{[^}]*(?:token|chain)\}/);
 });
 
 test("the connected wallet menu shares the same avatar implementation", () => {

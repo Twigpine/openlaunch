@@ -10,11 +10,12 @@ import { isChainKey } from "@/lib/chainPublic";
 import { BRAND, BRAND_TLD } from "@/lib/brand";
 import { isOwnImageUrl } from "@/lib/launchpad/images";
 import { imagePublicBase, readImage } from "@/lib/launchpad/imageStore";
-import sharp from "sharp";
+import { rasterSharp } from "@/lib/launchpad/imageProcess";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GITLAWB_LOGO_BG, GITLAWB_LOGO_PATH } from "@/lib/launchpad/gitlawb";
 import { MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH } from "@/lib/launchpad/museworld";
+import { TWIG_LOGO_BG, TWIG_LOGO_PATH } from "@/lib/launchpad/twig";
 
 /** Brand logos from public/, inlined once per process each (satori needs a data URL or absolute URL). */
 const brandLogos = new Map<string, Promise<string | null>>();
@@ -57,7 +58,7 @@ async function ownLogo(url: string | null): Promise<string | null> {
     const key = (url as string).slice((base as string).replace(/\/+$/, "").length + 1);
     const buf = await readImage(key);
     if (!buf) return null;
-    const png = await sharp(buf).resize(220, 220).png().toBuffer();
+    const png = await rasterSharp(buf).resize(220, 220).png().toBuffer();
     return `data:image/png;base64,${png.toString("base64")}`;
   } catch {
     return null;
@@ -77,12 +78,13 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
   const card = l ? shapeCard(l, nowMs()) : null;
   const glLogo = card?.quote?.kind === "gitlawb" ? await logoDataUrl(GITLAWB_LOGO_PATH) : null;
   const mwLogo = card?.quote?.kind === "museworld" ? await logoDataUrl(MUSEWORLD_LOGO_PATH) : null;
+  const twLogo = card?.quote?.kind === "twig" ? await logoDataUrl(TWIG_LOGO_PATH) : null;
   const official = card?.quote?.kind === "museworld";
   const logo = l ? await memo(`og-logo:${chain}:${token.toLowerCase()}`, 60_000, () => ownLogo(l.image_url)) : null;
   const h = hueOf(token);
   return new ImageResponse(
     (
-      <div style={{ width: "100%", height: "100%", background: PAPER, display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif", position: "relative", overflow: "hidden", color: INK }}>
+      <div style={{ width: "100%", height: "100%", background: PAPER, display: "flex", flexDirection: "column", fontFamily: "Geist, sans-serif", position: "relative", overflow: "hidden", color: INK }}>
         <div style={{ position: "absolute", top: -320, left: -120, width: 900, height: 640, borderRadius: "50%", background: "radial-gradient(closest-side, #EAF0FF 0%, rgba(234,240,255,0) 100%)" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "40px 64px 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -109,18 +111,18 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
             {logo ? (
               <img src={logo} alt="" width={220} height={220} style={{ width: 220, height: 220, borderRadius: 48, objectFit: "cover", border: `1px solid ${LINE}` }} />
             ) : (
-              <div style={{ width: 220, height: 220, borderRadius: 48, display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 75% 45%))`, color: "#fff", fontFamily: "Unbounded, Inter, sans-serif", fontWeight: 700, fontSize: 110 }}>
+              <div style={{ width: 220, height: 220, borderRadius: 48, display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 75% 45%))`, color: "#fff", fontFamily: "Geist, sans-serif", fontWeight: 700, fontSize: 110 }}>
                 {card.symbol.slice(0, 1)}
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 18 }}>
-                <span style={{ fontFamily: "Unbounded, Inter, sans-serif", fontWeight: 700, fontSize: 72, letterSpacing: -2, lineHeight: 1.05 }}>{card.title}</span>
-                <span style={{ fontFamily: "Space Mono, monospace", fontSize: 30, color: MUTED }}>{card.symbol}</span>
+                <span style={{ fontFamily: "Geist, sans-serif", fontWeight: 700, fontSize: 72, letterSpacing: -2, lineHeight: 1.05 }}>{card.title}</span>
+                <span style={{ fontFamily: "Geist, sans-serif", fontSize: 30, color: MUTED }}>{card.symbol}</span>
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 18, marginTop: 18 }}>
-                <span style={{ fontFamily: "Unbounded, Inter, sans-serif", fontWeight: 700, fontSize: 64, letterSpacing: -2 }}>{card.mcap}</span>
-                <span style={{ fontFamily: "Space Mono, monospace", fontSize: 32, fontWeight: 700, color: card.up === null ? MUTED : card.up ? UP : DOWN }}>{card.change}</span>
+                <span style={{ fontFamily: "Geist, sans-serif", fontWeight: 700, fontSize: 64, letterSpacing: -2 }}>{card.mcap}</span>
+                <span style={{ fontFamily: "Geist, sans-serif", fontSize: 32, fontWeight: 700, color: card.up === null ? MUTED : card.up ? UP : DOWN }}>{card.change}</span>
                 <span style={{ fontSize: 22, color: MUTED }}>market cap · since launch</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 26 }}>
@@ -129,6 +131,10 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
                     {card.quote.kind === "museworld" ? (
                       <span style={{ display: "flex", width: 30, height: 30, borderRadius: 8, overflow: "hidden" }}>
                         {mwLogo ? <img src={mwLogo} width={30} height={30} alt="" /> : null}
+                      </span>
+                    ) : card.quote.kind === "twig" ? (
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: TWIG_LOGO_BG, overflow: "hidden" }}>
+                        {twLogo ? <img src={twLogo} width={30} height={30} alt="" /> : null}
                       </span>
                     ) : card.quote.kind === "gitlawb" ? (
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: GITLAWB_LOGO_BG, overflow: "hidden" }}>

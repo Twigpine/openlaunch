@@ -60,10 +60,12 @@ test("light is the original Clear Sky palette, unchanged, and the unclassed base
   assert.match(darkBlock, /color-scheme:\s*dark/);
 });
 
-test("typography is unchanged", () => {
-  assert.match(themeBlock, /--font-sans:\s*var\(--font-inter\)/);
-  assert.match(themeBlock, /--font-mono:\s*var\(--font-space-mono\)/);
-  assert.match(themeBlock, /--font-display:\s*var\(--font-unbounded\)/);
+test("typography is one family: Geist for words and figures, Geist Mono only for addresses and hashes", () => {
+  assert.match(themeBlock, /--font-sans:\s*var\(--font-geist\)/);
+  assert.match(themeBlock, /--font-mono:\s*var\(--font-geist\)/);
+  assert.match(themeBlock, /--font-code:\s*var\(--font-geist-mono\)/);
+  assert.match(themeBlock, /--font-display:\s*var\(--font-geist\)/);
+  assert.match(css, /\.font-mono\s*\{\s*font-variant-numeric:\s*tabular-nums;/, "figures line up in columns");
 });
 
 test("the dark: variant resolves against a class, not a media query", () => {
@@ -84,7 +86,8 @@ test("dark greys are near-achromatic", () => {
 
 test("the dark surface ramp steps away from the ground monotonically (light: white cards on off-white paper, by design)", () => {
   for (const [name, palette] of THEMES.filter(([n]) => n === "dark")) {
-    const steps = ["paper", "card", "line", "line-strong"].map((n) => luminance(palette[n]));
+    // raised sits between card and the hairlines: a floating layer must read as lifted, never as a border
+    const steps = ["paper", "card", "raised", "line", "line-strong"].map((n) => luminance(palette[n]));
     const rising = steps[1] > steps[0];
     for (let i = 1; i < steps.length; i++) {
       assert.equal(steps[i] > steps[i - 1], rising, `${name}: surface ramp reverses at index ${i}`);
@@ -94,7 +97,7 @@ test("the dark surface ramp steps away from the ground monotonically (light: whi
 
 test("dark text, semantic labels, and filled controls meet AA contrast (light is the shipped palette; it is checked for regressions, not re-tuned)", () => {
   const pairs = [
-    ...["paper", "card"].flatMap((surface) => ["ink", "body", "muted", "brand", "up", "down-ink", "warm-ink"].map((text) => [text, surface])),
+    ...["paper", "card", "raised"].flatMap((surface) => ["ink", "body", "muted", "brand", "up", "down-ink", "warm-ink"].map((text) => [text, surface])),
     ...["ink", "brand", "brand-strong", "up", "down", "warm-ink"].map((fill) => ["inverse", fill]),
     ["brand", "brand-soft"], ["up", "up-soft"], ["down-ink", "down-soft"], ["warm-ink", "warm-soft"], ["up", "holder-good-bg"],
   ];
@@ -130,7 +133,14 @@ test("the view-transition wipe is disabled under reduced motion", () => {
 test("print falls back to ink on white", () => {
   const print = colors(printBlock);
   assert.equal(print.paper, "#ffffff", "black paper does not print");
+  assert.equal(print.raised, "#ffffff", "floating layers print on white too");
   assert.equal(print.ink, light.ink);
+});
+
+test("page morphs are named transitions, and they stop under reduced motion", () => {
+  assert.match(css, /::view-transition-group\(\.morph\)/, "the token morph needs its own transition CSS");
+  const reduced = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}\n?/g)?.join("\n") ?? "";
+  assert.match(reduced, /::view-transition-group\(\.morph\)/, "reduced motion must also stop the token morph");
 });
 
 test("runtime chart tokens survive Tailwind tree-shaking (@theme static) and exist in both themes", () => {

@@ -48,7 +48,7 @@ test("SkFeedPost matches the real post anatomy: 40px round avatar, body, 20px to
   assert.match(block, /h-10 w-10 shrink-0 rounded-full/, "40px wallet avatar");
   assert.match(block, /h-5 w-5 shrink-0 rounded-md/, "20px token tile");
   assert.match(block, /px-4 py-5 sm:p-6/, "24px padding, 20px 16px on phones, like .postLink");
-  assert.match(feed, /<WalletAvatar address=\{post\.wallet\} size=\{40\}/);
+  assert.match(feed, /<(?:WalletAvatar|WhoAvatar) address=\{post\.wallet\} size=\{40\}/);
   assert.match(feed, /<TokenAvatar[^>]*size=\{20\}/);
   assert.match(block, /mt-\[18px\]/, "body and meta keep the 18px rhythm of .postBody / .postMeta");
 });

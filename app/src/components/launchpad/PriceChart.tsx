@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAccount } from "wagmi";
+import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { INTERVALS, bucketStart, defaultInterval, type Interval } from "@/lib/launchpad/candles";
 import { chartRangeSelection, type ChartRange } from "@/lib/launchpad/chart-terminal";
 import { mergeChartPayload, type ChartPayload } from "@/lib/launchpad/chart-payload";
@@ -19,7 +19,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt, review = 
   const [result, setResult] = useState<{ key: string; data: ChartPayload } | null>(null);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
-  const { address } = useAccount();
+  const { address } = useHydratedAccount();
   const { subscribe } = useLive();
   const requestKey = `${chain}:${token.toLowerCase()}:${interval}:${range}:${address?.toLowerCase() ?? ""}`;
   const request = useRef<AbortController | null>(null);
@@ -86,6 +86,5 @@ export default function PriceChart({ chain, token, symbol, launchedAt, review = 
     data={result?.key === requestKey ? result.data : null} loading={loading || (result?.key !== requestKey && failure?.key !== requestKey)}
     error={failure?.key === requestKey ? failure.message : null} hasWallet={Boolean(address) && !reviewMode}
     onIntervalChange={(next) => { setInterval(next); setRange("auto"); }}
-    onRangeChange={(next) => { const selection = chartRangeSelection(next, launchT, Math.floor(nowMs() / 1000)); setRange(next); setInterval(selection.interval); }}
     onRefresh={() => void load()} />;
 }

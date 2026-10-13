@@ -3,6 +3,7 @@ import { CHAIN_KEYS, SITE_URL, isChainKey, type ChainKey } from "@/lib/chainPubl
 import { unlistedQuote } from "./unlisted-quote";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_DECIMALS, MUSEWORLD_LOGO_PATH, MUSEWORLD_NAME, MUSEWORLD_SYMBOL } from "./museworld";
 import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_DECIMALS, GITLAWB_LOGO_PATH, GITLAWB_NAME, GITLAWB_SYMBOL } from "./gitlawb";
+import { TWIG_ADDRESS, TWIG_DECIMALS, TWIG_LOGO_PATH, TWIG_NAME, TWIG_SYMBOL } from "./twig";
 
 /**
  * CLIENT-SAFE launchpad config, per chain. Only NEXT_PUBLIC_* vars are read here.
@@ -19,10 +20,10 @@ export const BPS = 10_000;
 export const MAX_RECIPIENTS = 7;
 
 /**
- * key "museworld" = an official quote the form does not offer (museworld.ts); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
+ * key "twig" = TWIG, the GITLAWB wrapper the Base form offers (twig.ts); "museworld" = an official quote the form does not offer (museworld.ts); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
  * is false only for an unlisted quote whose decimals have not been read yet: its 18 is a placeholder and it must not trade.
  */
-export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks + GITLAWB (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean };
+export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 
@@ -33,6 +34,8 @@ const USDC_ARC: Quote = { key: "usdc", address: "0x36000000000000000000000000000
 /** GITLAWB: usd is null here (client-safe static); the server fills the live price (gitlawbServer.ts). Robinhood's is the LayerZero OFT of the Base token. */
 const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, symbol: GITLAWB_SYMBOL, decimals: GITLAWB_DECIMALS, usd: null, name: GITLAWB_NAME, logo: GITLAWB_LOGO_PATH };
 const GITLAWB_RH: Quote = { ...GITLAWB, address: GITLAWB_ADDRESS_ROBINHOOD as Address };
+/** TWIG: usd is null here (client-safe static); the server fills GITLAWB's live price, since one TWIG unwraps to one GITLAWB (twig.ts). Base only. */
+const TWIG: Quote = { key: "twig", address: TWIG_ADDRESS as Address, symbol: TWIG_SYMBOL, decimals: TWIG_DECIMALS, usd: null, name: TWIG_NAME, logo: TWIG_LOGO_PATH };
 /** MUSEWORLD: usd is null here (client-safe static); the server fills the price from its own GITLAWB pool (queries.ts). */
 const MUSEWORLD: Quote = { key: "museworld", address: MUSEWORLD_ADDRESS, symbol: MUSEWORLD_SYMBOL, decimals: MUSEWORLD_DECIMALS, usd: null, name: MUSEWORLD_NAME, logo: MUSEWORLD_LOGO_PATH };
 
@@ -67,13 +70,15 @@ const V4_BY_CHAIN: Record<ChainKey, V4> = {
     swapLayout: "v2", // router v2.1.1, same ExactInputSingleParams as Robinhood (verified on a fork: test/LaunchFactory.arc.fork.t.sol)
   },
 };
-/** Quote assets offered per chain, first = default. */
-const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, GITLAWB], robinhood: [USDG, ETH, GITLAWB_RH], arc: [USDC_ARC] };
+/** Quote assets offered per chain, first = default. On Base TWIG took GITLAWB's place (GITLAWB stays an official quote below). */
+const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, TWIG], robinhood: [USDG, ETH, GITLAWB_RH], arc: [USDC_ARC] };
 /**
  * Official quotes: known, badged and priced wherever a launch paired with them is listed, but NEVER offered in the
- * launch form (MUSEWORLD launches are made inside Museworld by its agents). Kept out of QUOTES_BY_CHAIN on purpose.
+ * launch form. Kept out of QUOTES_BY_CHAIN on purpose. GITLAWB on Base: the form offers TWIG (its 1:1 wrapper) instead,
+ * while launches already paired with GITLAWB, and any an agent still makes against the factory, keep their badge and
+ * price. MUSEWORLD: its launches are made inside Museworld by its agents.
  */
-const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [MUSEWORLD], robinhood: [], arc: [] };
+const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [GITLAWB, MUSEWORLD], robinhood: [], arc: [] };
 
 /**
  * What address(0) means on each chain. The factory is permissionless and documents address(0) as the native asset,
@@ -211,9 +216,9 @@ export const FEE_PRESETS = [
 ] as const;
 
 /** Starting market cap presets per quote (fully diluted, in quote units). */
-export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, museworld: [] /* not offered in the form */, stock: [] /* derived from the live price */, other: [] /* never offered */ };
+export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, twig: [] /* derived from the live price */, museworld: [] /* not offered in the form */, stock: [] /* derived from the live price */, other: [] /* never offered */ };
 /** Buy amount presets per quote. */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], museworld: ["50000", "100000", "500000", "1000000"], stock: ["0.1", "0.5", "1", "5"], other: [] /* unknown token, unknown scale */ };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], twig: ["100000", "500000", "1000000", "5000000"] /* one TWIG = one GITLAWB */, museworld: ["50000", "100000", "500000", "1000000"], stock: ["0.1", "0.5", "1", "5"], other: [] /* unknown token, unknown scale */ };
 
 // NEXT_PUBLIC_* must be read as literal `process.env.X` expressions: Next inlines them at build time.
 const DEV_RPC: Record<ChainKey, string | undefined> = {

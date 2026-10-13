@@ -54,3 +54,25 @@ test("validateMeta: x_handle takes a handle or an x.com link and stores the bare
     assert.equal(metaWriteDecision(row, bare.value), "same");
   }
 });
+
+test("validateMeta: a banner is optional and, like the logo, https only", () => {
+  const ok = validateMeta({ ...base, banner_url: "https://cdn.example/banner.webp" });
+  assert.ok(ok.ok);
+  if (ok.ok) assert.equal(ok.value.banner_url, "https://cdn.example/banner.webp");
+  const none = validateMeta(base);
+  assert.ok(none.ok);
+  if (none.ok) assert.equal(none.value.banner_url, undefined);
+  const bad = validateMeta({ ...base, banner_url: "http://cdn.example/banner.webp" });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.match(bad.error, /banner/);
+});
+
+test("metaWriteDecision: a different banner is a conflict, the same one is an idempotent re-send", () => {
+  const v = validateMeta({ ...base, banner_url: "https://cdn.example/b.webp" });
+  assert.ok(v.ok);
+  if (!v.ok) return;
+  const row = { launcher: L.toLowerCase(), name: v.value.name, symbol: v.value.symbol, description: null, image_url: null, banner_url: "https://cdn.example/b.webp", website: null, x_handle: null };
+  assert.equal(metaWriteDecision(row, v.value), "same");
+  assert.equal(metaWriteDecision({ ...row, banner_url: "https://cdn.example/other.webp" }, v.value), "conflict");
+  assert.equal(metaWriteDecision({ ...row, banner_url: null }, v.value), "conflict");
+});

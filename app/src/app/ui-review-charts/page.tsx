@@ -35,7 +35,7 @@ export default async function ChartReview({ searchParams }: { searchParams: Prom
         <div><dt className="text-body">Exact Uniswap v4 pool</dt><dd className="mt-1 break-all font-mono">{pool.poolId}</dd></div>
         <div><dt className="text-body">Token contract</dt><dd className="mt-1 break-all font-mono">{pool.token}</dd></div>
       </dl>
-      <p className="mt-3 max-w-3xl">GeckoTerminal is primary for exact, correctly oriented pools with a usable USD price. Otherwise the same component shows Openlaunch’s indexed candles. This development-only preview reads public candle data from openlaunch.lol; production uses its own database. Provider branding stays visible, using Gecko’s grayscale logo option.</p>
+      <p className="mt-3 max-w-3xl">Openlaunch’s indexed candles are shown first. Select GeckoTerminal to check its optional chart for this exact pool, token orientation and USD price. This development-only preview reads public candle data from openlaunch.lol; production uses its own database. Provider branding stays visible, using Gecko’s grayscale logo option.</p>
     </details>
   </main>;
 }

@@ -37,6 +37,7 @@ primary_region = 'iad'
     method = 'GET'
     path = '/api/health'
 
+# Dedicated core: shared-cpu-2x ran above its CPU baseline and got throttled (health checks flapping, 2026-10-01).
 [[vm]]
-  size = 'shared-cpu-2x'
-  memory = '1gb'
+  size = 'performance-1x'
+  memory = '2gb'

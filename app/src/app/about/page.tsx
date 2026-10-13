@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Info } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, LEGACY_DOMAIN } from "@/lib/brand";
@@ -34,6 +34,7 @@ export default function AboutPage() {
     <main className={shell.page}>
       <SectionIntro
         eyebrow="About"
+        icon={<Info />}
         title={`What ${BRAND} is`}
         description={<>{BRAND} is a free, open-source token launchpad. One transaction deploys a fixed-supply ERC-20, opens a Uniswap v4 pool at the market cap you pick and locks 100% of the supply as liquidity, forever. It runs on Base, Robinhood Chain and Arc.</>}
       >
@@ -68,7 +69,7 @@ export default function AboutPage() {
 
       <section className={`${shell.anchorSection} mt-14`} id="who" aria-labelledby="who-heading">
         <h2 id="who-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Who builds it</h2>
-        <p className="mt-4 max-w-[40rem] text-base leading-relaxed text-body text-pretty">{BRAND} is built by Gitlawb and developed in the open. The contracts, the indexer and this site live in one MIT-licensed repository; contributions go through pull requests there.</p>
+        <p className="mt-4 max-w-[40rem] text-base leading-relaxed text-body text-pretty">{BRAND} is built by Twigpine and developed in the open. The contracts, the indexer and this site live in one MIT-licensed repository; contributions go through pull requests there.</p>
         <p className="mt-3 max-w-[40rem] text-base leading-relaxed text-body text-pretty">Tokens launched here are created by their launchers, not by {BRAND}. A locked pool does not make a token valuable; read <Link href="/rules#know" className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">before you begin</Link>.</p>
       </section>
 
@@ -88,7 +89,7 @@ export default function AboutPage() {
           </li>
           <li className="rounded-2xl border border-line bg-paper p-5">
             <p className="text-xs uppercase tracking-wide text-muted">Source code</p>
-            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 font-mono text-sm text-ink hover:text-brand">Gitlawb/openlaunch <ArrowUpRight size={13} aria-hidden="true" /></a>
+            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 font-mono text-sm text-ink hover:text-brand">Twigpine/openlaunch <ArrowUpRight size={13} aria-hidden="true" /></a>
             <p className="mt-2 text-xs leading-relaxed text-muted">MIT. Forks on GitHub are copies; this is the original.</p>
           </li>
         </ul>

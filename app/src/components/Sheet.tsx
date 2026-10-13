@@ -54,7 +54,7 @@ export default function Sheet({
       aria-label={title}
     >
       <div
-        className={`bb-sheet-in w-full ${wide ? "md:max-w-lg" : "md:max-w-md"} max-h-[92dvh] md:max-h-[85vh] flex flex-col bg-card border border-line rounded-t-[20px] md:rounded-2xl overflow-hidden`}
+        className={`bb-sheet-in w-full ${wide ? "md:max-w-lg" : "md:max-w-md"} max-h-[92dvh] md:max-h-[85vh] flex flex-col bg-raised border border-line rounded-t-[20px] md:rounded-2xl overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="md:hidden pt-2.5 flex justify-center" aria-hidden>

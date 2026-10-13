@@ -9,14 +9,19 @@ const css = readFileSync(new URL("./RulesGuide.module.css", import.meta.url), "u
 test("the rules guide retains native navigation and visible risk disclosures", () => {
   assert.match(page, /import SectionIntro from/);
   assert.match(page, /aria-label="On this page"/);
-  for (const anchor of ["launchpad", "fees", "immutable", "know", "contracts"]) {
+  for (const anchor of ["launchpad", "fees", "immutable", "points", "know", "contracts"]) {
     assert.ok(page.includes(`id="${anchor}"`), `missing section: ${anchor}`);
   }
-  assert.equal((page.match(/<details open>/g) ?? []).length, 5);
+  assert.equal((page.match(/<details open>/g) ?? []).length, 9); // 4 on season points, 5 before you begin
+  assert.match(page, /no cash value, are not a token and not a promise of one/, "points are reputation, said where the rules are");
   assert.match(page, /quiet launches/);
   assert.match(page, /every launch stays in the New tab/i);
   assert.match(page, /GITLAWB-quoted pool/);
-  assert.match(page, /burns GITLAWB on every trade/);
+  assert.match(page, /GITLAWB fees burned when they are collected/);
+  assert.match(page, /TWIG- or GITLAWB-quoted pool/);
+  assert.match(page, /TWIG fees burned when they are collected/);
+  assert.doesNotMatch(page, /burns (TWIG|GITLAWB) on every trade/, "fees accrue and are burned when collected, not per trade");
+  assert.match(page, /one TWIG counts as one GITLAWB/);
   assert.match(page, /a locked pool does not make a token valuable/);
   assert.match(page, /Nothing is refundable/);
   assert.match(page, /no anti-snipe mechanism/);

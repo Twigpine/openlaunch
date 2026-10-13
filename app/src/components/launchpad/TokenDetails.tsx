@@ -14,12 +14,13 @@ export default function TokenDetails({ trades, holders, conversation, about }: {
     return () => { clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener("hashchange", selectHash); };
   }, []);
   return (
-    <Tabs id="token-details" value={tab} onValueChange={(v) => setTab(String(v))} className="scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-paper">
+    <Tabs id="token-details" value={tab} onValueChange={(v) => setTab(String(v))} className="scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-card">
       <TabsList aria-label="Token details">
         <TabsTab value="trades">Trades</TabsTab>
         <TabsTab value="holders">Holders</TabsTab>
         <TabsTab value="conversation">Conversation</TabsTab>
-        <TabsTab value="about">About & contracts</TabsTab>
+        {/* the long label only where it fits beside the others */}
+        <TabsTab value="about"><span className="sm:hidden">About</span><span className="hidden sm:inline">About & contracts</span></TabsTab>
       </TabsList>
       <TabsPanel value="trades">{trades}</TabsPanel>
       <TabsPanel value="holders">{holders}</TabsPanel>

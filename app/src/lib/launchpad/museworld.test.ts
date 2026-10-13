@@ -55,7 +55,9 @@ test("time-weighted price: a one-block push barely moves a 30-minute average", (
 
 test("server: priced from its own GITLAWB pool, guarded by the average, fails soft, ranks in USD sorts", () => {
   const q = src("queries.ts");
-  assert.match(q, /if \(q\.key === "museworld"\) return \{ \.\.\.q, usd: museworldUsdNow \};/);
+  // quoteInfo prices from one snapshot of the loaded prices (priceState), MUSEWORLD from museworldUsdNow
+  assert.match(q, /if \(q\.key === "museworld"\) return \{ \.\.\.q, usd: st\.museworld \};/);
+  assert.match(q, /const priceState = \(\): PriceState => \(\{[^\n]*museworld: museworldUsdNow,/);
   assert.match(q, /row\.quote !== GITLAWB_ADDRESS\.toLowerCase\(\)\) return null;/, "only the MUSEWORLD/GITLAWB pool may price it");
   assert.match(q, /reconcileGitlawbUsd\(spot > 0 \? spot : null, twap\)/);
   assert.match(q, /perMuseworld \* gitlawbUsd/);
@@ -66,7 +68,7 @@ test("server: priced from its own GITLAWB pool, guarded by the average, fails so
 test("badge: Museworld blue with its logo, in every list and on the token page and share card", () => {
   assert.equal(MUSEWORLD_BLUE, "#0866FF");
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public", MUSEWORLD_LOGO_PATH)));
-  for (const f of ["LaunchRow.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
+  for (const f of ["LaunchRow.tsx", "LaunchCard.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<MuseworldBadge label="Paired with MUSEWORLD" \/>/);
   assert.deepEqual(quotePillOf("museworld", "MUSEWORLD"), { symbol: "MUSEWORLD", ticker: "MW", kind: "museworld" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /official · priced in/);

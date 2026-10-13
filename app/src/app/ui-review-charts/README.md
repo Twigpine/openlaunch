@@ -11,7 +11,7 @@ their existing trade panel, token data and conversations.
 
 | Preset | Purpose at the September 13, 2026 audit |
 | --- | --- |
-| solv | Actively traded Base pool, primary advanced chart |
+| solv | Actively traded Base pool, optional advanced chart |
 | rfly | Actively traded Robinhood pool |
 | ocat | Arc USDC-quoted pool; exact Gecko identity and USD pricing verified September 16, 2026 |
 | sky | Sparse ETH-quoted history |
@@ -30,13 +30,17 @@ wallet addresses or cookies are sent. Both this page and its candle proxy return
 - Test dark and light themes. Gecko uses supported `bg_color`, `light_chart`
   and `grayscale=1` options; its attribution must remain visible.
 - Confirm real candles, volume, interval selection, Indicators and drawing tools.
-- Use **On-chain** and return to **Advanced**. A provider lookup or frame failure
+- Confirm **On-chain** is the default and no provider lookup occurs before selecting
+  **GeckoTerminal**. Switch between sources and use the reload button after a failure.
+  A provider lookup or frame failure
   must not disable trading or claim the token has no trades.
 - Inspect unpriced and reversed examples: quote symbols and token orientation must
   stay correct. An unavailable USD conversion must not become a fake dollar price.
 - Check the Arc preset: its quote is the 6-decimal USDC ERC-20 at `0x3600…0000`,
   not the native zero-address asset. **On-chain** must keep USDC as its quote unit.
 - Verify **No trades yet**, sparse ranges and native chart refresh.
+- Verify the first indexed swap enables GeckoTerminal without switching away from
+  the on-chain chart, and changing token pages resets provider state.
 - Check 400px mobile, 720px workspace and 1440px desktop widths, with no page-level
   horizontal overflow. Provider controls are responsive and may collapse.
 - Navigate into a token page from another route to exercise the initial document’s CSP.
