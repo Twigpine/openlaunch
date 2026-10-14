@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslations } from "use-intl";
 import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getAccount, getPublicClient, getWalletClient } from "wagmi/actions";
 import { estimateTotalFee } from "viem/op-stack";
 import { erc20Abi, parseEther, TransactionReceiptNotFoundError, type Address } from "viem";
+import { clientTranslator } from "@/i18n/client";
 import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
 import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection } from "@/lib/bridge/types";
-import { parseBridgeQuoteRejection } from "@/lib/bridge/client";
+import { bridgeServiceMessage, parseBridgeQuoteRejection } from "@/lib/bridge/client";
 import { createBridgeQuoteSession } from "@/lib/bridge/quote-session";
 import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
@@ -30,7 +32,7 @@ const transferLockName = (address: Address) => `openlaunch:bridge:${address.toLo
 async function responseBody(response: Response): Promise<unknown> {
   const body: unknown = await response.json();
   if (!response.ok) {
-    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "The bridge service is temporarily unavailable. Try again.";
+    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? bridgeServiceMessage(body.error) : clientTranslator("bridge")("errors.serviceUnavailable");
     throw new Error(message);
   }
   return body;
@@ -38,6 +40,7 @@ async function responseBody(response: Response): Promise<unknown> {
 
 /** Mount once above the dialog so closing it never interrupts transfer recovery. */
 export function useBridge(open: boolean) {
+  const t = useTranslations("bridge");
   const config = useConfig();
   const { address, chainId: walletChainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
@@ -120,10 +123,10 @@ export function useBridge(open: boolean) {
     const pub = getPublicClient(config, { chainId: quote.originChainId });
     if (!pub) return;
     void Promise.all([pub.getChainId(), pub.readContract({ address: quote.approval.token, abi: erc20Abi, functionName: "allowance", args: [quote.address, RELAY_DEPOSITORY] })]).then(([chainId, value]) => {
-      if (chainId !== quote.originChainId) throw new Error("The approval RPC reported a different network.");
+      if (chainId !== quote.originChainId) throw new Error(clientTranslator("bridge")("errors.approvalRpcNetwork"));
       if (!stopped) setAllowanceResult({ key: quote.requestId, value, error: null });
     }).catch((error) => {
-      if (!stopped) setAllowanceResult({ key: quote.requestId, value: null, error: messageOf(error, "Could not read USDC allowance. Request a new quote.") });
+      if (!stopped) setAllowanceResult({ key: quote.requestId, value: null, error: messageOf(error, clientTranslator("bridge")("errors.allowanceUnreadable")) });
     });
     return () => { stopped = true; };
   }, [quote, config]);
@@ -145,7 +148,7 @@ export function useBridge(open: boolean) {
         const observed = approvals.getSnapshot().approvals[address.toLowerCase()];
         if (!observed || !approvalBlocksSubmission(observed) || observed.createdAt !== approvalId || observed.approvalHash !== approvalHash) return;
         const pub = getPublicClient(config, { chainId: observed.chainId });
-        if (!pub) throw new Error("Could not connect to the source network to check the approval.");
+        if (!pub) throw new Error(clientTranslator("bridge")("errors.approvalSourceOffline"));
         const [chainId, allowance, receipt] = await Promise.all([
           pub.getChainId(),
           pub.readContract({ address: observed.token, abi: erc20Abi, functionName: "allowance", args: [address, RELAY_DEPOSITORY] }),
@@ -154,7 +157,7 @@ export function useBridge(open: boolean) {
             throw error;
           }),
         ]);
-        if (chainId !== observed.chainId) throw new Error("The approval RPC reported a different network. Checking will retry.");
+        if (chainId !== observed.chainId) throw new Error(clientTranslator("bridge")("errors.approvalRpcNetworkRetry"));
         // Diagnostics never substitute for a receipt or allowance, and failed
         // optional reads cannot stop an already-mined approval from resolving.
         const health = receipt ? null : await readPendingApprovalHealth(pub, observed, Date.now());
@@ -175,7 +178,7 @@ export function useBridge(open: boolean) {
         const current = approvals.getSnapshot().approvals[address.toLowerCase()];
         if (!stopped && current?.createdAt === approvalId && current.approvalHash === approvalHash && approvalBlocksSubmission(current)) {
           setApprovalHealthResult({ wallet: address.toLowerCase(), createdAt: approvalId, hash: approvalHash, value: APPROVAL_HEALTH_UNAVAILABLE });
-          setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, "Approval status is temporarily unavailable. Checking will retry.") });
+          setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, clientTranslator("bridge")("errors.approvalStatusUnavailable")) });
         }
       } finally {
         active = false;
@@ -228,9 +231,9 @@ export function useBridge(open: boolean) {
             const candidate = pub ? replacementSourceHash(current, status, receipt.status === "fulfilled" && receipt.value === null) : null;
             if (candidate && pub) {
               const [chainId, transaction] = await Promise.all([pub.getChainId(), pub.getTransaction({ hash: candidate })]);
-              if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Tracking will retry.");
+              if (chainId !== current.originChainId) throw new Error(clientTranslator("bridge")("errors.sourceRpcNetworkTracking"));
               const matched = isMatchingSourceDeposit(current, transaction) || hasMatchingDepositEvent(current, await pub.getTransactionReceipt({ hash: candidate }));
-              if (!matched) throw new Error("Relay's source transaction could not be matched to this deposit. Tracking will retry.");
+              if (!matched) throw new Error(clientTranslator("bridge")("errors.sourceUnmatched"));
               current = { ...current, sourceHash: candidate };
             }
             next = mergeBridgeStatus(current, status);
@@ -249,7 +252,7 @@ export function useBridge(open: boolean) {
       } catch (error) {
         if (stopped) return;
         failures++;
-        setStatusIssue({ key: trackedId, message: messageOf(error, "Could not refresh transfer status. Tracking will retry.") });
+        setStatusIssue({ key: trackedId, message: messageOf(error, clientTranslator("bridge")("errors.statusRefreshFailed")) });
       } finally {
         active = false;
         const current = transfers.getSnapshot().transfers[address.toLowerCase()];
@@ -313,7 +316,7 @@ export function useBridge(open: boolean) {
     const current = bridgeRequest(connected.address, inputs.current.originChainId, inputs.current.amount, inputs.current.destinationChainId, inputs.current.originAsset, inputs.current.destinationAsset);
     if (!current) {
       const currency = bridgeCurrency(inputs.current.originChainId, inputs.current.originAsset, "input");
-      setQuoteIssue({ key: requestKey, walletChainId: connected.chainId, message: !connected.address ? "Connect your wallet to get a quote." : `Enter a ${currency.symbol} amount greater than zero, with at most ${currency.decimals} decimal places.` });
+      setQuoteIssue({ key: requestKey, walletChainId: connected.chainId, message: !connected.address ? clientTranslator("bridge")("errors.connectForQuote") : clientTranslator("bridge")("errors.invalidAmount", { symbol: currency.symbol, decimals: String(currency.decimals) }) });
       return;
     }
     const key = bridgeRequestKey(current);
@@ -328,7 +331,7 @@ export function useBridge(open: boolean) {
         return isCurrent() && wallet.address?.toLowerCase() === current.address.toLowerCase() && wallet.chainId === connected.chainId;
       };
       try {
-        if (approvalBlocksSubmission(approvals.read(current.address))) throw new Error("An approval is still being tracked. Wait for its confirmation before requesting a new quote.");
+        if (approvalBlocksSubmission(approvals.read(current.address))) throw new Error(clientTranslator("bridge")("errors.approvalTrackedQuote"));
         const response = await fetch("/api/bridge/quote", {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(current), cache: "no-store",
           signal: linkedTimeoutSignal(signal, 20_000),
@@ -337,7 +340,7 @@ export function useBridge(open: boolean) {
         if (!canApply()) return;
         if (!response.ok) {
           const data = body && typeof body === "object" ? body : {};
-          const message = "error" in data && typeof data.error === "string" ? data.error : "Could not get a quote. Try again.";
+          const message = "error" in data && typeof data.error === "string" ? bridgeServiceMessage(data.error) : clientTranslator("bridge")("errors.quoteFailed");
           const rejection = response.status === 422 && "quoteRejection" in data ? parseBridgeQuoteRejection(data.quoteRejection, current) : null;
           setQuoteIssue({ key, walletChainId: connected.chainId, message, rejection });
           return;
@@ -346,7 +349,7 @@ export function useBridge(open: boolean) {
         setEnvelope({ quote: next, key, walletChainId: connected.chainId, requestedAt });
       } catch (error) {
         if (!canApply()) return;
-        setQuoteIssue({ key, walletChainId: connected.chainId, message: messageOf(error, "Could not get a quote. Try again.") });
+        setQuoteIssue({ key, walletChainId: connected.chainId, message: messageOf(error, clientTranslator("bridge")("errors.quoteFailed")) });
       } finally {
         if (isCurrent()) setActivity({ key, phase: "idle" });
       }
@@ -374,11 +377,11 @@ export function useBridge(open: boolean) {
     try {
       validateBridgeQuote(reviewed, reviewed, Date.now());
       const request = validateApprovalMetadata(reviewed.approval, reviewed.address, reviewed.originChainId);
-      if (!navigator.locks) throw new Error("This browser cannot safely coordinate approvals between tabs. Use a current browser.");
+      if (!navigator.locks) throw new Error(clientTranslator("bridge")("errors.noLocksApproval"));
       await navigator.locks.request(transferLockName(reviewed.address), { ifAvailable: true }, async (lock) => {
-        if (!lock) throw new Error("A bridge or approval request is open in another tab. Check that tab before continuing.");
+        if (!lock) throw new Error(clientTranslator("bridge")("errors.otherTabApproval"));
         const pub = getPublicClient(config, { chainId: reviewed.originChainId });
-        if (!pub) throw new Error("Could not connect to the source network. Request a new quote.");
+        if (!pub) throw new Error(clientTranslator("bridge")("errors.sourceOfflineRequote"));
         let wallet: Awaited<ReturnType<typeof getWalletClient>> | undefined;
         const currentRequest = () => {
           const current = bridgeRequest(getAccount(config).address, inputs.current.originChainId, inputs.current.amount, inputs.current.destinationChainId, inputs.current.originAsset, inputs.current.destinationAsset);
@@ -405,10 +408,10 @@ export function useBridge(open: boolean) {
               pub.readContract({ address: transaction.to, abi: erc20Abi, functionName: "balanceOf", args: [owner.address] }),
               reviewed.originChainId === 8453 ? estimateTotalFee(pub, call) : Promise.resolve(0n),
             ]);
-            if (chainId !== reviewed.originChainId) throw new Error("The source RPC reported a different network.");
-            if (selectedBalance < BigInt(owner.amount)) throw new Error("Not enough USDC for this approval amount. Reduce the amount and request a new quote.");
-            if (allowance >= BigInt(owner.amount)) throw new Error("USDC allowance is already sufficient. Request a new quote to review the deposit.");
-            if (fees.maxFeePerGas === undefined || fees.maxPriorityFeePerGas === undefined) throw new Error("Could not estimate approval fees. Request a new quote.");
+            if (chainId !== reviewed.originChainId) throw new Error(clientTranslator("bridge")("errors.sourceRpcNetwork"));
+            if (selectedBalance < BigInt(owner.amount)) throw new Error(clientTranslator("bridge")("errors.usdcShortApproval"));
+            if (allowance >= BigInt(owner.amount)) throw new Error(clientTranslator("bridge")("errors.allowanceSufficient"));
+            if (fees.maxFeePerGas === undefined || fees.maxPriorityFeePerGas === undefined) throw new Error(clientTranslator("bridge")("errors.approvalFees"));
             // Arc's token shares its gas balance; Base USDC has a separate ETH
             // gas balance. Reserve approval and quoted deposit costs in native units.
             const budget = bridgeGasBudget(nativeSourceAmount(reviewed), balance, estimate, fees.maxFeePerGas, parseEther(reviewed.sourceGas) + additional, BRIDGE_CHAINS[reviewed.originChainId].symbol);
@@ -424,11 +427,11 @@ export function useBridge(open: boolean) {
           },
           phase: (phase) => setActivity({ key: operationKey, phase }),
         });
-        if (result.kind === "rejected") setApprovalIssue({ key: reviewed.address.toLowerCase(), message: "You declined the approval. No bridge deposit was requested. Request a new quote when ready." });
-        if (result.kind === "uncertain") setApprovalIssue({ key: reviewed.address.toLowerCase(), message: "The wallet did not return an approval hash. Check this approval before trying again; no bridge deposit was requested." });
+        if (result.kind === "rejected") setApprovalIssue({ key: reviewed.address.toLowerCase(), message: clientTranslator("bridge")("errors.approvalDeclined") });
+        if (result.kind === "uncertain") setApprovalIssue({ key: reviewed.address.toLowerCase(), message: clientTranslator("bridge")("errors.approvalNoHash") });
       });
     } catch (error) {
-      setApprovalIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare USDC approval. Request a new quote.", BRIDGE_CHAINS[reviewed.originChainId].symbol) });
+      setApprovalIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, clientTranslator("bridge")("errors.approvalPrepare"), BRIDGE_CHAINS[reviewed.originChainId].symbol) });
     } finally {
       actionLock.current = false;
       setApprovalSending(false);
@@ -441,31 +444,31 @@ export function useBridge(open: boolean) {
   async function recoverApproval(hash: string) {
     if (actionLock.current || !address || !approval || !approvalBlocksSubmission(approval)) return;
     if (!isHash(hash) || /^0x0+$/.test(hash)) {
-      setApprovalIssue({ key: address.toLowerCase(), message: "Enter the approval transaction hash from your wallet or its source explorer." });
+      setApprovalIssue({ key: address.toLowerCase(), message: clientTranslator("bridge")("errors.enterApprovalHash") });
       return;
     }
     actionLock.current = true;
     setApprovalSending(true);
     setApprovalIssue(null);
     try {
-      if (!navigator.locks) throw new Error("Open this page in a current browser to safely recover the approval.");
+      if (!navigator.locks) throw new Error(clientTranslator("bridge")("errors.noLocksRecover"));
       await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
-        if (!lock) throw new Error("A bridge request is open in another tab. Check it before recovering this approval.");
+        if (!lock) throw new Error(clientTranslator("bridge")("errors.otherTabRecover"));
         const current = approvals.read(address);
-        if (!current || current.createdAt !== approval.createdAt || current.approvalHash !== approval.approvalHash || !approvalBlocksSubmission(current)) throw new Error("The saved approval changed. Review its current status.");
+        if (!current || current.createdAt !== approval.createdAt || current.approvalHash !== approval.approvalHash || !approvalBlocksSubmission(current)) throw new Error(clientTranslator("bridge")("errors.approvalChanged"));
         const pub = getPublicClient(config, { chainId: current.chainId });
-        if (!pub) throw new Error("Could not connect to the approval's network. Try checking again.");
+        if (!pub) throw new Error(clientTranslator("bridge")("errors.approvalNetworkOfflineCheck"));
         const [chainId, transaction, receipt, allowance] = await Promise.all([
           pub.getChainId(), pub.getTransaction({ hash }), pub.getTransactionReceipt({ hash }),
           pub.readContract({ address: current.token, abi: erc20Abi, functionName: "allowance", args: [address, RELAY_DEPOSITORY] }),
         ]);
-        if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("The transaction receipt did not match the supplied hash.");
+        if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error(clientTranslator("bridge")("errors.receiptMismatch"));
         const block = await pub.getBlock({ blockNumber: receipt.blockNumber });
         const next = recoverApprovalFromEvidence(current, { chainId, transaction, receipt, allowance, blockTimestamp: block.timestamp, now: Date.now() });
         approvals.save(next);
       });
     } catch (error) {
-      setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, "Could not verify that approval. Nothing was submitted; check again.") });
+      setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, clientTranslator("bridge")("errors.approvalVerifyFailed")) });
     } finally {
       actionLock.current = false;
       setApprovalSending(false);
@@ -487,8 +490,8 @@ export function useBridge(open: boolean) {
     try {
       const execute = async () => {
         const approvalRecord = approvals.read(reviewed.address);
-        if (approvalBlocksSubmission(approvalRecord)) throw new Error("An approval is still being tracked. Check it before depositing.");
-        if (reviewed.approval && approvalRecord && reviewedAt <= approvalRecord.createdAt) throw new Error("Request and review a new quote after the approval before depositing.");
+        if (approvalBlocksSubmission(approvalRecord)) throw new Error(clientTranslator("bridge")("errors.approvalTrackedDeposit"));
+        if (reviewed.approval && approvalRecord && reviewedAt <= approvalRecord.createdAt) throw new Error(clientTranslator("bridge")("errors.requoteAfterApproval"));
         let wallet: Awaited<ReturnType<typeof getWalletClient>> | undefined;
         const result = await submitBridgeDeposit(reviewed, {
           now: Date.now,
@@ -505,7 +508,7 @@ export function useBridge(open: boolean) {
           switchChain: (chainId) => switchChainAsync({ chainId }),
           prepare: async (q) => {
             const pub = getPublicClient(config, { chainId: q.originChainId });
-            if (!pub) throw new Error("Could not connect to the source network. Try again.");
+            if (!pub) throw new Error(clientTranslator("bridge")("errors.sourceOffline"));
             await assertBridgeWalletQueueClear(pub, q.address, BRIDGE_CHAINS[q.originChainId].name);
             const transaction = { account: q.address, to: q.transaction.to, data: q.transaction.data, value: BigInt(q.transaction.value) };
             const [rpcChain, balance, estimate, fees, additional, allowance, selectedBalance] = await Promise.all([
@@ -516,10 +519,10 @@ export function useBridge(open: boolean) {
               q.approval ? pub.readContract({ address: q.approval.token, abi: erc20Abi, functionName: "allowance", args: [q.address, RELAY_DEPOSITORY] }) : Promise.resolve(null),
               q.approval ? pub.readContract({ address: q.approval.token, abi: erc20Abi, functionName: "balanceOf", args: [q.address] }) : Promise.resolve(null),
             ]);
-            if (rpcChain !== q.originChainId) throw new Error("The source RPC reported a different network. Try again later.");
-            if (q.approval && (allowance === null || allowance < BigInt(q.amount))) throw new Error("USDC allowance is no longer sufficient. Request a new quote and approve the exact amount.");
-            if (q.approval && (selectedBalance === null || selectedBalance < BigInt(q.amount))) throw new Error("Not enough USDC for this deposit. Reduce the amount and request a new quote.");
-            if (fees.maxFeePerGas === undefined || fees.maxPriorityFeePerGas === undefined) throw new Error("Could not estimate network fees. Try again.");
+            if (rpcChain !== q.originChainId) throw new Error(clientTranslator("bridge")("errors.sourceRpcNetworkLater"));
+            if (q.approval && (allowance === null || allowance < BigInt(q.amount))) throw new Error(clientTranslator("bridge")("errors.allowanceShort"));
+            if (q.approval && (selectedBalance === null || selectedBalance < BigInt(q.amount))) throw new Error(clientTranslator("bridge")("errors.usdcShortDeposit"));
+            if (fees.maxFeePerGas === undefined || fees.maxPriorityFeePerGas === undefined) throw new Error(clientTranslator("bridge")("errors.networkFees"));
             const budget = bridgeGasBudget(nativeSourceAmount(q), balance, estimate, fees.maxFeePerGas, additional, BRIDGE_CHAINS[q.originChainId].symbol);
             return { gas: budget.gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
           },
@@ -533,19 +536,19 @@ export function useBridge(open: boolean) {
           },
           phase: (phase) => setActivity({ key: operationKey, phase }),
         });
-        if (result.kind === "rejected") setIssue({ key: reviewed.address.toLowerCase(), message: "You declined the wallet request. No transfer was submitted. Request a new quote when you're ready." });
-        if (result.kind === "uncertain") setIssue({ key: reviewed.address.toLowerCase(), message: "The wallet did not return a transaction hash. The transfer may have been submitted. Keep tracking this request before trying again." });
+        if (result.kind === "rejected") setIssue({ key: reviewed.address.toLowerCase(), message: clientTranslator("bridge")("errors.depositDeclined") });
+        if (result.kind === "uncertain") setIssue({ key: reviewed.address.toLowerCase(), message: clientTranslator("bridge")("errors.depositNoHash") });
       };
       // Keep the lock across the wallet prompt: two tabs must never replace
       // one another's recovery record or prompt for two deposits.
       if (navigator.locks) {
         await navigator.locks.request(transferLockName(reviewed.address), { ifAvailable: true }, async (lock) => {
-          if (!lock) throw new Error("A bridge request is already open in another tab. Check that tab before continuing.");
+          if (!lock) throw new Error(clientTranslator("bridge")("errors.otherTabDeposit"));
           await execute();
         });
-      } else throw new Error("This browser cannot safely coordinate bridge requests between tabs. Open Openlaunch in a current browser to continue.");
+      } else throw new Error(clientTranslator("bridge")("errors.noLocksDeposit"));
     } catch (error) {
-      setIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare the transfer. Request a new quote and try again.", BRIDGE_CHAINS[reviewed.originChainId].symbol) });
+      setIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, clientTranslator("bridge")("errors.depositPrepare"), BRIDGE_CHAINS[reviewed.originChainId].symbol) });
     } finally {
       actionLock.current = false;
       setSending(false);
@@ -599,28 +602,28 @@ export function useBridge(open: boolean) {
     setDiscarding(true);
     try {
       await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
-        if (!lock) throw new Error("Another bridge action is in progress. Try again in a moment.");
+        if (!lock) throw new Error(clientTranslator("bridge")("errors.busy"));
         const current = transfers.read(address);
         if (current?.requestId !== requestId || transferIsTerminal(current)) return;
         const status = await fetch(`/api/bridge/status?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store", signal: linkedTimeoutSignal(undefined, 15_000) }).then(responseBody).then(validateBridgeStatus);
         let sourceMined = false;
         if (current.sourceHash) {
           const pub = getPublicClient(config, { chainId: current.originChainId });
-          if (!pub) throw new Error("Could not connect to the source network. Try again.");
+          if (!pub) throw new Error(clientTranslator("bridge")("errors.sourceOffline"));
           const [chainId, receipt] = await Promise.all([pub.getChainId(), receiptOrNull(pub, current.sourceHash)]);
-          if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Try again.");
+          if (chainId !== current.originChainId) throw new Error(clientTranslator("bridge")("errors.sourceRpcNetworkAgain"));
           sourceMined = receipt !== null;
         }
         const fresh = { requestId, status, sourceMined, observedAt: Date.now() };
         setObservation(fresh);
-        if (!transferCanDiscard(current, fresh, Date.now())) throw new Error("This transfer now shows activity, so it was kept. Tracking continues.");
+        if (!transferCanDiscard(current, fresh, Date.now())) throw new Error(clientTranslator("bridge")("errors.transferKept"));
         transfers.remove(address);
         setObservation(null);
         invalidateQuote();
         setStatusIssue(null);
       });
     } catch (error) {
-      setStatusIssue({ key: requestId, message: messageOf(error, "Could not verify the transfer before discarding it. Try again.") });
+      setStatusIssue({ key: requestId, message: messageOf(error, clientTranslator("bridge")("errors.transferDiscardFailed")) });
     } finally {
       setDiscarding(false);
     }
@@ -632,26 +635,26 @@ export function useBridge(open: boolean) {
     setDiscarding(true);
     try {
       await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
-        if (!lock) throw new Error("Another bridge action is in progress. Try again in a moment.");
+        if (!lock) throw new Error(clientTranslator("bridge")("errors.busy"));
         const current = approvals.read(address);
         if (current?.createdAt !== createdAt || !approvalBlocksSubmission(current)) return;
         let fresh: ApprovalReceiptObservation | null = null;
         if (current.approvalHash) {
           const pub = getPublicClient(config, { chainId: current.chainId });
-          if (!pub) throw new Error("Could not connect to the approval's network. Try again.");
+          if (!pub) throw new Error(clientTranslator("bridge")("errors.approvalNetworkOffline"));
           const [chainId, receipt] = await Promise.all([pub.getChainId(), receiptOrNull(pub, current.approvalHash)]);
-          if (chainId !== current.chainId) throw new Error("The source RPC reported a different network. Try again.");
+          if (chainId !== current.chainId) throw new Error(clientTranslator("bridge")("errors.sourceRpcNetworkAgain"));
           fresh = { createdAt, receiptFound: receipt !== null, observedAt: Date.now() };
           setApprovalObservation(fresh);
         }
-        if (!approvalCanDiscard(current, fresh, Date.now())) throw new Error("This approval now shows activity, so it was kept. Checking continues.");
+        if (!approvalCanDiscard(current, fresh, Date.now())) throw new Error(clientTranslator("bridge")("errors.approvalKept"));
         approvals.remove(address);
         setApprovalObservation(null);
         setApprovalIssue(null);
         invalidateQuote();
       });
     } catch (error) {
-      setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, "Could not verify the approval before discarding it. Try again.") });
+      setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, clientTranslator("bridge")("errors.approvalDiscardFailed")) });
     } finally {
       setDiscarding(false);
     }
@@ -667,8 +670,8 @@ export function useBridge(open: boolean) {
     balance: inputIsToken ? tokenBalance.data : sourceBalance.data?.value,
     nativeBalance: sourceBalance.data?.value,
     balanceLoading: !!address && (inputIsToken ? tokenBalance.isPending : sourceBalance.isPending),
-    balanceError: (inputIsToken ? tokenBalance.isError : sourceBalance.isError) ? "Could not read your source balance. It will be checked again before submission." : null,
-    quote, phase, error: tracked?.failureReason === "source-reverted" ? "The source transaction reverted on-chain. The deposit was not made; network gas was still charged." : issue?.key === walletKey ? issue.message : null,
+    balanceError: (inputIsToken ? tokenBalance.isError : sourceBalance.isError) ? t("errors.balanceUnreadable") : null,
+    quote, phase, error: tracked?.failureReason === "source-reverted" ? t("errors.sourceReverted") : issue?.key === walletKey ? issue.message : null,
     quoteError: currentQuoteIssue?.message ?? null,
     quoteRejection: currentQuoteIssue?.rejection ?? null,
     quoteLoading, canQuote: !!request,

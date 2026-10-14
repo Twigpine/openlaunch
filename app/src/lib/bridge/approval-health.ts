@@ -1,4 +1,5 @@
 import { TransactionNotFoundError, type Address, type Hex } from "viem";
+import { clientTranslator } from "@/i18n/client";
 import { isMatchingApprovalTransaction, type TrackedApproval } from "./approval";
 
 export type ApprovalHealth = {
@@ -7,6 +8,18 @@ export type ApprovalHealth = {
   detail: string;
 };
 
+/**
+ * Advice of one kind (the bridge area's `health` messages). Its words are read when shown, not when observed, so
+ * advice already on screen follows a language switch, and the shared unavailable advice is never fixed in one language.
+ */
+function advice(kind: ApprovalHealth["kind"], values?: { nonce: string; latestNonce: string }): ApprovalHealth {
+  return {
+    kind,
+    get title() { return clientTranslator("bridge")(`health.${kind}.title`); },
+    get detail() { return clientTranslator("bridge")(`health.${kind}.detail`, values); },
+  };
+}
+
 type PendingTransaction = { hash: Hex; from: Address; to: Address | null; input: Hex; value: bigint; nonce: number; maxFeePerGas?: bigint; gasPrice?: bigint };
 type ApprovalHealthClient = {
   getTransaction: (args: { hash: Hex }) => Promise<PendingTransaction>;
@@ -14,35 +27,21 @@ type ApprovalHealthClient = {
   getBlock: (args: { blockTag: "latest" }) => Promise<{ baseFeePerGas: bigint | null }>;
 };
 
-export const APPROVAL_HEALTH_UNAVAILABLE: ApprovalHealth = {
-  kind: "unavailable", title: "Approval status unavailable",
-  detail: "The network could not provide transaction details. Checking will retry. Check your wallet’s activity before taking any action; do not approve again.",
-};
+export const APPROVAL_HEALTH_UNAVAILABLE: ApprovalHealth = advice("unavailable");
 
 /** Advice only: never changes the journal, confirms an approval or permits a retry. */
 export function describePendingApproval(input: { createdAt: number; now: number; transaction: Pick<PendingTransaction, "nonce" | "maxFeePerGas" | "gasPrice"> | null; latestNonce?: number; baseFeePerGas?: bigint | null }): ApprovalHealth {
   const delayed = input.now - input.createdAt >= 60_000;
-  const waiting: ApprovalHealth = { kind: "waiting", title: "Approval submitted", detail: "Waiting for a confirmation. You’ll review a fresh bridge quote next." };
-  if (!input.transaction) return delayed ? {
-    kind: "not-seen", title: "Approval not found by the network",
-    detail: "This network node cannot find the saved transaction. It may still be queued in your wallet, dropped, or replaced. Check your wallet’s activity; do not approve again just because it is missing here.",
-  } : waiting;
+  const waiting = advice("waiting");
+  if (!input.transaction) return delayed ? advice("not-seen") : waiting;
   const { nonce, maxFeePerGas, gasPrice } = input.transaction;
   if (!Number.isSafeInteger(nonce) || nonce < 0 || !Number.isSafeInteger(input.latestNonce) || input.latestNonce! < 0) return APPROVAL_HEALTH_UNAVAILABLE;
-  if (nonce > input.latestNonce!) return {
-    kind: "queued", title: "Waiting for an earlier transaction",
-    detail: `This approval uses nonce ${nonce}, but your wallet’s next confirmed nonce is ${input.latestNonce}. Check the earliest pending transaction in your wallet on this network. Later transactions cannot confirm first.`,
-  };
-  if (nonce < input.latestNonce!) return {
-    kind: "nonce-passed", title: "Check your wallet’s transaction history",
-    detail: "This nonce has already been used, but the saved approval has no receipt. It may have been replaced, or the node may be catching up. If you sped it up, verify the confirmed replacement hash below.",
-  };
+  // nonces as written (no locale digit grouping)
+  if (nonce > input.latestNonce!) return advice("queued", { nonce: String(nonce), latestNonce: String(input.latestNonce) });
+  if (nonce < input.latestNonce!) return advice("nonce-passed");
   const feeCap = maxFeePerGas ?? gasPrice;
-  if (feeCap !== undefined && input.baseFeePerGas != null && feeCap < input.baseFeePerGas) return {
-    kind: "fee-too-low", title: "Approval fee is below the network fee",
-    detail: "The submitted transaction’s fee cap is below the current base fee. Review its fee in your wallet. If you choose to speed it up, return with the confirmed replacement hash; do not create a second approval.",
-  };
-  return delayed ? { kind: "delayed", title: "Approval is taking longer than expected", detail: "The network can see the transaction, but it has not confirmed. Check its status and fee in your wallet. If you sped it up, verify the confirmed replacement hash below." } : waiting;
+  if (feeCap !== undefined && input.baseFeePerGas != null && feeCap < input.baseFeePerGas) return advice("fee-too-low");
+  return delayed ? advice("delayed") : waiting;
 }
 
 /** Optional diagnostics. A failed RPC read is not evidence that a transaction is missing. */
