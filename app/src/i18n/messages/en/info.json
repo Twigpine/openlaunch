@@ -1,1 +1,401 @@
-{}
+{
+  "rules": {
+    "meta": {
+      "title": "How it works",
+      "description": "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity."
+    },
+    "eyebrow": "The protocol, explained",
+    "title": "How it works",
+    "description": "One transaction on Base, Robinhood Chain or Arc. Your token, a market, and a permanently locked liquidity position. You only pay gas.",
+    "verify": "Verify the contracts",
+    "onThisPage": "On this page",
+    "inThisGuide": "In this guide",
+    "readSource": "Read the source",
+    "contents": {
+      "launchpad": "The launch",
+      "fees": "Fees & routing",
+      "immutable": "What stays fixed",
+      "points": "Season points",
+      "know": "Before you begin",
+      "contracts": "Contracts"
+    },
+    "launch": {
+      "headingTop": "One signature.",
+      "headingBottom": "Four things happen.",
+      "sameTransaction": "All in the same transaction.",
+      "noSetup": "No separate setup. No platform fee.",
+      "steps": {
+        "token": {
+          "title": "Your token is deployed",
+          "description": "A plain ERC-20 with EIP-2612 permit. Fixed supply, 1 billion by default. No mint, no pause, no blacklist, no transfer tax, no owner.",
+          "label": "default supply"
+        },
+        "market": {
+          "title": "A market opens",
+          "description": "A Uniswap v4 pool pairs your token with ETH, TWIG on Base, GITLAWB or USDG on Robinhood Chain, a tokenized stock (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDC on Arc. No hook. The pool starts at the market cap you pick.",
+          "label": "Uniswap pool"
+        },
+        "lock": {
+          "title": "The liquidity position is locked",
+          "description": "100% of the supply goes into one single-sided position at launch. Its NFT is minted to an ownerless locker that has no function to withdraw, transfer or shrink it. Ever.",
+          "label": "deposited at launch"
+        },
+        "fees": {
+          "title": "Fee routing is written in",
+          "description": "The trading fee you choose (0%, 1% or 3%) goes 100% to the beneficiaries you name, or is burned if you name none. Fixed at launch, unchangeable.",
+          "label": "your trading fee"
+        }
+      },
+      "note": "The position stays locked. Tokens remain tradeable.",
+      "inspect": "Inspect the locker"
+    },
+    "fees": {
+      "heading": "Know where it goes.",
+      "platformFee": "Platform fee",
+      "takeNothing": "We take nothing.",
+      "gasToNetwork": "Gas is paid to the network.",
+      "checkCode": "Check the code",
+      "creatorChooses": "The creator chooses the trading fee",
+      "zero": "No pool trading fee. Network gas still applies. Nobody earns fees from volume, including the creator.",
+      "oneOrThree": "1% or 3%",
+      "oneOrThreeBody": "Uniswap charges it on every trade and it accrues to the locked position. The platform takes no share.",
+      "fixed": "Beneficiaries and shares are set at launch and can never be changed. A promise like “half the fees go to this address” is enforced by the contract, not by us.",
+      "collectHeading": "Anyone can collect. The routing decides who receives.",
+      "collect": "Press <em>Collect</em> on the token page. Accrued fees leave the pool and are paid straight to the beneficiaries in the same transaction, or burned to <mono>{dead}</mono> if the launch has no beneficiary.",
+      "credited": "If a beneficiary cannot receive the payment, their share is credited to them and can be claimed any time. It is never lost and never blocks the others."
+    },
+    "fixed": {
+      "heading": "Code, not a promise.",
+      "readContracts": "Read the contracts",
+      "noFee": {
+        "title": "No platform fee",
+        "description": "There is no fee address, fee variable or treasury anywhere in the factory or the locker. Nothing to switch on later. It cannot be added to immutable code."
+      },
+      "noWithdrawal": {
+        "title": "No liquidity withdrawal",
+        "description": "Nobody can remove liquidity: not the creator, not us. Collecting fees removes zero liquidity."
+      },
+      "noPremine": {
+        "title": "No pre-mine",
+        "description": "Every token starts inside the pool. There is no creator-reserved allocation."
+      },
+      "noAdmin": {
+        "title": "No admin",
+        "description": "No owner, no pause, no upgrade, no allowlist. The contracts are the same for everyone, forever."
+      }
+    },
+    "points": {
+      "headingTop": "Points for real buyers.",
+      "headingBottom": "Nothing for noise.",
+      "leaderboard": "See the leaderboard",
+      "intro": "Points measure reputation on openlaunch. They have no cash value, are not a token and not a promise of one, cannot be transferred or sold, and the rules can change between seasons. Wallets that game the system lose their points. Everything is computed from the chain every hour; the rules below are the whole of it.",
+      "realBuyer": {
+        "question": "What counts as a real buyer?",
+        "who": "A wallet whose first buy of a token was ${minTradeUsd} or more, made after the launch block, the next {sniperBlocks} blocks and the first {sniperSeconds} seconds. The wallet must receive the tokens of that buy itself (a relayer or router that only passed them on is not a buyer). Never the launcher, a fee recipient, a wallet that got the token by transfer from either, or a wallet kept off points. A real holder is a real buyer with ${holderMinUsd} or more (${verifiedHolderMinUsd} for a qualifying profile, below) of that first buy still in the wallet.",
+        "holding": "Holding is judged per buy: whenever tokens leave a wallet (sold, or moved to any other wallet), the most recently received ones go first. So selling a later buy does not touch an earlier one, tokens sent in from another wallet never stand in for a buy, and moving a position out counts the same as selling it. Only tokens priced in a quote we can price count."
+      },
+      "creators": {
+        "question": "How do creators earn?",
+        "holders": "On any token you launched, only what happens during the season counts. Each real holder who first bought this season and still holds a day later earns you {verifiedHolder} points if their profile qualifies (below), or {holder} if not; a week later, half again. Each holder counts once for you, on whichever of your tokens they are worth most.",
+        "fees": "Fees on buys by traders with a qualifying profile earn {creatorFeePointsPerUsd} points per $1 for each buy that is still at least half held (a buy sold straight back earns nothing), up to {creatorFeeCapPerTraderDay} from one trader a day. Of the tokens you launch on one day, only your best {bestTokensPerDay} count. A token scores nothing if you sold or moved tokens out during the season (to any wallet, including one of your own; burning them is fine) and less than half of your own buys of it is left."
+      },
+      "traders": {
+        "question": "How do traders earn?",
+        "early": "Be one of the first {earlyFirstBuyers} real buyers of a token that now has {earlyHoldersTarget} real holders, with your first buy this season: {early} points, and {earlyStillHolding} more while you still hold half of that first buy.",
+        "hold": "Every token you first buy this season, with a real first buy, and still half-hold a day later (that buy itself, not a later one; a token you already held before the season does not count): {hold} points, up to {holdTokensPerDay} tokens a day. Fees you pay buying other people's tokens with {scoutFeeMinHolders}+ real holders ({scoutFeeMinEligibleHolders}+ of them qualifying), for each buy still at least half held: {scoutFeePointsPerUsd} points per $1, up to {scoutFeeCapPerDay} a day. Trades under ${minTradeUsd} earn nothing."
+      },
+      "board": {
+        "question": "Who appears on the leaderboard?",
+        "answer": "Profiles verified with one post on X from an account at least {eligibleMinAgeDays} days old with {eligibleMinFollowers} or more followers. Everyone else can see the points waiting for them on their dashboard; while the season runs, they unlock for the whole season so far with the next points update after the profile qualifies (points update about every hour). The post itself earns nothing."
+      }
+    },
+    "know": {
+      "headingTop": "Locked liquidity.",
+      "headingBottom": "Not a guarantee of value.",
+      "intro": "Tokens launched here are created by their launchers, not by openlaunch. Do your own research; a locked pool does not make a token valuable. Nothing is refundable.",
+      "price": {
+        "question": "How does the price move?",
+        "curve": "Price follows a single-sided Uniswap v4 curve: the first buyers get the most tokens per unit of the quote asset, and every buy moves the price up. Sells move it down.",
+        "snipers": "There is no anti-snipe mechanism. Bots can buy in the first block like anyone else.",
+        "firstBuy": "The launch form suggests a small first buy (about $25) so your token opens with a holder and a price; clear it and the launch stays free."
+      },
+      "quiet": {
+        "question": "Why is my token under “quiet launches”?",
+        "ranking": "The home page ranks by facts, not by launch order. A token is <strong>live</strong> once a wallet other than its launcher has traded it in the last 24 hours; trades in the launch block and the next three blocks (snipe bots) don't count, and neither do the launcher's own. Live tokens rank by outside wallets in the last hour, then today, then by their last outside trade. A wallet's newest launch gets its first hour on the board regardless; after that it sits under quiet launches, one row per wallet, until someone trades it.",
+        "hidden": "Nothing is hidden: every launch stays in the New tab, in search and in the API. The only way up is a trade from an outside wallet."
+      },
+      "change": {
+        "question": "What can change after launch?",
+        "answer": "Nothing on-chain can be edited after launch: not the name, not the fee, not the beneficiaries. Metadata (image, description, links) is stored by this site and can change; the token itself cannot."
+      },
+      "twig": {
+        "question": "What is a TWIG- or GITLAWB-quoted pool?",
+        "twig": "TWIG is Twigpine's token on Base: a 1:1 wrapper of GITLAWB. Anyone can wrap GITLAWB into TWIG, or unwrap it back, at any time with no fee, and every TWIG is backed by one GITLAWB held in its contract, which has no owner and no transfer restrictions. It is the quote the Base form offers: pick it and buyers pay in TWIG; any trading fee is paid in TWIG to the beneficiaries named at launch (by their shares) when it is collected, and a launch that names none has its TWIG fees burned when they are collected.",
+        "gitlawb": "GITLAWB is Twigpine's token on Base, bridged 1:1 to Robinhood Chain over LayerZero (one supply, two chains): an ordinary ERC-20 with no transfer restrictions and no issuer switch. The Robinhood Chain form offers it; on Base, pools already paired with GITLAWB keep their badge and price. Fees work the same way: paid in GITLAWB when collected, and a launch that names no beneficiary has its GITLAWB fees burned when they are collected.",
+        "prices": "Dollar figures for both come from the Uniswap v4 WETH/GITLAWB pool price on Base, cross-checked against a 30-minute on-chain average, and ETH/USD; one TWIG counts as one GITLAWB, since it unwraps to one. They are for display and sorting only; nothing on-chain depends on them."
+      },
+      "stocks": {
+        "question": "What should I know about stock-quoted pools?",
+        "quotes": "Stock-quoted pools use tokenized stocks as the quote asset: Coinbase tokenized stocks (B20) on Base, recognised here only from Coinbase's official list and priced in dollars where Chainlink publishes an on-chain feed (the others show no dollar price); Robinhood Stock Tokens on Robinhood Chain, recognised only from Robinhood's own registry.",
+        "securities": "Both are securities issued by third parties under Regulation S and are not offered to US persons. Coinbase's also exclude the UK, Canada, Australia, Singapore and Switzerland. Their issuers can pause transfers or freeze wallets in restricted jurisdictions. Holding or trading them is subject to the issuer's terms, not ours."
+      }
+    },
+    "contracts": {
+      "eyebrow": "The source of truth",
+      "heading": "Don't take our word for it.",
+      "intro": "Contracts, addresses and source verification. The same contract design on every chain, with chain-specific Uniswap deployments.",
+      "chainId": "Chain ID",
+      "factory": "Factory",
+      "locker": "Locker",
+      "factoryAddress": "{chain} factory: {address}",
+      "lockerAddress": "{chain} locker: {address}",
+      "notDeployed": "Not deployed yet",
+      "sourceVerified": "Source verified",
+      "factorySource": "{chain} factory source on {verifier}",
+      "lockerSource": "{chain} locker source on {verifier}",
+      "note": "Uniswap v4's PoolManager, PositionManager, Permit2 and Universal Router are Uniswap's canonical deployments. MIT-licensed source on <github>GitHub ↗</github>; the verification records for each chain are linked above."
+    },
+    "closing": {
+      "eyebrow": "Your next move",
+      "heading": "Make something of your own."
+    }
+  },
+  "about": {
+    "meta": {
+      "title": "About {brand}",
+      "description": "{brand} is a free, open-source token launchpad on Base, Robinhood Chain and Arc. What it does, who builds it, and which channels are official."
+    },
+    "eyebrow": "About",
+    "title": "What {brand} is",
+    "description": "{brand} is a free, open-source token launchpad. One transaction deploys a fixed-supply ERC-20, opens a Uniswap v4 pool at the market cap you pick and locks 100% of the supply as liquidity, forever. It runs on Base, Robinhood Chain and Arc.",
+    "howItWorks": "How it works",
+    "different": {
+      "heading": "What makes {brand} different",
+      "noFee": {
+        "title": "No platform fee",
+        "body": "The factory and the locker have no fee address, fee variable or treasury. There is nothing to switch on later."
+      },
+      "locked": {
+        "title": "Liquidity locked forever",
+        "body": "100% of the supply goes into one Uniswap v4 position at launch. Its NFT is held by an ownerless locker with no withdraw path: not the creator, not openlaunch, nobody."
+      },
+      "noAdmin": {
+        "title": "No pre-mine, no admin",
+        "body": "Every token starts inside the pool. The contracts have no owner, no pause, no upgrade and no allowlist. They are the same for everyone."
+      },
+      "openSource": {
+        "title": "Open source",
+        "body": "Contracts and site are MIT-licensed on GitHub, and every deployed contract is source-verified on the chain's explorers."
+      },
+      "creatorFee": {
+        "title": "Creator-set trading fee",
+        "body": "0%, 1% or 3%, chosen at launch, paid in full to the beneficiaries the creator names or burned. Fixed forever."
+      },
+      "agents": {
+        "title": "Open to agents",
+        "body": "A launch is one contract call from any wallet. The list, trades and metadata are also plain JSON, with no API key."
+      }
+    },
+    "chains": {
+      "heading": "Where it runs",
+      "body": "The same contract design is deployed on every chain, each paired with that chain's canonical Uniswap v4 contracts. Addresses and verification records are listed on the <link>contracts section</link> of the how-it-works page.",
+      "chainId": "Chain ID {id}"
+    },
+    "who": {
+      "heading": "Who builds it",
+      "body": "{brand} is built by Twigpine and developed in the open. The contracts, the indexer and this site live in one MIT-licensed repository; contributions go through pull requests there.",
+      "launchers": "Tokens launched here are created by their launchers, not by {brand}. A locked pool does not make a token valuable; read <link>before you begin</link>."
+    },
+    "official": {
+      "heading": "Official channels",
+      "body": "These are the only places {brand} speaks from. Accounts, domains and repositories with similar names are not affiliated with {brand}, and {brand} is not related to other products that share the name.",
+      "website": "Website",
+      "formerly": "Formerly {legacy}; the old domain redirects here.",
+      "updates": "Launch notes and updates.",
+      "source": "Source code",
+      "original": "MIT. Forks on GitHub are copies; this is the original."
+    },
+    "fromAgent": "Launch from an agent"
+  },
+  "agents": {
+    "meta": {
+      "title": "Agents",
+      "description": "Launch and trade tokens from an agent: one contract call, plus a JSON API for the list, trades and metadata."
+    },
+    "eyebrow": "Developer reference",
+    "title": "Agents",
+    "description": "No API key, no signup, no platform fee. A launch is one contract call from any wallet with a little ETH for gas. Everything the site shows is also JSON.",
+    "readLlms": "Read llms.txt",
+    "exploreSource": "Explore the source",
+    "entryTop": "The interface is optional.",
+    "entryBottom": "The same protocol is yours to build with.",
+    "start": "Start with a launch",
+    "sectionsLabel": "Agent documentation sections",
+    "onThisPage": "On this page",
+    "sections": {
+      "launch": "Launch a token",
+      "read": "Read the API",
+      "trade": "Trade & collect"
+    },
+    "readHint": "Use the JSON API to read.",
+    "writeHint": "Use your wallet to write on-chain.",
+    "reference": "Reference",
+    "httpReference": "HTTP reference",
+    "launch": {
+      "subtitle": "One call, from your own wallet.",
+      "chain": "Chain",
+      "factory": "factory",
+      "locker": "locker",
+      "factoryAddress": "{chain} factory: {address}, view on explorer",
+      "lockerAddress": "{chain} locker: {address}, view on explorer",
+      "notDeployed": "not deployed yet",
+      "call": "Call <code>launch(params)</code> on that chain's factory. The example below launches on Base with an ETH quote.",
+      "exampleTitle": "Launch on Base",
+      "exampleNote": "Example only. Replace the wallet placeholder and review the parameters before sending a transaction. Never share your private key.",
+      "parameters": "Parameters, without the guesswork",
+      "quote": "ETH uses address zero. For TWIG on Base (the quote the form offers there) use <code>{twig}</code>. For GITLAWB use <code>{gitlawbBase}</code> on Base (still recognised, badged and priced) or <code>{gitlawbRobinhood}</code> on Robinhood Chain; for USDG on Robinhood Chain, <code>{usdg}</code>. For any ERC-20 quote call <code>findSalt(...)</code> first so the token address sorts above the quote.",
+      "supply": "<code>0</code> means the default <code>1B</code> supply.",
+      "startTick": "Sets the opening market cap. A multiple of <code>200</code>; <code>184200 ≈ 10 ETH</code> FDV for <code>1B</code> supply.",
+      "lpFee": "In pips: <code>0</code>, <code>10000 = 1%</code>, or <code>30000 = 3%</code>.",
+      "recipients": "Empty means fees are burned. Otherwise, shares are in bps and sum to <code>10000</code>.",
+      "metadataHeading": "Add metadata first",
+      "optional": "Optional",
+      "metadata": "For an image, description or links, send metadata first. The response contains the <code>uri</code> to pass as <code>metadataURI</code> and the predicted token address.",
+      "firstBuy": "Buy a little right after the launch confirms (a Universal Router swap on the new pool; the site's form suggests about $25). A token with no holder and no price move reads as dead on screeners and sits under quiet launches on the home page until an outside wallet trades it.",
+      "metadataTitle": "Metadata request shape"
+    },
+    "read": {
+      "subtitle": "JSON endpoints, plus a plain-text agent reference.",
+      "publicEndpoints": "Public endpoints",
+      "noKey": "No API key",
+      "list": "Browse and sort launches",
+      "feed": "Latest launches + trades",
+      "meta": "Image, description and links",
+      "llms": "Machine-readable reference",
+      "exampleTitle": "Read endpoints",
+      "amounts": "Raw token and quote amounts are decimal integer strings. Use <code>quote_decimals</code> for quote amounts, not a blanket <code>18</code> decimals. <code>price_quote</code> and <code>fdv_quote</code> are numbers in the token's quote asset; explicit <code>price_usd</code>, <code>fdv_usd</code> and <code>volume_usd</code> fields are USD values and may be <code>null</code> when pricing is unavailable.",
+      "polling": "Poll modestly and back off on errors. Indexing and server-side caching mean responses are not a guarantee of the latest chain state, even when an HTTP response uses <code>no-store</code>."
+    },
+    "trade": {
+      "subtitle": "Standard pools. Direct contract calls.",
+      "swapLabel": "Swap",
+      "swapHeading": "Speak Uniswap v4",
+      "swap": "Pools are plain Uniswap v4, with tick spacing <code>200</code> and no hook. The quote can be ETH, TWIG (Base), GITLAWB (Base and Robinhood Chain), USDG (Robinhood Chain), USDC (Arc) or a supported issuer-registry stock token. Get the actual pool key with <code>poolKeyOf(token)</code> on the factory. Swap through the Universal Router with a <code>V4_SWAP</code> command, or any router that speaks v4.",
+      "collectLabel": "Collect",
+      "collectHeading": "Pay out accrued fees",
+      "collect": "Anyone may call <code>collect(tokenId)</code> on that chain's locker to pay out accrued fees. Base locker: <code>{locker}</code>. Use the matching chain address above.",
+      "stocks": "Tokenized stocks are third-party securities offered under Regulation S, not to US persons. The site recognizes them from issuer registries, not on-chain names.",
+      "syncHeading": "Sync your transaction",
+      "sync": "After a transaction you sent, request immediate indexing with this endpoint. Background polling normally runs about every <code>15s</code>; receipt availability and RPC errors can delay indexing.",
+      "syncTitle": "Transaction sync endpoint"
+    },
+    "code": {
+      "copyLabel": "Copy {title}",
+      "copy": "Copy",
+      "copied": "Copied",
+      "region": "{title}, scrollable code",
+      "copiedNotice": "{title} copied to clipboard.",
+      "copyFailed": "Copy unavailable. Select and copy the code instead."
+    }
+  },
+  "community": {
+    "roles": {
+      "creator": "Creator",
+      "whale": "Whale",
+      "holder": "Holder"
+    },
+    "label": "Recent community posts",
+    "title": "Community feed",
+    "newest": "Newest first",
+    "refresh": "Refresh posts",
+    "filterByChain": "Filter posts by chain",
+    "allChains": "All chains",
+    "search": "Search recent posts",
+    "clearSearch": "Clear post search",
+    "refreshing": "Refreshing posts…",
+    "unavailable": "Feed unavailable",
+    "matching": "<num>{count}</num> {count, plural, one {matching post} other {matching posts}}",
+    "recent": "<num>{count}</num> {count, plural, one {recent post} other {recent posts}}",
+    "conversations": "Token-page conversations",
+    "loadErrorTitle": "The feed couldn’t load.",
+    "loadErrorBody": "Your connection or the indexer may be unavailable. You can retry without connecting a wallet.",
+    "tryAgain": "Try again",
+    "filteredEyebrow": "Nothing in this view",
+    "emptyEyebrow": "Room for a first word",
+    "filteredTitle": "No matching conversations.",
+    "emptyTitle": "The next conversation starts with you.",
+    "filteredBody": "Try another chain or search term. Search covers only the recent posts loaded here.",
+    "emptyBody": "Open a token, head to Conversation, and add your perspective. Holders, traders and creators can post with a free wallet signature.",
+    "clearFilters": "Clear filters",
+    "findToken": "Find a token",
+    "list": "Posts, newest first",
+    "postBy": "Post by",
+    "on": "On <strong>{token}</strong>",
+    "openConversation": "Open conversation",
+    "foot": "Showing up to 100 recent posts. Read the full thread on its token page.",
+    "aside": "About the community",
+    "joinHeading": "Join from the token.",
+    "joinBody": "Every post belongs to a token. The full thread, the market and the contracts stay together.",
+    "findStep": "Find your token",
+    "findStepBody": "Browse launches on any chain.",
+    "openStep": "Open Conversation",
+    "openStepBody": "Read the thread or reply to a post.",
+    "signStep": "Sign your words",
+    "signStepBody": "A wallet signature, not a transaction.",
+    "explore": "Explore launches",
+    "walletHeading": "A wallet behind every post.",
+    "walletBody": "Posting is open to creators, token holders, and wallets that have traded or launched here. No account to create. No gas to post.",
+    "caution": "Posts are community opinions, not endorsements. Check the token and its contracts for yourself."
+  },
+  "chain": {
+    "base": {
+      "title": "Free token launchpad on Base",
+      "description": "Launch a token on Base in one transaction. Zero platform fee, open source, 100% of supply locked as Uniswap v4 liquidity forever. You only pay gas.",
+      "heading": "Launch a token on Base",
+      "intro": "Base is Coinbase's Ethereum layer 2. A launch here deploys a fixed-supply ERC-20, opens a Uniswap v4 pool on Base and locks all of the supply in it, in one transaction."
+    },
+    "robinhood": {
+      "title": "Free token launchpad on Robinhood Chain",
+      "description": "Launch a token on Robinhood Chain in one transaction. Zero platform fee, open source, 100% of supply locked as Uniswap v4 liquidity forever.",
+      "heading": "Launch a token on Robinhood Chain",
+      "intro": "Robinhood Chain is Robinhood's Ethereum layer 2. A launch here deploys a fixed-supply ERC-20, opens a Uniswap v4 pool on Robinhood Chain and locks all of the supply in it, in one transaction."
+    },
+    "arc": {
+      "title": "Free token launchpad on Arc (USDC)",
+      "description": "Launch a token on Arc, Circle's chain, in one transaction. Quoted in USDC, zero platform fee, 100% of supply locked as Uniswap v4 liquidity forever.",
+      "heading": "Launch a token on Arc",
+      "intro": "Arc is Circle's layer 1, where USDC is the gas token. A launch here deploys a fixed-supply ERC-20, opens a USDC-quoted Uniswap v4 pool on Arc and locks all of the supply in it, in one transaction."
+    },
+    "launchOn": "Launch on {chain}",
+    "howItWorks": "How it works",
+    "glance": "{chain} at a glance",
+    "platformFee": "Platform fee",
+    "gas": "You pay {chain} gas in {gas}, nothing else.",
+    "quotes": "Quote assets",
+    "quotesNote": "What the pool trades against, picked at launch.",
+    "launches": "Launches",
+    "launchesNote": "Tokens launched on {chain} so far.",
+    "chainId": "Chain ID",
+    "liquidity": "Liquidity: Uniswap v4 on {chain}.",
+    "factory": "Factory contract: <link>{address}</link> on {explorer}",
+    "tokens": "Tokens on {chain}",
+    "others": "Other chains",
+    "alsoOn": "Also on:",
+    "brandOn": "{brand} on {chain}"
+  },
+  "errors": {
+    "pageError": "Page error",
+    "pageNotFound": "Page not found",
+    "notFound": "Nothing here. The page you asked for does not exist.",
+    "route": "Something broke on this page. Your funds are on-chain; this is only the site.",
+    "global": "Something broke. Your funds are on-chain; this is only the site.",
+    "errorId": "Error ID: {digest}",
+    "tryAgain": "Try again",
+    "backHome": "Back to the launchpad"
+  },
+  "loading": {
+    "home": "loading",
+    "posts": "Loading posts",
+    "recentPosts": "Loading recent community posts"
+  }
+}
