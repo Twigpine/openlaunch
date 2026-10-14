@@ -1,31 +1,19 @@
 "use client";
 
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "use-intl";
 import { Languages } from "lucide-react";
-import { LOCALE_COOKIE, LOCALE_NAMES, LOCALES, type Locale } from "@/i18n/locales";
-
-/** Remember the choice for a year and re-render the page in it; the URL stays the same in every language. */
-function useSwitchLocale() {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const choose = (next: Locale) => {
-    const secure = window.location.protocol === "https:" ? "; secure" : "";
-    document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax${secure}`;
-    startTransition(() => router.refresh());
-  };
-  return { pending, choose };
-}
+import { LOCALE_NAMES, LOCALES } from "@/i18n/locales";
+import { useSwitchLocale } from "./IntlProvider";
 
 /**
  * Language switch. In the header rail it is one compact tool that names the other language in that language ("中"
  * for Chinese, "EN" for English), so a reader of either can find it; in the phone menu it is a labelled settings row.
+ * The page changes language at once; the URL stays the same in every language.
  */
 export default function LanguageSwitcher({ block = false }: { block?: boolean }) {
   const t = useTranslations("header.language");
   const locale = useLocale();
-  const { pending, choose } = useSwitchLocale();
+  const { switchLocale } = useSwitchLocale();
   const next = LOCALES.find((l) => l !== locale) ?? locale;
   const label = t("switchTo", { language: LOCALE_NAMES[next] });
 
@@ -33,12 +21,11 @@ export default function LanguageSwitcher({ block = false }: { block?: boolean })
     return (
       <button
         type="button"
-        onClick={() => choose(next)}
-        disabled={pending}
+        onClick={() => switchLocale(next)}
         aria-label={label}
         title={label}
         lang={next}
-        className="inline-flex h-7.5 min-w-7.5 shrink-0 items-center justify-center rounded-full px-[7px] text-[12px] font-semibold text-body transition-colors hover:bg-line hover:text-ink disabled:opacity-60 motion-reduce:transition-none"
+        className="inline-flex h-7.5 min-w-7.5 shrink-0 items-center justify-center rounded-full px-[7px] text-[12px] font-semibold text-body transition-colors hover:bg-line hover:text-ink motion-reduce:transition-none"
       >
         {next === "zh-CN" ? "中" : "EN"}
       </button>
@@ -54,11 +41,10 @@ export default function LanguageSwitcher({ block = false }: { block?: boolean })
       </span>
       <button
         type="button"
-        onClick={() => choose(next)}
-        disabled={pending}
+        onClick={() => switchLocale(next)}
         aria-label={label}
         lang={next}
-        className="ml-auto h-9 px-3.5 inline-flex items-center justify-center rounded-full border border-line bg-card text-sm text-body hover:text-ink hover:border-line-strong disabled:opacity-60"
+        className="ml-auto h-9 px-3.5 inline-flex items-center justify-center rounded-full border border-line bg-card text-sm text-body hover:text-ink hover:border-line-strong"
       >
         {LOCALE_NAMES[next]}
       </button>

@@ -13,13 +13,15 @@ language.
 ## Adding text
 
 - Messages live in `messages/en/<area>.json` and `messages/zh-CN/<area>.json`, one file per area of the site, registered
-  in `messages/index.ts`. English fixes the keys and their types: a key used in code that is missing from the English
+  in `messages/en.ts` and `messages/zh-CN.ts`. English fixes the keys and their types: a key used in code that is missing from the English
   file fails `tsc`.
 - Client components: `const t = useTranslations("area")` from `use-intl`. Server components:
   `const t = await getTranslations("area")` from `@/i18n/server`.
 - Placeholders use ICU syntax: `"{count} holders"`, plurals `"{count, plural, one {# holder} other {# holders}}"`. Markup
   goes through `t.rich("key", { link: (chunks) => <a …>{chunks}</a> })` with `<link>…</link>` in the message.
 - Relative times: `useAgo()` (`short` for "3m", `ago` for "3m ago").
+- Text worded outside a component (an error a lib function builds, a toast queued in a handler):
+  `clientTranslator("area")` from `@/i18n/client`, in the browser only (on the server it reads English).
 - A Chinese message may be left out; that key then reads in English. `messages.test.ts` checks that every Chinese key
   exists in English, that placeholders match, and that no message uses an em dash.
 - Never translate on-chain or user data: token names, tickers, addresses, chain names (Base, Robinhood Chain, Arc),

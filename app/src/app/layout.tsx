@@ -15,7 +15,7 @@ import RouteProgress from "@/components/RouteProgress";
 import ThemeProvider from "@/components/ThemeProvider";
 import IntlProvider from "@/components/IntlProvider";
 import { getLocale } from "@/i18n/server";
-import { messagesFor } from "@/i18n/messages";
+import { translationOf } from "@/i18n/messages";
 import { Suspense } from "react";
 import { geist, geistMono } from "./fonts";
 
@@ -51,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={locale} className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <body id="site-top" tabIndex={-1} className="min-h-screen flex flex-col">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: siteJsonLd }} />
-        <IntlProvider locale={locale} messages={messagesFor(locale)}>
+        <IntlProvider locale={locale} translation={locale === "en" ? undefined : translationOf(locale)}>
         <ThemeProvider nonce={nonce}>
         <Web3Provider>
           <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
