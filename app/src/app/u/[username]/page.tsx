@@ -15,10 +15,11 @@ import { getWalletTrades, listLaunches } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { memo } from "@/lib/launchpad/memo";
 import { fmtUsd } from "@/lib/launchpad/math";
-import { ago, nowMs } from "@/lib/launchpad/time";
+import { agoParts, nowMs } from "@/lib/launchpad/time";
 import { CHAIN_SHORT, SITE_URL, explorerTx } from "@/lib/chainPublic";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { publicSeason, walletPoints } from "@/lib/points/server";
+import { getLocale, getTranslations } from "@/i18n/server";
 import { Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -34,9 +35,10 @@ async function load(raw: string) {
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
   const { username } = await params;
   const p = await load(username);
-  if (!p) return { title: "Profile not found", robots: { index: false } };
+  const t = await getTranslations("account");
+  if (!p) return { title: t("profile.notFound"), robots: { index: false } };
   const title = `${p.display_name} (${p.username})`;
-  const description = p.bio || `${p.display_name} on ${BRAND_DOMAIN}: tokens launched and trades, straight from the chain.`;
+  const description = p.bio || t("profile.description", { name: p.display_name, domain: BRAND_DOMAIN });
   return {
     title,
     description,
@@ -67,7 +69,15 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   const pts = season ? await memo(`points:me:${season.id}:${p.wallet}`, 10_000, () => walletPoints(season.id, p.wallet)).catch(() => null) : null;
   const showPts = Boolean(season && pts && pts.eligible && pts.total > 0);
   const now = nowMs();
-  const joined = new Date(p.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+  const [t, tc, locale] = await Promise.all([getTranslations("account"), getTranslations("common"), getLocale()]);
+  // "en" formats as "en-US" did: "Oct 2026"; Chinese reads "2026年10月"
+  const joined = new Date(p.created_at).toLocaleDateString(locale, { month: "short", year: "numeric", timeZone: "UTC" });
+  /** A season board's points, with the rank when there is one: "Creator #3 · 1,234 pts". */
+  const boardPoints = (board: "creator" | "scout", rank: number | null, points: number) => {
+    const values = { board: t(`points.${board}`), rank: String(rank), points: points.toLocaleString("en-US") };
+    const tags = { strong: (chunks: React.ReactNode) => <strong className="font-mono">{chunks}</strong>, mono: (chunks: React.ReactNode) => <span className="font-mono tnum">{chunks}</span> };
+    return rank ? t.rich("profile.pointsRanked", { ...values, ...tags }) : t.rich("profile.pointsUnranked", { ...values, ...tags });
+  };
 
   return (
     <NamesProvider names={{ [p.wallet]: ownName }}>
@@ -86,19 +96,19 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                 {p.x ? (
                   <a href={`https://x.com/${p.x.handle}`} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-line px-3 font-medium text-body hover:border-line-strong hover:text-ink">
                     <XMark />@{p.x.handle}
-                    {p.x.post_id ? <span className="sr-only">, verified by a public post</span> : null}
+                    {p.x.post_id ? <span className="sr-only">{t("profile.verifiedByPost")}</span> : null}
                   </a>
                 ) : null}
                 <CopyChip value={p.wallet} />
-                <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-line px-3 text-muted"><CalendarDays size={13} aria-hidden="true" />Joined {joined}</span>
+                <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-line px-3 text-muted"><CalendarDays size={13} aria-hidden="true" />{t("profile.joined", { date: joined })}</span>
               </div>
             </div>
           </div>
           <dl className="mt-6 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-line bg-line">
             {[
-              { k: "Tokens launched", v: facts.launches, icon: <Layers3 size={14} aria-hidden="true" /> },
-              { k: "Holders of their tokens", v: facts.holders, icon: <Users size={14} aria-hidden="true" /> },
-              { k: "Trades", v: facts.trades, icon: <Repeat2 size={14} aria-hidden="true" /> },
+              { k: t("profile.stats.launched"), v: facts.launches, icon: <Layers3 size={14} aria-hidden="true" /> },
+              { k: t("profile.stats.holders"), v: facts.holders, icon: <Users size={14} aria-hidden="true" /> },
+              { k: t("profile.stats.trades"), v: facts.trades, icon: <Repeat2 size={14} aria-hidden="true" /> },
             ].map((s) => (
               <div key={s.k} className="min-w-0 bg-card px-4 py-4 sm:px-5">
                 <dt className="flex items-center gap-1.5 truncate text-[12px] text-muted">{s.icon}{s.k}</dt>
@@ -109,17 +119,17 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           {showPts && season && pts ? (
             <Link href="/leaderboard" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-brand/30 bg-brand-soft px-4 py-3 text-sm text-ink hover:border-brand/60">
               <span className="inline-flex items-center gap-1.5 font-semibold"><Trophy size={14} className="text-brand" aria-hidden="true" />{season.name}</span>
-              {pts.creator > 0 ? <span>Creator {pts.rank_creator ? <strong className="font-mono">#{pts.rank_creator}</strong> : null} · <span className="font-mono tnum">{pts.creator.toLocaleString("en-US")}</span> pts</span> : null}
-              {pts.scout > 0 ? <span>Scout {pts.rank_scout ? <strong className="font-mono">#{pts.rank_scout}</strong> : null} · <span className="font-mono tnum">{pts.scout.toLocaleString("en-US")}</span> pts</span> : null}
+              {pts.creator > 0 ? <span>{boardPoints("creator", pts.rank_creator, pts.creator)}</span> : null}
+              {pts.scout > 0 ? <span>{boardPoints("scout", pts.rank_scout, pts.scout)}</span> : null}
             </Link>
           ) : null}
-          <p className="mt-3 text-[11px] text-muted">Every number here is read from the chain. {p.x ? "The ✓ means this wallet posted a one-time code from that X account." : "No ✓: this profile has not verified an X account."}</p>
+          <p className="mt-3 text-[11px] text-muted">{p.x ? t("profile.noteVerified") : t("profile.noteUnverified")}</p>
         </section>
 
         <section aria-labelledby="profile-launches" className="mt-8">
-          <h2 id="profile-launches" className="text-[15px] font-semibold text-ink">Launched</h2>
+          <h2 id="profile-launches" className="text-[15px] font-semibold text-ink">{t("profile.launched")}</h2>
           {launches.length === 0 ? (
-            <p className="mt-3 rounded-2xl border border-line bg-card px-5 py-8 text-center text-sm text-muted">No launches yet.</p>
+            <p className="mt-3 rounded-2xl border border-line bg-card px-5 py-8 text-center text-sm text-muted">{t("profile.noLaunches")}</p>
           ) : (
             <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4">
               {launches.map((l) => (
@@ -132,20 +142,21 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         </section>
 
         <section aria-labelledby="profile-trades" className="mt-8">
-          <h2 id="profile-trades" className="text-[15px] font-semibold text-ink">Recent trades</h2>
+          <h2 id="profile-trades" className="text-[15px] font-semibold text-ink">{t("profile.recentTrades")}</h2>
           {trades.length === 0 ? (
-            <p className="mt-3 rounded-2xl border border-line bg-card px-5 py-8 text-center text-sm text-muted">No trades yet.</p>
+            <p className="mt-3 rounded-2xl border border-line bg-card px-5 py-8 text-center text-sm text-muted">{t("profile.noTrades")}</p>
           ) : (
             <ul className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card">
-              {trades.map((t) => {
-                const Icon = t.is_buy ? ArrowDownLeft : ArrowUpRight;
+              {trades.map((trade) => {
+                const Icon = trade.is_buy ? ArrowDownLeft : ArrowUpRight;
+                const { n, unit } = agoParts(trade.block_time, now);
                 return (
-                  <li key={`${t.chain}:${t.tx_hash}:${t.log_index}`} className="flex items-center gap-3 px-5 py-3 text-sm">
-                    <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-semibold ${t.is_buy ? "bg-up-soft text-up" : "bg-down-soft text-down-ink"}`}><Icon size={12} aria-hidden="true" />{t.is_buy ? "Buy" : "Sell"}</span>
-                    <Link href={`/t/${t.chain}/${t.token}`} className="min-w-0 truncate font-medium text-ink hover:underline underline-offset-2">{t.name} <span className="font-mono text-muted">{t.symbol}</span></Link>
-                    <span className="ml-auto shrink-0 font-mono text-body tnum">{t.usd !== null ? fmtUsd(t.usd) : t.quote_symbol}</span>
-                    <span className="hidden shrink-0 text-xs text-muted sm:inline">{CHAIN_SHORT[t.chain]}</span>
-                    <a href={explorerTx(t.chain, t.tx_hash)} target="_blank" rel="noreferrer" className="shrink-0 font-mono text-xs text-muted hover:text-ink tnum">{ago(t.block_time, now)}<span className="sr-only"> ago, view transaction</span></a>
+                  <li key={`${trade.chain}:${trade.tx_hash}:${trade.log_index}`} className="flex items-center gap-3 px-5 py-3 text-sm">
+                    <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-semibold ${trade.is_buy ? "bg-up-soft text-up" : "bg-down-soft text-down-ink"}`}><Icon size={12} aria-hidden="true" />{trade.is_buy ? t("profile.buy") : t("profile.sell")}</span>
+                    <Link href={`/t/${trade.chain}/${trade.token}`} className="min-w-0 truncate font-medium text-ink hover:underline underline-offset-2">{trade.name} <span className="font-mono text-muted">{trade.symbol}</span></Link>
+                    <span className="ml-auto shrink-0 font-mono text-body tnum">{trade.usd !== null ? fmtUsd(trade.usd) : trade.quote_symbol}</span>
+                    <span className="hidden shrink-0 text-xs text-muted sm:inline">{CHAIN_SHORT[trade.chain]}</span>
+                    <a href={explorerTx(trade.chain, trade.tx_hash)} target="_blank" rel="noreferrer" className="shrink-0 font-mono text-xs text-muted hover:text-ink tnum">{t.rich("profile.tradeTime", { time: tc(`time.${unit}`, { n }), sr: (chunks) => <span className="sr-only">{chunks}</span> })}</a>
                   </li>
                 );
               })}

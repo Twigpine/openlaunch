@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { createTranslator } from "use-intl/core";
 import { en } from "../../i18n/messages/index.ts";
 
 /**
@@ -111,6 +112,7 @@ for (const status of ["reverted", "success"]) {
   test(`dashboard collection handles a ${status} receipt honestly and clears busy state`, async () => {
     const effects: string[] = [];
     const busyStates: (string | null)[] = [];
+    const toasts: { kind: string; title: string; sub?: string }[] = [];
     const collect = handler("./MeDashboard.tsx", "collect", {
       address: "wallet", config: {}, CHAINS: { base: { id: 8453 } },
       launchpad: () => ({ locker: "locker" }), key: () => "base:token",
@@ -120,11 +122,14 @@ for (const status of ["reverted", "success"]) {
       getWalletClient: async () => ({ writeContract: async () => "0xhash" }),
       fetch: async () => { effects.push("sync"); }, load: async () => { effects.push("reload"); },
       isBurnOnly: () => false, friendlyError: (error: Error) => error.message,
-      toast: (message: { kind: string }) => effects.push(message.kind === "collect" ? "success toast" : "failure toast"),
+      // the dashboard's words (`tr`), read from the English messages
+      tr: createTranslator({ locale: "en", messages: en, namespace: "account.dashboard", timeZone: "UTC" }),
+      toast: (message: { kind: string; title: string; sub?: string }) => { toasts.push(message); effects.push(message.kind === "collect" ? "success toast" : "failure toast"); },
     });
     await collect({ chain: "base", token: "token", token_id: 1, symbol: "TEST", recipients: [] });
     assert.deepEqual(effects, status === "success" ? ["sync", "success toast", "reload"] : ["failure toast"]);
     assert.deepEqual(busyStates, ["base:token", null]);
+    assert.deepEqual(toasts.map((t) => [t.title, t.sub]), status === "success" ? [["Fees collected for TEST", "Paid to the beneficiaries"]] : [["Collect failed for TEST", "Transaction reverted on-chain."]]);
   });
 }
 
