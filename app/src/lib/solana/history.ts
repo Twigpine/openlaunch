@@ -85,6 +85,16 @@ function checked(value: bigint, max = U128_MAX): bigint {
   if (value < 0n || value > max) throw new Error("Invalid history arithmetic");
   return value;
 }
+/** RPC v3 uses bigint; our JSON/chart boundary accepts only exact nonnegative numbers. */
+function displayNumber(value: number | bigint | null | undefined): number | null {
+  if (typeof value === "bigint")
+    return value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(value)
+      : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+}
 function decimal(value: bigint, decimals: number): string {
   const text = checked(value)
     .toString()
@@ -243,13 +253,13 @@ export function parseSolanaTransaction(
   programId: PublicKey,
   snapshot: PoolSnapshot,
 ): { rejected: boolean; events: RawTrade[] } {
+  const slot = displayNumber(tx.slot);
   if (
     !tx.meta ||
     tx.meta.err ||
     tx.transaction.signatures[0] !== signature ||
-    !Number.isSafeInteger(tx.slot) ||
-    tx.slot < 0 ||
-    tx.slot > snapshot.slot
+    slot === null ||
+    slot > snapshot.slot
   )
     return { rejected: true, events: [] };
   const keys = [
@@ -262,13 +272,10 @@ export function parseSolanaTransaction(
     !keys.some((key) => key.equals(programId))
   )
     return { rejected: true, events: [] };
-  const blockTime =
-    Number.isSafeInteger(tx.blockTime) && (tx.blockTime ?? -1) >= 0
-      ? tx.blockTime!
-      : null;
+  const blockTime = displayNumber(tx.blockTime);
   return parseSolanaSwapLogs(tx.meta.logMessages, programId, {
     signature,
-    slot: tx.slot,
+    slot,
     blockTime,
     pool: snapshot.address,
     curve: snapshot.pool,
@@ -385,10 +392,12 @@ export async function fetchRecentSolanaHistory(
   snapshot: PoolSnapshot,
   transactions: TransactionCache = transactionCache,
 ): Promise<SolanaHistory> {
+  if (displayNumber(snapshot.slot) === null)
+    throw new Error("Invalid history snapshot slot");
   const signatures = (
     await connection.getSignaturesForAddress(
       snapshot.address,
-      { limit: HISTORY_SIGNATURE_LIMIT, minContextSlot: snapshot.slot },
+      { limit: HISTORY_SIGNATURE_LIMIT, minContextSlot: BigInt(snapshot.slot) },
       "confirmed",
     )
   ).slice(0, HISTORY_SIGNATURE_LIMIT);
@@ -400,6 +409,7 @@ export async function fetchRecentSolanaHistory(
   const candidates = unique.filter(
     (signature) =>
       !signature.err &&
+      displayNumber(signature.slot) !== null &&
       signature.slot <= snapshot.slot &&
       signature.confirmationStatus !== "processed",
   );

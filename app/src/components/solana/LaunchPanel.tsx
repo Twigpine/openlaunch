@@ -77,7 +77,7 @@ export default function LaunchPanel({
                   weightBps: Number(weight),
                 };
               });
-      const ix = buildPrepareLaunchInstruction(program, {
+      const ix = await buildPrepareLaunchInstruction(program, {
         creator,
         nonce,
         virtualSol,
@@ -88,7 +88,7 @@ export default function LaunchPanel({
         contentHash,
         recipients: beneficiaries,
       });
-      const addresses = derivePoolAddresses(program, creator, nonce);
+      const addresses = await derivePoolAddresses(program, creator, nonce);
       const pool = addresses.pool.toBase58();
       // Pool::SPACE is ABI-v1 fixed maximum allocation, even with shorter text.
       const rent = requireRent(
@@ -119,7 +119,7 @@ export default function LaunchPanel({
             : []),
           [
             "Preparation rent (estimated, permanent)",
-            `${formatUnits(BigInt(rent), 9)} SOL`,
+            `${formatUnits(rent, 9)} SOL`,
           ],
         ],
         pool,

@@ -23,7 +23,7 @@ import {
   verifyImmutableProgram,
   type PreparedTransaction,
 } from "@openlaunch/solana-sdk";
-import type { SolanaConfig } from "./config";
+import { requireLamports, type SolanaConfig } from "./config";
 import {
   clearJournalIfCurrent,
   journalKey,
@@ -44,7 +44,7 @@ export type ActionReview = {
   prepared: PreparedTransaction;
   payer: string;
   pool: string | null;
-  networkFee: number;
+  networkFee: bigint;
   /** The program's own deadline for a trade (its expiry slot), checked with the blockhash before signing. */
   expirySlot: bigint | null;
 };
@@ -350,12 +350,9 @@ export function useSolanaAction(
         tx.transaction.compileMessage(),
         "confirmed",
       );
-      if (
-        fee.value === null ||
-        !Number.isSafeInteger(fee.value) ||
-        fee.value < 0
-      )
+      if (fee.value === null)
         throw new Error("Could not estimate the transaction fee. Try again.");
+      const networkFee = requireLamports(fee.value);
       if (!reviewLive())
         throw new Error(
           "The wallet or selected pool changed. Review the current selection again.",
@@ -375,7 +372,7 @@ export function useSolanaAction(
           prepared: tx,
           payer: address,
           pool,
-          networkFee: fee.value,
+          networkFee,
           expirySlot,
         },
       });
@@ -446,17 +443,21 @@ export function useSolanaAction(
               "The wallet or selected pool changed during simulation. Nothing was signed or broadcast.",
             );
           const signedBytes = await sign(review.prepared.wireBytes);
-          // No await between this guard, durable journal write and initiating
-          // broadcast. Wallet events invalidate synchronously, before React renders.
           if (!reviewLive())
             throw new Error(
               "The wallet or selected pool changed while signing. Nothing was broadcast.",
             );
-          const signed = validateSignedTransaction(
+          const signed = await validateSignedTransaction(
             review.prepared.messageBytes,
             signedBytes,
             new PublicKey(address),
           );
+          // v3 verifies signatures asynchronously. Recheck the session after it
+          // finishes; no await may separate this guard, journal write and send.
+          if (!reviewLive())
+            throw new Error(
+              "The wallet or selected pool changed during signature verification. Nothing was broadcast.",
+            );
           const record: PendingSolanaAction = {
             version: 1,
             programId: config.programId,

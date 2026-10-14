@@ -100,12 +100,16 @@ export function parseUnits(value: string, decimals: number): bigint {
   return amount;
 }
 
-/**
- * web3.js answers a JSON-RPC error from getMinimumBalanceForRentExemption with 0, which a review would show as free
- * rent. Rent is never zero, so treat 0 as a failed read.
- */
-export function requireRent(lamports: number): number {
-  if (!Number.isSafeInteger(lamports) || lamports <= 0)
+/** v3 RPC amounts must remain exact integers through review and display. */
+export function requireLamports(value: unknown): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > (1n << 64n) - 1n)
+    throw new Error("Could not read an exact SOL amount from Solana RPC. Try again.");
+  return value;
+}
+
+/** Zero rent is not a valid estimate; do not present a failed read as a free account. */
+export function requireRent(lamports: unknown): bigint {
+  if (typeof lamports !== "bigint" || lamports <= 0n || lamports > (1n << 64n) - 1n)
     throw new Error("Could not read account rent from Solana RPC. Try again.");
   return lamports;
 }

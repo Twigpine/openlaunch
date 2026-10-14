@@ -25,6 +25,7 @@ import {
   explorerUrl,
   formatUnits,
   parseUnits,
+  requireLamports,
   requireRent,
 } from "@/lib/solana/config";
 import type { SolanaPanelProps } from "./SolanaWorkspace";
@@ -84,7 +85,7 @@ export default function PoolPanel({
           owner
             ? [
                 owner,
-                deriveAssociatedTokenAddress(snapshot.addresses.mint, owner),
+                await deriveAssociatedTokenAddress(snapshot.addresses.mint, owner),
               ]
             : [],
         );
@@ -94,11 +95,7 @@ export default function PoolPanel({
         setQuoteError("");
         if (owner && address) {
           const [wallet, token] = extra;
-          const sol = wallet?.lamports ?? 0;
-          if (!Number.isSafeInteger(sol))
-            throw new Error(
-              "Balance precision is unsupported by this RPC client.",
-            );
+          const sol = requireLamports(wallet?.lamports ?? 0n);
           if (
             token &&
             (!token.owner.equals(TOKEN_PROGRAM_ID) ||
@@ -113,8 +110,14 @@ export default function PoolPanel({
             setBalance({
               wallet: address,
               mint: result.addresses.mint.toBase58(),
-              sol: BigInt(sol),
-              tokens: token?.data.readBigUInt64LE(64) ?? 0n,
+              sol,
+              tokens: token
+                ? new DataView(
+                    token.data.buffer,
+                    token.data.byteOffset,
+                    token.data.byteLength,
+                  ).getBigUint64(64, true)
+                : 0n,
             });
         } else if (alive) setBalance(null);
       } catch {
@@ -159,7 +162,7 @@ export default function PoolPanel({
         snapshot: current,
         extra: [ata],
       } = await readPoolSnapshot(connection, program, snapshot.address, [
-        deriveAssociatedTokenAddress(snapshot.addresses.mint, trader),
+        await deriveAssociatedTokenAddress(snapshot.addresses.mint, trader),
       ]);
       if (current.pool.status !== "active")
         throw new Error("This pool is not active.");
@@ -180,19 +183,19 @@ export default function PoolPanel({
       };
       const instructions =
         side === "buy"
-          ? [
+          ? await Promise.all([
               buildCreateAssociatedTokenInstruction(
                 trader,
                 current.addresses.mint,
                 trader,
               ),
               buildBuyInstruction(program, args),
-            ]
-          : [buildSellInstruction(program, args)];
+            ])
+          : [await buildSellInstruction(program, args)];
       const extraRent =
         side === "buy" && !ata
           ? requireRent(await connection.getMinimumBalanceForRentExemption(165))
-          : 0;
+          : 0n;
       await actions.prepare(
         side === "buy" ? "Buy tokens" : "Sell tokens",
         instructions,
@@ -213,7 +216,7 @@ export default function PoolPanel({
           ["Trading fee (included)", `${formatUnits(quote.fee, 9)} SOL`],
           [
             "Token account rent (extra, estimated)",
-            `${formatUnits(BigInt(extraRent), 9)} SOL`,
+            `${formatUnits(extraRent, 9)} SOL`,
           ],
           ["Expiry slot", expirySlot.toString()],
         ],
@@ -254,14 +257,14 @@ export default function PoolPanel({
                 ),
               ),
             )
-          ).reduce((sum, n) => sum + n, 0)
-        : 0;
+          ).reduce((sum, n) => sum + n, 0n)
+        : 0n;
       await actions.prepare(
         activate ? "Activate launch" : "Cancel preparation",
         [
           activate
-            ? buildActivateLaunchInstruction(program, creator, pool.nonce)
-            : buildCancelPreparationInstruction(program, creator, pool.nonce),
+            ? await buildActivateLaunchInstruction(program, creator, pool.nonce)
+            : await buildCancelPreparationInstruction(program, creator, pool.nonce),
         ],
         [
           ["Token", `${pool.name} (${pool.symbol})`],
@@ -274,7 +277,7 @@ export default function PoolPanel({
           ],
           [
             "Additional account rent (estimated)",
-            `${formatUnits(BigInt(rent), 9)} SOL`,
+            `${formatUnits(rent, 9)} SOL`,
           ],
           ["Initial real SOL", "0 SOL"],
           ["Fixed trading fee", `${pool.feeBps / 100}%`],
@@ -308,7 +311,7 @@ export default function PoolPanel({
         throw new Error("There are no fees to claim for this recipient.");
       await actions.prepare(
         "Claim fees",
-        [buildClaimFeesInstruction(program, current.pool, index)],
+        [await buildClaimFeesInstruction(program, current.pool, index)],
         [
           ["Token mint", current.addresses.mint.toBase58()],
           ["Recipient (fixed)", recipient.address.toBase58()],

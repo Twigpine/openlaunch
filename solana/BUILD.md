@@ -2,6 +2,32 @@
 
 No deployment is performed by these commands. The source contains an undeployed compilation fixture ID. Never expose this fixture as a real Solana launch option. Kevin must bind the reviewed real program ID into source, app configuration and the release manifest before the final build and audit comparison.
 
+## CI and local entry points
+
+The existing app CI runs `npm test`. That command includes SDK typechecking, SDK tests and the independent economic model, then calls `app/scripts/solana-checks.mjs --ci`. When `CI=true` or `GITHUB_ACTIONS=true`, the runner executes every required Rust/SBF check below, in order, with a shared 35-minute budget. Missing source/tooling, failed commands, stack diagnostics or missing/empty bytecode fail the check; none is downgraded to a warning. The reviewed CI workflow and security guard are unchanged. Consolidation retains all checks under the app job rather than a separate Solana job, so reviewers must inspect that job's Solana log sections as well as its app results.
+
+Outside CI, ordinary `npm test` explicitly reports that Rust/SBF checks were skipped. To run the full build/runtime checks locally from `app/`:
+
+```sh
+npm run test:solana-runtime
+```
+
+The combined runner requires Linux/macOS with `rustup`, `cargo` and Bash on `PATH`. On Windows use WSL, or the explicit Windows build and runtime commands below; the runner fails clearly instead of guessing a Git Bash location. It resolves the repository's `solana/` directory from its own file and requires the full checkout. The app-only Docker build runs `npm ci` and `npm run build`, not tests, so this adds no Rust toolchain to the production image.
+
+The runner pins the host toolchain and executes the following commands from `solana/`. The SBF script separately pins platform-tools v1.56 and SBPFv3, rejects compiler diagnostics and requires a nonempty ELF before runtime tests:
+
+```sh
+rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+cargo +1.97.1 fmt --all --check
+cargo +1.97.1 test -p launch-pool --locked
+cargo +1.97.1 install cargo-build-sbf --version 4.2.0 --locked --root .tools
+bash scripts/check-sbf.sh
+cargo +1.97.1 test --workspace --features svm-tests --locked
+cargo +1.97.1 clippy --workspace --all-targets --features svm-tests --locked -- -D warnings
+```
+
+Retain the exact source commit, toolchain provenance, complete compiler/test logs and ELF hash for release review. These are build/test commands only: no RPC credentials, wallet keys, funded signatures, deployment or authority mutation. A green consolidated job does not waive dependency review, independent protocol/economic review or the remaining mainnet gates.
+
 ## Host checks
 
 From `solana/`:

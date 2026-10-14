@@ -350,7 +350,7 @@ export default function SolanaWorkspace({
               ...actions.review.lines,
               [
                 "Network fee (estimated)",
-                `${formatUnits(BigInt(actions.review.networkFee), 9)} SOL`,
+                `${formatUnits(actions.review.networkFee, 9)} SOL`,
               ],
             ].map(([term, value]) => (
               <div

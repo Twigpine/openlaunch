@@ -8,7 +8,7 @@ let stage = "read manifest and reviewed ELF";
 try {
   const [manifestPath, elfPath, ...extra] = process.argv.slice(2);
   if (!manifestPath || !elfPath || extra.length > 0) throw new Error("usage");
-  const manifest = validateDeploymentManifest(JSON.parse(await readFile(manifestPath, "utf8")));
+  const manifest = await validateDeploymentManifest(JSON.parse(await readFile(manifestPath, "utf8")));
   const elf = await readFile(elfPath);
   stage = "connect to the explicitly configured read-only RPC";
   const rpcUrl = process.env.SOLANA_VERIFY_RPC_URL;
@@ -21,20 +21,21 @@ try {
   stage = "read finalized program and dependency accounts";
   const programId = new PublicKey(manifest.programId);
   const ownData = new PublicKey(manifest.programData);
-  const tokenData = programDataAddress(TOKEN_PROGRAM_ID);
+  const tokenData = await programDataAddress(TOKEN_PROGRAM_ID);
   const { context, value } = await connection.getMultipleAccountsInfoAndContext([programId, ownData, TOKEN_PROGRAM_ID, tokenData], { commitment: "finalized" });
   const [program, programData, tokenProgram, tokenProgramData] = value;
   if (!program || !programData || !tokenProgram || !tokenProgramData) throw new Error("Missing program accounts");
   stage = "verify linked immutable launch and legacy Token programs";
-  const own = decodeImmutableProgram(programId, program, ownData, programData);
-  const token = decodeImmutableProgram(TOKEN_PROGRAM_ID, tokenProgram, tokenData, tokenProgramData);
+  const own = await decodeImmutableProgram(programId, program, ownData, programData);
+  const token = await decodeImmutableProgram(TOKEN_PROGRAM_ID, tokenProgram, tokenData, tokenProgramData);
   stage = "compare deployed program bytes with the reviewed local ELF";
   const hash = verifyDeploymentBytes(programData.data, elf, manifest.binarySha256);
+  if (context.slot < 0n || context.slot > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Unsafe evidence slot");
   console.log(JSON.stringify({
     schema: 1, evidence: "read-only-rpc-and-binary-check", observedAt: new Date().toISOString(),
     cluster: manifest.cluster, genesisHash: manifest.genesisHash, programId: manifest.programId,
     programData: manifest.programData, sourceCommit: manifest.sourceCommit, binarySha256: hash,
-    verifiedSlot: context.slot, deploymentSlot: own.deploymentSlot.toString(), upgradeAuthority: null,
+    verifiedSlot: Number(context.slot), deploymentSlot: own.deploymentSlot.toString(), upgradeAuthority: null,
     tokenProgram: TOKEN_PROGRAM_ID.toBase58(), tokenProgramData: tokenData.toBase58(), tokenDeploymentSlot: token.deploymentSlot.toString(), tokenUpgradeAuthority: null,
     releaseApproved: false,
     limitation: "This evidence is not an audit, source-to-binary reproducibility proof, or release approval. Independently verify using another trusted RPC and retain the build attestation.",

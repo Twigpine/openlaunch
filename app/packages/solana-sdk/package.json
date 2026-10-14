@@ -9,6 +9,6 @@
     "typecheck": "tsc --noEmit",
     "verify-manifest": "tsx scripts/verify-manifest.ts"
   },
-  "dependencies": { "@solana/web3.js": "1.99.0", "@noble/hashes": "1.8.0", "buffer": "6.0.3" },
+  "dependencies": { "@solana/web3.js": "3.0.2", "@solana/keys": "8.5.0", "@noble/hashes": "1.8.0", "buffer": "6.0.3" },
   "devDependencies": { "@types/node": "^22", "tsx": "4.23.13", "typescript": "5.9.3" }
 }

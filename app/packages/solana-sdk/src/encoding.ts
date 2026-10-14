@@ -4,6 +4,11 @@ import { PublicKey } from "@solana/web3.js";
 import { bounded, U64_MAX } from "./math.ts";
 
 export const utf8 = new TextEncoder();
+/** Preserve existing JSON/journal number fields without rounding v3 RPC integers. */
+export function rpcSafeNumber(value: bigint, label: string): number {
+  if (typeof value !== "bigint" || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError(`${label} exceeds safe integer precision`);
+  return Number(value);
+}
 export const discriminator = (namespace: "global" | "account" | "event", name: string): Buffer =>
   Buffer.from(sha256(utf8.encode(`${namespace}:${name}`)).slice(0, 8));
 export function u8(n: number): Buffer {
@@ -29,7 +34,8 @@ export function textField(text: string, maxBytes: number, label: string, allowEm
 }
 export class Reader {
   offset = 0;
-  constructor(readonly data: Buffer) {}
+  readonly data: Buffer;
+  constructor(data: Uint8Array) { this.data = Buffer.from(data); }
   take(length: number): Buffer {
     if (!Number.isSafeInteger(length) || length < 0 || this.offset + length > this.data.length) throw new Error("Truncated account data");
     const result = this.data.subarray(this.offset, this.offset + length); this.offset += length; return result;

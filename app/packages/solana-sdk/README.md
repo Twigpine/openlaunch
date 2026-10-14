@@ -2,11 +2,12 @@
 
 Original TypeScript client for the unreleased immutable launch-pool program. This package is not an audited protocol and includes no production program ID. The compile/test fixture ID must never be used as a deployment configuration.
 
-Kept inside `app/packages` so the existing app-only Docker build context contains the local package. Import `@openlaunch/solana-sdk` from the app. Source exports require a TypeScript-aware bundler or `tsx`; Next supports this without a separate generated client. Public keys remain case-sensitive base58. Amounts are `bigint` in token atoms or SOL lamports, never JavaScript floating-point amounts.
+Kept inside `app/packages` so the existing app-only Docker build context contains the source. Import `@openlaunch/solana-sdk` from the app: TypeScript paths in both the app and test configurations resolve this name directly to the reviewed source, not an installed npm package or local `file:` link. The app owns the SDK's pinned registry dependencies; install them with `npm ci` from `app/`. Next and `tsx` compile the source without a generated client or `transpilePackages` entry. The private package manifest remains ESM metadata for direct SDK tooling. Public keys remain case-sensitive base58. Amounts are `bigint` in token atoms or SOL lamports, never JavaScript floating-point amounts.
 
 ## Dependencies
 
-- `@solana/web3.js` 1.99.0: pinned class-based transaction/account API shared with the app wallet integration. The v1 line is maintenance-only; a future major upgrade requires rerunning wallet message and serialization tests, not an unreviewed range bump.
+- `@solana/web3.js` 3.0.2: pinned class-based transaction/account API shared with the app wallet integration. The Kit-backed client removes the legacy native WebSocket install-script dependencies. Key derivation, instruction builders and signature validation are asynchronous; RPC amounts remain `bigint`.
+- `@solana/keys` 8.5.0: pinned strict signature verifier, including small-order public-key and signature-point rejection. web3.js 3.0.2 imports non-extractable verification keys, incompatible with Kit 8.5's security fix. Our shared validator imports extractable public keys and invokes the official strict verifier for every required signer. Serialization skips its redundant upstream verification only after our explicit check of a private byte snapshot; invalid or missing signatures still reject. Do not downgrade to bypass this requirement. See [Kit 8.5 release notes](https://github.com/anza-xyz/kit/releases/tag/v8.5.0).
 - `@noble/hashes` 1.8.0: browser-compatible SHA-256 for Anchor discriminators and reviewed ELF verification. No private-key handling.
 - `buffer` 6.0.3: explicit browser-compatible binary encoding instead of relying on a global Node `Buffer`.
 
@@ -33,7 +34,7 @@ The SDK does not depend on Anchor's JavaScript client, a DEX SDK, SPL Token meta
 
 ### Instruction builders
 
-All builders return a `TransactionInstruction`, never send or sign it.
+All builders return a `Promise<TransactionInstruction>`, never send or sign it. Await PDA helpers, checked account decoders and deployment-manifest validation too. `PoolSnapshot.slot` and prepared transaction expiry heights retain checked safe-number boundaries for the existing JSON history and v1 recovery journal; values outside that range reject rather than round.
 
 - `buildPrepareLaunchInstruction(programId, { creator, payer?, nonce, virtualSol, feeBps, name, symbol, uri, contentHash, recipients })` binds immutable configuration. `contentHash` is exactly 32 bytes. `recipients` is an array of `{ address, weightBps }`, empty for 0% fees.
 - `buildActivateLaunchInstruction(programId, creator, nonce)` activates only after the program's own upgrade authority is absent. The creator pays activation rent.
@@ -51,13 +52,13 @@ const prepared = await prepareTransaction(connection, walletPublicKey, instructi
 await simulatePreparedTransaction(connection, prepared);
 
 // Request wallet-standard signing of prepared.wireBytes, using the current account/cluster.
-const signed = validateSignedTransaction(prepared.messageBytes, walletSignedBytes, walletPublicKey);
+const signed = await validateSignedTransaction(prepared.messageBytes, walletSignedBytes, walletPublicKey);
 // Persist signed.signature, prepared.blockhash and prepared.lastValidBlockHeight BEFORE submission.
 const submitted = await submitSignedTransaction(connection, signed);
 const result = await reconcileTransaction(connection, signed.signature, prepared.lastValidBlockHeight);
 ```
 
-The app must check the selected wallet account/cluster again after the wallet prompt. Returned transaction messages must be byte-identical to the reviewed message and all required signatures valid. The SDK intentionally supports legacy transactions only in this first integration. SDK preparation/simulation contains no user signer.
+The app must check the selected wallet account/cluster again after the wallet prompt and after asynchronous signature verification, immediately before durable persistence and submission. Returned transaction messages must be byte-identical to the reviewed message and all required signatures valid. The SDK intentionally supports legacy transactions only in this first integration. SDK preparation/simulation contains no user signer.
 
 Submission errors return `unknown`, retaining the locally derived signature. Do not create a replacement transaction after a timeout. Reconciliation reads finalized block height and historical signature status. A processed/confirmed failure remains `pending` because it could exist only on a fork. Only finalized failure or expiry with no observed signature is terminal. Reliable archival RPC history is part of the operational assumptions; compare another trusted endpoint for unresolved anomalies. Never silently clear recovery state just because the UI was closed.
 
@@ -80,9 +81,10 @@ Retain its output with a reproducible source-to-ELF build attestation and a seco
 From `app/`:
 
 ```text
-npx tsc --noEmit -p packages/solana-sdk/tsconfig.json
-npx tsx --test packages/solana-sdk/tests/*.test.ts
+npm run test:solana
 ```
+
+The normal `npm test` command also runs this gate: SDK typechecking, SDK tests and the independent economic-model tests. In CI it then runs the pinned Rust host, SBF build, offline runtime and Clippy checks through the existing app job; ordinary local tests explicitly report that runtime checks are skipped. Use `npm run test:solana-runtime` on a supported build host, or the Windows commands in [the build handoff](../../../solana/BUILD.md). The manifest verifier and ABI-fixture script keep their existing paths.
 
 Tests cover golden values shared with Rust, independent binary-search oracle comparisons, u64/u128 limits, fee rounding, slippage, decoder/PDA substitution, donated surplus, immutable ProgramData linkage, wallet message mutation, partial/invalid signatures, ambiguous submission and packet measurements. `tests/abi-fixture.json` contains only deterministic public fixture identities and serialized ABI bytes, no private key or deployable configuration. `scripts/print-abi-fixture.ts` reproduces it for intentional ABI changes.
 

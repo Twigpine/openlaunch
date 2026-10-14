@@ -1,6 +1,6 @@
 import { configuredSolana, solanaRpcUrl } from "@/lib/solana/server";
 import { allowedSolanaRpc } from "@/lib/solana/rpc-policy";
-import { boundedJson } from "@/lib/solana/bounded-json";
+import { boundedJson, boundedText } from "@/lib/solana/bounded-json";
 import { rpcBudget } from "@/lib/solana/rpc-budget";
 import { sameOriginRequest } from "@/lib/solana/same-origin";
 import { solanaRpcError } from "@/lib/solana/rpc-errors";
@@ -69,7 +69,8 @@ export async function POST(req: Request) {
       { status: 400, headers },
     );
   }
-  if (!allowedSolanaRpc(body, config.programId))
+  const rpc = await allowedSolanaRpc(body, config.programId);
+  if (!rpc)
     return Response.json(
       {
         jsonrpc: "2.0",
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
       },
       { headers },
     );
-  const release = (SIGNING.has(body.method) ? signing : reads)();
+  const release = (SIGNING.has(rpc.method) ? signing : reads)();
   if (!release) return busy();
   try {
     if (
@@ -118,7 +119,7 @@ export async function POST(req: Request) {
     const response = await fetch(upstream, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(rpc),
       signal: AbortSignal.timeout(15_000),
       cache: "no-store",
     });
@@ -128,7 +129,10 @@ export async function POST(req: Request) {
       return busy();
     }
     if (!response.ok) throw new Error("Upstream unavailable");
-    const result = (await boundedJson(response.body, 4 * 1024 * 1024)) as {
+    // Inspect the envelope, but forward the original JSON: parsing and reserializing would round
+    // u64 RPC balances before web3.js v3's lossless parser can turn them into bigint.
+    const raw = await boundedText(response.body, 4 * 1024 * 1024);
+    const result = JSON.parse(raw) as {
       jsonrpc?: unknown;
       id?: unknown;
       result?: unknown;
@@ -136,27 +140,31 @@ export async function POST(req: Request) {
     };
     if (
       !result ||
+      typeof result !== "object" ||
+      Array.isArray(result) ||
       result.jsonrpc !== "2.0" ||
-      result.id !== body.id ||
-      (!("result" in result) && !("error" in result))
+      result.id !== rpc.id ||
+      (("result" in result) === ("error" in result))
     )
       throw new Error("Invalid RPC response");
-    if (result.error)
+    if ("error" in result)
       return Response.json(
         {
           jsonrpc: "2.0",
-          id: body.id,
-          error: solanaRpcError(result.error, body.method),
+          id: rpc.id,
+          error: solanaRpcError(result.error, rpc.method),
         },
         { headers },
       );
-    return Response.json(result, { headers });
+    return new Response(raw, {
+      headers: { ...headers, "content-type": "application/json" },
+    });
   } catch {
     network = null;
     return Response.json(
       {
         jsonrpc: "2.0",
-        id: body.id,
+        id: rpc.id,
         error: {
           code: -32000,
           message:

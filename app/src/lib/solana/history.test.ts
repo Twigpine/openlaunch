@@ -49,8 +49,8 @@ function event(
   const quote = (isBuy ? quoteBuy : quoteSell)(state, input);
   const bytes = Buffer.alloc(129);
   discriminator("event", "Swap").copy(bytes);
-  pool.toBuffer().copy(bytes, 8);
-  trader.toBuffer().copy(bytes, 40);
+  Buffer.from(pool.toBytes()).copy(bytes, 8);
+  Buffer.from(trader.toBytes()).copy(bytes, 40);
   bytes.writeBigUInt64LE(sequence, 72);
   bytes[80] = isBuy ? 1 : 0;
   [
@@ -88,11 +88,11 @@ const snapshot = (curve = first.state, sequence = 1n): PoolSnapshot =>
   ({ address: pool, slot: 50, pool: { ...curve, sequence } }) as PoolSnapshot;
 function transaction(
   logs: string[],
-  options: { failed?: boolean; keys?: PublicKey[]; slot?: number } = {},
+  options: { failed?: boolean; keys?: PublicKey[]; slot?: bigint; blockTime?: bigint | null } = {},
 ): VersionedTransactionResponse {
   const keys = options.keys ?? [trader, pool, program, other];
   return {
-    slot: options.slot ?? 50,
+    slot: options.slot ?? 50n,
     blockTime: 600,
     transaction: {
       signatures: ["signature"],
@@ -109,7 +109,7 @@ function transaction(
     },
     meta: {
       err: options.failed ? { InstructionError: [0, "InvalidArgument"] } : null,
-      fee: 5000,
+      fee: 5000n,
       preBalances: [],
       postBalances: [],
       logMessages: logs,
@@ -275,7 +275,7 @@ test("reject signature, account, slot and metadata mismatches; ignore swaps for 
   );
   assert.equal(
     parseSolanaTransaction(
-      transaction(logs, { slot: 51 }),
+      transaction(logs, { slot: 51n }),
       "signature",
       program,
       snapshot(),
@@ -290,7 +290,7 @@ test("reject signature, account, slot and metadata mismatches; ignore swaps for 
     true,
   );
   const foreign = Buffer.from(first.bytes);
-  other.toBuffer().copy(foreign, 8);
+  Buffer.from(other.toBytes()).copy(foreign, 8);
   assert.deepEqual(
     parseSolanaSwapLogs(
       [invoke(program), emit(foreign), success(program)],
@@ -299,6 +299,46 @@ test("reject signature, account, slot and metadata mismatches; ignore swaps for 
     ),
     { rejected: false, events: [] },
   );
+});
+
+test("RPC bigint history stays JSON-safe and never rounds oversized slots or timestamps", async () => {
+  const logs = Object.freeze([invoke(program), emit(first.bytes), success(program)]);
+  const tx = transaction([...logs]);
+  const parsed = parseSolanaTransaction(tx, "signature", program, snapshot());
+  assert.equal(parsed.events[0].trade.slot, 50);
+  assert.equal(parsed.events[0].trade.blockTime, 600);
+  assert.doesNotThrow(() => JSON.stringify(parsed.events.map((item) => item.trade)));
+  for (const slot of [-1n, 9007199254740993n]) {
+    assert.equal(parseSolanaTransaction({ ...tx, slot }, "signature", program, snapshot()).rejected, true);
+  }
+  for (const blockTime of [-1n, 9007199254740993n]) {
+    const untimed = parseSolanaTransaction({ ...tx, blockTime }, "signature", program, snapshot());
+    assert.equal(untimed.rejected, false);
+    assert.equal(untimed.events[0].trade.blockTime, null);
+    assert.equal(recentHistoryFromEvents(untimed.events, 1n).candles.length, 0);
+  }
+  let reads = 0;
+  const fake = {
+    getSignaturesForAddress: async (_address: PublicKey, options: { minContextSlot: bigint }) => {
+      reads++;
+      assert.equal(options.minContextSlot, 50n);
+      return Object.freeze([
+        { signature: "too-large", slot: 9007199254740993n, err: null, confirmationStatus: "confirmed" },
+        { signature: "negative", slot: -1n, err: null, confirmationStatus: "confirmed" },
+        { signature: "signature", slot: 50n, err: null, confirmationStatus: "confirmed" },
+      ]);
+    },
+    getTransaction: async (signature: string) => {
+      assert.equal(signature, "signature");
+      return Object.freeze({ ...tx, meta: Object.freeze({ ...tx.meta!, logMessages: logs }) });
+    },
+  } as unknown as Connection;
+  const history = await fetchRecentSolanaHistory(fake, program, snapshot(), new Map());
+  assert.equal(history.tradeCount, 1);
+  assert.equal(history.snapshotSlot, 50);
+  assert.doesNotThrow(() => JSON.stringify(history));
+  await assert.rejects(fetchRecentSolanaHistory(fake, program, { ...snapshot(), slot: Number.MAX_SAFE_INTEGER + 1 }), /snapshot slot/);
+  assert.equal(reads, 1);
 });
 
 test("deduplicate identities, reject conflicting sequences and aggregate only real timed candles", () => {
@@ -429,7 +469,7 @@ test("refreshes reuse confirmed transactions and refetch a signature the listing
     success(other),
   ];
   let calls = 0;
-  let listedSlot = 50;
+  let listedSlot = 50n;
   const fake = {
     getSignaturesForAddress: async () => [
       {
@@ -452,8 +492,8 @@ test("refreshes reuse confirmed transactions and refetch a signature the listing
   assert.equal(b.tradeCount, 1);
   assert.equal(calls, 1);
   // The listing now places the signature at another slot: the cached copy is not trusted, the RPC is asked again.
-  listedSlot = 49;
+  listedSlot = 49n;
   await fetchRecentSolanaHistory(fake, program, snapshot(), transactions);
   assert.equal(calls, 2);
-  assert.equal(transactions.get("signature")?.slot, 49);
+  assert.equal(transactions.get("signature")?.slot, 49n);
 });

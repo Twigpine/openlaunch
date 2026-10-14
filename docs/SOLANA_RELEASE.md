@@ -9,13 +9,21 @@ Status: **review candidate, not a mainnet release**. The workspace stays separat
 - Exact-integer SDK quotes, account/PDA/authority validation, binary-compatible instruction builders, packet-size checks, simulation, signed-message verification and signature-based finality recovery.
 - Separate Wallet Standard workspace with explicit launch/trade/claim review. Signed transaction identity is journaled before broadcast; uncertain submissions are reconciled, never automatically replaced. Browser storage and Web Locks support are required for signing.
 - Bounded, confirmed-event history and five-minute candles from this program's own swaps. This is a **recent window**, not lifetime volume, a full indexer or an aggregator listing.
-- Feature-gated RPC and history endpoints; pinned Rust/SDK lockfiles, build-only CI and a read-only deployed-bytecode verifier.
+- Feature-gated RPC and history endpoints; committed Rust/app dependency lockfiles, build-only checks through the existing app CI job and a read-only deployed-bytecode verifier.
 
 ## Local evidence
 
-See [BUILD.md](../solana/BUILD.md) for exact toolchain versions, fixture hash, commands, compute observations and limitations. The current fixture passed 21 Rust host tests and 9 compiled-SBPFv3 LiteSVM tests. The SDK and independent economic model have separate regression suites. The app's lint, TypeScript, unit tests and production build are checked separately; CI must also pass for the final PR commit.
+See [BUILD.md](../solana/BUILD.md) for exact toolchain versions, fixture hash, commands, compute observations and limitations. The 10 October fixture passed 21 Rust host tests and 9 compiled-SBPFv3 LiteSVM tests; those results are historical evidence, not a fresh run of a later commit. `npm test` includes SDK typechecking, SDK tests and the independent economic model through `test:solana`. In CI it also runs all pinned Rust host, SBFv3 build, offline runtime and Clippy checks through `scripts/solana-checks.mjs`. App lint, TypeScript and production build remain separate checks. CI must pass for the final PR commit.
 
 Offline VM tests use ephemeral identities and real System/SPL Token processors, not funded network wallets. No public-cluster deployment or authority operation has been performed. The checked-in fixture program ID is deliberately refused by app configuration and the release verifier.
+
+### 14 October client/guard follow-up
+
+The client now uses web3.js 3.0.2 and the strict `@solana/keys` 8.5.0 verifier. The local `file:` SDK dependency and legacy native WebSocket install-script dependencies are removed. SDK source aliases preserve the app-only build context. Wallet-message/ABI bytes and the v1 recovery-journal schema remain unchanged; asynchronous verification rechecks the live wallet/session before persistence and submission. Read [the SDK migration notes](../app/packages/solana-sdk/README.md) before changing these boundaries.
+
+The pinned Windows checks were rerun: 21 host tests, 9 actual-SBF offline runtime tests, formatting and Clippy passed. The incremental SBFv3 build retained the documented 373,464-byte fixture hash. This does not substitute for a clean independent build or real-wallet/network rehearsal.
+
+**Guard remains blocked by a separate existing dependency-policy mismatch.** A clean npm 10 lock regeneration exposes six `inBundle` entries inside `@tailwindcss/oxide-wasm32-wasi@4.3.3`. The optional development package's version, registry tarball and integrity are identical to main at `c14aae70acd723fe16e0562d721b284102e1f088`; main already lists its six `bundleDependencies` but lacks their child metadata. The guard refuses bundled children without their own registry hash. They are not new Solana runtime dependencies, but their actual provenance must not be hidden by deleting entries or inventing hashes. Maintainers must resolve the dependency/policy conflict separately; exact-head review alone cannot waive a hard block. The guard, deployed-source lock and CI workflow remain unchanged relative to main.
 
 ## Reproduce without deploying
 
@@ -26,13 +34,12 @@ npm ci --no-audit --no-fund
 npm run lint
 npx tsc --noEmit -p .
 npm test
-npx tsc --noEmit -p packages/solana-sdk/tsconfig.json
-npx tsx --test packages/solana-sdk/tests/*.test.ts
-node --experimental-strip-types --test ../packages/solana-model/*.test.mjs
 npm run build
 ```
 
-From `solana/`, use the pinned build and VM commands in [BUILD.md](../solana/BUILD.md). Rebuild the ELF before runtime tests after every program change. Changing the program ID also changes the reviewed binary; the fixture hash is not production evidence.
+Outside CI, `npm test` explicitly skips Rust/SBF tooling so an ordinary app test does not install a compiler. Run `npm run test:solana-runtime` explicitly from `app/` on Linux/macOS, or use the Windows commands in [BUILD.md](../solana/BUILD.md). `npm run test:solana` runs just SDK typechecking, SDK tests and model tests. GitHub Actions always runs the Rust/SBF checks as part of its existing `npm test` step; no check is deferred and the reviewed workflow/guard remain unchanged. Missing tools or failed checks fail the CI command rather than silently skip it.
+
+Rebuild the ELF before runtime tests after every program change. Changing the program ID also changes the reviewed binary; the fixture hash is not production evidence. Consolidating checks does not waive dependency or security review.
 
 For app inspection with default configuration, run `npm run dev` in `app/` and visit `/solana`. It displays the release gates and cannot sign or accept funds. To test real devnet flows later, an operator must first supply a reviewed, immutable devnet deployment and configure `SOLANA_ENABLED=1`, `SOLANA_CLUSTER=devnet`, `SOLANA_DEVNET_PROGRAM_ID` and an HTTPS `SOLANA_RPC_URL`. Do not mislabel a mainnet RPC as devnet; the server verifies genesis identity.
 

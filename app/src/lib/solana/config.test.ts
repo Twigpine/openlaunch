@@ -5,11 +5,25 @@ import {
   formatUnits,
   parseUnits,
   publicKey,
+  requireLamports,
+  requireRent,
   solanaConfig,
   type Deployment,
 } from "./config.ts";
 
 const key = "So11111111111111111111111111111111111111112";
+test("v3 lamports and rent stay exact above the JavaScript number boundary", () => {
+  const large = BigInt(Number.MAX_SAFE_INTEGER) + 2n;
+  assert.equal(requireLamports(large), large);
+  assert.equal(requireRent(large), large);
+  assert.equal(formatUnits(requireRent(large), 9), "9007199.254740993");
+  assert.equal(requireLamports(0n), 0n);
+  assert.throws(() => requireRent(0n));
+  for (const invalid of [null, undefined, "5000", 5000, -1n, 1n << 64n, NaN, Infinity]) {
+    assert.throws(() => requireLamports(invalid));
+    assert.throws(() => requireRent(invalid));
+  }
+});
 const blank: Deployment = {
   schema: 1,
   cluster: "mainnet-beta",

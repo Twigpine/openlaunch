@@ -13,13 +13,13 @@ export const CLUSTER_GENESIS = {
   "mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
   devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
 } as const;
-export function validateDeploymentManifest(input: unknown): DeploymentManifest {
+export async function validateDeploymentManifest(input: unknown): Promise<DeploymentManifest> {
   if (!input || typeof input !== "object") throw new Error("Invalid manifest");
   const m = input as Record<string, unknown>;
   if (m.schema !== 1 || !["mainnet-beta", "devnet"].includes(String(m.cluster)) || typeof m.programId !== "string" || typeof m.programData !== "string" || typeof m.genesisHash !== "string" || typeof m.sourceCommit !== "string" || !/^[0-9a-f]{40}$/.test(m.sourceCommit) || typeof m.binarySha256 !== "string" || !/^[0-9a-f]{64}$/.test(m.binarySha256)) throw new Error("Manifest needs exact program, cluster, genesis, source commit and binary hash");
   const program = new PublicKey(m.programId);
   if (program.equals(PublicKey.default) || program.toBase58() === "Fg6PaFpoGXkYsidMpWxTWqkZPknxNpEMTZfkhHQjBcqr") throw new Error("Test fixture is not a deployment identity");
-  if (!programDataAddress(program).equals(new PublicKey(m.programData))) throw new Error("Manifest ProgramData mismatch");
+  if (!(await programDataAddress(program)).equals(new PublicKey(m.programData))) throw new Error("Manifest ProgramData mismatch");
   if (new PublicKey(m.genesisHash).toBase58() !== m.genesisHash) throw new Error("Invalid genesis hash");
   if (m.genesisHash !== CLUSTER_GENESIS[m.cluster as keyof typeof CLUSTER_GENESIS]) throw new Error("Genesis hash does not match the declared cluster");
   if (m.verifiedSlot !== null && (!Number.isSafeInteger(m.verifiedSlot) || Number(m.verifiedSlot) < 0)) throw new Error("Invalid verified slot");

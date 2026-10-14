@@ -1,6 +1,6 @@
 import { Buffer } from "buffer";
 import { PublicKey, type AccountInfo, type Connection } from "@solana/web3.js";
-import { discriminator, Reader, u64, utf8 } from "./encoding.ts";
+import { discriminator, Reader, rpcSafeNumber, u64, utf8 } from "./encoding.ts";
 import { claimableFees, FIXED_SUPPLY, FEE_BPS, MAX_VIRTUAL_SOL, MIN_VIRTUAL_SOL, TOKEN_DECIMALS, validateCurve, type CurveState } from "./math.ts";
 import { encodeBase58 } from "./transactions.ts";
 
@@ -18,18 +18,20 @@ export type PoolAddresses = {
   pool: PublicKey; mint: PublicKey; tokenVault: PublicKey; reserve: PublicKey;
   fees: PublicKey; mintAuthority: PublicKey; bump: number;
 };
-export function derivePoolAddresses(programId: PublicKey, creator: PublicKey, nonce: bigint): PoolAddresses {
-  const [pool, bump] = PublicKey.findProgramAddressSync([utf8.encode("pool"), creator.toBytes(), u64(nonce)], programId);
-  const derive = (seed: string) => PublicKey.findProgramAddressSync([utf8.encode(seed), pool.toBytes()], programId)[0];
-  return { pool, bump, mint: derive("mint"), tokenVault: derive("token"), reserve: derive("reserve"), fees: derive("fees"), mintAuthority: derive("mint-authority") };
+export async function derivePoolAddresses(programId: PublicKey, creator: PublicKey, nonce: bigint): Promise<PoolAddresses> {
+  const [pool, bump] = await PublicKey.findProgramAddress([utf8.encode("pool"), creator.toBytes(), u64(nonce)], programId);
+  const derive = async (seed: string) => (await PublicKey.findProgramAddress([utf8.encode(seed), pool.toBytes()], programId))[0];
+  const [mint, tokenVault, reserve, fees, mintAuthority] = await Promise.all(["mint", "token", "reserve", "fees", "mint-authority"].map(derive));
+  return { pool, bump, mint, tokenVault, reserve, fees, mintAuthority };
 }
 /** Custody accounts are seeded by the pool address alone, so they are known before the pool is read. */
-export function deriveCustodyAddresses(programId: PublicKey, pool: PublicKey): Pick<PoolAddresses, "mint" | "tokenVault" | "reserve" | "fees"> {
-  const derive = (seed: string) => PublicKey.findProgramAddressSync([utf8.encode(seed), pool.toBytes()], programId)[0];
-  return { mint: derive("mint"), tokenVault: derive("token"), reserve: derive("reserve"), fees: derive("fees") };
+export async function deriveCustodyAddresses(programId: PublicKey, pool: PublicKey): Promise<Pick<PoolAddresses, "mint" | "tokenVault" | "reserve" | "fees">> {
+  const derive = async (seed: string) => (await PublicKey.findProgramAddress([utf8.encode(seed), pool.toBytes()], programId))[0];
+  const [mint, tokenVault, reserve, fees] = await Promise.all(["mint", "token", "reserve", "fees"].map(derive));
+  return { mint, tokenVault, reserve, fees };
 }
-export function deriveAssociatedTokenAddress(mint: PublicKey, owner: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([owner.toBytes(), TOKEN_PROGRAM_ID.toBytes(), mint.toBytes()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
+export async function deriveAssociatedTokenAddress(mint: PublicKey, owner: PublicKey): Promise<PublicKey> {
+  return (await PublicKey.findProgramAddress([owner.toBytes(), TOKEN_PROGRAM_ID.toBytes(), mint.toBytes()], ASSOCIATED_TOKEN_PROGRAM_ID))[0];
 }
 export type Recipient = { address: PublicKey; weightBps: number; paid: bigint };
 export type PoolAccount = CurveState & {
@@ -39,7 +41,7 @@ export type PoolAccount = CurveState & {
 };
 
 /** Owner and canonical PDA validation are required, not optional decoder flags. */
-export function decodePoolAccount(address: PublicKey, info: AccountInfo<Buffer>, programId: PublicKey): PoolAccount {
+export async function decodePoolAccount(address: PublicKey, info: AccountInfo<Uint8Array>, programId: PublicKey): Promise<PoolAccount> {
   if (!info.owner.equals(programId) || info.executable) throw new Error("Wrong pool owner");
   if (info.data.length > POOL_ACCOUNT_SPACE) throw new Error("Unsupported pool allocation size");
   const r = new Reader(info.data);
@@ -57,7 +59,7 @@ export function decodePoolAccount(address: PublicKey, info: AccountInfo<Buffer>,
   }
   const tokenInventory = r.long(); const realSolReserves = r.long(); const feesEarned = r.wide(); const sequence = r.long();
   const name = r.text(32); const symbol = r.text(10); const uri = r.text(200, true); const contentHash = new Uint8Array(r.take(32)); r.finish();
-  const addresses = derivePoolAddresses(programId, creator, nonce);
+  const addresses = await derivePoolAddresses(programId, creator, nonce);
   if (!address.equals(addresses.pool) || bump !== addresses.bump || !mint.equals(addresses.mint)) throw new Error("Noncanonical pool or mint");
   validateRecipients(recipients, feeBps, addresses, programId);
   for (const recipient of recipients) claimableFees(feesEarned, recipient.weightBps, recipient.paid);
@@ -81,31 +83,31 @@ export function validateRecipients(recipients: ReadonlyArray<{ address: PublicKe
   }
   if (feeBps !== 0 && recipients.reduce((sum, r) => sum + r.weightBps, 0) !== 10_000) throw new Error("Recipient weights must total 10000");
 }
-export function programDataAddress(programId: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([programId.toBytes()], UPGRADEABLE_LOADER_ID)[0];
+export async function programDataAddress(programId: PublicKey): Promise<PublicKey> {
+  return (await PublicKey.findProgramAddress([programId.toBytes()], UPGRADEABLE_LOADER_ID))[0];
 }
-export function decodeImmutableProgram(programId: PublicKey, executable: AccountInfo<Buffer>, dataAddress: PublicKey, data: AccountInfo<Buffer>): { deploymentSlot: bigint } {
-  if (!executable.executable || !executable.owner.equals(UPGRADEABLE_LOADER_ID) || executable.data.length !== 36 || executable.data.readUInt32LE(0) !== 2) throw new Error("Unsupported executable loader state");
+export async function decodeImmutableProgram(programId: PublicKey, executable: AccountInfo<Uint8Array>, dataAddress: PublicKey, data: AccountInfo<Uint8Array>): Promise<{ deploymentSlot: bigint }> {
+  const executableBytes = Buffer.from(executable.data); const dataBytes = Buffer.from(data.data);
+  if (!executable.executable || !executable.owner.equals(UPGRADEABLE_LOADER_ID) || executableBytes.length !== 36 || executableBytes.readUInt32LE(0) !== 2) throw new Error("Unsupported executable loader state");
   const recorded = new PublicKey(executable.data.subarray(4, 36));
-  if (!recorded.equals(dataAddress) || !dataAddress.equals(programDataAddress(programId))) throw new Error("ProgramData does not belong to this program");
-  if (data.executable || !data.owner.equals(UPGRADEABLE_LOADER_ID) || data.data.length < 45 || data.data.readUInt32LE(0) !== 3) throw new Error("Invalid ProgramData");
+  if (!recorded.equals(dataAddress) || !dataAddress.equals(await programDataAddress(programId))) throw new Error("ProgramData does not belong to this program");
+  if (data.executable || !data.owner.equals(UPGRADEABLE_LOADER_ID) || dataBytes.length < 45 || dataBytes.readUInt32LE(0) !== 3) throw new Error("Invalid ProgramData");
   if (data.data[12] !== 0) throw new Error("Program still has an upgrade authority");
-  return { deploymentSlot: data.data.readBigUInt64LE(4) };
+  return { deploymentSlot: dataBytes.readBigUInt64LE(4) };
 }
 export async function verifyImmutableProgram(connection: Connection, programId: PublicKey): Promise<{ programData: PublicKey; deploymentSlot: bigint; slot: number }> {
-  const programData = programDataAddress(programId);
+  const programData = await programDataAddress(programId);
   // Only the 45-byte ProgramData header is checked; never download the whole ELF on every load and review.
   const { context, value } = await connection.getMultipleAccountsInfoAndContext([programId, programData], { commitment: "finalized", dataSlice: { offset: 0, length: 45 } });
   if (!value[0] || !value[1]) throw new Error("Program is not deployed");
-  return { programData, ...decodeImmutableProgram(programId, value[0], programData, value[1]), slot: context.slot };
+  return { programData, ...await decodeImmutableProgram(programId, value[0], programData, value[1]), slot: rpcSafeNumber(context.slot, "Program slot") };
 }
 
-function actualLamports(info: AccountInfo<Buffer>): bigint {
-  // web3.js v1 exposes RPC lamports as number: refuse unsafe rounding instead of inventing precision.
-  if (!Number.isSafeInteger(info.lamports) || info.lamports < 0) throw new Error("RPC lamport balance exceeds safe integer precision");
-  return BigInt(info.lamports);
+function actualLamports(info: AccountInfo<Uint8Array>): bigint {
+  if (typeof info.lamports !== "bigint" || info.lamports < 0n || info.lamports > (1n << 64n) - 1n) throw new Error("Invalid RPC lamport balance");
+  return info.lamports;
 }
-function verifySolVault(info: AccountInfo<Buffer>, programId: PublicKey, pool: PublicKey, kind: number, liability: bigint): void {
+function verifySolVault(info: AccountInfo<Uint8Array>, programId: PublicKey, pool: PublicKey, kind: number, liability: bigint): void {
   if (!info.owner.equals(programId) || info.executable || info.data.length !== SOL_VAULT_SPACE) throw new Error("Invalid SOL vault owner or size");
   const r = new Reader(info.data);
   if (!r.take(8).equals(discriminator("account", "SolVault")) || !r.key().equals(pool) || r.byte() !== kind) throw new Error("Invalid SOL vault linkage");
@@ -122,26 +124,28 @@ export async function fetchPoolSnapshot(connection: Connection, programId: Publi
  * The pool, its custody and up to 11 caller accounts (a wallet and its token account, say) in one request, so one poll
  * is one RPC call and every account is read from the same bank. `extra` holds the caller accounts in order.
  */
-export async function readPoolSnapshot(connection: Connection, programId: PublicKey, address: PublicKey, extra: readonly PublicKey[] = []): Promise<{ snapshot: PoolSnapshot; extra: (AccountInfo<Buffer> | null)[] }> {
+export async function readPoolSnapshot(connection: Connection, programId: PublicKey, address: PublicKey, extra: readonly PublicKey[] = []): Promise<{ snapshot: PoolSnapshot; extra: (AccountInfo<Uint8Array> | null)[] }> {
   if (extra.length > MAX_SNAPSHOT_EXTRA_ACCOUNTS) throw new RangeError("Too many accounts for one snapshot read");
-  const custody = deriveCustodyAddresses(programId, address);
+  const custody = await deriveCustodyAddresses(programId, address);
   // One bank/context for state and custody; never mix independent vault read slots.
   const { context, value } = await connection.getMultipleAccountsInfoAndContext([address, custody.mint, custody.tokenVault, custody.reserve, custody.fees, ...extra], { commitment: "confirmed" });
   // RPC failures above propagate as they are; everything below is about what the address holds.
   try {
-    return { snapshot: validatedSnapshot(programId, address, value, context.slot), extra: value.slice(5) };
+    return { snapshot: await validatedSnapshot(programId, address, value, rpcSafeNumber(context.slot, "Snapshot slot")), extra: value.slice(5) };
   } catch (e) {
     throw e instanceof PoolStateError ? e : new PoolStateError(e instanceof Error ? e.message : "Invalid pool state");
   }
 }
-function validatedSnapshot(programId: PublicKey, address: PublicKey, value: (AccountInfo<Buffer> | null)[], slot: number): PoolSnapshot {
+async function validatedSnapshot(programId: PublicKey, address: PublicKey, value: (AccountInfo<Uint8Array> | null)[], slot: number): Promise<PoolSnapshot> {
   if (!value[0]) throw new PoolStateError("Pool not found");
   if (value[0].data.length !== POOL_ACCOUNT_SPACE) throw new Error("Unexpected on-chain pool allocation");
-  const pool = decodePoolAccount(address, value[0], programId);
+  const pool = await decodePoolAccount(address, value[0], programId);
   // The decoder proved the address is this creator/nonce's canonical pool, so these match the custody read above.
-  const addresses = derivePoolAddresses(programId, pool.creator, pool.nonce);
+  const addresses = await derivePoolAddresses(programId, pool.creator, pool.nonce);
   if (pool.status === "active") {
-    const [, mint, token, reserve, fees] = value;
+    const [, rawMint, rawToken, reserve, fees] = value;
+    const mint = rawMint && { ...rawMint, data: Buffer.from(rawMint.data) };
+    const token = rawToken && { ...rawToken, data: Buffer.from(rawToken.data) };
     if (!mint || !token || !reserve || !fees) throw new Error("Missing active custody accounts");
     if (!mint.owner.equals(TOKEN_PROGRAM_ID) || mint.executable || mint.data.length !== 82 || mint.data.readUInt32LE(0) !== 0 || mint.data[44] !== TOKEN_DECIMALS || mint.data[45] !== 1 || mint.data.readUInt32LE(46) !== 0 || mint.data.readBigUInt64LE(36) > FIXED_SUPPLY) throw new Error("Invalid mint authorities or supply");
     if (!token.owner.equals(TOKEN_PROGRAM_ID) || token.executable || token.data.length !== 165 || !new PublicKey(token.data.subarray(0, 32)).equals(addresses.mint) || !new PublicKey(token.data.subarray(32, 64)).equals(address) || token.data[108] !== 1 || token.data.readUInt32LE(72) !== 0 || token.data.readUInt32LE(109) !== 0 || token.data.readUInt32LE(129) !== 0 || token.data.readBigUInt64LE(64) < pool.tokenInventory) throw new Error("Invalid token vault custody");
@@ -170,15 +174,15 @@ export async function fetchActivePools(connection: Connection, programId: Public
   const chunks: PublicKey[][] = [];
   for (let i = 0; i < keys.length; i += 16) chunks.push(keys.slice(i, i + 16));
   const infos = (await Promise.all(chunks.map((chunk) => connection.getMultipleAccountsInfo(chunk, "confirmed")))).flat();
-  const pools = keys.flatMap((address, i) => {
+  const pools = (await Promise.all(keys.map(async (address, i) => {
     const info = infos[i];
     if (!info) return [];
     try {
-      const pool = decodePoolAccount(address, info, programId);
+      const pool = await decodePoolAccount(address, info, programId);
       return pool.status === "active" ? [{ address, pool }] : [];
     } catch {
       return [];
     }
-  });
+  }))).flat();
   return { total: rows.length, pools };
 }
