@@ -1,0 +1,115 @@
+{
+  "rate": "近 30 天",
+  "rateHint": "年化，浮动。",
+  "rateUnavailable": "暂时无法获取收益率",
+  "rateTitle": "{from} 至 {to} 的份额价格增长，已扣除金库费用",
+  "yourDeposit": "你的存款",
+  "none": "无",
+  "depositHint": "当前可取出的金额",
+  "deposit": "存入",
+  "withdraw": "取出",
+  "card": {
+    "title": "用闲置 {symbol} 赚取收益",
+    "inWallet": "钱包中的 {symbol}",
+    "onChain": "在 {chain} 上",
+    "nothingYet": "尚未存入",
+    "runBy": "由 {curator} 在 {protocol} 上管理。可能亏损。openlaunch 不收费。"
+  },
+  "dialog": {
+    "title": "用 {symbol} 赚取收益",
+    "close": "关闭",
+    "description": "通过 Base 上的 {protocol} 金库借出你的 {symbol}。只要金库有可用资金，随时可以取出。",
+    "runBy": "由 {curator} 管理",
+    "noFee": "openlaunch 费用为 0"
+  },
+  "unconfirmed": {
+    "title": "已发送，尚未确认",
+    "deposit": "你的钱包已发送 {amount} {symbol} 的存入，但无法读取其确认结果。它仍可能成功。在结果明确之前，请不要再次发送。",
+    "withdraw": "你的钱包已发送 {amount} {symbol} 的取出，但无法读取其确认结果。它仍可能成功。在结果明确之前，请不要再次发送。",
+    "batch": "它是从你的钱包作为一个批次发送的；你钱包的活动记录会显示它是否成功。",
+    "checking": "正在检查…",
+    "checkAgain": "再次检查",
+    "keep": "关闭此面板不会中断检查。重新加载页面会丢失检查状态，所以再次发送前请先查看钱包的活动记录。"
+  },
+  "done": {
+    "deposited": "已存入 {amount} {symbol}",
+    "withdrew": "已取出 {amount} {symbol}",
+    "depositedBody": "你的 {symbol} 已存入 {chain} 上的 {vault}。其价值会随金库收益而更新。",
+    "withdrewBody": "{symbol} 已回到你在 {chain} 上的钱包。",
+    "close": "完成"
+  },
+  "viewTx": "查看交易",
+  "action": {
+    "connect": "连接钱包",
+    "preparing": "正在检查金库…",
+    "approving": "请在钱包中授权恰好 {amount} {symbol}…",
+    "signing": "请在钱包中确认…",
+    "sent": "正在 {chain} 上确认…",
+    "switching": "请确认切换网络…",
+    "switch": "切换到 {chain}",
+    "paused": "存款已暂停",
+    "allowAndDeposit": "授权并存入 {amount} {symbol}",
+    "deposit": "存入 {amount} {symbol}",
+    "withdrawAll": "全部取出",
+    "withdraw": "取出 {amount} {symbol}"
+  },
+  "form": {
+    "nothingIn": "{vault} 中没有存款",
+    "tabs": "存入或取出",
+    "youDeposit": "存入金额",
+    "youWithdraw": "取出金额",
+    "onChain": "{chain} 上的 {symbol}",
+    "readingBalance": "正在读取你的余额…",
+    "inWallet": "钱包中：{amount} {symbol}",
+    "readingDeposit": "正在读取你的存款…",
+    "deposited": "已存入：{amount} {symbol}",
+    "max": "最大"
+  },
+  "facts": {
+    "vault": "金库",
+    "runBy": "管理方",
+    "protocol": "协议",
+    "vaultFee": "金库费用",
+    "vaultFeeValue": "利息的 {fee}",
+    "openlaunchFee": "openlaunch 费用",
+    "inVault": "金库总额",
+    "network": "网络",
+    "networkValue": "{chain} · 以 ETH 支付 Gas"
+  },
+  "notice": {
+    "approval": "首次存款需要钱包确认两次：一次授权金库使用恰好这个金额，一次存入。智能钱包会一步完成。",
+    "everything": "取出你的全部存款，包括截至确认时赚取的利息。",
+    "noGas": "此钱包在 {chain} 上没有 ETH 支付网络 Gas。",
+    "unreadable": "暂时无法读取你的余额，稍后会自动刷新。"
+  },
+  "disclaimer": "存款可能亏损。你的 {symbol} 会通过 {protocol} 借给借款人，所用市场由 {curator} 选择，而不是 openlaunch。openlaunch 从不持有你的资金，无法转移它们，也无法保证你一定能取出：金库只能用当时未借出的资金支付。收益率随时变化；过去的收益率不代表未来。",
+  "toast": {
+    "deposited": "已存入 {amount} {symbol}",
+    "withdrew": "已取出 {amount} {symbol}",
+    "into": "存入 {vault}",
+    "from": "取自 {vault}"
+  },
+  "reasons": {
+    "enterAmount": "请输入金额",
+    "readingBalance": "正在读取你的余额…",
+    "moreThanBalance": "超过你的 USDC 余额",
+    "readingDeposit": "正在读取你的存款…",
+    "nothingDeposited": "没有存款",
+    "moreThanDeposit": "超过你的存款",
+    "moreThanHeld": "这超过了此钱包持有的 USDC。",
+    "approvalUnreadable": "无法读取授权的确认结果。没有存入任何资金；请重试（已成功的授权会被沿用）。",
+    "approvalReverted": "授权在链上被回滚。没有存入任何资金。",
+    "nothingInWallet": "此钱包没有任何存款。",
+    "accountChanged": "你的钱包切换了账户，所以在发送任何其他内容之前已停止。请从你要使用的账户重新开始。",
+    "flowStopped": "已停止：在下一步之前，赚取收益卡片已关闭。",
+    "notConfirmedYet": "仍未确认。网络繁忙时可能需要一段时间；请稍后再检查，或查看你钱包的活动记录。",
+    "batchFailed": "你的钱包报告交易失败。没有资金移动；再次尝试前请先查看其活动记录。",
+    "depositReverted": "存款在链上被回滚。没有资金移动；网络 Gas 仍已扣除。",
+    "withdrawalReverted": "取款在链上被回滚。没有资金移动；网络 Gas 仍已扣除。",
+    "gates": "该金库现在限制了谁可以使用。",
+    "asset": "该金库不再接受 {symbol}。",
+    "performanceFee": "该金库现在会保留其所赚利息的 {fee}。",
+    "managementFee": "该金库现在收取 {fee} 的年度管理费。",
+    "paused": "此处已暂停存款：{reason}openlaunch 上架此金库时没有这一项，且尚未审核这一变更。取款仍然开放。"
+  }
+}

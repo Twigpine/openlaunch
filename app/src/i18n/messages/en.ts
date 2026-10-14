@@ -14,13 +14,14 @@ import info from "./en/info.json";
 import account from "./en/account.json";
 import bridge from "./en/bridge.json";
 import errors from "./en/errors.json";
+import earn from "./en/earn.json";
 import footer from "./en/footer.json";
 
 /**
  * English, the source text: it fixes the keys (and their types) and is the fallback for any key a translation leaves
  * out. One JSON file per area of the site. It ships with the client code, so English needs nothing sent per page.
  */
-export const en = { common, header, wallet, search, market, activity, hero, posts, token, trade, launch, info, account, bridge, errors, footer };
+export const en = { common, header, wallet, search, market, activity, hero, posts, token, trade, launch, info, account, bridge, earn, errors, footer };
 export type Messages = typeof en;
 
 /** A translation: any subset of the English keys. */

@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { zeroAddress, type Address } from "viem";
+import { createTranslator } from "use-intl/core";
+import { en } from "@/i18n/messages";
 import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
 import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { EARN_VAULT_ABI } from "@/lib/earn/abi";
@@ -129,6 +131,8 @@ function world(o: {
     BATCH_FAILED, EARN_BATCH_CAPABILITIES, ERC20_MIN_ABI, EARN_VAULT_ABI, BUILDER_DATA_SUFFIX, NOT_CONFIRMED_YET, revertedCopy,
     // like React's setter: a value, or an updater given the current phase
     setPhase: (p: EarnPhase | ((cur: EarnPhase) => EarnPhase)) => phases.push(typeof p === "function" ? p(phases.at(-1) ?? { k: "idle" }) : p), setText: () => {}, setAll: () => {}, toast: () => { toasts++; },
+    // the hook's toast words (`tr`), read from the English messages
+    tr: createTranslator({ locale: "en", messages: en, namespace: "earn.toast", timeZone: "UTC" }),
     friendlyError: (e: Error) => e.message,
   };
   if (o.tab === "withdraw") Object.assign(bindings, { amount: 1_000_000_000n });

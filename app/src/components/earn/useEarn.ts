@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useBalance, useConfig, useReadContract, useReadContracts, useSwitchChain } from "wagmi";
+import { useTranslations } from "use-intl";
 import { getAccount, getCallsStatus, getCapabilities, getPublicClient, getWalletClient, sendCalls, waitForCallsStatus } from "wagmi/actions";
 import type { Address, Hex, PublicClient } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -60,6 +61,8 @@ export function useEarnPosition(vault: EarnVault, address: Address | undefined) 
 /** Earn's form state, its reads and its two actions for one vault and the connected wallet (see the file comment). */
 export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
   const config = useConfig();
+  // the confirmation toast's words; the reasons this hook gives stay English and are worded where shown (EarnPanel)
+  const tr = useTranslations("earn.toast");
   const chainId = CHAINS[vault.chain].id;
   const { address, isConnected, chainId: walletChain } = useHydratedAccount();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
@@ -243,7 +246,8 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
   /** A confirmed action: the done state, a toast, a clean form and fresh balances. */
   function finish(tab: EarnTab, amount: bigint, hash: Hex | null) {
     setPhase({ k: "done", hash, tab, amount });
-    toast({ kind: "info", title: `${tab === "deposit" ? "Deposited" : "Withdrew"} ${fmtAmount(amount, decimals)} ${vault.assetSymbol}`, sub: `${tab === "deposit" ? "Into" : "From"} ${vault.name}` });
+    const words = { amount: fmtAmount(amount, decimals), symbol: vault.assetSymbol };
+    toast({ kind: "info", title: tab === "deposit" ? tr("deposited", words) : tr("withdrew", words), sub: tab === "deposit" ? tr("into", { vault: vault.name }) : tr("from", { vault: vault.name }) });
     setText("");
     setAll(false);
     void position.refetch();
