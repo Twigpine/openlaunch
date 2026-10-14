@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { en, messagesFor, translationOf } from "./messages/index.ts";
 import { DEFAULT_LOCALE, isLocale, localeFromAcceptLanguage } from "./locales.ts";
+import { SITE_DESCRIPTION, SITE_TITLE } from "../lib/brand.ts";
 
 type Tree = { [key: string]: string | Tree };
 function leaves(tree: Tree, prefix = ""): Map<string, string> {
@@ -46,6 +47,11 @@ test("a missing Chinese message reads in English, and English is the source itse
   const zh = leaves(messagesFor("zh-CN") as unknown as Tree);
   assert.deepEqual([...zh.keys()].sort(), [...english.keys()].sort());
   for (const [key, value] of zh) assert.equal(value, chinese.get(key) ?? english.get(key));
+});
+
+test("the English tab title and description are the site's own, so the two never drift", () => {
+  assert.equal(en.common.site.title, SITE_TITLE);
+  assert.equal(en.common.site.description, SITE_DESCRIPTION);
 });
 
 test("the browser's language picks Simplified Chinese for any Chinese tag, English otherwise", () => {

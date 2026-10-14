@@ -9,5 +9,9 @@
     "h": "{n}小时",
     "d": "{n}天",
     "ago": "{time}前"
+  },
+  "site": {
+    "title": "openlaunch：Base、Robinhood 和 Arc 上的免费代币发射台",
+    "description": "在 Base、Robinhood Chain 或 Arc 上一笔交易发行代币。0 平台费，开源，100% 的供应量作为 Uniswap v4 流动性永久锁定。"
   }
 }

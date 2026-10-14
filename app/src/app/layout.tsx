@@ -14,7 +14,7 @@ import Footer from "@/components/Footer";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeProvider from "@/components/ThemeProvider";
 import IntlProvider from "@/components/IntlProvider";
-import { getLocale } from "@/i18n/server";
+import { getLocale, getTranslations } from "@/i18n/server";
 import { translationOf } from "@/i18n/messages";
 import { Suspense } from "react";
 import { geist, geistMono } from "./fonts";
@@ -22,7 +22,7 @@ import { geist, geistMono } from "./fonts";
 const TITLE = SITE_TITLE;
 const DESCRIPTION = SITE_DESCRIPTION;
 
-export const metadata: Metadata = {
+const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: TITLE, template: `%s · ${BRAND_DOMAIN}` },
   description: DESCRIPTION,
@@ -34,6 +34,16 @@ export const metadata: Metadata = {
   openGraph: { siteName: BRAND_DOMAIN, title: TITLE, description: SOCIAL_DESCRIPTION, type: "website", url: SITE_URL },
   twitter: { card: "summary_large_image", site: `@${BRAND_X}`, title: TITLE, description: SOCIAL_DESCRIPTION },
 };
+
+/**
+ * The tab title and description in the reader's language. The OpenGraph and X previews stay English: link crawlers
+ * send no language, so that is what every share shows anyway.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  if ((await getLocale()) === "en") return metadata;
+  const t = await getTranslations("common");
+  return { ...metadata, title: { default: t("site.title"), template: `%s · ${BRAND_DOMAIN}` }, description: t("site.description") };
+}
 
 // Light is the default; dark is a class the header toggle adds, never an OS preference, so the
 // pre-CSS hints stay light. ThemeProvider keeps theme-color in step after a toggle.

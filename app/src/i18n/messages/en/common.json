@@ -9,5 +9,9 @@
     "h": "{n}h",
     "d": "{n}d",
     "ago": "{time} ago"
+  },
+  "site": {
+    "title": "openlaunch: free token launchpad on Base, Robinhood & Arc",
+    "description": "Launch a token in one transaction on Base, Robinhood Chain or Arc. Zero platform fee, open source, 100% of supply locked as Uniswap v4 liquidity forever."
   }
 }
