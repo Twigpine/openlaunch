@@ -136,33 +136,41 @@ test("the page runs hero, Trending, river, list, and the hero's link has a place
 });
 
 test("the top card is called Leading only on the hour window", () => {
-  assert.match(board, /\{window === "1h" \? "Leading" : "Top · 24h"\}/, "a token with no trade this hour is not leading anything");
-  assert.match(board, /<span className="sr-only">\{window === "1h" \? "Leading" : "Top over 24 hours"\}<\/span>/, "and the short mark has spoken words");
-  assert.match(board, /\{snap\.window === "1h" \? "Last hour" : "Last 24 hours"\}/);
+  assert.match(board, /\{window === "1h" \? t\("leading"\) : t\("top24"\)\}/, "a token with no trade this hour is not leading anything");
+  assert.match(board, /<span className="sr-only">\{window === "1h" \? t\("leading"\) : t\("top24Spoken"\)\}<\/span>/, "and the short mark has spoken words");
+  assert.match(board, /\{snap\.window === "1h" \? t\("lastHour"\) : t\("lastDay"\)\}/);
+  const words = en.market.trending;
+  assert.deepEqual([words.leading, words.top24, words.top24Spoken, words.lastHour, words.lastDay], ["Leading", "Top · 24h", "Top over 24 hours", "Last hour", "Last 24 hours"]);
 });
 
 test("the board states its own rule with the ranking's numbers, where touch and keyboard reach it", () => {
-  assert.match(board, /<summary [^>]*>How it&apos;s ranked</);
-  assert.match(board, /next \{SNIPER_BLOCKS\} blocks are left out/);
-  assert.match(board, /under \{FRESH_HOURS\} hours old/);
-  assert.match(board, /needs \{MIN_TRADES_1H\} trades and \{MIN_TRADERS_1H\} such wallets in the last hour/);
-  assert.match(board, /fewer than \{MIN_STRIP\} tokens do, the board shows the last 24 hours, where \{MIN_TRADES_1H\} trades and one such wallet/);
-  assert.match(board, /const WINDOW_NOTE = "Wallets other than the launcher that traded in this window\. Trades and volume count every swap\.";/);
-  assert.match(board, /Tokens paired with an unlisted asset are not ranked\./, "trendingFrom drops them before ranking");
-  assert.match(board, /<div title=\{WINDOW_NOTE\}/);
+  const words = en.market.trending;
+  assert.match(board, /<summary [^>]*>\{t\("howRanked"\)\}</);
+  assert.equal(words.howRanked, "How it's ranked");
+  // the numbers in the rule are the ranking's own constants, in either language
+  assert.match(board, /\{t\("rule", \{ sniperBlocks: SNIPER_BLOCKS, freshHours: FRESH_HOURS, minTrades: MIN_TRADES_1H, minTraders: MIN_TRADERS_1H, minStrip: MIN_STRIP \}\)\}/);
+  assert.match(words.rule, /next \{sniperBlocks\} blocks are left out/);
+  assert.match(words.rule, /under \{freshHours\} hours old/);
+  assert.match(words.rule, /needs \{minTrades\} trades and \{minTraders\} such wallets in the last hour/);
+  assert.match(words.rule, /fewer than \{minStrip\} tokens do, the board shows the last 24 hours, where \{minTrades\} trades and one such wallet/);
+  assert.match(words.rule, /Tokens paired with an unlisted asset are not ranked\./, "trendingFrom drops them before ranking");
+  assert.equal(words.windowNote, "Wallets other than the launcher that traded in this window. Trades and volume count every swap.");
+  assert.match(board, /<div title=\{t\("windowNote"\)\}/);
   // read once for the board, after the list, not inside every card's link
-  assert.match(board, /<ol\n\s*ref=\{list\}\n\s*aria-label="Trending tokens"\n\s*aria-describedby="trending-note"/);
-  assert.match(board, /<\/ol>\n\s*\)\}\n[^\n]*\n\s*\{first \? <p id="trending-note" className="sr-only">\{WINDOW_NOTE\}<\/p> : null\}/);
-  assert.equal((board.match(/\{WINDOW_NOTE\}/g) ?? []).length, 2, "the title on the figures and the one spoken note");
+  assert.match(board, /<ol\n\s*ref=\{list\}\n\s*aria-label=\{t\("label"\)\}\n\s*aria-describedby="trending-note"/);
+  assert.equal(words.label, "Trending tokens");
+  assert.match(board, /<\/ol>\n\s*\)\}\n[^\n]*\n\s*\{first \? <p id="trending-note" className="sr-only">\{t\("windowNote"\)\}<\/p> : null\}/);
+  assert.equal((board.match(/t\("windowNote"\)/g) ?? []).length, 2, "the title on the figures and the one spoken note");
   // the header is all in flow (text spacing wraps it, nothing overlaps) and the panel spans the board under it
-  assert.match(board, /<details className="group peer [^"]*">\n\s*<summary className="[^"]*\bh-11\b[^"]*\bsm:h-8\b[^"]*">How it&apos;s ranked/);
+  assert.match(board, /<details className="group peer [^"]*">\n\s*<summary className="[^"]*\bh-11\b[^"]*\bsm:h-8\b[^"]*">\{t\("howRanked"\)\}/);
   assert.match(board, /<p className="[^"]*\bhidden basis-full\b[^"]*\bpeer-open:block">/);
   assert.doesNotMatch(board.slice(0, board.indexOf("<ol")), /\babsolute\b/);
 });
 
 test("a card's tooltip is a sentence, so it names the chain in full", () => {
-  assert.match(board, /const hint = \(row: LaunchRow\) => `\$\{row\.name\} on \$\{CHAIN_LABELS\[row\.chain\]\}, paired with \$\{row\.quote_symbol\}`;/);
-  assert.equal((board.match(/title=\{hint\(row\)\}/g) ?? []).length, 2);
+  assert.match(board, /const hint = \(t: T, row: LaunchRow\) => t\("hint", \{ name: row\.name, chain: CHAIN_LABELS\[row\.chain\], quote: row\.quote_symbol \}\);/);
+  assert.equal(en.market.trending.hint, "{name} on {chain}, paired with {quote}");
+  assert.equal((board.match(/title=\{hint\(t, row\)\}/g) ?? []).length, 2);
 });
 
 test("the board carries no decoration, and the ranking's own figure shows on every width", () => {
@@ -173,10 +181,13 @@ test("the board carries no decoration, and the ranking's own figure shows on eve
   const hidden = board.split("\n").filter((line) => /(?<![\w:-])hidden(?![\w-])/.test(line));
   assert.equal(hidden.length, 5, "+ the big leader card, which only exists from 1024px (the swipe row has the compact one)");
   assert.ok(hidden.some((line) => line.includes("<Leader ")));
-  assert.ok(hidden.some((line) => line.includes("Last trades")));
-  assert.ok(hidden.some((line) => line.includes("Ranked by wallets trading, trades and volume")));
-  assert.ok(hidden.some((line) => line.includes("Open spot.")));
+  assert.ok(hidden.some((line) => line.includes('t("lastTrades")')));
+  assert.ok(hidden.some((line) => line.includes('t("rankedBy")')));
+  assert.ok(hidden.some((line) => line.includes('t.rich("openSpot"')));
   assert.ok(hidden.some((line) => line.includes("peer-open:block")));
+  assert.equal(en.market.trending.lastTrades, "Last trades");
+  assert.equal(en.market.trending.rankedBy, "Ranked by wallets trading, trades and volume");
+  assert.match(en.market.trending.openSpot, /^<strong>Open spot\.<\/strong> /);
   assert.ok(!hidden.some((line) => line.includes("a.wallets")));
   assert.match(board, /const count = \(n: number\) => n\.toLocaleString\("en-US"\);/);
   assert.match(board, /text-\[30px\] font-bold leading-\[1\.2\] tracking-normal/, "no negative tracking on a bold figure");
@@ -227,11 +238,16 @@ test("the leader's ages start from the server's clock and tick with the poll", (
   assert.match(board, /suppressHydrationWarning>\{facts\}/);
   // "last trade" is the latest swap by anyone, as the Trades figure beside it counts everyone
   assert.match(board, /const lastTrade = lastTradeAt\(row, pips\);/, "the later of the row's times and the newest trade on the tape");
-  assert.match(board, /now - lastTrade < 10_000 \? "last trade just now" : `last trade \$\{ago\(new Date\(lastTrade\)\.toISOString\(\), now\)\} ago`/);
+  assert.match(board, /now - lastTrade < 10_000 \? t\("lastTradeNow"\) : t\("lastTrade", \{ time: ago\(new Date\(lastTrade\)\.toISOString\(\), now\) \}\)/);
+  // `ago` is the reader's "3m ago" (useAgo), so English still reads "last trade 3m ago"
+  assert.equal(en.market.trending.lastTradeNow, "last trade just now");
+  assert.equal(en.market.trending.lastTrade, "last trade {time}");
 });
 
 test("the Trending heading says what its window is", () => {
-  assert.match(board, /\{snap\.window === "1h" \? "Trending this hour" : "Trending today"\}/);
+  assert.match(board, /\{snap\.window === "1h" \? t\("headingHour"\) : t\("headingDay"\)\}/);
+  assert.equal(en.market.trending.headingHour, "Trending this hour");
+  assert.equal(en.market.trending.headingDay, "Trending today");
 });
 
 test("the cards' tapes start from the page's seed, and the seed's trades are never announced again", () => {
@@ -239,7 +255,7 @@ test("the cards' tapes start from the page's seed, and the seed's trades are nev
   assert.match(board, /const seedTape = \(snap: Snap\): Record<string, TapePip\[\]> =>/);
   assert.match(board, /seen\.current = new Set\(\[\.\.\.Object\.values\(seedTape\(initial\)\)\.flatMap\(\(pips\) => pips\.map\(\(p\) => p\.key\)\), \.\.\.seenKeys\]\);/);
   assert.match(board, /planHits\(\{ feed: live\.feed, seen: seen\.current \?\? new Set\(\), board: onBoard, at: live\.at \}\);/);
-  assert.match(board, /setCards\(\(cur\) => applyPlan\(cur, plan, live\.at, onBoard\)\);/, "tokens that left the board are forgotten");
+  assert.match(board, /setCards\(\(cur\) => worded\(applyPlan\(cur, plan, live\.at, onBoard\), plan\.hits, t\)\);/, "tokens that left the board are forgotten, and the chips read in the reader's language");
 });
 
 test("a reaction is decorative, keyed per reaction, and replays only when a new trade lands", () => {
@@ -300,7 +316,8 @@ test("below 1024px the board is a row to swipe, led by a compact leader; the big
   assert.match(board, /<div className="h-full lg:hidden"><Runner key=\{launchKey\(first\)\} lead row=\{first\} rank=\{1\}/);
   // the compact leader says "New leader" for a few seconds, as the big card does, and focus never returns to the hidden twin
   assert.match(board, /const handover = lead && from !== null && now - from\.since < HANDOVER_LIFE_MS;/);
-  assert.match(board, /styles\.move\}>New leader</);
+  assert.match(board, /styles\.move\}>\{t\("newLeader"\)\}</);
+  assert.equal(en.market.trending.newLeader, "New leader");
   assert.match(board, /\.filter\(\(card\) => card\.getClientRects\(\)\.length > 0\);/);
 });
 

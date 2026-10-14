@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { createTranslator } from "use-intl/core";
 import { fmtCompact } from "../../lib/launchpad/math.ts";
 import { marketChange } from "../../lib/launchpad/market-format.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 type ChipProps = { v: number; plain?: boolean; roll?: boolean; context?: string; className?: string };
 type Element = { type: string; props: { className: string; title?: string; children: Element | string } };
@@ -15,22 +17,38 @@ const source = readFileSync(new URL("./ChangeChip.tsx", import.meta.url), "utf8"
 const compiled = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
-const imports: Record<string, unknown> = {
-  "react/jsx-runtime": { jsx: (type: string, props: Element["props"]) => ({ type, props }) },
-  "@/lib/launchpad/math": { fmtCompact },
-  "@/lib/launchpad/market-format": { marketChange },
-  "./Roll": { default: "Roll" },
-};
-const exported = {} as { default: (props: ChipProps) => Element };
-runInNewContext(compiled, {
-  exports: exported,
-  require: (id: string) => {
-    assert.ok(Object.hasOwn(imports, id), `Unexpected production import: ${id}`);
-    return imports[id];
-  },
-});
-const render = exported.default;
+/** The component in one language: use-intl's own translator over that language's messages. */
+function load(locale: "en" | "zh-CN") {
+  const imports: Record<string, unknown> = {
+    "react/jsx-runtime": { jsx: (type: string, props: Element["props"]) => ({ type, props }) },
+    "use-intl": { useTranslations: (namespace: "market.change") => createTranslator({ locale, messages: messagesFor(locale), namespace }) },
+    "@/lib/launchpad/math": { fmtCompact },
+    "@/lib/launchpad/market-format": { marketChange },
+    "./Roll": { default: "Roll" },
+  };
+  const exported = {} as { default: (props: ChipProps) => Element };
+  runInNewContext(compiled, {
+    exports: exported,
+    require: (id: string) => {
+      assert.ok(Object.hasOwn(imports, id), `Unexpected production import: ${id}`);
+      return imports[id];
+    },
+  });
+  return exported.default;
+}
+const render = load("en");
 const label = (element: Element) => (element.props.children as Element).props.children;
+
+test("the tooltip's words are messages, and Chinese puts the context first", () => {
+  assert.match(source, /^"use client";/, "a client component: the server-rendered token page draws it too, and only the client reads the language");
+  assert.match(source, /title=\{t\("title", \{ value: available \? `\$\{pct\}%` : "—", context: context \?\? t\("sinceLaunch"\) \}\)\}/);
+  assert.equal(en.market.change.sinceLaunch, "since launch");
+  const zh = load("zh-CN");
+  assert.equal(zh({ v: 0.12 }).props.title, `自发行以来 ${0.12 * 100}%`);
+  assert.equal(zh({ v: NaN }).props.title, "自发行以来 —");
+  // a caller's own context is used as given, in the reader's word order
+  assert.equal(zh({ v: 0.12, context: "24 小时内" }).props.title, `24 小时内 ${0.12 * 100}%`);
+});
 
 for (const plain of [false, true]) {
   test(`${plain ? "plain" : "pill"} changes render unavailable percentages neutrally, including tooltips`, () => {

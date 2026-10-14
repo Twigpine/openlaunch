@@ -1,26 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowUpRight, ChevronDown } from "lucide-react";
+import { useTranslations } from "use-intl";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner } from "./ChainLogo";
 import { QuoteBrandBadge, hasQuoteBrandBadge } from "./MuseworldBadge";
 import ChangeChip from "./ChangeChip";
 import Roll from "./Roll";
 import { useLive } from "./LiveProvider";
+import { localizedCap } from "./LaunchRow";
 import type { LaunchRow } from "@/lib/launchpad/queries";
 import { fmtQuote } from "@/lib/launchpad/math";
-import { marketUsd } from "@/lib/launchpad/market-format";
+import { marketChange, marketUsd } from "@/lib/launchpad/market-format";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import { CHAIN_LABELS, CHAIN_SHORT } from "@/lib/chainPublic";
-import { ago } from "@/lib/launchpad/time";
+import { useAgo } from "@/i18n/useAgo";
+import { riverUsd } from "@/lib/launchpad/river";
 import { SNIPER_BLOCKS } from "@/lib/launchpad/holders";
 import { FRESH_HOURS, MIN_STRIP, MIN_TRADERS_1H, MIN_TRADES_1H, stickyKing } from "@/lib/launchpad/ranking";
-import { BOARD_RUNNERS, barScale, barWidth, boardCells, changeWords, holdOnPoll, sameBoard, type BoardCell, type BoardHold } from "@/lib/launchpad/trending-board";
+import { BOARD_RUNNERS, barScale, barWidth, boardCells, holdOnPoll, sameBoard, type BoardCell, type BoardHold } from "@/lib/launchpad/trending-board";
 import { launchKey, refreshInPlace } from "@/lib/launchpad/list-state";
-import { FX_LIFE_MS, HANDOVER_LIFE_MS, MOVE_LIFE_MS, PIPS_LEADER, PIPS_RUNNER, applyPlan, bumpOf, cascadeMs, lastTradeAt, pipMagnitude, planHits, rankMoves, streakOf, type CardFx, type CardsState, type TapePip } from "@/lib/launchpad/trending-live";
+import { FX_LIFE_MS, HANDOVER_LIFE_MS, MOVE_LIFE_MS, PIPS_LEADER, PIPS_RUNNER, applyPlan, bumpOf, cascadeMs, lastTradeAt, pipMagnitude, planHits, rankMoves, streakOf, type CardFx, type CardsState, type Flow, type Hit, type TapePip } from "@/lib/launchpad/trending-live";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
 import styles from "./TrendingStrip.module.css";
 
@@ -30,14 +33,45 @@ type Snap = { window: "1h" | "24h"; items: LaunchRow[]; tape?: Record<string, Ta
  * over from, once the leader's card has changed hands since the page loaded (so its hand-over means something).
  */
 type Board = { snap: Snap; crown: ReturnType<typeof stickyKing>; moves: Record<string, { delta: number; since: number }>; from: { name: string; since: number } | null };
+/** The board's words (market.trending). */
+type T = ReturnType<typeof useTranslations<"market.trending">>;
 
-const WINDOW_NOTE = "Wallets other than the launcher that traded in this window. Trades and volume count every swap.";
 const count = (n: number) => n.toLocaleString("en-US");
 const cap = (row: LaunchRow) => capDisplay(row.fdv_quote, row.quote_usd, { key: row.quote_key, symbol: row.quote_symbol, decimals: row.quote_decimals });
 const href = (row: LaunchRow) => `/t/${row.chain}/${row.token}`;
 // a sentence, so the chain's full name: bare "Robinhood" reads like a listing on the broker
-const hint = (row: LaunchRow) => `${row.name} on ${CHAIN_LABELS[row.chain]}, paired with ${row.quote_symbol}`;
+const hint = (t: T, row: LaunchRow) => t("hint", { name: row.name, chain: CHAIN_LABELS[row.chain], quote: row.quote_symbol });
 const open = (row: LaunchRow) => () => setPendingToken({ chain: row.chain, token: row.token, name: row.name, symbol: row.symbol, image: row.image_url });
+const sr = (chunks: ReactNode) => <span className="sr-only">{chunks}</span>;
+
+/**
+ * The lift-off chip in the reader's language, from the hit's own counts: "Buy $45", "3 buys $210", "Buy $50 · Sell $20",
+ * with "· creator" when the launcher traded. The same parts as trending-live's chipText, which words them in English.
+ */
+function chipWords(t: T, hit: Pick<Hit, "buys" | "sells" | "dev">): string {
+  const part = (f: Flow, side: "buy" | "sell") => (f.n === 0 ? null : `${f.n === 1 ? t(side) : t(side === "buy" ? "buys" : "sells", { count: f.n })}${f.usd === null ? "" : ` ${riverUsd(f.usd)}`}`);
+  const text = [part(hit.buys, "buy"), part(hit.sells, "sell")].filter(Boolean).join(" · ");
+  return hit.dev ? `${text} · ${t("creator")}` : text;
+}
+
+/** A poll's reactions with their chips worded for the reader (applyPlan words them in English). */
+function worded(cards: CardsState, hits: readonly Hit[], t: T): CardsState {
+  if (!hits.length) return cards;
+  const fx = { ...cards.fx };
+  for (const hit of hits) if (fx[hit.token]) fx[hit.token] = { ...fx[hit.token], chip: chipWords(t, hit) };
+  return { ...cards, fx };
+}
+
+/** The change chip in words, for a screen reader: "up 27% since launch", "down 3.4% since launch" (trending-board's changeWords, in the reader's language). */
+function useChangeWords() {
+  const t = useTranslations("market.trending.change");
+  return useCallback((change: number) => {
+    const { label, direction } = marketChange(change);
+    if (label === "—") return t("unknown");
+    if (direction === "flat") return t("flat");
+    return t(direction, { value: label.replace(/^[+-]/, "") });
+  }, [t]);
+}
 
 // whole strings: Tailwind only ships the classes it can read in the source
 const SPAN_LG: Record<BoardCell["lg"], string> = { half: "lg:col-span-3", wide: "lg:col-span-6", block: "lg:col-span-6 lg:row-span-2" };
@@ -54,8 +88,6 @@ function activity(row: LaunchRow, window: Snap["window"]) {
   };
 }
 
-/** "now" for a trade under ten seconds old, else its age: "3m". */
-const since = (ms: number, now: number) => (now - ms < 10_000 ? "now" : ago(new Date(ms).toISOString(), now));
 /** The tapes the page seeded, one per card on the board. */
 const seedTape = (snap: Snap): Record<string, TapePip[]> => Object.fromEntries(snap.items.map((row) => [launchKey(row), snap.tape?.[launchKey(row)] ?? []]));
 
@@ -112,6 +144,8 @@ function focusedCard(list: HTMLElement | null): string | null {
  */
 export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { initial: Snap; serverNow: number; seenKeys?: readonly string[] }) {
   const { subscribe } = useLive();
+  const t = useTranslations("market.trending");
+  const tm = useTranslations("market");
   const reduced = useReducedMotion();
   const [board, setBoard] = useState<Board>({ snap: initial, crown: { king: initial.items[0] ? launchKey(initial.items[0]) : null, streak: { token: null, n: 0 } }, moves: {}, from: null });
   const [now, setNow] = useState(serverNow);
@@ -147,7 +181,7 @@ export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { i
     const onBoard = next.items.slice(0, BOARD_RUNNERS + 2).map(launchKey);
     const plan = planHits({ feed: live.feed, seen: seen.current ?? new Set(), board: onBoard, at: live.at });
     seen.current = plan.seen;
-    setCards((cur) => applyPlan(cur, plan, live.at, onBoard));
+    setCards((cur) => worded(applyPlan(cur, plan, live.at, onBoard), plan.hits, t));
     // an empty board has no cards, so the mouse can never leave it: drop a hold left over from the board that emptied
     if (!list.current) hold.current = NO_HOLD;
     const { held, ...kept } = holdOnPoll(hold.current);
@@ -162,7 +196,7 @@ export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { i
     setBoard((cur) => ((held || settling) && sameBoard(cur.snap, next) ? { ...cur, snap: { ...cur.snap, items: refreshInPlace(cur.snap.items, next.items) } } : advance(cur, next, live.at)));
     window.clearTimeout(settle.current);
     if (settling && !held) settle.current = window.setTimeout(release, cascadeMs(plan.hits));
-  }), [subscribe, release, reduced]);
+  }), [subscribe, release, reduced, t]);
   useEffect(() => () => window.clearTimeout(settle.current), []);
 
   const { snap, crown } = board;
@@ -185,30 +219,30 @@ export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { i
   return (
     <section id="trending" aria-labelledby="trending-heading" className="min-w-0 scroll-mt-24">
       <div className="mb-3 flex flex-wrap items-center gap-x-3">
-        <h2 id="trending-heading" className="text-base font-semibold leading-8 tracking-tight text-ink">{snap.window === "1h" ? "Trending this hour" : "Trending today"}</h2>
-        <span className="rounded-full border border-line bg-card px-2.5 py-0.5 text-[11px] text-body">{snap.window === "1h" ? "Last hour" : "Last 24 hours"}</span>
-        <p className="ml-auto hidden text-[11px] text-muted sm:block">Ranked by wallets trading, trades and volume</p>
+        <h2 id="trending-heading" className="text-base font-semibold leading-8 tracking-tight text-ink">{snap.window === "1h" ? t("headingHour") : t("headingDay")}</h2>
+        <span className="rounded-full border border-line bg-card px-2.5 py-0.5 text-[11px] text-body">{snap.window === "1h" ? t("lastHour") : t("lastDay")}</span>
+        <p className="ml-auto hidden text-[11px] text-muted sm:block">{t("rankedBy")}</p>
         {/* the rule itself, reachable by touch and keyboard (it used to be a hover title); the numbers are the ranking's own
             constants. Everything in this row is in flow, so larger text spacing wraps it instead of overlapping. The summary
             is a 44px target on phones (the margins keep the row at 32px), where it is the only way to the rule */}
         <details className="group peer ml-auto sm:ml-0">
-          <summary className="-my-1.5 flex h-11 cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-body hover:text-ink sm:my-0 sm:h-8 [&::-webkit-details-marker]:hidden">How it&apos;s ranked<ChevronDown size={12} aria-hidden="true" className="group-open:rotate-180" /></summary>
+          <summary className="-my-1.5 flex h-11 cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-body hover:text-ink sm:my-0 sm:h-8 [&::-webkit-details-marker]:hidden">{t("howRanked")}<ChevronDown size={12} aria-hidden="true" className="group-open:rotate-180" /></summary>
         </details>
         {/* a sibling of the disclosure, shown while it is open: the panel takes the board's full width under the header */}
         <p className="mt-2 hidden basis-full text-pretty rounded-xl border border-line bg-card px-3.5 py-3 text-xs leading-relaxed text-body peer-open:block">
-          Wallets other than the launcher count most; swaps in the launch block and the next {SNIPER_BLOCKS} blocks are left out of that count. Trades, dollar volume and holders add on a log scale, and tokens under {FRESH_HOURS} hours old get a boost. To qualify, a token needs {MIN_TRADES_1H} trades and {MIN_TRADERS_1H} such wallets in the last hour. When fewer than {MIN_STRIP} tokens do, the board shows the last 24 hours, where {MIN_TRADES_1H} trades and one such wallet are enough. Tokens paired with an unlisted asset are not ranked.
+          {t("rule", { sniperBlocks: SNIPER_BLOCKS, freshHours: FRESH_HOURS, minTrades: MIN_TRADES_1H, minTraders: MIN_TRADERS_1H, minStrip: MIN_STRIP })}
         </p>
       </div>
       {!first ? (
         // from 1024px as tall as the board (the leader card sets that: 324px), so the page below does not jump when the first token arrives
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-2xl border border-dashed border-line-strong px-4 py-5 lg:min-h-[324px] lg:flex-col lg:justify-center lg:gap-y-3 lg:text-center">
-          <p className="text-xs text-muted">A quiet window. Tokens show here once enough different wallets trade them.</p>
-          <a href="#launches" className="inline-flex min-h-8 items-center gap-1.5 text-xs font-medium text-body hover:text-ink">Explore launches <ArrowUpRight size={13} aria-hidden="true" /></a>
+          <p className="text-xs text-muted">{t("quiet")}</p>
+          <a href="#launches" className="inline-flex min-h-8 items-center gap-1.5 text-xs font-medium text-body hover:text-ink">{tm("explore")} <ArrowUpRight size={13} aria-hidden="true" /></a>
         </div>
       ) : (
         <ol
           ref={list}
-          aria-label="Trending tokens"
+          aria-label={t("label")}
           aria-describedby="trending-note"
           className={`${styles.board} lg:grid-cols-10 lg:grid-rows-2`}
           onPointerEnter={(e) => { if (e.pointerType === "mouse") hold.current = { ...hold.current, pointer: true }; }}
@@ -235,7 +269,7 @@ export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { i
             const span = SPAN_LG[cell.lg];
             if (cell.kind === "open" || !row) {
               // a filler for sighted layout only: the list a screen reader counts holds tokens
-              return <li key="open" aria-hidden="true" className={`hidden min-w-0 items-center rounded-2xl border border-dashed border-line-strong px-5 py-4 text-xs leading-relaxed text-muted lg:flex ${span} ${cell.lg === "block" ? "justify-center text-center" : ""}`}><p className="text-pretty"><span className="font-medium text-body">Open spot.</span> Tokens join the board as different wallets trade them.</p></li>;
+              return <li key="open" aria-hidden="true" className={`hidden min-w-0 items-center rounded-2xl border border-dashed border-line-strong px-5 py-4 text-xs leading-relaxed text-muted lg:flex ${span} ${cell.lg === "block" ? "justify-center text-center" : ""}`}><p className="text-pretty">{t.rich("openSpot", { strong: (chunks) => <span className="font-medium text-body">{chunks}</span> })}</p></li>;
             }
             return (
               <motion.li key={launchKey(row)} layout={reduced ? false : "position"} layoutDependency={order} transition={{ layout: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } }} className={`relative min-w-0 ${span}`}>
@@ -246,7 +280,7 @@ export default function TrendingStrip({ initial, serverNow, seenKeys = [] }: { i
         </ol>
       )}
       {/* said once for the board, not inside every card's link, where it was read again on each focus */}
-      {first ? <p id="trending-note" className="sr-only">{WINDOW_NOTE}</p> : null}
+      {first ? <p id="trending-note" className="sr-only">{t("windowNote")}</p> : null}
     </section>
   );
 }
@@ -273,13 +307,14 @@ function FxNodes({ fx, place }: { fx: CardFx; place: "lead" | "runner" }) {
 
 /** A card's last trades: buys above a hairline, sells below, taller for more dollars, the newest at the right. Decorative for assistive tech: the figures beside it say it all. */
 function Tape({ pips, now, big = false, className = "" }: { pips: readonly TapePip[]; now: number; big?: boolean; className?: string }) {
+  const t = useTranslations("market.trending");
   const buys = pips.filter((p) => p.buy).length;
   const sells = pips.length - buys;
   // a trade still arriving when this tape mounts (a re-sort moved the card) arrived on the card it replaced: it does not pop in again
   const arriving = (p: TapePip) => p.fresh !== undefined && now - p.fresh.since < FX_LIFE_MS;
   const [before] = useState(() => new Set(pips.filter(arriving).map((p) => p.key)));
   return (
-    <span aria-hidden="true" title={pips.length ? `Last ${pips.length} trades: ${buys} ${buys === 1 ? "buy" : "buys"}, ${sells} ${sells === 1 ? "sell" : "sells"}` : "Trades show here as they happen"} className={`${styles.tape} ${big ? styles.tapeBig : ""} ${className}`}>
+    <span aria-hidden="true" title={pips.length ? t("tape", { count: pips.length, buys, sells }) : t("tapeEmpty")} className={`${styles.tape} ${big ? styles.tapeBig : ""} ${className}`}>
       {pips.map((p) => {
         const fresh = arriving(p) && !before.has(p.key);
         return <span key={p.key} className={`${styles.pip} ${p.buy ? styles.buy : styles.sell} ${fresh ? styles.pipFresh : ""}`} style={{ "--m": pipMagnitude(p.usd).toFixed(2), ...(fresh && p.fresh ? { "--pst": `${p.fresh.slot}ms` } : {}) } as CSSProperties}><i /></span>;
@@ -290,10 +325,11 @@ function Tape({ pips, now, big = false, className = "" }: { pips: readonly TapeP
 
 /** "×3" while a token is on a run of same-side trades; each new trade in the run pops it again. */
 function Streak({ pips, now }: { pips: readonly TapePip[]; now: number }) {
+  const t = useTranslations("market.trending");
   const run = streakOf(pips, now);
   if (!run) return null;
-  const word = run.side === "buy" ? "buys" : "sells";
-  return <><span key={run.n} aria-hidden="true" title={`${run.n} ${word} in a row`} className={`${styles.streak} ${run.side === "buy" ? styles.buy : styles.sell}`}>×{run.n}</span><span className="sr-only">, {run.n} {word} in a row. </span></>;
+  const words = t(run.side === "buy" ? "streakBuys" : "streakSells", { count: run.n });
+  return <><span key={run.n} aria-hidden="true" title={words} className={`${styles.streak} ${run.side === "buy" ? styles.buy : styles.sell}`}>×{run.n}</span><span className="sr-only">{t("comma")}{words}{t("stop")}</span></>;
 }
 
 /** A token's wallets against the most on the board. Decorative for assistive tech: the wallet count beside it is the value. */
@@ -307,54 +343,58 @@ function Bar({ pct, className }: { pct: number; className: string }) {
  * where the card would play beside four runners that are already there). `fx` is the reaction to a trade on this token.
  */
 function Leader({ row, window, now, top, pips, fx: onToken, from }: { row: LaunchRow; window: Snap["window"]; now: number; top: number; pips: readonly TapePip[]; fx: CardFx | undefined; from: Board["from"] }) {
+  const t = useTranslations("market.trending");
+  const tm = useTranslations("market");
+  const { ago } = useAgo();
+  const changeWords = useChangeWords();
   const fx = useFreshFx(onToken);
   const a = activity(row, window);
-  const c = cap(row);
+  const c = localizedCap(cap(row), tm("noUsdPrice"));
   const handover = from !== null && now - from.since < HANDOVER_LIFE_MS;
   // "trade" means every swap on this card (the Trades figure counts the launcher's too), so the latest swap by anyone
   const lastTrade = lastTradeAt(row, pips);
-  const facts = [`${count(row.holders)} ${row.holders === 1 ? "holder" : "holders"}`, lastTrade === null ? null : now - lastTrade < 10_000 ? "last trade just now" : `last trade ${ago(new Date(lastTrade).toISOString(), now)} ago`, `launched ${ago(row.block_time, now)} ago`].filter(Boolean).join(" · ");
+  const facts = [t("holders", { count: row.holders }), lastTrade === null ? null : now - lastTrade < 10_000 ? t("lastTradeNow") : t("lastTrade", { time: ago(new Date(lastTrade).toISOString(), now) }), t("launched", { time: ago(row.block_time, now) })].filter(Boolean).join(" · ");
   return (
-    <Link href={href(row)} onClick={open(row)} title={hint(row)} style={fxStyle(fx, true)} className={`flex h-full min-w-0 flex-col rounded-2xl border border-line-strong bg-card p-5 transition-[border-color,box-shadow] hover:border-muted hover:shadow-card-hover motion-reduce:transition-none ${styles.card} ${fxClass(fx)}`}>
+    <Link href={href(row)} onClick={open(row)} title={hint(t, row)} style={fxStyle(fx, true)} className={`flex h-full min-w-0 flex-col rounded-2xl border border-line-strong bg-card p-5 transition-[border-color,box-shadow] hover:border-muted hover:shadow-card-hover motion-reduce:transition-none ${styles.card} ${fxClass(fx)}`}>
       {fx ? <FxNodes fx={fx} place="lead" /> : null}
       {handover ? <><span aria-hidden="true" className={styles.sweep} /><span aria-hidden="true" className={`${styles.edge} ${styles.edgeLead}`} /></> : null}
       <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${styles.leader} ${handover ? styles.handover : ""}`}>
         <div className="min-w-0">
           <p style={k(0)} className={`${styles.row} flex min-h-5 min-w-0 items-center gap-2 whitespace-nowrap text-[11px]`}>
-            <span className="font-mono text-brand tnum"><span className="sr-only">Number </span>01<span className="sr-only">, </span></span>
+            <span className="font-mono text-brand tnum">{t.rich("leaderNumber", { rank: "01", sr })}</span>
             {/* "Leading" is a claim about right now; on the day window the top token may not have traded this hour */}
-            {handover ? <span className="font-medium uppercase tracking-[0.08em] text-brand">New leader</span> : <span className="font-medium uppercase tracking-[0.08em] text-ink"><span aria-hidden="true">{window === "1h" ? "Leading" : "Top · 24h"}</span><span className="sr-only">{window === "1h" ? "Leading" : "Top over 24 hours"}</span></span>}
-            <span className="flex min-w-0 items-center gap-1.5 text-muted"><span aria-hidden="true">·</span><span className="sr-only">, </span>{CHAIN_SHORT[row.chain]}<span aria-hidden="true">·</span><span className="sr-only">, paired with </span>{hasQuoteBrandBadge(row.quote_key) ? <QuoteBrandBadge quoteKey={row.quote_key} /> : <span className="truncate">{row.quote_symbol}</span>}<span className="sr-only">: </span></span>
+            {handover ? <span className="font-medium uppercase tracking-[0.08em] text-brand">{t("newLeader")}</span> : <span className="font-medium uppercase tracking-[0.08em] text-ink"><span aria-hidden="true">{window === "1h" ? t("leading") : t("top24")}</span><span className="sr-only">{window === "1h" ? t("leading") : t("top24Spoken")}</span></span>}
+            <span className="flex min-w-0 items-center gap-1.5 text-muted"><span aria-hidden="true">·</span><span className="sr-only">{t("comma")}</span>{CHAIN_SHORT[row.chain]}<span aria-hidden="true">·</span>{t.rich("leaderPair", { symbol: row.quote_symbol, sr, quote: (chunks) => (hasQuoteBrandBadge(row.quote_key) ? <QuoteBrandBadge quoteKey={row.quote_key} /> : <span className="truncate">{chunks}</span>) })}</span>
           </p>
           <div style={k(1)} className={`${styles.row} mt-3.5 flex min-w-0 items-center gap-3.5`}>
             <span className="relative shrink-0"><TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={52} className="rounded-2xl" /><ChainCorner chain={row.chain} size={18} /></span>
             <div className="min-w-0">
               <p className="truncate text-lg font-semibold leading-snug tracking-tight text-ink">{row.name}</p>
-              <p className="truncate font-mono text-xs text-muted"><span className="sr-only">, </span>{row.symbol}</p>
+              <p className="truncate font-mono text-xs text-muted"><span className="sr-only">{t("comma")}</span>{row.symbol}</p>
             </div>
           </div>
           <div style={k(2)} className={`${styles.row} mt-3.5 flex min-w-0 items-center gap-3`}>
             {/* no negative tracking on a bold figure; the line box is tall enough that `truncate` clips no glyph */}
-            <p className="min-w-0 truncate font-mono text-[30px] font-bold leading-[1.2] tracking-normal text-ink tnum" title={`Market cap ${c.main} · ${c.detail}`}><span className="sr-only">, market cap </span><Roll text={c.main} />{c.usd === null ? <span className="sr-only">, {c.detail}</span> : null}</p>
+            <p className="min-w-0 truncate font-mono text-[30px] font-bold leading-[1.2] tracking-normal text-ink tnum" title={t("capTitle", { cap: c.main, detail: c.detail })}><span className="sr-only">{t("comma")}{t("marketCap")} </span><Roll text={c.main} />{c.usd === null ? <span className="sr-only">{t("comma")}{c.detail}</span> : null}</p>
             <span aria-hidden="true" className="shrink-0"><ChangeChip v={row.change_from_launch} roll /></span>
-            <span className="sr-only">, {changeWords(row.change_from_launch)}. </span>
+            <span className="sr-only">{t("comma")}{changeWords(row.change_from_launch)}{t("stop")}</span>
           </div>
-          <p aria-hidden="true" style={k(3)} className={`${styles.row} mt-0.5 text-pretty text-[11px] lg:truncate ${handover ? "text-brand" : "text-muted"}`}>{handover && from ? `Took the lead from ${from.name}` : `Market cap${c.usd === null ? ` (${c.detail})` : ""}, and the change since launch`}</p>
+          <p aria-hidden="true" style={k(3)} className={`${styles.row} mt-0.5 text-pretty text-[11px] lg:truncate ${handover ? "text-brand" : "text-muted"}`}>{handover && from ? t("tookLead", { name: from.name }) : c.usd === null ? t("capCaptionUnpriced", { detail: c.detail }) : t("capCaption")}</p>
         </div>
         <div className={`min-h-3.5 flex-1 ${styles.spacer}`} />
-        <div title={WINDOW_NOTE} style={k(4)} className={`${styles.row} min-w-0 border-t border-line pt-3.5 ${styles.figures}`}>
+        <div title={t("windowNote")} style={k(4)} className={`${styles.row} min-w-0 border-t border-line pt-3.5 ${styles.figures}`}>
           <div className="flex min-w-0 items-center gap-3">
-            <p className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap text-xs text-body"><span className="font-mono text-lg font-bold leading-6 text-ink tnum"><Roll text={count(a.wallets)} /></span>{a.wallets === 1 ? "wallet" : "wallets"} trading<span className="sr-only">. </span></p>
+            <p className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap text-xs text-body">{t.rich("walletsTrading", { count: a.wallets, num: () => <span className="font-mono text-lg font-bold leading-6 text-ink tnum"><Roll text={count(a.wallets)} /></span> })}<span className="sr-only">{t("stop")}</span></p>
             {/* the card's last trades, as they happened: buys above the line, sells below, taller for more dollars */}
-            <span className="ml-auto hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted sm:inline" aria-hidden="true">Last trades</span>
+            <span className="ml-auto hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted sm:inline" aria-hidden="true">{t("lastTrades")}</span>
             <Streak pips={pips} now={now} />
             <Tape pips={pips.slice(-PIPS_LEADER)} now={now} big className="max-w-[250px] flex-1" />
           </div>
           <Bar pct={barWidth(a.wallets, top)} className="mt-2 h-1.5" />
-          <p className="mt-2.5 text-pretty text-[11px] text-muted lg:truncate" suppressHydrationWarning>{facts}<span className="sr-only">. </span></p>
+          <p className="mt-2.5 text-pretty text-[11px] text-muted lg:truncate" suppressHydrationWarning>{facts}<span className="sr-only">{t("stop")}</span></p>
           <dl className="mt-2.5 flex min-w-0 gap-x-6 text-[11px] text-muted">
-            <div className="flex shrink-0 items-baseline gap-1.5"><dt>Trades</dt><dd className="font-mono text-sm font-bold text-ink tnum"><Roll text={count(a.trades)} /><span className="sr-only">, </span></dd></div>
-            <div className="flex min-w-0 items-baseline gap-1.5"><dt>Volume</dt><dd className="truncate font-mono text-sm font-bold text-ink tnum" title={`Volume ${a.volume}`}><Roll text={a.volume} /><span className="sr-only">. </span></dd></div>
+            <div className="flex shrink-0 items-baseline gap-1.5"><dt>{t("trades")}</dt><dd className="font-mono text-sm font-bold text-ink tnum"><Roll text={count(a.trades)} /><span className="sr-only">{t("comma")}</span></dd></div>
+            <div className="flex min-w-0 items-baseline gap-1.5"><dt>{t("volume")}</dt><dd className="truncate font-mono text-sm font-bold text-ink tnum" title={t("volumeTitle", { volume: a.volume })}><Roll text={a.volume} /><span className="sr-only">{t("stop")}</span></dd></div>
           </dl>
         </div>
       </div>
@@ -364,30 +404,36 @@ function Leader({ row, window, now, top, pips, fx: onToken, from }: { row: Launc
 
 /** A runner's card. The visible marks are terse, so sr-only words make the link read as one sentence. */
 function Runner({ row, rank, window, top, now, pips, fx: onToken, move, lead = false, from = null }: { row: LaunchRow; rank: number; window: Snap["window"]; top: number; now: number; pips: readonly TapePip[]; fx: CardFx | undefined; move: Board["moves"][string] | undefined; lead?: boolean; from?: Board["from"] }) {
+  const t = useTranslations("market.trending");
+  const tm = useTranslations("market");
+  const { short, ago } = useAgo();
+  const changeWords = useChangeWords();
   const fx = useFreshFx(onToken);
   const a = activity(row, window);
-  const c = cap(row);
+  const c = localizedCap(cap(row), tm("noUsdPrice"));
   const last = lastTradeAt(row, pips);
+  // "now" for a trade under ten seconds old, else its age: "3m"
+  const fresh = last !== null && now - last < 10_000;
   // `lead`: the leader's card below 1024px, where it is drawn like a runner. It says "New leader" for a few seconds, as the big card does
   const handover = lead && from !== null && now - from.since < HANDOVER_LIFE_MS;
   return (
-    <Link href={href(row)} onClick={open(row)} title={hint(row)} style={fxStyle(fx, false)} className={`flex h-full min-w-0 flex-col justify-between rounded-2xl border ${lead ? "border-line-strong" : "border-line"} bg-card px-4 py-3.5 transition-colors hover:border-muted motion-reduce:transition-none sm:py-4 ${styles.card} ${fxClass(fx)}`}>
+    <Link href={href(row)} onClick={open(row)} title={hint(t, row)} style={fxStyle(fx, false)} className={`flex h-full min-w-0 flex-col justify-between rounded-2xl border ${lead ? "border-line-strong" : "border-line"} bg-card px-4 py-3.5 transition-colors hover:border-muted motion-reduce:transition-none sm:py-4 ${styles.card} ${fxClass(fx)}`}>
       {fx ? <FxNodes fx={fx} place="runner" /> : null}
-      {handover ? <><span aria-hidden="true" className={styles.sweep} /><span aria-hidden="true" className={`${styles.edge} ${styles.edgeLead}`} /><span aria-hidden="true" className={styles.move}>New leader</span></> : null}
-      {move && move.delta !== 0 && now - move.since < MOVE_LIFE_MS ? <span aria-hidden="true" title={move.delta > 0 ? `Up ${move.delta}` : `Down ${-move.delta}`} className={`${styles.move} ${move.delta < 0 ? styles.moveDown : ""}`}>{move.delta > 0 ? "▲" : "▼"}{Math.abs(move.delta)}</span> : null}
+      {handover ? <><span aria-hidden="true" className={styles.sweep} /><span aria-hidden="true" className={`${styles.edge} ${styles.edgeLead}`} /><span aria-hidden="true" className={styles.move}>{t("newLeader")}</span></> : null}
+      {move && move.delta !== 0 && now - move.since < MOVE_LIFE_MS ? <span aria-hidden="true" title={move.delta > 0 ? t("up", { count: move.delta }) : t("down", { count: -move.delta })} className={`${styles.move} ${move.delta < 0 ? styles.moveDown : ""}`}>{move.delta > 0 ? "▲" : "▼"}{Math.abs(move.delta)}</span> : null}
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className={`w-5 shrink-0 font-mono text-[11px] tnum ${lead ? "text-brand" : "text-muted"}`}><span className="sr-only">Number </span>{String(rank).padStart(2, "0")}<span className="sr-only">: </span></span>
+        <span className={`w-5 shrink-0 font-mono text-[11px] tnum ${lead ? "text-brand" : "text-muted"}`}>{t.rich("runnerNumber", { rank: String(rank).padStart(2, "0"), sr })}</span>
         <span className="relative shrink-0"><TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={38} className="rounded-xl" /><ChainCorner chain={row.chain} size={14} /></span>
         {/* the name column keeps a floor and the cap gives way first, so a long quote figure never erases the name */}
         <div className="min-w-16 flex-1">
           <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
-          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted"><span className="sr-only">, </span><span className={`truncate font-mono ${row.symbol.length > 3 ? "min-w-[3ch] shrink-[999]" : "shrink-0"}`}>{row.symbol}</span><span aria-hidden="true">·</span><span className="sr-only">, </span><span className="truncate">{CHAIN_SHORT[row.chain]}</span></p>
+          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted"><span className="sr-only">{t("comma")}</span><span className={`truncate font-mono ${row.symbol.length > 3 ? "min-w-[3ch] shrink-[999]" : "shrink-0"}`}>{row.symbol}</span><span aria-hidden="true">·</span><span className="sr-only">{t("comma")}</span><span className="truncate">{CHAIN_SHORT[row.chain]}</span></p>
         </div>
         <div className="min-w-0 max-w-[50%] text-right">
           {/* a quote figure ("478.31M TWIG") is longer than dollars: set smaller, it leaves a ten-letter name whole */}
-          <p className={`truncate font-mono font-bold text-ink tnum ${c.usd === null ? "text-[11px] leading-5" : "text-sm"}`} title={`Market cap ${c.main} · ${c.detail}`}><span className="sr-only">, market cap </span><Roll text={c.main} /></p>
+          <p className={`truncate font-mono font-bold text-ink tnum ${c.usd === null ? "text-[11px] leading-5" : "text-sm"}`} title={t("capTitle", { cap: c.main, detail: c.detail })}><span className="sr-only">{t("comma")}{t("marketCap")} </span><Roll text={c.main} /></p>
           <span aria-hidden="true" className="mt-0.5 block"><ChangeChip v={row.change_from_launch} plain roll /></span>
-          <span className="sr-only">, {changeWords(row.change_from_launch)}, </span>
+          <span className="sr-only">{t("comma")}{changeWords(row.change_from_launch)}{t("comma")}</span>
         </div>
       </div>
       <div className="mt-3 sm:mt-3.5">
@@ -396,13 +442,13 @@ function Runner({ row, rank, window, top, now, pips, fx: onToken, move, lead = f
             volume, how long ago the token last traded, its tape, and the pair badge, which lives down here where it can
             never squeeze the symbol. Each space shares a text node with a word: a whitespace-only node is dropped from the
             link's name ("144wallets") */}
-        <p className="mt-2 min-h-5 min-w-0 truncate whitespace-nowrap text-[11px] text-muted"><span className="font-mono font-bold text-ink tnum"><Roll text={count(a.wallets)} /></span>{` ${a.wallets === 1 ? "wallet" : "wallets"} trading `}<span aria-hidden="true">· </span><span className="sr-only">, </span><span className="font-mono text-body tnum"><Roll text={count(a.trades)} /></span>{` ${a.trades === 1 ? "trade" : "trades"}`}</p>
+        <p className="mt-2 min-h-5 min-w-0 truncate whitespace-nowrap text-[11px] text-muted">{t.rich("runnerFigures", { wallets: a.wallets, trades: a.trades, sr, num: () => <span className="font-mono font-bold text-ink tnum"><Roll text={count(a.wallets)} /></span>, dot: (chunks) => <span aria-hidden="true">{chunks}</span>, tally: () => <span className="font-mono text-body tnum"><Roll text={count(a.trades)} /></span> })}</p>
         <div className="mt-0.5 flex h-5 min-w-0 items-center gap-2 text-[11px] text-muted">
-          <span className="min-w-0 flex-1 truncate whitespace-nowrap" title={`Volume ${a.volume}`}><span className="sr-only">, volume </span><span aria-hidden="true">vol </span><span className="font-mono text-body tnum"><Roll text={a.volume} /></span>{c.usd === null ? <> · {c.detail}</> : null}</span>
-          {last === null ? null : <span className="shrink-0 font-mono tnum" title={`Last trade ${since(last, now)}${now - last < 10_000 ? "" : " ago"}`} suppressHydrationWarning><span className="sr-only">, last trade </span>{since(last, now)}<span className="sr-only">{now - last < 10_000 ? "" : " ago"}. </span></span>}
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap" title={t("volumeTitle", { volume: a.volume })}><span className="sr-only">{t("comma")}{t("volumeSpoken")} </span><span aria-hidden="true">{t("vol")} </span><span className="font-mono text-body tnum"><Roll text={a.volume} /></span>{c.usd === null ? <> · {c.detail}</> : null}</span>
+          {last === null ? null : <span className="shrink-0 font-mono tnum" title={t("lastTradeTitle", { time: fresh ? tm("now") : ago(new Date(last).toISOString(), now) })} suppressHydrationWarning>{t.rich(fresh ? "lastTradeSpokenNow" : "lastTradeSpoken", { time: fresh ? tm("now") : short(new Date(last).toISOString(), now), sr })}</span>}
           <Streak pips={pips} now={now} />
           <Tape pips={pips.slice(-PIPS_RUNNER)} now={now} className="w-[76px] shrink-0" />
-          {hasQuoteBrandBadge(row.quote_key) ? <span className="flex shrink-0 items-center"><span className="sr-only">, paired with </span><QuoteBrandBadge quoteKey={row.quote_key} /></span> : null}
+          {hasQuoteBrandBadge(row.quote_key) ? <span className="flex shrink-0 items-center">{t.rich("runnerPair", { sr, badge: () => <QuoteBrandBadge quoteKey={row.quote_key} /> })}</span> : null}
         </div>
       </div>
     </Link>
