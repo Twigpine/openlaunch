@@ -49,7 +49,7 @@ type Phase =
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 
 
-export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeRoute, quote, ethUsd, onTraded }: { chain: ChainKey; token: Address; symbol: string; poolKey: PoolKey; poolId: Hex; feeRoute: string; quote: Quote; ethUsd: number | null; onTraded?: () => void }) {
+export default function TradePanel({ chain, token, symbol, poolKey, poolId, tradingFeePips, feeRoute, quote, ethUsd, onTraded }: { chain: ChainKey; token: Address; symbol: string; poolKey: PoolKey; poolId: Hex; tradingFeePips: number; feeRoute: string; quote: Quote; ethUsd: number | null; onTraded?: () => void }) {
   const CHAIN = CHAINS[chain];
   const CHAIN_LABEL = CHAIN_LABELS[chain];
   const V4 = launchpad(chain).v4;
@@ -159,14 +159,14 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
           pub.simulateContract({ address: V4.quoter, abi: V4_QUOTER_ABI, functionName: "quoteExactInputSingle", args: [{ poolKey, zeroForOne: false, exactAmount: tokenBalance, hookData: "0x" }] }),
           pub.readContract({ address: V4.stateView, abi: STATE_VIEW_ABI, functionName: "getSlot0", args: [poolId] }).then((slot0) => slot0[0] as bigint, () => null),
         ]);
-        const impact = sqrtPriceX96 === null ? null : priceImpact({ sqrtPriceX96, amountIn: tokenBalance, amountOut: result[0], zeroForOne: false, feePips: poolKey.fee });
+        const impact = sqrtPriceX96 === null ? null : priceImpact({ sqrtPriceX96, amountIn: tokenBalance, amountOut: result[0], zeroForOne: false, feePips: tradingFeePips });
         if (active) setSellAll({ forBalance: tokenBalance.toString(), out: result[0], impact });
       } catch {
         if (active) setSellAll(null);
       }
     }, 600);
     return () => { active = false; clearTimeout(t); };
-  }, [address, tradable, tokenBalance, poolKey, poolId, config, V4.quoter, V4.stateView, CHAIN.id]);
+  }, [address, tradable, tokenBalance, poolKey, poolId, tradingFeePips, config, V4.quoter, V4.stateView, CHAIN.id]);
 
   async function trade() {
     if (!tradable || !address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
@@ -253,7 +253,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
   const payUsd = viaEth ? ethUsd : quoteUsd;
   const inUsd = amountIn !== null && side === "buy" && payUsd ? fmtUsd(units(amountIn, pay.decimals) * payUsd) : null;
   const fresh = quote_ && quote_.forKey === quoteKey ? quote_ : null;
-  const impact = fresh && fresh.sqrtPriceX96 !== null && amountIn !== null ? priceImpact({ sqrtPriceX96: fresh.sqrtPriceX96, amountIn, amountOut: fresh.out, zeroForOne: side === "buy", feePips: poolKey.fee }) : null;
+  const impact = fresh && fresh.sqrtPriceX96 !== null && amountIn !== null ? priceImpact({ sqrtPriceX96: fresh.sqrtPriceX96, amountIn, amountOut: fresh.out, zeroForOne: side === "buy", feePips: tradingFeePips }) : null;
   const level = impact === null ? null : impactLevel(impact);
   const confirming = level === "confirm" && armed === quoteKey;
   // the second tap is outside trade() on purpose: trade() keeps its synchronous lock as the first thing it does

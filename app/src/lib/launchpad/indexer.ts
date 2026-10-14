@@ -777,6 +777,18 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
         AND (factory_address IS NULL OR locker_address IS NULL OR fee_contract_address IS NULL)`;
     await db`INSERT INTO bb_launch_sync_cursor (chain_id) VALUES (${cid}) ON CONFLICT DO NOTHING`;
     const [{ cursor_block }] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
+    // Seed every suite and lower aggregate progress before any RPC read can fail. Points finalization must
+    // never mistake the old v1 cursor for completed history from a newly configured quote suite.
+    const progress: { suite: LaunchSuite; reached: bigint }[] = [];
+    for (const suite of launchSuites(chain).filter((s) => s.deployBlock > 0n)) {
+      // Inherit the old cursor once for v1; a new factory always starts at its own deployment.
+      await db`INSERT INTO bb_launch_suite_cursor (chain_id, suite_id, factory_address, cursor_block)
+        VALUES (${cid}, ${suite.id}, ${suite.factory.toLowerCase()}, ${suite.id === "lp-v1" ? cursor_block : 0n}) ON CONFLICT DO NOTHING`;
+      const [cursor] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_suite_cursor WHERE chain_id = ${cid} AND suite_id = ${suite.id} AND factory_address = ${suite.factory.toLowerCase()}`;
+      progress.push({ suite, reached: BigInt(cursor.cursor_block) });
+    }
+    const startingCursor = progress.reduce((least, p) => p.reached < least ? p.reached : least, progress[0]?.reached ?? BigInt(cursor_block));
+    await db`UPDATE bb_launch_sync_cursor SET cursor_block = ${startingCursor} WHERE chain_id = ${cid}`;
     const head = await publicClient(chain).getBlockNumber();
     knownHead = head;
     const confirmed = head - confirmations(chain);
@@ -784,12 +796,8 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
     // The chain cursor reports the slowest suite, so the lag on /api/health never hides one that is behind.
     let slowest: bigint | null = null;
     let caughtUp = true;
-    for (const suite of launchSuites(chain).filter((s) => s.deployBlock > 0n)) {
-      // Inherit the old cursor once for v1; a new factory always starts at its own deployment.
-      await db`INSERT INTO bb_launch_suite_cursor (chain_id, suite_id, factory_address, cursor_block)
-        VALUES (${cid}, ${suite.id}, ${suite.factory.toLowerCase()}, ${suite.id === "lp-v1" ? cursor_block : 0n}) ON CONFLICT DO NOTHING`;
-      const [cursor] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_suite_cursor WHERE chain_id = ${cid} AND suite_id = ${suite.id} AND factory_address = ${suite.factory.toLowerCase()}`;
-      let reached = BigInt(cursor.cursor_block);
+    for (const { suite, reached: initial } of progress) {
+      let reached = initial;
       let from = reached > 0n ? reached - syncOverlapBlocks() : suite.deployBlock;
       if (from < suite.deployBlock) from = suite.deployBlock;
       let chunks = 0;

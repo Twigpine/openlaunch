@@ -79,14 +79,30 @@ try {
   receiptHash=`0x${"5".repeat(64)}`; logs=smartLogs();
   // A chain cursor ahead of the new factory must not skip its backfill.
   await sql`UPDATE bb_launches SET factory_address=NULL,locker_address=NULL,fee_contract_address=NULL WHERE token=${legacyToken}`;
-  await sql`INSERT INTO bb_launch_sync_cursor (chain_id,cursor_block) VALUES(8453,100) ON CONFLICT(chain_id) DO UPDATE SET cursor_block=100`;
+  await sql`INSERT INTO bb_launch_sync_cursor (chain_id,cursor_block) VALUES(8453,2000) ON CONFLICT(chain_id) DO UPDATE SET cursor_block=2000`;
+  const readLogs=client.getLogs;
+  client.getBlockNumber=async()=>2002n;
+  client.getLogs=(async (p: {address: string | string[]})=> {
+    if ((Array.isArray(p.address)?p.address:[p.address]).includes(factory)) throw new Error("quote backfill unavailable");
+    return [];
+  }) as typeof client.getLogs;
+  await assert.rejects(pollLaunches("base"),/quote backfill unavailable/);
+  assert.equal((await sql`SELECT cursor_block FROM bb_launch_suite_cursor WHERE suite_id='quote-v2'`)[0].cursor_block,0n);
+  assert.equal((await sql`SELECT cursor_block FROM bb_launch_suite_cursor WHERE suite_id='lp-v1'`)[0].cursor_block,2000n);
+  const [failed]=await sql`SELECT cursor_block,head_block,last_error FROM bb_launch_sync_cursor WHERE chain_id=8453`;
+  assert.equal(failed.cursor_block,0n,"a failed first backfill cannot leave the aggregate above a season-end block of 1500");
+  assert.equal(failed.head_block,2002n);
+  assert.match(failed.last_error,/quote backfill unavailable/);
+  client.getLogs=readLogs;
+  client.getBlockNumber=async()=>4n;
   await pollLaunches("base");
   const [polled]=await sql`SELECT trader,tx_from,trader_via,trader_amount0,quote_fee FROM bb_launch_swaps WHERE tx_hash=${receiptHash}`;
   assert.deepEqual(polled,smart);
   const [cursor]=await sql`SELECT * FROM bb_launch_suite_cursor WHERE suite_id='quote-v2'`;
   assert.equal(cursor.cursor_block,2n);
-  // The chain cursor follows the slowest suite (lp-v1 inherited 100), so health lag shows the backfill.
+  // The chain cursor follows the slowest suite (lp-v1 inherited 2000), so health lag shows the backfill.
   assert.equal((await sql`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].cursor_block,2n);
+  assert.equal((await sql`SELECT last_error FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].last_error,null);
   const [migrated]=await sql`SELECT factory_address,locker_address,fee_contract_address FROM bb_launches WHERE token=${legacyToken}`;
   assert.deepEqual(migrated,{factory_address:legacyFactory,locker_address:legacyLocker,fee_contract_address:legacyLocker});
   process.env.LAUNCH_DEPLOY_BLOCK="9";

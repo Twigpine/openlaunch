@@ -234,7 +234,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
           <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             {/* a beam in the token's colour travels the trade box border; the box itself keeps the action colours */}
             <div className="relative rounded-2xl">
-              <TradePanel chain={chain} token={l.token as Address} symbol={l.symbol} poolKey={poolKey} poolId={l.pool_id as `0x${string}`} feeRoute={tradeFee} quote={quote} ethUsd={usd} />
+              <TradePanel chain={chain} token={l.token as Address} symbol={l.symbol} poolKey={poolKey} poolId={l.pool_id as `0x${string}`} tradingFeePips={l.creator_fee_pips ?? l.lp_fee} feeRoute={tradeFee} quote={quote} ethUsd={usd} />
               <BorderBeam size={120} duration={9} colorFrom="var(--tok)" colorTo="var(--tok)" />
             </div>
             {/* the token at a glance beside the trade box, as other launchpads keep it; the full record is in the About tab */}
