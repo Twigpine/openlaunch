@@ -8,6 +8,7 @@ import activity from "./en/activity.json";
 import hero from "./en/hero.json";
 import posts from "./en/posts.json";
 import token from "./en/token.json";
+import trade from "./en/trade.json";
 import launch from "./en/launch.json";
 import info from "./en/info.json";
 import account from "./en/account.json";
@@ -19,7 +20,7 @@ import footer from "./en/footer.json";
  * English, the source text: it fixes the keys (and their types) and is the fallback for any key a translation leaves
  * out. One JSON file per area of the site. It ships with the client code, so English needs nothing sent per page.
  */
-export const en = { common, header, wallet, search, market, activity, hero, posts, token, launch, info, account, bridge, errors, footer };
+export const en = { common, header, wallet, search, market, activity, hero, posts, token, trade, launch, info, account, bridge, errors, footer };
 export type Messages = typeof en;
 
 /** A translation: any subset of the English keys. */
