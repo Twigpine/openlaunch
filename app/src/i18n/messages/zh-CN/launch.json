@@ -208,26 +208,12 @@
       "buyFailedSub": "{reason} 你可以在代币页面买入。"
     },
     "reasons": {
-      "cancelled": "你已在钱包中取消。",
-      "generic": "出了点问题。",
-      "gas": "Gas 代币（ETH，或 Arc 上的 USDC）不足以支付这笔交易及其 Gas。",
-      "saltUsed": "该盐值已被使用。请重试（会生成新的盐值）。",
-      "badFee": "手续费超出范围（最高 3%）。",
-      "badTick": "起始价格超出范围。",
-      "badSupply": "供应量过大。",
-      "quoteOrdering": "代币地址的排序必须在计价资产之上。请使用新的盐值重试。",
-      "nativeQuote": "这条链不接受原生资产作为计价资产。请改用 USDC 为代币计价。",
-      "noLiquidity": "供应量太小，无法注入流动性。",
-      "unknownLaunch": "未知的发行。",
-      "badRecipients": "受益人份额合计必须为 100%。",
       "metadata": "无法保存元数据",
       "metadataChanged": "盐值搜索期间元数据 URI 发生了变化",
       "txReverted": "交易在链上被回滚。",
       "buyReverted": "买入交易在链上被回滚。",
       "slowDown": "操作太频繁，请稍后再试",
-      "unconfigured": "发射台未配置",
-      "slippage": "价格变动超过 {pct}%。请重试。",
-      "reverted": "交易回滚：{name}"
+      "unconfigured": "发射台未配置"
     }
   },
   "fees": {

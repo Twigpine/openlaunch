@@ -208,26 +208,12 @@
       "buyFailedSub": "{reason} You can buy on the token page."
     },
     "reasons": {
-      "cancelled": "You cancelled in your wallet.",
-      "generic": "Something went wrong.",
-      "gas": "Not enough of the gas token (ETH, or USDC on Arc) for this transaction plus gas.",
-      "saltUsed": "This salt was already used. Try again (a fresh salt is generated).",
-      "badFee": "Fee out of range (max 3%).",
-      "badTick": "Start price out of range.",
-      "badSupply": "Supply too large.",
-      "quoteOrdering": "Token address must sort above the quote. Try again with a new salt.",
-      "nativeQuote": "This chain does not take its native asset as a quote. Price the token in USDC instead.",
-      "noLiquidity": "Supply too small to seed liquidity.",
-      "unknownLaunch": "Unknown launch.",
-      "badRecipients": "Beneficiary shares must add up to 100%.",
       "metadata": "could not save metadata",
       "metadataChanged": "metadata URI changed during the salt search",
       "txReverted": "Transaction reverted on-chain.",
       "buyReverted": "The buy reverted on-chain.",
       "slowDown": "slow down",
-      "unconfigured": "launchpad unconfigured",
-      "slippage": "Price moved more than {pct}%. Try again.",
-      "reverted": "Reverted: {name}"
+      "unconfigured": "launchpad unconfigured"
     }
   },
   "fees": {

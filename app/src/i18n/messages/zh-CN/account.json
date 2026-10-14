@@ -226,9 +226,7 @@
       "authorUnknown": "无法读取该帖子的作者；请一分钟后重试",
       "wrongAccount": "该帖子来自 @{handle}，但这个验证码属于 @{expected}",
       "codeMissing": "该帖子中没有验证码 {code}",
-      "xDownWrongLink": "X 暂时没有响应，而且该链接不是 @{handle} 的帖子：请粘贴你用 @{handle} 发布的帖子链接，或一分钟后重试",
-      "cancelled": "你已在钱包中取消。",
-      "generic": "出了点问题。"
+      "xDownWrongLink": "X 暂时没有响应，而且该链接不是 @{handle} 的帖子：请粘贴你用 @{handle} 发布的帖子链接，或一分钟后重试"
     }
   },
   "points": {

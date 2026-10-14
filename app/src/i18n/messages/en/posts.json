@@ -37,8 +37,6 @@
     }
   },
   "errors": {
-    "cancelled": "You cancelled in your wallet.",
-    "generic": "Something went wrong.",
     "empty": "empty post",
     "tooLong": "max {max} characters",
     "noHtml": "no HTML",

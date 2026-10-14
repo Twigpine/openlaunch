@@ -5,15 +5,16 @@ import { en } from "../../i18n/messages/index.ts";
 import { REPORT_REASONS } from "../../lib/launchpad/posts.ts";
 
 /**
- * Source contracts for the posts UI in two languages. The posts lib, friendlyError and the posts API give their failure
- * reasons in English; Posts.tsx shows each known one as a message (posts.errors.*), so these keep the two in step: every
- * translated reason is one the code really gives, and its English message reads exactly as the reason did.
+ * Source contracts for the posts UI in two languages. The posts lib and the posts API give their failure reasons in
+ * English; Posts.tsx shows each known one as a message (posts.errors.*), so these keep the two in step: every translated
+ * reason is one the code really gives, and its English message reads exactly as the reason did. (friendlyError words
+ * its own reasons in the reader's language.)
  */
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const posts = read("./Posts.tsx");
 // the reasons as the code writes them: the lib's and the API's own strings, and the fallbacks Posts.tsx throws with
 const given = [
-  ...["../../lib/launchpad/posts.ts", "../../lib/launchpad/postsServer.ts", "../../lib/errors.ts", "../../app/api/posts/route.ts", "../../app/api/posts/report/route.ts", "../../app/api/posts/mod/route.ts"].map(read),
+  ...["../../lib/launchpad/posts.ts", "../../lib/launchpad/postsServer.ts", "../../app/api/posts/route.ts", "../../app/api/posts/report/route.ts", "../../app/api/posts/mod/route.ts"].map(read),
   ...[...posts.matchAll(/d\.error \?\? ("[^"]+")/g)].map((m) => m[1]),
 ].join("\n");
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

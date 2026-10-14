@@ -5,9 +5,10 @@ export type Reason = keyof Messages["account"]["profileSheet"]["errors"];
 /**
  * Why a profile save, delete or X check failed, as messages (account.profileSheet.errors). The reasons arrive as
  * English text from validateProfile (lib/profiles/validate.ts, the X field's from lib/launchpad/xHandle.ts), the profile
- * API (lib/profiles/server.ts, xpost.ts and the /api/profile routes), friendlyError and ProfileSheet's own fallbacks.
- * Each English message reads exactly as its reason, so the reason finds its message; the libs and the API keep their
- * English. Server-safe and pure, so the tests can read every reason back.
+ * API (lib/profiles/server.ts, xpost.ts and the /api/profile routes) and ProfileSheet's own fallbacks. Each English
+ * message reads exactly as its reason, so the reason finds its message; the libs and the API keep their English.
+ * friendlyError (lib/errors.ts) already words its reasons in the reader's language. Server-safe and pure, so the tests
+ * can read every reason back.
  */
 const EXACT = new Map(
   Object.entries(en.account.profileSheet.errors)

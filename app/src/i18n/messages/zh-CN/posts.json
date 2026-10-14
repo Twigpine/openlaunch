@@ -37,8 +37,6 @@
     }
   },
   "errors": {
-    "cancelled": "你已在钱包中取消。",
-    "generic": "出了点问题。",
     "empty": "内容不能为空",
     "tooLong": "最多 {max} 个字符",
     "noHtml": "不支持 HTML",

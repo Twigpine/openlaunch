@@ -6,10 +6,10 @@ import { en, messagesFor } from "../../i18n/messages/index.ts";
 import { reasonOf } from "./reasons.ts";
 
 /**
- * The profile sheet in two languages. Validation, the profile API, friendlyError and the sheet's own fallbacks give
- * their failure reasons in English; the sheet shows each known one as a message (account.profileSheet.errors). These
- * keep the two in step: every message stands for a reason the code really gives, every reason finds its message with
- * its values, and the English message reads exactly as the reason did.
+ * The profile sheet in two languages. Validation, the profile API and the sheet's own fallbacks give their failure
+ * reasons in English; the sheet shows each known one as a message (account.profileSheet.errors). These keep the two in
+ * step: every message stands for a reason the code really gives, every reason finds its message with its values, and
+ * the English message reads exactly as the reason did. (friendlyError words its own reasons in the reader's language.)
  */
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const sheet = read("./ProfileSheet.tsx");
@@ -21,7 +21,6 @@ const given = [
     "../../lib/launchpad/xHandle.ts",
     "../../lib/profiles/server.ts",
     "../../lib/profiles/xpost.ts",
-    "../../lib/errors.ts",
     "../../app/api/profile/route.ts",
     "../../app/api/profile/check/route.ts",
     "../../app/api/profile/delete/route.ts",

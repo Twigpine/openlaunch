@@ -82,24 +82,13 @@ const CHAIN_COPY: Record<ChainKey, { stock: "coinbase" | "robinhood" | null; bri
   arc: { stock: null, bridgedGitlawb: false },
 };
 
-type Reason = Exclude<keyof Messages["launch"]["form"]["reasons"], "slippage" | "reverted">;
+type Reason = keyof Messages["launch"]["form"]["reasons"];
 /**
- * Why a launch or its first buy failed, as messages: the English reasons friendlyError (lib/errors.ts), the metadata
- * route and this form's own checks give. Any other text, such as a wallet's or a node's own error, reads as it came.
+ * Why a launch or its first buy failed, as messages: the English reasons the metadata route and this form's own checks
+ * give. friendlyError (lib/errors.ts) already words its reasons in the reader's language (the errors area), and any
+ * other text, such as a wallet's or a node's own error, reads as it came.
  */
 const REASONS = new Map<string, Reason>([
-  ["You cancelled in your wallet.", "cancelled"],
-  ["Something went wrong.", "generic"],
-  ["Not enough of the gas token (ETH, or USDC on Arc) for this transaction plus gas.", "gas"],
-  ["This salt was already used. Try again (a fresh salt is generated).", "saltUsed"],
-  ["Fee out of range (max 3%).", "badFee"],
-  ["Start price out of range.", "badTick"],
-  ["Supply too large.", "badSupply"],
-  ["Token address must sort above the quote. Try again with a new salt.", "quoteOrdering"],
-  ["This chain does not take its native asset as a quote. Price the token in USDC instead.", "nativeQuote"],
-  ["Supply too small to seed liquidity.", "noLiquidity"],
-  ["Unknown launch.", "unknownLaunch"],
-  ["Beneficiary shares must add up to 100%.", "badRecipients"],
   ["could not save metadata", "metadata"],
   ["metadata URI changed during the salt search", "metadataChanged"],
   ["Transaction reverted on-chain.", "txReverted"],
@@ -113,12 +102,7 @@ function useReason() {
   const t = useTranslations("launch.form.reasons");
   return useCallback((reason: string) => {
     const key = REASONS.get(reason);
-    if (key) return t(key);
-    const slippage = /^Price moved more than ([\d.]+)%\. Try again\.$/.exec(reason);
-    if (slippage) return t("slippage", { pct: slippage[1] });
-    const reverted = /^Reverted: (\w+)$/.exec(reason);
-    if (reverted) return t("reverted", { name: reverted[1] });
-    return reason;
+    return key ? t(key) : reason;
   }, [t]);
 }
 

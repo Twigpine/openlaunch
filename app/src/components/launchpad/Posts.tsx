@@ -33,13 +33,11 @@ function TagChip({ tag }: { tag: PostRow["tag"] }) {
 
 type Reason = Exclude<keyof Messages["posts"]["errors"], "wait" | "tooLong">;
 /**
- * Why a post, report or mute failed, as messages: the English reasons validateBody (lib/launchpad/posts.ts),
- * friendlyError (lib/errors.ts) and the posts API (lib/launchpad/postsServer.ts) give. Any other text, such as a
- * wallet's own error, reads as it came.
+ * Why a post, report or mute failed, as messages: the English reasons validateBody (lib/launchpad/posts.ts) and the
+ * posts API (lib/launchpad/postsServer.ts) give. friendlyError (lib/errors.ts) already words its reasons in the reader's
+ * language (the errors area), and any other text, such as a wallet's own error, reads as it came.
  */
 const REASONS = new Map<string, Reason>([
-  ["You cancelled in your wallet.", "cancelled"],
-  ["Something went wrong.", "generic"],
   ["empty post", "empty"],
   ["no HTML", "noHtml"],
   ["slow down", "slowDown"],

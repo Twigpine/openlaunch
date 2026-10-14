@@ -226,9 +226,7 @@
       "authorUnknown": "could not read who wrote that post; try again in a minute",
       "wrongAccount": "that post is from @{handle}, but this code is for @{expected}",
       "codeMissing": "the code {code} is not in that post",
-      "xDownWrongLink": "X did not answer just now, and that link is not a post from @{handle}: paste the link to your post from @{handle}, or try again in a minute",
-      "cancelled": "You cancelled in your wallet.",
-      "generic": "Something went wrong."
+      "xDownWrongLink": "X did not answer just now, and that link is not a post from @{handle}: paste the link to your post from @{handle}, or try again in a minute"
     }
   },
   "points": {

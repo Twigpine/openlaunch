@@ -278,22 +278,18 @@ test("the form's words are messages, and the English ones read as the form alway
 test("every failure reason the form translates is one the code really gives, and its English reads as the reason did", () => {
   const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
   const form = source.replaceAll("\r\n", "\n");
-  // the reasons as the code writes them: friendlyError's, the metadata route's and the form's own throws (not its map)
-  const given = [read("../../lib/errors.ts"), read("../../app/api/launch/meta/route.ts"), form.replace(/const REASONS = new Map[\s\S]*?\]\);/, "")].join("\n");
+  // the reasons as the code writes them: the metadata route's and the form's own throws (not its map). friendlyError
+  // words its own reasons in the reader's language, so none of them is mapped here.
+  const given = [read("../../app/api/launch/meta/route.ts"), form.replace(/const REASONS = new Map[\s\S]*?\]\);/, "")].join("\n");
   const mapped = new Map([...form.matchAll(/^\s*\["([^"]+)", "(\w+)"\],$/gm)].map((m) => [m[2], m[1]]));
   for (const [key, english] of Object.entries(copy.reasons)) {
-    if (key === "slippage" || key === "reverted") continue; // the two templates, read back by pattern below
     assert.equal(mapped.get(key), english, `REASONS maps "${english}" to reasons.${key}`);
     assert.ok(given.includes(`"${english}"`), `reasons.${key} ("${english}") is not a reason the code gives`);
   }
-  assert.equal(copy.reasons.slippage, "Price moved more than {pct}%. Try again.");
-  assert.match(given, /`Price moved more than \$\{slippagePct\}%\. Try again\.`/);
-  assert.ok(source.includes(String.raw`/^Price moved more than ([\d.]+)%\. Try again\.$/.exec(reason)`));
-  assert.equal(copy.reasons.reverted, "Reverted: {name}");
-  assert.match(given, /`Reverted: \$\{name\}`/);
-  assert.ok(source.includes(String.raw`/^Reverted: (\w+)$/.exec(reason)`));
+  const friendly = [en.errors.cancelled, en.errors.gas, en.errors.unknown, ...Object.values(en.errors.contract)];
+  for (const english of friendly) assert.ok(![...mapped.values()].includes(english), `friendlyError's "${english}" is not mapped again`);
   // both places a reason is shown read it through the map; anything unknown (a wallet's own words) reads as it came
   assert.match(source, /\{explain\(phase\.message\)\}/);
   assert.match(source, /reason: explain\(buyProblem\)/);
-  assert.match(source, /return reason;\s*\}, \[t\]\);/);
+  assert.match(source, /return key \? t\(key\) : reason;\s*\}, \[t\]\);/);
 });
