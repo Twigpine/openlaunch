@@ -138,6 +138,34 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
   assert.match(source, /<p className=\{helper\}>\{CHAIN_COPY\[chain\]\.stock\?\.issuer\}<\/p>/);
 });
 
+test("stock picker: a one-page list says how many stocks there are, and a stock without a USD price explains the stock-unit cap", () => {
+  // the registry's size comes from the server with each page: the form never hard-codes a count or a ticker list that goes stale
+  assert.match(source, /const d = \(await res\.json\(\)\) as \{ stocks: Quote\[\]; stocksTotal\?: number; stocksMatched\?: number \};/);
+  // a reply from a server that does not send the match count yet (mid-deploy) reads as "nothing left out"
+  assert.match(source, /setStockHits\(d\.stocks \?\? \[\]\);\s*setStockTotal\(d\.stocksTotal \?\? 0\);\s*setStockMatched\(d\.stocksMatched \?\? 0\);\s*setStockAnswered\(stockQ\);/);
+  assert.doesNotMatch(source, /\d+ Coinbase tokenized stocks/);
+  assert.match(source, /empty: "No match\. Search a ticker or a company name, e\.g\. NVDA, AMD or Netflix\."/);
+  // how many the page leaves out: against the registry for an empty search, against the matches for a typed one ("S" matches more than fit).
+  // Counted only when the page answers the text as typed (a reply still on its way describes the old text) and no stock is picked.
+  assert.match(source, /const stockMore = !stock && stockAnswered === stockQ && stockHits\.length > 0 \? Math\.max\(0, \(stockQ\.trim\(\) \? stockMatched : stockTotal\) - stockHits\.length\) : 0;/);
+  assert.match(source, /\{stockMore > 0 \? \(\s*<p className=\{helper\}>\s*\{stockQ\.trim\(\) \? `Showing \$\{stockHits\.length\} of \$\{stockHits\.length \+ stockMore\} matches\. Keep typing to narrow it down\.` : `Showing \$\{stockHits\.length\} of \$\{stockHits\.length \+ stockMore\}\. Search a ticker or a company name for the rest\.`\}\s*<\/p>\s*\) : null\}/);
+  // the counts belong to one chain's registry, like the hits: switching chains drops them all
+  assert.match(source, /setStockHits\(\[\]\);\s*setStockTotal\(0\);\s*setStockMatched\(0\);\s*setStockAnswered\(null\);/);
+  // most Coinbase stocks have no price feed: the cap box then takes stock units, and one line says so (never for ETH or a priced stock)
+  assert.match(source, /\{quote\.key === "stock" && entry\.unit === "quote" \? \(\s*<p className=\{helper\}>\s*\{quote\.symbol\} has no USD price here: enter the starting market cap in \{quote\.symbol\}\.\s*<\/p>\s*\) : null\}/);
+});
+
+test("stock picker: a stock nobody holds yet is marked in the list, and picking it says why nobody can buy with it yet", () => {
+  // only a confirmed "none issued" (issued === false) is marked; a stock the server could not read (null) or never reads (Robinhood) is not
+  assert.match(source, /title=\{h\.issued === false \? `\$\{h\.name\}: none issued yet` : h\.name\}/);
+  assert.match(source, /\{h\.issued === false \? <span className="font-normal text-muted">not issued yet<\/span> : null\}/);
+  // a warning, not a block: the launch works and trading starts once the issuer puts some in circulation
+  assert.match(source, /\{stock\?\.issued === false \? \(\s*<p className=\{helper\}>\s*None of \{stock\.symbol\} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some\. You can still launch now\.\s*<\/p>\s*\) : null\}/);
+  assert.doesNotMatch(source, /issued === true|issued !== false|!\w+\.issued\b/, "never read a missing or unknown flag as \"not issued\"");
+  // and no first buy is suggested in it (first-buy.ts): the step says why instead of showing an amount nobody can hold
+  assert.match(source, /\) : suggestion\.reason === "not-issued" \? \(\s*<p className=\{helper\}>Nothing suggested: no \{quote\.symbol\} has been issued yet, so there is none to buy with\. The launch stays free\.<\/p>/);
+});
+
 test("beneficiary split: recipients come from the tested helper, and the summary reflects the split", () => {
   // custom mode is the split editor; its rules live in lib/launchpad/recipients.ts, never inline in the form
   assert.match(source, /const split = useMemo\(\(\) => buildRecipients\(rows\), \[rows\]\);/);

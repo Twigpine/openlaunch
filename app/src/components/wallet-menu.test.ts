@@ -75,6 +75,19 @@ test("network switcher uses official local logos with theme-correct Robinhood ma
   assert.match(css, /:global\(\.dark\) \.networkLogo \.darkLogo\s*\{\s*display: block/);
 });
 
+test("the header chip carries its network as an avatar badge; only the mobile row spells it out", () => {
+  // the network's name in the desktop chip pushed the Launch button out of the header (up to 49px in the floating pill)
+  const trigger = source.slice(source.indexOf("<Popover.Trigger"), source.indexOf("</Popover.Trigger>"));
+  assert.match(trigger, /\{block \? <span className=\{styles\.triggerNetwork\}>/);
+  assert.match(trigger, /block \? <span className=\{styles\.connectionDot\} \/> : <NetworkBadge chain=\{key \?\? bridgeNetwork\?\.key \?\? null\} \/>/);
+  assert.match(trigger, /title=\{block \? undefined : [^\n]*"Unsupported network\. Open to switch"\}/);
+  const badge = source.slice(source.indexOf("function NetworkBadge"), source.indexOf("type WalletMenuProps"));
+  assert.match(badge, /if \(!chain\) return <span className=\{styles\.networkWarn\} aria-hidden>!<\/span>/);
+  // the site's chain tile (Arc's white mark needs its dark tile), as on token avatars
+  assert.match(badge, /<ChainLogo chain=\{chain\} size=\{14\} className="absolute -right-1 -bottom-1 ring-2 ring-card" \/>/);
+  assert.match(css, /\.networkWarn\s*\{[^}]*position: absolute[^}]*background: var\(--color-warm\)/);
+});
+
 test("wallet shortcuts copy the full address and close the nested menu on navigation", () => {
   assert.match(source, /await navigator.clipboard.writeText\(address\)/);
   assert.match(source, /Address copied\./);

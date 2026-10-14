@@ -17,6 +17,16 @@ test("mobile Launch closes its menu and route changes reset persistent header st
   assert.match(header, /quietCta=\{heroCtaOnScreen\}/, "the hero/header CTA handoff is preserved");
 });
 
+test("the desktop tools stay icons so the Launch button fits the strip", () => {
+  // the strip's room is fixed (the page column at rest, the 800px pill floating); a ⌘K hint or a "Bridge" label pushed
+  // the Launch button past it. The fit itself is checked in a browser (1024–2560px, every wallet state).
+  const desktop = header.slice(header.indexOf("function Desktop"), header.indexOf("function NavLinks"));
+  assert.match(desktop, /<SearchTrigger onClick=\{onSearch\} \/>/);
+  assert.match(desktop, /<BridgeButton compact \/>/);
+  assert.doesNotMatch(header, /<kbd\b/);
+  assert.match(navbar, /style=\{mobile \? undefined : \{ minWidth: 800 \}\}/);
+});
+
 test("Escape dismisses only an unconsumed menu event and returns focus to its toggle", () => {
   assert.match(navbar, /event\.key === "Escape" && !event\.defaultPrevented/);
   assert.match(navbar, /event\.preventDefault\(\);\s+onClose\(\)/);

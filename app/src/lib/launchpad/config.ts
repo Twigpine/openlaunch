@@ -22,8 +22,9 @@ export const MAX_RECIPIENTS = 7;
 /**
  * key "twig" = TWIG, the GITLAWB wrapper the Base form offers (twig.ts); "museworld" = an official quote the form does not offer (museworld.ts); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
  * is false only for an unlisted quote whose decimals have not been read yet: its 18 is a placeholder and it must not trade.
+ * `unpriced` is true only for a registry stock nothing prices (a Coinbase stock without a Chainlink feed): its null `usd` is the normal state, not an outage.
  */
-export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean };
+export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean; issued?: boolean | null /* stocks, from /api/quotes: false = none in circulation yet */ };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 
@@ -207,6 +208,15 @@ export function quoteKeyOf(key: ChainKey, address: string): Quote["key"] {
 }
 
 export { quoteUsdOf } from "./math";
+
+/**
+ * Whether anything prices this quote in USD. An unlisted ERC-20 and a stock without a price feed have no source: a null
+ * `usd` is then permanent, so dollar totals leave the quote out without flagging an undercount and nothing waits for a
+ * price to come back. Every other quote with a null `usd` is missing its price only for now.
+ */
+export function hasPriceSource(q: Pick<Quote, "key" | "unpriced">): boolean {
+  return q.key !== "other" && q.unpriced !== true;
+}
 
 /** LP fee presets offered in the form (pips). */
 export const FEE_PRESETS = [

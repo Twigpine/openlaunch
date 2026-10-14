@@ -9,6 +9,7 @@
  * quote balance cannot cover the amount, the native balance cannot cover the buy's gas (for an ETH quote, and for a quote
  * that is the chain's gas token in ERC-20 form such as USDC on Arc, both come from the same balance), or a balance read failed. While a read is still pending the suggestion stays, marked provisional.
  * The creator can clear it at any time. An amount the creator TYPED keeps the strict checks (LaunchForm.tsx).
+ * Nothing is suggested in a stock the issuer has not put in circulation yet (`issued === false`): no wallet can hold any.
  */
 
 import type { Quote } from "./config";
@@ -18,7 +19,7 @@ export const SUGGESTED_BUY_USD = 25;
 /** Quick-pick amounts per quote; the first one is the suggestion (about $25 at the prices this was written at). */
 export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], usdc: ["25", "100", "250"], gitlawb: ["500000", "1000000", "5000000"], twig: ["1000000", "2500000", "5000000"], museworld: [] /* not offered in the form */, stock: [], other: [] /* the form never offers an unlisted quote */ };
 
-export type NoSuggestion = "no-price" | "unknown-balance" | "insufficient" | "no-gas" | "declined";
+export type NoSuggestion = "no-price" | "not-issued" | "unknown-balance" | "insufficient" | "no-gas" | "declined";
 /** `provisional`: shown as selected but not yet confirmed against a balance (no wallet yet, or the read is pending). */
 export type FirstBuySuggestion = { amount: string; provisional: boolean; reason?: undefined } | { amount: null; reason: NoSuggestion };
 
@@ -40,15 +41,16 @@ export function amountForUsd(usd: number, quoteUsd: number, decimals: number): s
   return rounded === "0" || rounded === "" ? null : rounded;
 }
 
-/** The amount the form suggests for a quote before looking at the wallet: the first preset, or $25 worth for a stock. */
-export function defaultFirstBuy(quote: Pick<Quote, "key" | "decimals" | "usd">): string | null {
+/** The amount the form suggests for a quote before looking at the wallet: the first preset, or $25 worth for a stock (none for a stock nobody holds yet). */
+export function defaultFirstBuy(quote: Pick<Quote, "key" | "decimals" | "usd" | "issued">): string | null {
+  if (quote.issued === false) return null;
   const preset = BUY_PRESETS[quote.key][0];
   if (preset) return preset;
   return quote.usd ? amountForUsd(SUGGESTED_BUY_USD, quote.usd, quote.decimals) : null;
 }
 
 export type SuggestInput = {
-  quote: Pick<Quote, "key" | "decimals" | "usd">;
+  quote: Pick<Quote, "key" | "decimals" | "usd" | "issued">;
   connected: boolean;
   /** Wallet balance of what the buy is paid with (wei of the quote); undefined while unknown or after a failed read. */
   balance: bigint | undefined;
@@ -73,6 +75,7 @@ export function gasReserveInQuote(reserveWei: bigint, quoteDecimals: number): bi
 
 export function suggestFirstBuy(i: SuggestInput): FirstBuySuggestion {
   if (i.declined) return { amount: null, reason: "declined" };
+  if (i.quote.issued === false) return { amount: null, reason: "not-issued" };
   const amount = defaultFirstBuy(i.quote);
   if (!amount) return { amount: null, reason: "no-price" };
   if (!i.connected) return { amount, provisional: true }; // selected from the start; a wallet can only take it away

@@ -1,0 +1,64 @@
+name: pr-guard
+
+# The security gate for pull requests into main. The rules and their wording live in .github/scripts/pr-guard.mjs.
+#
+# pull_request_target runs main's copy of this workflow and of the script, so a pull request cannot edit its own judge.
+# The job has a read-only token and no secrets. It never checks out, installs or runs anything from the pull request:
+# the head commit is fetched as git objects and only read (git diff-tree, git cat-file, git diff).
+#
+# A change to this file, or to anything under .github/, is itself refused by the guard for everyone. Maintainers make it
+# in a pull request of its own and merge that with an admin bypass.
+#
+# "pr-guard" is the name of the required status check in the branch rules for main. Do not rename the job.
+#
+# The check is a snapshot of the reviews at the moment it ran. It is not started by a review being submitted or
+# dismissed, on purpose: pull_request_review runs the pull request's copy of this file, not main's, and on a fork its
+# token is read-only, so that run could neither be trusted to judge nor re-run this one. Refreshing the check from a
+# trusted run takes a write permission, and no workflow here has one. So after approving a commit, or after taking an
+# approval back, an owner re-runs this job (CONTRIBUTING.md, "For maintainers").
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] main's copy judges, and nothing from the pull request is run
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: pr-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-guard:
+    name: pr-guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # fetch the pull request's commits as git objects; read who pushed its branch
+      pull-requests: read # read who approved which commit
+    steps:
+      - name: check out main (trusted)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: fetch the pull request as data
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --quiet --no-tags --no-recurse-submodules origin "+refs/pull/${PR_NUMBER}/head:refs/pr-guard/head"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+      - name: guard
+        env:
+          GUARD_BASE: HEAD
+          GUARD_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          # who started this run, and how: the sender pushed the head commit only when the event is a push (synchronize)
+          # and the commit that push left behind is the head
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_SENDER: ${{ github.event.sender.login }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/pr-guard.mjs

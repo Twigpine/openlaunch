@@ -18,6 +18,18 @@ test("default: the first preset for ETH, USDG and GITLAWB; $25 worth for a stock
   assert.equal(defaultFirstBuy({ ...nvda, usd: null }), null);
 });
 
+test("a stock nobody holds yet (issued false): nothing to suggest, wallet or not; an unknown issue state changes nothing", () => {
+  const coin = { ...nvda, issued: false };
+  assert.equal(defaultFirstBuy(coin), null, "so the form offers no \"suggest again\" either");
+  assert.deepEqual(suggestFirstBuy({ ...base, quote: coin, connected: false, balance: undefined, nativeBalance: undefined, gasReserve: GAS }), { amount: null, reason: "not-issued" }, "before a wallet connects too: no provisional 0.11 COINc in the preview");
+  assert.deepEqual(suggestFirstBuy({ ...base, quote: coin, balance: 0n, nativeBalance: GAS, gasReserve: GAS }), { amount: null, reason: "not-issued" }, "named for why, not as a short balance");
+  assert.deepEqual(suggestFirstBuy({ ...base, quote: coin, balance: 0n, nativeBalance: GAS, gasReserve: GAS, declined: true }), { amount: null, reason: "declined" });
+  for (const issued of [true, null, undefined]) {
+    assert.equal(defaultFirstBuy({ ...nvda, issued }), "0.11", String(issued));
+    assert.deepEqual(suggestFirstBuy({ ...base, quote: { ...nvda, issued }, connected: false, balance: undefined, nativeBalance: undefined, gasReserve: GAS }), { amount: "0.11", provisional: true }, String(issued));
+  }
+});
+
 test("amountForUsd: short decimals parseUnits accepts, never more places than the quote has, null when it rounds away", () => {
   assert.equal(amountForUsd(25, 2500, 18), "0.01");
   assert.equal(amountForUsd(25, 1, 6), "25");

@@ -36,7 +36,7 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 - **Any quote asset.** ETH, USDG, USDC on Arc, **TWIG** ([Twigpine](https://twigpine.com)'s token on Base: a 1:1 wrapper of GITLAWB,
   wrap or unwrap any time with no fee; priced at GITLAWB's price; fees paid or burned in TWIG), **GITLAWB** ([Twigpine](https://twigpine.com)'s token, on Base and bridged 1:1 to
   Robinhood Chain; priced from its Base Uniswap v4 WETH pool; fees paid or burned in GITLAWB; the Base form offers TWIG in its place), or a **tokenized stock**: Coinbase's B20 stocks on Base
-  (NVDAc, AAPLc, TSLAc, …, priced from Chainlink on-chain feeds) and Robinhood Stock Tokens on Robinhood Chain.
+  (every stock Coinbase lists: NVDAc, AAPLc, TSLAc, NFLXc, …, and new listings picked up from Coinbase's registry as they appear; shown in USD where Chainlink publishes an on-chain feed) and Robinhood Stock Tokens on Robinhood Chain.
 - **Trade in-page.** Buys and sells go straight to the Uniswap v4 pool through the Universal Router; the site
   never touches funds.
 - **Live everything.** One poller feeds the list, the trending strip, the tape, toasts and totals.
