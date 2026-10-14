@@ -1,4 +1,7 @@
+"use client";
+
 import { BadgeCheck } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH, MUSEWORLD_SYMBOL } from "@/lib/launchpad/museworld";
 import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
 import TwigBadge, { isTwigQuote } from "./TwigBadge";
@@ -14,18 +17,20 @@ export function MuseworldMark({ size = 16, className = "" }: { size?: number; cl
  * GITLAWB badge so the two sit side by side in any row: "sm" is 20px tall and fits a text-sm line. Museworld blue with
  * the logo tile flush left and a check seal on the right: the mark that says the pair is official, not just named so.
  * The badge follows the server-resolved quote key, which comes from the quote ADDRESS, never from an on-chain name.
- * `collapse` shows the mark and seal alone on phones, keeping the label for screen readers.
+ * `collapse` shows the mark and seal alone on phones, keeping the label for screen readers. A client component: it words
+ * its tooltip in the reader's language, on the server-rendered token page as in the client lists.
  */
 export default function MuseworldBadge({ size = "sm", className = "", label = MUSEWORLD_SYMBOL, collapse = false }: { size?: "sm" | "md"; className?: string; label?: string; collapse?: boolean }) {
+  const t = useTranslations("token.badges");
   return (
     <span
       className={`inline-flex shrink-0 items-center rounded-md border border-black/10 font-semibold leading-none whitespace-nowrap text-white dark:border-white/25 ${size === "md" ? "h-6 gap-1.5 pl-[3px] pr-1.5 text-[11px]" : "h-5 gap-1 pl-[2px] pr-1 text-[10px] tracking-wide"} ${className}`}
       style={{ background: MUSEWORLD_BLUE }}
-      title="Official pair: MUSEWORLD, Museworld's token. Launches paired with it are made inside Museworld by its AI agents. USD from the MUSEWORLD/GITLAWB pool."
+      title={t("museworld")}
     >
       <MuseworldMark size={size === "md" ? 18 : 16} />
       {collapse ? <span className="max-sm:sr-only">{label}</span> : label}
-      <BadgeCheck size={size === "md" ? 13 : 12} strokeWidth={2.25} aria-label="official" className="shrink-0" />
+      <BadgeCheck size={size === "md" ? 13 : 12} strokeWidth={2.25} aria-label={t("official")} className="shrink-0" />
     </span>
   );
 }

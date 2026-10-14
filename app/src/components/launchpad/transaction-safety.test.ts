@@ -96,6 +96,8 @@ for (const status of ["reverted", "success"]) {
         fetch: async () => { effects.push("sync"); },
         mine: { refetch: () => effects.push("balance") }, router: { refresh: () => effects.push("refresh") },
         toast: () => effects.push("success toast"), friendlyError: (error: Error) => error.message,
+        // the panel's useTranslations("token.collect"), in English
+        t: (key: keyof typeof en.token.collect) => en.token.collect[key],
       });
       await send(what);
       if (status === "reverted") {

@@ -61,6 +61,15 @@ test("concentration and launch-window buyers are flagged only past their thresho
   assert.equal(fact(f({ sniperWallets: 5, sniperBps: 1_200 }), "launch").tone, "warn");
 });
 
+test("the facts read in the reader's language, with the same figures", () => {
+  const { facts } = proofFacts({ ...base, holders: holders({ bps: 350, sells: 2 }), locale: "zh-CN" });
+  assert.deepEqual(facts.map((f) => f.key), ["lock", "creator", "spread", "launch", "fees"]);
+  assert.equal(fact(facts, "spread").title, "1,480 位持有人");
+  assert.equal(fact(facts, "creator").detail, "0x6b2b…51d3 已卖出 2 次。");
+  assert.equal(fact(facts, "fees").title, "1% 交易手续费，付给发行时设定的接收方");
+  for (const f of facts) assert.doesNotMatch(`${f.title} ${f.detail}`, /\b(the|holds?|wallets?|sold|bought|trading fee)\b/i, `no English left in ${f.key}`);
+});
+
 test("fee routing says where every fee goes and that it cannot change", () => {
   const fees = (o: Partial<typeof base>) => fact(proofFacts({ ...base, ...o, holders: null }).facts, "fees");
   assert.equal(fees({ lpFee: 0, mode: "free" as never }).title, "No trading fee");

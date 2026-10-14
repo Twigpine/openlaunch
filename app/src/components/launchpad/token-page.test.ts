@@ -25,7 +25,7 @@ test("the tint comes from the stored logo by key, per theme, and never reaches a
 });
 
 test("the Proof panel is built from facts with a link for each, holder facts gated on the index", () => {
-  assert.match(page, /proofFacts\(\{ holders, symbol: l\.symbol, launcher: l\.launcher, launcherName: names\[l\.launcher\.toLowerCase\(\)\]\?\.u \?\? null, lpFee: l\.lp_fee, mode, recipients: l\.recipients\.length \}\)/);
+  assert.match(page, /proofFacts\(\{ holders, symbol: l\.symbol, launcher: l\.launcher, launcherName: names\[l\.launcher\.toLowerCase\(\)\]\?\.u \?\? null, lpFee: l\.lp_fee, mode, recipients: l\.recipients\.length, locale \}\)/);
   for (const key of ["lock", "creator", "spread", "launch", "fees"]) assert.match(page, new RegExp(`${key}: \\{ href: `), `link for ${key}`);
   assert.match(page, /bar=\{proof\.holdersReady && holders \?/);
 });
@@ -59,6 +59,7 @@ test("the About card sits under the trade box and links only checked socials", (
 test("the trades scroller is the containing block for its sr-only labels, so a long tape adds no blank page height", () => {
   const trades = read("./TokenTrades.tsx");
   // every row carries an absolutely positioned sr-only label; without a positioned scroller they escape its clipping and stretch the page
-  assert.match(trades, /<span className="sr-only">View transaction, <\/span>/);
+  assert.match(trades, /<span className="sr-only">\{tr\("trades\.viewTx"\)\}<\/span>/);
+  assert.equal(en.token.trades.viewTx, "View transaction, ");
   assert.match(trades, /<div className="relative max-h-\[480px\] overflow-auto bb-scroll"/);
 });

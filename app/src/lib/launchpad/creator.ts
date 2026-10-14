@@ -40,6 +40,20 @@ export function isBurnOnly(recipients: Recipient[]): boolean {
   return recipients.length === 1 && recipients[0].payout.toLowerCase() === DEAD;
 }
 
+/** Where a launch's trading fee goes: nowhere (a 0% pool), burned, one beneficiary, or split between several. */
+export type FeeMode = "free" | "burn" | "creator" | "split";
+
+/**
+ * A launch's fee mode. Burn is the no-beneficiary default the factory registers; creator/others come from the locker
+ * recipients. Here, not in FeeChip, so the token page can read it on the server.
+ */
+export function feeModeOf(lpFee: number, recipients?: Recipient[] | null): FeeMode {
+  if (lpFee === 0) return "free";
+  if (!recipients || recipients.length === 0) return "burn";
+  if (recipients.length === 1) return recipients[0].payout.toLowerCase() === DEAD ? "burn" : "creator";
+  return "split";
+}
+
 /** Portfolio value of a holding: balance (wei) × price (whole quote per token) × quote USD. */
 export function holdingUsd(balanceWei: bigint | string, priceQuote: number, quoteUsd: number | null): number | null {
   if (quoteUsd === null) return null;

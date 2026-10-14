@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { NO_USD_PRICE } from "../../lib/launchpad/market-cap.ts";
 import { en, messagesFor } from "../../i18n/messages/index.ts";
+import { NO_USD_PRICE, capDisplay } from "../../lib/launchpad/market-cap.ts";
 
 /** Every market-cap site renders the dollar-first display and never drops the "no USD price" mark (CodeRabbit, PR #27). */
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
@@ -34,8 +34,12 @@ test("one-string sites use the compact form, which carries the mark for an unpri
 test("the token page leads with dollars and keeps the quote detail; the phone bar uses the compact form", () => {
   const page = read("../../app/t/[chain]/[token]/page.tsx");
   assert.match(page, /const cap = capDisplay\(l\.fdv_quote, l\.quote_usd, /);
-  assert.match(page, />\{cap\.main\}<\/p>\r?\n\s*<p [^>]*>\{cap\.detail\}<\/p>/, "the header shows the quote detail under the dollar figure");
-  assert.match(page, /<MobileBuyBar symbol=\{l\.symbol\} mcap=\{cap\.compact\} \/>/);
+  // an unpriced cap's mark is worded in the reader's language; in English it reads as capDisplay's own
+  assert.match(page, />\{cap\.main\}<\/p>\r?\n\s*<p [^>]*>\{cap\.usd === null \? t\("page\.noUsdPrice"\) : cap\.detail\}<\/p>/, "the header shows the quote detail under the dollar figure");
+  assert.match(page, /<MobileBuyBar symbol=\{l\.symbol\} mcap=\{cap\.usd === null \? t\("page\.capUnpriced", \{ cap: cap\.main \}\) : cap\.compact\} \/>/);
+  assert.equal(en.token.page.noUsdPrice, NO_USD_PRICE);
+  const unpriced = capDisplay(1_200_000, null, { key: "other", symbol: "FOO", decimals: 18 });
+  assert.equal(en.token.page.capUnpriced.replace("{cap}", unpriced.main), unpriced.compact);
   assert.doesNotMatch(page, /capDisplay\([^)]*\)\.main/);
 });
 
