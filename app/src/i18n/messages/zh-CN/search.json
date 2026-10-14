@@ -25,8 +25,8 @@
       "keywords": "创建 发币 部署 新币 铸造 开始"
     },
     "feed": {
-      "label": "动态",
-      "keywords": "社区 评论 社交 讨论 帖子"
+      "label": "帖子",
+      "keywords": "社区 帖子 评论 社交 讨论 动态"
     },
     "rules": {
       "label": "运作方式",

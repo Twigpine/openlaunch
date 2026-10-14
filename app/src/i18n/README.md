@@ -59,7 +59,19 @@ language.
 | chart | 图表 |
 | slippage | 滑点 |
 | bridge | 跨链桥 |
-| posts | 动态 |
+| posts (community) | 帖子 |
+| activity (trades, live feed) | 动态 |
+| Conversation (a token's thread) | 讨论 |
+| collect (fees) | 领取 |
+| claim (a beneficiary's share) | 提取 |
+| beneficiary | 受益人 |
+| burn | 销毁 |
+| quote asset / priced in | 计价资产 / 以 … 计价 |
+| points | 积分 |
+| season | 赛季 |
+| leaderboard | 排行榜 |
+| scout | 发掘者 |
+| signature (wallet) | 签名 |
 | How it works | 运作方式 |
 | agents | 智能体 |
 | dashboard / workspace | 面板 / 工作台 |

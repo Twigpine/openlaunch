@@ -64,18 +64,18 @@
     "failed": "操作失败"
   },
   "feed": {
-    "title": "动态",
-    "showing": "显示最近 {total} 条动态中的最新 {shown} 条",
+    "title": "帖子",
+    "showing": "显示最近 {total} 条帖子中的最新 {shown} 条",
     "viewAll": "查看全部",
-    "show": "展开动态",
-    "hide": "收起动态",
+    "show": "展开帖子",
+    "hide": "收起帖子",
     "subtitle": "大家在聊什么",
     "emptyTitle": "讨论从代币页面开始。",
-    "emptyBody": "还没有动态。持有人、交易者和创建者可以用钱包签名加入讨论。",
+    "emptyBody": "还没有帖子。持有人、交易者和创建者可以用钱包签名加入讨论。",
     "on": "关于 <token>{symbol}</token>"
   },
   "page": {
-    "eyebrow": "社区动态",
+    "eyebrow": "社区帖子",
     "title": "每个代币背后的声音。",
     "description": "听听持有人、交易者和创建者怎么说。关注 Base、Robinhood Chain 和 Arc 上的讨论。",
     "explore": "探索代币"
