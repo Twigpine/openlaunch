@@ -13,6 +13,9 @@ import { siteJsonLdHtml, siteVerification } from "@/lib/seo";
 import Footer from "@/components/Footer";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeProvider from "@/components/ThemeProvider";
+import IntlProvider from "@/components/IntlProvider";
+import { getLocale } from "@/i18n/server";
+import { messagesFor } from "@/i18n/messages";
 import { Suspense } from "react";
 import { geist, geistMono } from "./fonts";
 
@@ -39,14 +42,16 @@ export const viewport: Viewport = { themeColor: "#FAFAF8", colorScheme: "light",
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Minted per request in src/proxy.ts; next-themes' inline theme script must carry it to run under the CSP.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const locale = await getLocale();
   const usd = await ethUsd();
   const [feed, totals] = await Promise.all([getLaunchFeed(24, usd).catch(() => []), getLaunchTotalsForRequest(usd)]);
   // Organization + WebSite + WebApplication: the entity record search engines reconcile the brand word against.
   const siteJsonLd = siteJsonLdHtml({ siteUrl: SITE_URL, brand: BRAND, domain: BRAND_DOMAIN, description: SITE_DESCRIPTION, sameAs: [`https://x.com/${BRAND_X}`, BRAND_GITHUB] });
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
+    <html lang={locale} className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <body id="site-top" tabIndex={-1} className="min-h-screen flex flex-col">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: siteJsonLd }} />
+        <IntlProvider locale={locale} messages={messagesFor(locale)}>
         <ThemeProvider nonce={nonce}>
         <Web3Provider>
           <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
@@ -60,6 +65,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </LiveProvider>
         </Web3Provider>
         </ThemeProvider>
+        </IntlProvider>
       </body>
     </html>
   );

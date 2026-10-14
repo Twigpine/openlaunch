@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 const loader = readFileSync(new URL("./PriceChart.tsx", import.meta.url), "utf8");
 const renderer = readFileSync(new URL("./TradingChart.tsx", import.meta.url), "utf8");
@@ -95,7 +96,10 @@ test("the chart keeps library attribution, real view modes, and lifecycle cleanu
   assert.doesNotMatch(renderer, /LineType\.Curved/);
   // the licence credit: the logo on the chart links to tradingview.com, and the site footer names TradingView
   assert.match(renderer, /attributionLogo: true/);
-  assert.match(readFileSync(new URL("../Footer.tsx", import.meta.url), "utf8"), /Charts by <a href="https:\/\/www\.tradingview\.com\/"/);
+  assert.match(readFileSync(new URL("../Footer.tsx", import.meta.url), "utf8"), /t\.rich\("credit", \{ link: \(chunks\) => <a href="https:\/\/www\.tradingview\.com\/"/);
+  // the credit names TradingView in every language the footer reads in
+  assert.match(en.footer.credit, /Charts by <link>TradingView<\/link>/);
+  assert.match(messagesFor("zh-CN").footer.credit, /<link>TradingView<\/link>/);
   assert.match(renderer, /unsubscribeCrosshairMove\(onCrosshair\)/);
   assert.match(renderer, /unsubscribeVisibleTimeRangeChange\(onRange\)/);
   assert.match(renderer, /observer\.disconnect\(\)/);

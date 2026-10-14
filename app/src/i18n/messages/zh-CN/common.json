@@ -1,0 +1,13 @@
+{
+  "launch": "发行",
+  "launchToken": "发行代币",
+  "connectWallet": "连接钱包",
+  "wallet": "钱包",
+  "time": {
+    "s": "{n}秒",
+    "m": "{n}分钟",
+    "h": "{n}小时",
+    "d": "{n}天",
+    "ago": "{time}前"
+  }
+}

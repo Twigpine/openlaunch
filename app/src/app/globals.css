@@ -10,13 +10,14 @@
 
 /* Chart code reads tokens at runtime; retain even tokens with no utility class. */
 @theme static {
-  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Geist carries Latin only; Chinese falls through to the platform's CJK face (html lang picks Simplified glyphs) */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   /* figures: every price, amount and count. The same Geist as the words, with tabular digits (see .font-mono below),
      the way other launchpads set their numbers; a typewriter face for money read as a terminal, not a market. */
-  --font-mono: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist), ui-sans-serif, system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   /* addresses and transaction hashes: a true monospace, so 0x strings line up and read character by character */
   --font-code: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-display: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-geist), ui-sans-serif, system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 
   /* surfaces */
   --color-paper: #fafaf8;

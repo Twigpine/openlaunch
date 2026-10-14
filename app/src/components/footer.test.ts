@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en, messagesFor } from "../i18n/messages/index.ts";
 
 const footer = readFileSync(new URL("./Footer.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("./Footer.module.css", import.meta.url), "utf8");
@@ -17,7 +18,8 @@ test("the shared footer preserves navigation and existing public destinations", 
   assert.match(footer, /BRAND_GITHUB/);
   assert.match(footer, /blob\/main\/LICENSE/);
   assert.match(footer, /https:\/\/x\.com\/\$\{BRAND_X\}/);
-  assert.match(footer, /aria-label="Footer navigation"/);
+  assert.match(footer, /aria-label=\{t\("navigation"\)\}/);
+  assert.equal(en.footer.navigation, "Footer navigation");
 });
 
 test("footer proofs use configured chain addresses without invented status claims", () => {
@@ -25,9 +27,13 @@ test("footer proofs use configured chain addresses without invented status claim
   assert.match(footer, /\{ factory, locker \} = launchpad\(chain\)/);
   assert.match(footer, /factory \? <a href=\{explorerAddress\(chain, factory\)\}/);
   assert.match(footer, /locker \? <a href=\{explorerAddress\(chain, locker\)\}/);
-  assert.match(footer, /Factory not configured/);
-  assert.match(footer, /Locker not configured/);
-  assert.doesNotMatch(footer, /all systems operational|audited by|uptime|risk.free/i);
+  assert.match(footer, /t\("factoryMissing"\)/);
+  assert.match(footer, /t\("lockerMissing"\)/);
+  assert.equal(en.footer.factoryMissing, "Factory not configured");
+  assert.equal(en.footer.lockerMissing, "Locker not configured");
+  // in either language: the footer states what is deployed, nothing about health, audits or risk
+  assert.doesNotMatch(footer + JSON.stringify(en.footer), /all systems operational|audited by|uptime|risk.free/i);
+  assert.doesNotMatch(JSON.stringify(messagesFor("zh-CN").footer), /审计|零风险|无风险|正常运行时间/);
 });
 
 test("footer stays server-rendered with native top navigation and mobile trade clearance", () => {
