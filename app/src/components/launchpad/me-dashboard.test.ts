@@ -44,7 +44,10 @@ test("dashboard tabs preserve launches, holdings, trades and recoverable failure
 
 test("unavailable RPC values remain distinct from a zero balance or zero pending fees", () => {
   assert.match(source, /b\[key\(t\)\] = null/);
-  assert.match(source, /holdingsReading \? "Reading…" : holdingsUnknown \? "—"/);
+  assert.match(source, /holdings\.reading \? "Reading…" : holdings\.unknown \? "—" : fmtUsd\(holdings\.usd, \{ compact: true \}\)/);
+  // the total comes from the tested helper, fed each token's balance, price and whether anything prices its quote
+  assert.match(source, /const holdings = holdingsValue\(\(me\?\.tokens \?\? \[\]\)\.map\(\(t\) => \(\{ balance: balances\[key\(t\)\], priceQuote: t\.price_quote, quoteUsd: t\.quote_usd, priced: t\.quote_priced \}\)\)\);/);
+  assert.match(source, /holdings\.unknown \? "A balance or price is unavailable" : holdings\.unpriced \? `Excludes \$\{holdings\.unpriced\} with no USD price` : "Current estimated USD value"/);
   assert.match(source, /feesReading \? "Reading…" : feesUnknown \? "—"/);
   assert.match(source, /bal === undefined \? "Reading…" : bal === null \? "—"/);
   assert.match(source, /Your share, USD-priced launches/);

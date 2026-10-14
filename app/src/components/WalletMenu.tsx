@@ -9,6 +9,7 @@ import { CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, s
 import { BRIDGE_CHAINS, isBridgeChainId } from "@/lib/bridge/types";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import WalletAvatar from "./WalletAvatar";
+import { ChainLogo } from "./launchpad/ChainLogo";
 import styles from "./WalletMenu.module.css";
 
 /** Official network marks (app/public/brand). A chain with a dark-mode variant lists both; the CSS swaps them by theme. */
@@ -28,6 +29,16 @@ function NetworkLogo({ chain }: { chain: ChainKey }) {
       </> : <Image src={logo.light} alt="" width={logo.width} height={logo.height} draggable={false} />}
     </span>
   );
+}
+
+/**
+ * The header chip's network, pinned to the avatar's corner like the chain on a token avatar, or a warm "!" on a
+ * network the site doesn't support. The chip's name for it pushed the Launch button out of the header, so only the
+ * mobile row spells it out.
+ */
+function NetworkBadge({ chain }: { chain: ChainKey | null }) {
+  if (!chain) return <span className={styles.networkWarn} aria-hidden>!</span>;
+  return <ChainLogo chain={chain} size={14} className="absolute -right-1 -bottom-1 ring-2 ring-card" />;
 }
 
 type WalletMenuProps = {
@@ -100,11 +111,12 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
       <Popover.Trigger
         className={`${styles.trigger} ${block ? styles.block : ""}`}
         aria-label={`Wallet ${shortAddr(address)}, ${network}. Open account menu`}
+        title={block ? undefined : key || bridgeNetwork ? `On ${network}` : "Unsupported network. Open to switch"}
         data-unsupported={(!key && !bridgeNetwork) || undefined}
       >
-        <span className={styles.triggerMark}><WalletAvatar address={address} /><span className={styles.connectionDot} /></span>
+        <span className={styles.triggerMark}><WalletAvatar address={address} />{block ? <span className={styles.connectionDot} /> : <NetworkBadge chain={key ?? bridgeNetwork?.key ?? null} />}</span>
         <span className={styles.triggerAddress}>{shortAddr(address)}</span>
-        <span className={styles.triggerNetwork}>{key || bridgeNetwork ? network : "Switch"}</span>
+        {block ? <span className={styles.triggerNetwork}>{key || bridgeNetwork ? network : "Switch"}</span> : null}
         <ChevronDown size={13} className={styles.chevron} aria-hidden />
       </Popover.Trigger>
       <Popover.Portal>

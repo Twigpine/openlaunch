@@ -20,6 +20,17 @@ export function b20RpcUrl(): string {
   return process.env.BASE_B20_RPC_URL?.trim() || "https://base-rpc.publicnode.com";
 }
 
+let b20: PublicClient | null = null;
+/**
+ * A Base client on the B20-capable node alone, for reads that must not be answered by a node that cannot
+ * execute B20: inside a multicall such a node may report each call as a plain failure, not as an RPC
+ * error the fallback in publicClient would retry.
+ */
+export function b20Client(): PublicClient {
+  b20 ??= createPublicClient({ chain: CHAINS.base, transport: http(b20RpcUrl(), { batch: true, retryCount: 1, timeout: 5_000 }) });
+  return b20;
+}
+
 export function publicClient(key: ChainKey): PublicClient {
   const hit = cached.get(key);
   if (hit) return hit;

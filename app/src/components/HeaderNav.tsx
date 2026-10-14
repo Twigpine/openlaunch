@@ -95,15 +95,14 @@ function Rail({ children, className }: { children: React.ReactNode; className?: 
 }
 
 /**
- * The header's way into search: the first tool in the rail, naming its shortcut beside the icon while the strip
- * rests at full width (xl and up). The home redesign gives search a proper field.
+ * The header's way into search: the first tool in the rail, its shortcut named in the tooltip (a ⌘K hint beside the
+ * icon pushed the Launch button out of the strip). The home redesign gives search a proper field.
  */
-function SearchTrigger({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
+function SearchTrigger({ onClick }: { onClick: () => void }) {
   const shortcut = useShortcutLabel();
   return (
-    <button type="button" onClick={onClick} aria-label={`Search tokens and pages (${shortcut})`} title={`Search (${shortcut})`} className="inline-flex h-7.5 min-w-7.5 shrink-0 items-center justify-center gap-1.5 rounded-full px-[7px] text-body transition-colors hover:bg-line hover:text-ink motion-reduce:transition-none">
+    <button type="button" onClick={onClick} aria-label={`Search tokens and pages (${shortcut})`} title={`Search (${shortcut})`} className="inline-flex h-7.5 min-w-7.5 shrink-0 items-center justify-center rounded-full px-[7px] text-body transition-colors hover:bg-line hover:text-ink motion-reduce:transition-none">
       <Search size={16} aria-hidden />
-      {compact ? null : <kbd aria-hidden="true" className="hidden rounded-md border border-line bg-paper px-1.5 font-sans text-[10px] font-medium leading-4 text-muted xl:inline">{shortcut}</kbd>}
     </button>
   );
 }
@@ -152,10 +151,11 @@ function Desktop({ visible = false, pulse, isActive, quietCta, onSearch }: { vis
       <NavLinks isActive={isActive} compact={visible} />
 
       <div className="relative z-20 ml-auto flex items-center gap-2">
+        {/* icons only, resting or floating: the strip's room is fixed (the page column at rest, the 800px pill), and a
+            "Bridge" label or a ⌘K hint pushed the Launch button out of it */}
         <Rail>
-          <SearchTrigger onClick={onSearch} compact={visible} />
-          {/* the floating pill is 800px wide: the bridge gives up its label there */}
-          <BridgeButton compact={visible} />
+          <SearchTrigger onClick={onSearch} />
+          <BridgeButton compact />
           <NotificationSettings />
           <ThemeToggle />
         </Rail>

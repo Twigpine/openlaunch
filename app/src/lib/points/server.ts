@@ -203,10 +203,10 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const toks = [...scope.values()].map((x) => x.token);
 
   // ETH, GITLAWB and TWIG price most of the board: without them the run would be wrong everywhere, so it writes
-  // nothing. Another quote that normally has a price but has none now (MUSEWORLD, a stock) takes its own tokens out
-  // of an hourly run (the next run puts them back); the final run waits for it instead (up to a day: a feed gone for
-  // good then drops its tokens, logged).
-  // An unlisted pair has no price to begin with: never scored.
+  // nothing. Another quote that normally has a price but has none now (MUSEWORLD, a stock with a feed) takes its own
+  // tokens out of an hourly run (the next run puts them back); the final run waits for it instead (up to a day: a
+  // feed gone for good then drops its tokens, logged).
+  // An unlisted pair, or a stock nothing prices, has no price to begin with: never scored, never waited for.
   const MAIN_QUOTES = new Set(["eth", "gitlawb", "twig"]);
   let dropped = 0;
   const launchRows = await read<LaunchRowRaw[]>`
@@ -217,7 +217,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     const chain = chainKeyOf(l.chain_id) as ChainKey;
     const q = price(chain, l.quote);
     if (q.usd === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
-    if (q.usd === null && q.key !== "other" && finalRun && now < end + PRICE_WAIT_MS) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
+    if (q.usd === null && q.priced && finalRun && now < end + PRICE_WAIT_MS) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
     if (q.usd === null) {
       dropped++;
       continue;

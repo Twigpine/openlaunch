@@ -16,6 +16,8 @@
 .trigger:hover, .trigger[data-popup-open] { border-color: var(--color-line-strong); background: var(--color-line); }
 .triggerMark { position: relative; display: flex; flex-shrink: 0; }
 .connectionDot { position: absolute; right: 0; bottom: 0; width: 7px; height: 7px; background: var(--color-up); border: 2px solid var(--color-card); border-radius: 50%; }
+/* the header chip on a network the site doesn't support: the corner the chain's mark would take, ringed like it */
+.networkWarn { position: absolute; right: -6px; bottom: -6px; display: grid; place-items: center; width: 18px; height: 18px; border: 2px solid var(--color-card); border-radius: 50%; background: var(--color-warm); color: var(--color-card); font: 700 9px/1 var(--font-sans); }
 .triggerAddress { font: 400 12px var(--font-code); font-variant-numeric: tabular-nums; }
 .triggerNetwork { padding-left: 8px; border-left: 1px solid var(--color-line-strong); font: 500 10px var(--font-sans); color: var(--color-muted); }
 .chevron { color: var(--color-muted); transition: transform 160ms; }

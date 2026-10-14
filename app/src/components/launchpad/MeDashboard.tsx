@@ -19,7 +19,7 @@ import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { feeContractForLaunch, isQuoteFeeLaunch } from "@/lib/launchpad/suites";
 import { collectRequest, pendingFees } from "@/lib/launchpad/fee-actions";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
-import { earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, isBurnOnly, type FeeSides } from "@/lib/launchpad/creator";
+import { earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, holdingsValue, isBurnOnly, type FeeSides } from "@/lib/launchpad/creator";
 import { fmtCompact, fmtQuote, fmtTokens, fmtUsd } from "@/lib/launchpad/math";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
@@ -189,9 +189,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
 
   const collectable = me ? me.launches.filter((l) => hasFees(pending[key(l)])) : [];
   const earnedUsd = me ? me.launches.reduce((a, l) => a + (feeSidesUsd(earnedSides(l, feeShareBps(l.recipients, address)), l.quote_decimals, l.price_quote, l.quote_usd) ?? 0), 0) : 0;
-  const holdingsUsd = me ? me.tokens.reduce((a, t) => a + (holdingUsd(balances[key(t)] ?? 0n, t.price_quote, t.quote_usd) ?? 0), 0) : 0;
-  const holdingsReading = me?.tokens.some((t) => balances[key(t)] === undefined) ?? false;
-  const holdingsUnknown = me?.tokens.some((t) => balances[key(t)] === null || (balances[key(t)] !== undefined && holdingUsd(balances[key(t)]!, t.price_quote, t.quote_usd) === null)) ?? false;
+  // a token paired with a quote nothing prices (an unlisted pair, a stock without a feed) is left out of the total, not allowed to blank it
+  const holdings = holdingsValue((me?.tokens ?? []).map((t) => ({ balance: balances[key(t)], priceQuote: t.price_quote, quoteUsd: t.quote_usd, priced: t.quote_priced })));
   const feesReading = me?.launches.some((l) => pending[key(l)] === undefined) ?? false;
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
@@ -220,7 +219,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         <Stat k="Your launches" icon={<Layers3 size={14} />} v={String(me.launches.length)} hint="Across all chains" />
         <Stat k="Fees earned" icon={<Coins size={14} />} v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
         <Stat k="Uncollected" icon={<Hourglass size={14} />} v={feesReading ? "Reading…" : feesUnknown ? "—" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
-        <Stat k="Holdings value" icon={<Wallet size={14} />} v={holdingsReading ? "Reading…" : holdingsUnknown ? "—" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
+        <Stat k="Holdings value" icon={<Wallet size={14} />} v={holdings.reading ? "Reading…" : holdings.unknown ? "—" : fmtUsd(holdings.usd, { compact: true })} hint={holdings.unknown ? "A balance or price is unavailable" : holdings.unpriced ? `Excludes ${holdings.unpriced} with no USD price` : "Current estimated USD value"} />
       </dl>
 
       <Tabs defaultValue="launches" className={styles.ledger}>

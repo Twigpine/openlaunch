@@ -39,6 +39,7 @@ export function previewLaunch(p: {
     quote_symbol: p.quote.symbol,
     quote_decimals: p.quote.decimals,
     quote_decimals_known: true,
+    quote_priced: usd !== null, // the form only knows whether the quote has a price now
     pool_id: "",
     start_tick: 0,
     lp_fee: p.lpFee,

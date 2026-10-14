@@ -82,7 +82,7 @@ const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock
     stock: {
       pays: "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
       badge: "Coinbase stock",
-      empty: "No match. 13 Coinbase tokenized stocks are available on Base: NVDAc, AAPLc, TSLAc, METAc, GOOGLc, AMZNc, MSFTc, MSTRc, COINc, CRCLc, INTCc, SNDKc, SPCXc.",
+      empty: "No match. Search a ticker or a company name, e.g. NVDA, AMD or Netflix.",
       issuer: "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4.",
     },
   },
@@ -187,6 +187,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const [stock, setStock] = useState<Quote | null>(null);
   const [stockQ, setStockQ] = useState("");
   const [stockHits, setStockHits] = useState<Quote[]>([]);
+  const [stockTotal, setStockTotal] = useState(0); // how many stocks the chain's registry holds; the list below shows one page of them
+  const [stockMatched, setStockMatched] = useState(0); // how many match the search in all
+  const [stockAnswered, setStockAnswered] = useState<string | null>(null); // the search text the page shown answers
   // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price (gitlawbLinkedUsd).
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
   const linkedUsd = gitlawbLinkedUsd(staticQuote.key, gitlawbUsd);
@@ -208,8 +211,13 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
     const t = setTimeout(async () => {
       try {
         const res = await fetch(`/api/quotes?chain=${chain}&q=${encodeURIComponent(stockQ)}`, { cache: "no-store" });
-        const d = (await res.json()) as { stocks: Quote[] };
-        if (alive) setStockHits(d.stocks ?? []);
+        const d = (await res.json()) as { stocks: Quote[]; stocksTotal?: number; stocksMatched?: number };
+        if (alive) {
+          setStockHits(d.stocks ?? []);
+          setStockTotal(d.stocksTotal ?? 0);
+          setStockMatched(d.stocksMatched ?? 0);
+          setStockAnswered(stockQ);
+        }
       } catch {
         if (alive) setStockHits([]);
       }
@@ -219,6 +227,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
       clearTimeout(t);
     };
   }, [chain, quoteKey, stockQ]);
+  // How many stocks the page leaves out. Only once the page answers the search as typed: a reply still on its way says nothing about the new text.
+  const stockMore = !stock && stockAnswered === stockQ && stockHits.length > 0 ? Math.max(0, (stockQ.trim() ? stockMatched : stockTotal) - stockHits.length) : 0;
   const config = useConfig();
   const { address, isConnected, chainId } = useHydratedAccount();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -533,6 +543,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                         setStock(null);
                         setStockQ("");
                         setStockHits([]);
+                        setStockTotal(0);
+                        setStockMatched(0);
+                        setStockAnswered(null);
                         setMcapPick(null);
                         setCustomMcap("");
                       }}
@@ -652,7 +665,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                               setCustomMcap("");
                             }}
                             className="inline-flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-full border border-line bg-card text-xs font-semibold text-ink hover:border-ink/40"
-                            title={h.name}
+                            title={h.issued === false ? `${h.name}: none issued yet` : h.name}
                           >
                             {h.logo ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -660,11 +673,24 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                             ) : null}
                             {h.symbol}
                             {h.usd ? <span className="font-mono font-normal text-muted">{fmtUsd(h.usd)}</span> : null}
+                            {h.issued === false ? <span className="font-normal text-muted">not issued yet</span> : null}
                           </button>
                         </li>
                       ))}
                       {stockHits.length === 0 ? <li className="text-xs text-muted">{CHAIN_COPY[chain].stock?.empty}</li> : null}
                     </ul>
+                  ) : null}
+                  {/* a listed stock with no supply: the launch works, but until the issuer puts some in circulation nobody holds any to buy with */}
+                  {stock?.issued === false ? (
+                    <p className={helper}>
+                      None of {stock.symbol} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some. You can still launch now.
+                    </p>
+                  ) : null}
+                  {/* the list is one page: say how many more there are, or the rest stays invisible (a broad search like "S" has more matches than fit) */}
+                  {stockMore > 0 ? (
+                    <p className={helper}>
+                      {stockQ.trim() ? `Showing ${stockHits.length} of ${stockHits.length + stockMore} matches. Keep typing to narrow it down.` : `Showing ${stockHits.length} of ${stockHits.length + stockMore}. Search a ticker or a company name for the rest.`}
+                    </p>
                   ) : null}
                   <p className={helper}>{CHAIN_COPY[chain].stock?.issuer}</p>
                 </div>
@@ -802,6 +828,12 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{entry.unit === "usd" ? "USD" : quote.symbol}</span>
                 </div>
               </div>
+              {/* a stock without a price feed (most Coinbase stocks) has no dollar presets: say why the box wants stock units */}
+              {quote.key === "stock" && entry.unit === "quote" ? (
+                <p className={helper}>
+                  {quote.symbol} has no USD price here: enter the starting market cap in {quote.symbol}.
+                </p>
+              ) : null}
               {fdvPreview !== null && tokensPerEth !== null ? (
                 <p className="rounded-xl border border-line bg-paper px-4 py-3 text-sm text-body">
                   Opens at <span className="font-mono font-bold text-ink tnum">{cap(fdvPreview).main}</span>
@@ -929,6 +961,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   </dl>
                   <p className={helper}>Includes price impact and the trading fee; the exact amount is quoted on-chain right before the buy.</p>
                 </div>
+              ) : suggestion.reason === "not-issued" ? (
+                <p className={helper}>Nothing suggested: no {quote.symbol} has been issued yet, so there is none to buy with. The launch stays free.</p>
               ) : suggestion.reason === "insufficient" ? (
                 <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet {sharedGas ? `does not hold enough ${quote.symbol} for the buy plus its gas` : "holds only gas"}. The launch stays free; you can buy on the token page later.</p>
               ) : suggestion.reason === "no-gas" ? (

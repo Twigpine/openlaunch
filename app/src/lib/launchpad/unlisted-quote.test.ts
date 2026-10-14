@@ -82,7 +82,7 @@ test("the server resolves unlisted quotes from bb_quote_tokens, fails soft, and 
   assert.match(q, /\/\* fail soft \(table not migrated yet/);
   assert.match(q, /rankTrending\(rows\.filter\(\(r\) => r\.quote_key !== "other"\)/);
   assert.match(q, /quote_decimals_known: q\.decimalsKnown !== false/);
-  assert.match(q, /usd === null && q\.key !== "other"/, "unlisted quotes do not flag the site USD totals as partial");
+  assert.match(q, /usd === null && hasPriceSource\(q\)/, "unlisted quotes do not flag the site USD totals as partial (price-source.test.ts runs it)");
 });
 
 test("the indexer reads unlisted quotes into bb_quote_tokens with printable text only", () => {

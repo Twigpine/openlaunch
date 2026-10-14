@@ -47,6 +47,33 @@ export function holdingUsd(balanceWei: bigint | string, priceQuote: number, quot
   return (Number(BigInt(balanceWei)) / 1e18) * priceQuote * quoteUsd;
 }
 
+/** One holding as the wallet page knows it: the balance (undefined = still reading, null = the read failed), the token's price, and whether anything prices its quote. */
+export type Holding = { balance: bigint | null | undefined; priceQuote: number; quoteUsd: number | null; priced: boolean };
+
+/**
+ * A wallet's holdings in dollars. A token paired with a quote nothing prices (an unlisted ERC-20, a stock without a
+ * price feed) has no dollar value by design: it is left out and counted in `unpriced`, so one such token does not
+ * blank the whole figure. `unknown` is for what should have a value and has none right now: a balance that could not
+ * be read, or a held token whose quote has lost its price. An empty balance is worth nothing whatever its price.
+ */
+export function holdingsValue(items: Holding[]): { usd: number; reading: boolean; unknown: boolean; unpriced: number } {
+  let usd = 0;
+  let unpriced = 0;
+  let reading = false;
+  let unknown = false;
+  for (const h of items) {
+    if (h.balance === undefined) reading = true;
+    else if (h.balance === null) unknown = true;
+    else if (h.balance > 0n) {
+      const v = holdingUsd(h.balance, h.priceQuote, h.quoteUsd);
+      if (v !== null) usd += v;
+      else if (h.priced) unknown = true;
+      else unpriced++;
+    }
+  }
+  return { usd, reading, unknown, unpriced };
+}
+
 /** Whether a fee pair holds anything on either side. */
 export function hasFees(sides: FeeSides | null | undefined): sides is FeeSides {
   return Boolean(sides && (sides.quote > 0n || sides.token > 0n));

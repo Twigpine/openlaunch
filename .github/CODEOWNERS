@@ -1,0 +1,11 @@
+# Review is requested from the owner automatically when a pull request touches these paths. The pr-guard workflow is
+# what enforces it (.github/scripts/pr-guard.mjs); keep OWNERS there and the names here the same.
+
+/contracts/              @kevincodex1
+/.github/                @kevincodex1
+/.gitmodules             @kevincodex1
+/app/package.json        @kevincodex1
+/app/package-lock.json   @kevincodex1
+/app/.npmrc              @kevincodex1
+/SECURITY.md             @kevincodex1
+/LICENSE                 @kevincodex1

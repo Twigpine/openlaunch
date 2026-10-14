@@ -35,7 +35,7 @@ export function useOpenBridge(): (() => void) | null {
   return useContext(BridgeContext);
 }
 
-/** `compact` drops the label (icon only) where the header has no room, as in the floating pill. */
+/** `compact` drops the label (icon only) where the header has no room: the whole desktop strip, resting or floating. */
 export function BridgeButton({ block = false, compact = false, onOpen }: { block?: boolean; compact?: boolean; onOpen?: () => void }) {
   const show = useContext(BridgeContext);
   return (

@@ -1,5 +1,12 @@
 name: ci
 
+# Runs the pull request's own code with a read-only token and no secrets. The security gate is the separate pr-guard
+# workflow, which runs main's copy of itself; these jobs can be trusted on a pull request only while pr-guard is green,
+# because a pull request that edits this file is refused there.
+#
+# Actions are pinned to full commit SHAs (the comment names the release), and no checkout leaves the job's token behind
+# for the steps that follow. .github/scripts/workflows.test.mjs keeps it so.
+
 on:
   push:
     branches: [main]
@@ -33,8 +40,10 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -63,10 +72,15 @@ jobs:
       run:
         working-directory: contracts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: recursive
-      - uses: foundry-rs/foundry-toolchain@v1
+          persist-credentials: false
+      # the deployed sources, their build settings and the library pins match contracts/deployed.lock byte for byte
+      - run: script/check-deployed-sources.sh
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.5.1
       - run: forge build --sizes
       - run: forge test --match-path test/LaunchFactory.t.sol -vv
       - run: forge test --match-path test/LaunchFactory.arcGuard.t.sol -vv
@@ -74,3 +88,36 @@ jobs:
       - run: forge test --match-path test/LaunchEvents.t.sol -vv
       - run: script/check-arc-factory.sh
       # live-fork suites (FORK_TESTS=true) need RPC access and run locally before a release; see README
+
+  guard:
+    name: guard · unit tests
+    # same image and preinstalled Node as the pr-guard workflow, so the tests run where the guard runs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: node --version
+      - run: node --test .github/scripts/pr-guard.test.mjs .github/scripts/workflows.test.mjs
+
+  deps:
+    name: deps · registry signatures + audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # every installed package carries a valid npm registry signature
+      - run: npm audit signatures
+      # known vulnerabilities in what ships to production; a new advisory can turn this red on an unrelated pull request,
+      # so it is a signal to act on, not a required check
+      - run: npm audit --omit=dev --audit-level=high
