@@ -1,10 +1,43 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { helper, input as inputCls } from "@/components/ui";
 import { BANNER_HEIGHT, BANNER_WIDTH, maxBytesFor, sniffImage, type ImageRole } from "@/lib/launchpad/images";
 import { Spinner } from "@/components/Skeleton";
+import type { Messages } from "@/i18n/messages";
+
+type Reason = Exclude<keyof Messages["launch"]["upload"]["reasons"], "tooBig">;
+/**
+ * Why the upload route refused a file, as messages: the English reasons app/api/launch/image/route.ts gives (with the
+ * image checks it runs, lib/launchpad/images.ts and imageProcess.ts). Any other text reads as it came.
+ */
+const REASONS = new Map<string, Reason>([
+  ["uploads not configured", "notConfigured"],
+  ["slow down", "slowDown"],
+  ["bad form", "badForm"],
+  ["connect a wallet first", "connectFirst"],
+  ["file required", "fileRequired"],
+  ["upload limit reached, try later", "limit"],
+  ["PNG, JPEG, WebP or GIF only", "formats"],
+  ["not a valid image", "notImage"],
+  ["image too small (min 16×16)", "logoSmall"],
+  ["banner too small (min 300×100)", "bannerSmall"],
+  ["storage error, try again", "storage"],
+]);
+
+/** An upload failure reason (see REASONS) in the reader's language. */
+function useReason() {
+  const t = useTranslations("launch.upload.reasons");
+  return useCallback((reason: string) => {
+    const key = REASONS.get(reason);
+    if (key) return t(key);
+    const tooBig = /^image must be ≤ ([\d.]+) MB$/.exec(reason);
+    if (tooBig) return t("tooBig", { mb: tooBig[1] });
+    return reason;
+  }, [t]);
+}
 
 /**
  * The address an image preview loads: an http(s) URL typed into the field, parsed the way the browser will request
@@ -31,6 +64,8 @@ function previewUrl(value: string): string | null {
  * its words, and the banner zone drops its fixed 3:1 for the row's height.
  */
 export default function ImageUpload({ value, onChange, wallet, compact = false, kind = "logo", stacked = false }: { value: string; onChange: (url: string) => void; wallet: string | undefined; compact?: boolean; kind?: ImageRole; stacked?: boolean }) {
+  const t = useTranslations("launch.upload");
+  const explain = useReason();
   const id = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -42,10 +77,10 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
 
   async function upload(file: File) {
     setErr(null);
-    if (!wallet) return setErr("Connect a wallet to upload.");
-    if (file.size > max) return setErr(`Max ${max / 1024 / 1024} MB.`);
+    if (!wallet) return setErr(t("connect"));
+    if (file.size > max) return setErr(t("maxSize", { mb: max / 1024 / 1024 }));
     const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
-    if (!sniffImage(head)) return setErr("PNG, JPEG, WebP or GIF only.");
+    if (!sniffImage(head)) return setErr(t("formats"));
     setBusy(true);
     try {
       const fd = new FormData();
@@ -54,10 +89,10 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
       fd.set("file", file, kind);
       const r = await fetch("/api/launch/image", { method: "POST", body: fd });
       const j = (await r.json().catch(() => ({}))) as { url?: string; error?: string };
-      if (!r.ok || !j.url) throw new Error(j.error || `upload failed (${r.status})`);
+      if (!r.ok || !j.url) throw new Error(j.error ? explain(j.error) : t("failedStatus", { status: r.status }));
       onChange(j.url);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "upload failed");
+      setErr(e instanceof Error ? e.message : t("failed"));
     } finally {
       setBusy(false);
     }
@@ -67,7 +102,7 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
   const zone = {
     role: "button" as const,
     tabIndex: 0,
-    "aria-label": banner ? "Upload token banner" : "Upload token image",
+    "aria-label": banner ? t("uploadBanner") : t("uploadImage"),
     onClick: () => !busy && fileRef.current?.click(),
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -115,13 +150,13 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
             ) : null}
             <div className={`relative flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-center transition-opacity motion-reduce:transition-none ${preview ? "bg-black/60 text-white opacity-0 backdrop-blur-sm group-hover:opacity-100 group-focus-visible:opacity-100" : ""}`}>
               {busy ? <Spinner size={18} className={preview ? "text-white" : "text-brand"} /> : preview ? null : <ImagePlus size={20} strokeWidth={1.8} aria-hidden="true" className="mb-0.5 text-muted" />}
-              <p className="text-sm font-semibold">{busy ? "Uploading…" : preview ? "Change banner" : "Upload banner"}</p>
-              <p className={`text-xs ${preview ? "text-white/80" : "text-muted"}`}>{busy ? `Resizing to ${BANNER_WIDTH}×${BANNER_HEIGHT}` : `Wide, about 3:1 · PNG, JPEG, WebP or GIF · max ${max / 1024 / 1024} MB`}</p>
+              <p className="text-sm font-semibold">{busy ? t("uploading") : preview ? t("changeBanner") : t("addBanner")}</p>
+              <p className={`text-xs ${preview ? "text-white/80" : "text-muted"}`}>{busy ? t("resizing", { size: `${BANNER_WIDTH}×${BANNER_HEIGHT}` }) : t("bannerHint", { mb: max / 1024 / 1024 })}</p>
             </div>
             {fileInput}
           </div>
           {preview && !busy ? (
-            <button type="button" onClick={() => onChange("")} aria-label="Remove banner" title="Remove banner" className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/60 text-white ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 motion-reduce:transition-none">
+            <button type="button" onClick={() => onChange("")} aria-label={t("removeBanner")} title={t("removeBanner")} className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/60 text-white ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 motion-reduce:transition-none">
               <X size={14} aria-hidden="true" />
             </button>
           ) : null}
@@ -143,16 +178,16 @@ export default function ImageUpload({ value, onChange, wallet, compact = false, 
             )}
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-sm">{busy ? "Uploading…" : preview ? "Change image" : "Upload image"}</p>
-            <p className={`${helper} mt-0.5`}>{busy ? "Resizing to 512×512" : stacked ? "Square · PNG, JPEG, WebP or GIF · max 2 MB" : "PNG, JPEG, WebP or GIF · max 2 MB · drop it here or tap"}</p>
+            <p className="font-semibold text-sm">{busy ? t("uploading") : preview ? t("changeImage") : t("addImage")}</p>
+            <p className={`${helper} mt-0.5`}>{busy ? t("resizing", { size: "512×512" }) : stacked ? t("logoHintStacked") : t("logoHint")}</p>
           </div>
           {fileInput}
         </div>
       )}
       {err ? <p className="text-xs text-red-600 mt-1.5">{err}</p> : null}
       <details className="mt-2">
-        <summary className={`${helper} cursor-pointer select-none`}>{banner ? "or paste a banner URL" : "or paste an image URL"}</summary>
-        <input className={`${inputCls} mt-2`} value={value} onChange={(e) => onChange(e.target.value)} placeholder={banner ? "https://…/banner.png" : "https://…/logo.png"} inputMode="url" aria-label={banner ? "Banner URL" : "Image URL"} />
+        <summary className={`${helper} cursor-pointer select-none`}>{banner ? t("pasteBanner") : t("pasteImage")}</summary>
+        <input className={`${inputCls} mt-2`} value={value} onChange={(e) => onChange(e.target.value)} placeholder={banner ? "https://…/banner.png" : "https://…/logo.png"} inputMode="url" aria-label={banner ? t("bannerUrl") : t("imageUrl")} />
       </details>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
+import { useTranslations } from "use-intl";
 import { ArrowUpRight, Check, Copy } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import { btn, helper, input, label } from "@/components/ui";
@@ -16,6 +17,17 @@ import { BIO_MAX, DISPLAY_NAME_MAX, USERNAME_MAX, validateProfile } from "@/lib/
 import { rememberSavedName } from "@/lib/profiles/names-client";
 import type { PublicProfile, XCodeView } from "@/lib/profiles/server";
 import { nonce } from "@/lib/nonce";
+import { reasonOf } from "./reasons";
+
+/**
+ * A failure reason in the reader's language: the validation, API and wallet reasons the sheet shows are English text,
+ * each with its message (reasons.ts). Any other text, such as a wallet's own error, reads as it came.
+ */
+function Reason({ text }: { text: string }) {
+  const t = useTranslations("account.profileSheet.errors");
+  const r = reasonOf(text);
+  return r ? t(r.key, r.values) : text;
+}
 
 /** A profile as the names store keeps it (what Who shows next to a wallet). */
 const nameEntryOf = (p: PublicProfile) => ({ u: p.username, d: p.display_name, a: p.avatar_url, v: p.x_state === "verified" });
@@ -71,7 +83,8 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
   const [phase, setPhase] = useState<"idle" | "sign" | "save" | "check" | "delete">("idle");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<"verified" | "review" | null>(null);
+  const t = useTranslations("account.profileSheet");
   const [avail, setAvail] = useState<{ name: string; ok: boolean; error?: string } | null>(null);
   const [postUrl, setPostUrl] = useState("");
   const [copied, setCopied] = useState(false);
@@ -172,10 +185,10 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
       // either way the code is spent: verified, or with a person (who decides on this very code; it cannot be sent again)
       storeCode(address, null);
       if (d.status === "verified") {
-        setNote("Verified. The ✓ now shows next to your name.");
+        setNote("verified");
         setTimeout(onClose, 1200);
       } else {
-        setNote("X did not answer us right now, so a person will check your post. Your ✓ appears once it is approved.");
+        setNote("review");
       }
     } catch (e) {
       setErr(friendlyError(e));
@@ -196,77 +209,78 @@ export default function ProfileSheet({ address, initial, startOnVerify = false, 
 
   if (step === "verify" && code) {
     return (
-      <Sheet title="Verify with X" onClose={onClose}>
+      <Sheet title={t("verifyTitle")} onClose={onClose}>
         <div className="space-y-4">
-          <p className="text-sm text-body text-pretty">Post this from <strong className="text-ink">@{code.handle}</strong>, then paste the link to your post. The post proves the account is yours; it does not earn anything by itself.</p>
+          <p className="text-sm text-body text-pretty">{t.rich("postThis", { handle: code.handle, strong: (chunks) => <strong className="text-ink">{chunks}</strong> })}</p>
           <div className="rounded-xl border border-line bg-paper p-4">
             <pre className="whitespace-pre-wrap break-words font-sans text-sm text-ink">{code.text}</pre>
             <div className="mt-3 flex flex-wrap gap-2">
-              <a href={code.intent} target="_blank" rel="noopener noreferrer" className={btn.primarySm}><XMark />Post on X<ArrowUpRight size={13} aria-hidden="true" /></a>
-              <button type="button" className={btn.secondarySm} onClick={() => void copy(code.text)}>{copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}{copied ? "Copied" : "Copy text"}</button>
+              <a href={code.intent} target="_blank" rel="noopener noreferrer" className={btn.primarySm}><XMark />{t("postOnX")}<ArrowUpRight size={13} aria-hidden="true" /></a>
+              <button type="button" className={btn.secondarySm} onClick={() => void copy(code.text)}>{copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}{copied ? t("copied") : t("copyText")}</button>
             </div>
           </div>
           <div>
-            <label className={label} htmlFor="p-post">Link to your post</label>
+            <label className={label} htmlFor="p-post">{t("postLink")}</label>
             <input id="p-post" className={input} inputMode="url" autoComplete="off" placeholder={`https://x.com/${code.handle}/status/…`} value={postUrl} onChange={(e) => setPostUrl(e.target.value)} />
-            <p className={helper}>Code {code.code} · valid until {new Date(code.expires_at).toLocaleString()}</p>
+            <p className={helper}>{t("codeValid", { code: code.code, date: new Date(code.expires_at).toLocaleString() })}</p>
           </div>
-          {err ? <p className="text-sm text-down-ink" role="alert">{err}</p> : null}
-          {note ? <p className="text-sm text-up" role="status">{note}</p> : null}
+          {err ? <p className="text-sm text-down-ink" role="alert"><Reason text={err} /></p> : null}
+          {note ? <p className="text-sm text-up" role="status">{t(note)}</p> : null}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <button type="button" className="text-xs text-muted underline underline-offset-4 hover:text-ink" onClick={() => setStep("form")}>Back to profile</button>
-            <button type="button" className={btn.primary} disabled={busy || !postUrl.trim()} onClick={() => void verify()}>{phase === "check" ? "Checking your post…" : "Verify"}</button>
+            <button type="button" className="text-xs text-muted underline underline-offset-4 hover:text-ink" onClick={() => setStep("form")}>{t("back")}</button>
+            <button type="button" className={btn.primary} disabled={busy || !postUrl.trim()} onClick={() => void verify()}>{phase === "check" ? t("checking") : t("verify")}</button>
           </div>
         </div>
       </Sheet>
     );
   }
 
+  const muted = (chunks: React.ReactNode) => <span className="font-normal text-muted">{chunks}</span>;
   return (
-    <Sheet title={profile ? "Edit profile" : "Create your profile"} onClose={onClose}>
+    <Sheet title={profile ? t("editTitle") : t("createTitle")} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-xs text-muted text-pretty">Your username shows next to your trades, posts and launches. Saving asks your wallet for a free signature, no transaction.</p>
+        <p className="text-xs text-muted text-pretty">{t("intro")}</p>
         <div>
-          <label className={label} htmlFor="p-user">Username</label>
+          <label className={label} htmlFor="p-user">{t("username")}</label>
           <input id="p-user" className={input} autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={USERNAME_MAX + 1} placeholder="yourname" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.replace(/\s/g, "") })} />
-          <p className={helper} aria-live="polite">{nameState ? (nameState.ok ? "Available" : nameState.error ?? "Taken") : "3–20 letters, numbers or _. You can change it once every 30 days."}</p>
+          <p className={helper} aria-live="polite">{nameState ? (nameState.ok ? t("available") : nameState.error === undefined ? t("taken") : <Reason text={nameState.error} />) : t("usernameHelp")}</p>
         </div>
         <div>
-          <label className={label} htmlFor="p-name">Name</label>
-          <input id="p-name" className={input} autoComplete="nickname" maxLength={DISPLAY_NAME_MAX * 2} placeholder="How people know you" value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
+          <label className={label} htmlFor="p-name">{t("name")}</label>
+          <input id="p-name" className={input} autoComplete="nickname" maxLength={DISPLAY_NAME_MAX * 2} placeholder={t("namePlaceholder")} value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
         </div>
         <div>
-          <label className={label} htmlFor="p-x">X account <span className="font-normal text-muted">(optional, for the ✓)</span></label>
+          <label className={label} htmlFor="p-x">{t.rich("xAccount", { muted })}</label>
           <input id="p-x" className={input} autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="@yourhandle" value={f.x_handle} onChange={(e) => setF({ ...f, x_handle: e.target.value })} />
-          <p className={helper}>{profile && profile.x_state !== "none" && profile.x_state !== "verified" && !f.x_handle ? "Your X claim is waiting: enter the handle again to keep it, or leave it empty to drop it." : "After saving you post a short code from this account. The handle stays hidden until it is verified."}</p>
+          <p className={helper}>{profile && profile.x_state !== "none" && profile.x_state !== "verified" && !f.x_handle ? t("xWaiting") : t("xHelp")}</p>
         </div>
         <div>
-          <span className={label}>Picture <span className="font-normal text-muted">(optional)</span></span>
+          <span className={label}>{t.rich("picture", { muted })}</span>
           <ImageUpload value={f.avatar} onChange={(url) => setF({ ...f, avatar: url })} wallet={address} compact />
         </div>
         <div>
-          <label className={label} htmlFor="p-bio">Bio <span className="font-normal text-muted">(optional)</span></label>
+          <label className={label} htmlFor="p-bio">{t.rich("bio", { muted })}</label>
           <textarea id="p-bio" className={`${input} h-auto min-h-20 py-3`} maxLength={BIO_MAX + 40} value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })} />
-          <p className={helper}>{BIO_MAX - [...f.bio].length} left</p>
+          <p className={helper}>{t("bioLeft", { count: BIO_MAX - [...f.bio].length })}</p>
         </div>
-        {!v.ok && f.username ? <p className="text-sm text-muted">{v.error}</p> : null}
-        {err ? <p className="text-sm text-down-ink" role="alert">{err}</p> : null}
+        {!v.ok && f.username ? <p className="text-sm text-muted"><Reason text={v.error} /></p> : null}
+        {err ? <p className="text-sm text-down-ink" role="alert"><Reason text={err} /></p> : null}
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {profile && profile.x_state !== "verified" && loadCode(address) ? <button type="button" className={btn.secondary} onClick={() => { setCode(loadCode(address)); setStep("verify"); }}>I already have a code</button> : null}
-          <button type="button" className={btn.primary} disabled={busy || !v.ok || (nameState !== null && !nameState.ok)} onClick={() => void save()}>{phase === "sign" && !confirmDelete ? "Sign in your wallet…" : phase === "save" ? "Saving…" : f.x_handle && profile?.x_state !== "verified" ? "Save and verify with X" : "Save profile"}</button>
+          {profile && profile.x_state !== "verified" && loadCode(address) ? <button type="button" className={btn.secondary} onClick={() => { setCode(loadCode(address)); setStep("verify"); }}>{t("haveCode")}</button> : null}
+          <button type="button" className={btn.primary} disabled={busy || !v.ok || (nameState !== null && !nameState.ok)} onClick={() => void save()}>{phase === "sign" && !confirmDelete ? t("signing") : phase === "save" ? t("saving") : f.x_handle && profile?.x_state !== "verified" ? t("saveVerify") : t("save")}</button>
         </div>
         {profile ? (
           <div className="border-t border-line pt-4">
             {confirmDelete ? (
-              <div className="space-y-3" role="group" aria-label="Delete profile">
-                <p className="text-sm text-body text-pretty">Delete your profile? Your name, picture, bio and X tick disappear everywhere. A username you have had for a day or more stays reserved for this wallet for 30 days.</p>
+              <div className="space-y-3" role="group" aria-label={t("delete")}>
+                <p className="text-sm text-body text-pretty">{t("deleteConfirm")}</p>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={btn.secondarySm} disabled={busy} onClick={() => setConfirmDelete(false)}>Keep it</button>
-                  <button type="button" className={btn.dangerSm} disabled={busy} onClick={() => void remove()}>{phase === "sign" ? "Sign in your wallet…" : phase === "delete" ? "Deleting…" : "Delete for good"}</button>
+                  <button type="button" className={btn.secondarySm} disabled={busy} onClick={() => setConfirmDelete(false)}>{t("keep")}</button>
+                  <button type="button" className={btn.dangerSm} disabled={busy} onClick={() => void remove()}>{phase === "sign" ? t("signing") : phase === "delete" ? t("deleting") : t("deleteForGood")}</button>
                 </div>
               </div>
             ) : (
-              <button type="button" className={btn.dangerSm} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete profile</button>
+              <button type="button" className={btn.dangerSm} disabled={busy} onClick={() => setConfirmDelete(true)}>{t("delete")}</button>
             )}
           </div>
         ) : null}

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, HttpRequestError, InsufficientFundsError, RpcRequestError, SwitchChainError, UnknownRpcError, UserRejectedRequestError, type Address, type Hex } from "viem";
-import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
+import { setClientLanguage } from "../../i18n/client.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeServiceMessage, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
 import { parseBridgeQuoteRejection } from "./client";
 import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
@@ -623,4 +626,42 @@ test("bridge error copy surfaces the provider's own text behind viem's generic w
   assert.equal(bridgeErrorMessage(new InsufficientFundsError({ cause: new Error("insufficient funds for gas * price + value") }), "x", "USDC"), "Not enough USDC for this transaction plus gas.");
   assert.equal(bridgeErrorMessage(new Error("plain"), "fallback"), "plain");
   assert.equal(bridgeErrorMessage("string", "fallback"), "fallback");
+});
+
+test("every error the bridge API sends has its wording in the bridge messages", () => {
+  const api = ["./relay.ts", "./validation.ts", "../../app/api/bridge/quote/route.ts", "../../app/api/bridge/status/route.ts"]
+    .map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+  // the API's errors are its only sentence literals; it answers in English (agents read it too)
+  const sent = [...new Set([...api.matchAll(/"([A-Z][^"]*\.)"/g)].map((match) => match[1]))].sort();
+  assert.deepEqual(sent, Object.values(en.bridge.service).sort());
+  assert.equal(bridgeServiceMessage(en.bridge.service.noQuote), "No bridge quote is available for this amount. Please try again.");
+  assert.equal(bridgeServiceMessage("Something the API never said."), "Something the API never said.");
+});
+
+/** Run `body` as the browser does for a reader of Simplified Chinese; on the server and in tests it reads English. */
+function inChinese(body: (zh: ReturnType<typeof messagesFor>) => void) {
+  const global = globalThis as { window?: unknown };
+  global.window = {};
+  try {
+    setClientLanguage("zh-CN", messagesFor("zh-CN"));
+    body(messagesFor("zh-CN"));
+  } finally {
+    setClientLanguage("en", en);
+    delete global.window;
+  }
+}
+
+test("in the browser, bridge and wallet errors read in the reader's language", () => {
+  inChinese((zh) => {
+    assert.equal(bridgeServiceMessage(en.bridge.service.busy), zh.bridge.service.busy);
+    assert.equal(bridgeServiceMessage("Something the API never said."), "Something the API never said.");
+    assert.equal(bridgeErrorMessage(new UserRejectedRequestError(new Error("User rejected the request.")), "x"), zh.errors.cancelled);
+    assert.equal(bridgeErrorMessage(new InsufficientFundsError(), "x", "USDC"), "USDC 余额不足以支付此交易及 Gas。");
+    assert.throws(() => bridgeGasBudget(1000n, 1000n, 100n, 2n, 0n, "USDC"), { message: "USDC 余额不足以支付此数量和网络 Gas。请减少数量并重新获取报价。" });
+    assert.throws(() => validateBridgeQuote(null, quote(), NOW), { message: zh.bridge.errors.invalidQuote });
+    // provider and library text is data: shown as received
+    assert.equal(bridgeErrorMessage(new Error("plain"), "fallback"), "plain");
+  });
+  // and English again once the reader switches back
+  assert.equal(bridgeErrorMessage(new UserRejectedRequestError(new Error("User rejected the request.")), "x"), "You cancelled in your wallet.");
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useTranslations } from "use-intl";
 
 /**
  * Bottom sheet on phones (< md), centered dialog on larger screens.
@@ -21,6 +22,7 @@ export default function Sheet({
   children: React.ReactNode;
   wide?: boolean;
 }) {
+  const t = useTranslations("account.sheet");
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
@@ -65,7 +67,7 @@ export default function Sheet({
           <button
             type="button"
             onClick={() => closeRef.current()}
-            aria-label="Close"
+            aria-label={t("close")}
             className="h-9 w-9 inline-flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-paper"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">

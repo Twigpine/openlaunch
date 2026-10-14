@@ -7,6 +7,7 @@ import { MCAP_PRESETS, launchpad, listedQuoteAddresses, quoteInfo, quoteUsdOf } 
 import { MUSEWORLD_ADDRESS, MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH, timeWeightedPrice } from "./museworld.ts";
 import { cleanQuoteSymbol } from "./unlisted-quote.ts";
 import { quotePillOf } from "./ogcard.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * MUSEWORLD is an official quote (museworld.ts): badged and priced wherever its launches are listed, never offered in
@@ -69,7 +70,8 @@ test("badge: Museworld blue with its logo, in every list and on the token page a
   assert.equal(MUSEWORLD_BLUE, "#0866FF");
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public", MUSEWORLD_LOGO_PATH)));
   for (const f of ["LaunchRow.tsx", "LaunchCard.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
-  assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<MuseworldBadge label="Paired with MUSEWORLD" \/>/);
+  assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<MuseworldBadge label=\{t\("page\.pairedWith", \{ symbol: "MUSEWORLD" \}\)\} \/>/);
+  assert.equal(en.token.page.pairedWith, "Paired with {symbol}");
   assert.deepEqual(quotePillOf("museworld", "MUSEWORLD"), { symbol: "MUSEWORLD", ticker: "MW", kind: "museworld" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /official · priced in/);
 });

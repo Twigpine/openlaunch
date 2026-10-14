@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChartCandlestick, Check, CircleDollarSign, Globe, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "use-intl";
+import type { Messages } from "@/i18n/messages";
 import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
@@ -58,8 +60,8 @@ type Phase =
   | { k: "done"; hash: Hex; token: string }
   | { k: "error"; message: string };
 
-// A chain without contracts reads as upcoming to visitors; in development the reason is what matters.
-const UNCONFIGURED_CHAIN_COPY = process.env.NODE_ENV === "production" ? "Coming soon." : "Not configured here. Contract settings are missing in this environment.";
+// A chain without contracts reads as upcoming to visitors; in development the reason is what matters (launch.form.chain.*).
+const UNCONFIGURED_CHAIN_COPY = process.env.NODE_ENV === "production" ? "comingSoon" : "notConfigured";
 const FIRST_BUY_SLIPPAGE_BPS = 300; // Other buyers can trade between the launch and this separate buy.
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 // The native amount kept back from a first buy for gas is per chain (lib/launchpad/config.ts GAS_RESERVE_WEI): the launch
@@ -69,37 +71,40 @@ function randomSalt(): Hex {
   return `0x${randomHex(32)}`;
 }
 
-/** Shown wherever the form is blocked on a stock choice: one sentence, one place. */
-const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the quote.";
-
-/** Per-chain copy in the form. A chain's quotes and stock registry differ, so its sentences do too; `stock` is null where no registry exists. */
-const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock: { pays: string; badge: string; empty: string; issuer: string } | null }> = {
-  base: {
-    blurb: "Priced in ETH, TWIG or a Coinbase tokenized stock. Gas ≈ cents.",
-    gitlawbOrigin: "", // the Base form offers TWIG, not GITLAWB, so this copy is never shown there
-    stock: {
-      pays: "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
-      badge: "Coinbase stock",
-      empty: "No match. Search a ticker or a company name, e.g. NVDA, AMD or Netflix.",
-      issuer: "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4.",
-    },
-  },
-  robinhood: {
-    blurb: "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents.",
-    gitlawbOrigin: ", bridged 1:1 from Base to Robinhood Chain over LayerZero",
-    stock: {
-      pays: "Buyers pay with a Robinhood Stock Token; fees are paid in that stock.",
-      badge: "Robinhood stock",
-      empty: "No match. 194 Robinhood Stock Tokens are available, e.g. AAPL, TSLA, NVDA, SPY.",
-      issuer: "Robinhood Stock Tokens are tokenised securities issued by Robinhood and are not offered to US persons. That is Robinhood's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4.",
-    },
-  },
-  arc: {
-    blurb: "Priced in USDC (dollars). Gas is paid in USDC too: cents per trade, well under a dollar to launch.",
-    gitlawbOrigin: "",
-    stock: null,
-  },
+/**
+ * Per-chain copy in the form. A chain's quotes and stock registry differ, so its sentences do too: each chain has its
+ * blurb (launch.form.chain.blurb.<chain>), `stock` names its registry's copy (launch.form.stock.<registry>) and is null
+ * where no registry exists, and `bridgedGitlawb` says where the chain's GITLAWB comes from.
+ */
+const CHAIN_COPY: Record<ChainKey, { stock: "coinbase" | "robinhood" | null; bridgedGitlawb: boolean }> = {
+  base: { stock: "coinbase", bridgedGitlawb: false }, // the Base form offers TWIG, not GITLAWB, so the GITLAWB copy is never shown there
+  robinhood: { stock: "robinhood", bridgedGitlawb: true },
+  arc: { stock: null, bridgedGitlawb: false },
 };
+
+type Reason = keyof Messages["launch"]["form"]["reasons"];
+/**
+ * Why a launch or its first buy failed, as messages: the English reasons the metadata route and this form's own checks
+ * give. friendlyError (lib/errors.ts) already words its reasons in the reader's language (the errors area), and any
+ * other text, such as a wallet's or a node's own error, reads as it came.
+ */
+const REASONS = new Map<string, Reason>([
+  ["could not save metadata", "metadata"],
+  ["metadata URI changed during the salt search", "metadataChanged"],
+  ["Transaction reverted on-chain.", "txReverted"],
+  ["The buy reverted on-chain.", "buyReverted"],
+  ["slow down", "slowDown"],
+  ["launchpad unconfigured", "unconfigured"],
+]);
+
+/** A failure reason (see REASONS) in the reader's language. */
+function useReason() {
+  const t = useTranslations("launch.form.reasons");
+  return useCallback((reason: string) => {
+    const key = REASONS.get(reason);
+    return key ? t(key) : reason;
+  }, [t]);
+}
 
 type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
 
@@ -173,6 +178,8 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
 
 export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = DEFAULT_CHAIN }: { ethUsd: number | null; gitlawbUsd?: number | null; initialChain?: ChainKey }) {
   const router = useRouter();
+  const t = useTranslations("launch.form");
+  const explain = useReason();
   const [chain, setChain] = useState<ChainKey>(initialChain);
   const cfg = launchpad(chain);
   const CHAIN = CHAINS[chain];
@@ -202,7 +209,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   useEffect(() => {
     if (quoteKey !== "stock") return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/quotes?chain=${chain}&q=${encodeURIComponent(stockQ)}`, { cache: "no-store" });
         const d = (await res.json()) as { stocks: Quote[]; stocksTotal?: number; stocksMatched?: number };
@@ -218,11 +225,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
     }, 250);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [chain, quoteKey, stockQ]);
   // How many stocks the page leaves out. Only once the page answers the search as typed: a reply still on its way says nothing about the new text.
   const stockMore = !stock && stockAnswered === stockQ && stockHits.length > 0 ? Math.max(0, (stockQ.trim() ? stockMatched : stockTotal) - stockHits.length) : 0;
+  // this chain's stock registry copy (CHAIN_COPY), null where the chain has none
+  const registry = CHAIN_COPY[chain].stock;
+  const stockCopy = registry ? { pays: t(`stock.${registry}.pays`), badge: t(`stock.${registry}.badge`), empty: t(`stock.${registry}.empty`), issuer: t(`stock.${registry}.issuer`) } : null;
   const config = useConfig();
   const { address, isConnected, chainId } = useHydratedAccount();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -295,34 +305,36 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   // "1,000,000 TWIG", not "1000000 TWIG": every digit of what the buy will send, grouped (never rounded, it is what the creator confirms)
   const initialBuyLabel = initialBuyRaw ? `${fmtUnitsExact(initialBuyRaw, quote.decimals)} ${quote.symbol}` : "";
   const errors: string[] = [];
+  /** Shown wherever the form is blocked on a stock choice: one sentence, one place. */
+  const stockPick = t("stock.pick");
   // the token step's checks, named once: the validation list and the step rail both read them
   const nameOk = name.trim().length > 0 && name.trim().length <= 32;
   const symbolOk = /^[A-Z0-9]{1,10}$/.test(symbolClean);
   const httpsOrEmpty = (v: string) => !v || /^https:\/\//.test(v.trim());
-  if (!nameOk) errors.push("Name: 1–32 characters.");
-  if (!symbolOk) errors.push("Symbol: use 1–10 English letters (A–Z) or digits (0–9).");
-  if (startTick === null) errors.push("Starting market cap must be a positive number.");
-  if (quoteKey === "stock" && !stock) errors.push(STOCK_PICK_MESSAGE);
-  if (isBrandQuote && quote.usd === null && !customMcap.trim() && startTick === null) errors.push(`${quote.symbol} price unavailable right now: enter a custom starting market cap in ${quote.symbol}, or reload.`);
-  if (!httpsOrEmpty(image)) errors.push("Image must be an https URL.");
-  if (!httpsOrEmpty(banner)) errors.push("Banner must be an https URL.");
-  if (!httpsOrEmpty(website)) errors.push("Website must be an https URL.");
+  if (!nameOk) errors.push(t("token.nameInvalid"));
+  if (!symbolOk) errors.push(t("token.symbolInvalid"));
+  if (startTick === null) errors.push(t("price.capInvalid"));
+  if (quoteKey === "stock" && !stock) errors.push(stockPick);
+  if (isBrandQuote && quote.usd === null && !customMcap.trim() && startTick === null) errors.push(t("price.brandUnpriced", { symbol: quote.symbol }));
+  if (!httpsOrEmpty(image)) errors.push(t("token.imageInvalid"));
+  if (!httpsOrEmpty(banner)) errors.push(t("token.bannerInvalid"));
+  if (!httpsOrEmpty(website)) errors.push(t("token.websiteInvalid"));
   const xParsed = parseXHandle(x);
-  if (!xParsed.ok) errors.push("X: enter a handle or an x.com link.");
+  if (!xParsed.ok) errors.push(t("token.xInvalid"));
   // the market row this launch will have, for the preview: the same card it gets on the board
-  const previewRow = previewLaunch({ chain, name, symbol: symbolClean, description, image, banner, website, xHandle: xParsed.ok ? xParsed.handle || null : null, fdvQuote: fdvPreview, quote: { key: quote.key, symbol: quote.symbol, decimals: quote.decimals, usd: quoteUsd }, lpFee: feePips, launcher: address ?? null });
+  const previewRow = previewLaunch({ chain, name, symbol: symbolClean, description, image, banner, website, xHandle: xParsed.ok ? xParsed.handle || null : null, fdvQuote: fdvPreview, quote: { key: quote.key, symbol: quote.symbol, decimals: quote.decimals, usd: quoteUsd }, lpFee: feePips, launcher: address ?? null, unnamed: t("unnamed") });
   const split = useMemo(() => buildRecipients(rows), [rows]);
   if (feePips > 0 && beneficiary === "custom") errors.push(...split.errors);
   const buyChecksFrom = errors.length; // the first-buy checks run last, so the step rail can tell whether any of them failed
-  if (initialBuyRaw === undefined) errors.push(`First buy: enter an amount in ${quote.symbol}, or leave it empty.`);
+  if (initialBuyRaw === undefined) errors.push(t("buy.errors.amount", { symbol: quote.symbol }));
 
   // the launch is irreversible and the buy comes after it: never let a launch through while the buy's funding is unknown
-  if (initialBuyRaw && address && buyBalance === undefined) errors.push(buyBalanceFailed ? `First buy: could not read your ${quote.symbol} balance. Retry, or clear the amount.` : "First buy: checking your balance…");
+  if (initialBuyRaw && address && buyBalance === undefined) errors.push(buyBalanceFailed ? t("buy.errors.balanceFailed", { symbol: quote.symbol }) : t("buy.errors.balanceChecking"));
   if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + reserveInQuote > buyBalance)
-    errors.push(reserveInQuote > 0n ? `First buy: not enough ${quote.symbol} (leave a little for gas).` : `First buy: not enough ${quote.symbol} in this wallet.`);
+    errors.push(reserveInQuote > 0n ? t("buy.errors.shortWithGas", { symbol: quote.symbol }) : t("buy.errors.short", { symbol: quote.symbol }));
   // an ERC-20 first buy still pays gas (and its approvals) in the native asset: the token balance alone is not enough
-  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && address && nativeBalance === undefined) errors.push(ethBal.isError ? `First buy: could not read your ${NATIVE_SYMBOL} balance for gas. Retry, or clear the amount.` : `First buy: checking your ${NATIVE_SYMBOL} balance for gas…`);
-  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve) errors.push(`First buy: not enough ${NATIVE_SYMBOL} for gas (the launch, the approval and the buy each need a little ${NATIVE_SYMBOL}).`);
+  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && address && nativeBalance === undefined) errors.push(ethBal.isError ? t("buy.errors.gasFailed", { native: NATIVE_SYMBOL }) : t("buy.errors.gasChecking", { native: NATIVE_SYMBOL }));
+  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve) errors.push(t("buy.errors.gasShort", { native: NATIVE_SYMBOL }));
   const valid = errors.length === 0;
   // the rail beside the steps: a check once a step is complete (the first buy is optional, so it is complete unless its amount fails a check)
   const done = {
@@ -344,7 +356,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   // An unfinished split (or "Me" before a wallet connects) has no recipients yet; that must preview as the routing being set up,
   // never as a burn. Launching stays blocked by the validation errors until the list is complete.
   const feeMode = feePips > 0 && beneficiary !== "burn" && recipients.length === 0 ? (beneficiary === "custom" && rows.length > 1 ? "split" : "creator") : feeModeOf(feePips, recipients);
-  const feeRouteSub = feeMode === "free" ? "free pool" : feeMode === "burn" ? "burned" : feeMode === "split" ? `split ${recipients.length || rows.length} ways` : "to beneficiary";
+  const feeRouteSub = feeMode === "free" ? t("feeRoute.free") : feeMode === "burn" ? t("feeRoute.burned") : feeMode === "split" ? t("feeRoute.split", { count: recipients.length || rows.length }) : t("feeRoute.beneficiary");
   const setRow = (i: number, patch: Partial<RecipientRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const addRow = (payout = "") => setRows((rs) => (rs.length >= MAX_RECIPIENTS ? rs : [...rs, { payout, pct: rs.length === 0 ? "100" : "" }]));
   const removeRow = (i: number) => setRows((rs) => (rs.length <= 1 ? [emptyRow()] : rs.filter((_, j) => j !== i)));
@@ -451,9 +463,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
       if (buyHash) await fetch(`/api/launch/sync?chain=${chain}&tx=${buyHash}`, { method: "POST" }).catch(() => {});
       setPhase({ k: "done", hash, token });
-      toast({ kind: "launch", title: `${name.trim()} is live on ${CHAIN_LABEL}`, sub: "Liquidity locked forever. Taking you to your token.", chain, token, symbol: symbolClean, celebrate: true });
-      if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "Buy confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
-      if (buyProblem) toast({ kind: "info", title: "Launched, but the first buy did not go through", sub: `${buyProblem} You can buy on the token page.`, chain, token, symbol: symbolClean });
+      toast({ kind: "launch", title: t("toast.live", { name: name.trim(), chain: CHAIN_LABEL }), sub: t("toast.liveSub"), chain, token, symbol: symbolClean, celebrate: true });
+      if (bought !== null) toast({ kind: "buy", title: t(bought.exact ? "toast.bought" : "toast.boughtAbout", { amount: fmtCompact(Number(bought.out) / 1e18), symbol: symbolClean }), sub: t("toast.buyConfirmed", { chain: CHAIN_LABEL }), chain, token, symbol: symbolClean });
+      if (buyProblem) toast({ kind: "info", title: t("toast.buyFailed"), sub: t("toast.buyFailedSub", { reason: explain(buyProblem) }), chain, token, symbol: symbolClean });
       startNav();
       router.push(`/t/${chain}/${token}`);
     } catch (err) {
@@ -468,7 +480,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
     <div className="space-y-3">
       {quoteKey === "stock" && !stock ? (
         <div className="rounded-xl border border-warm/40 bg-warm-soft px-3.5 py-2.5 text-xs text-warm-ink font-semibold" role="status">
-          {STOCK_PICK_MESSAGE}
+          {stockPick}
         </div>
       ) : null}
       {errors.length > 0 && (name || symbol) ? (
@@ -491,7 +503,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
         phase={phase}
         onConnect={() => setPickerOpen(true)}
         onSwitch={() => void switchChainAsync({ chainId: CHAIN.id })}
-        label={initialBuyRaw ? "Launch + first buy" : "Launch for free, gas only"}
+        label={initialBuyRaw ? t("submit.launchBuy") : t("submit.launchFree")}
       />
       <PhaseNote phase={phase} chain={chain} />
     </div>
@@ -514,8 +526,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           <Step n={1} done={done.chain}>
             <section className={`${card} p-5 space-y-4`}>
               <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                <h2 className="text-sm font-semibold text-ink">Chain</h2>
-                <span className="text-xs text-muted">same launch, same rules, on every chain</span>
+                <h2 className="text-sm font-semibold text-ink">{t("chain.heading")}</h2>
+                <span className="text-xs text-muted">{t("chain.note")}</span>
               </div>
               <div className="grid sm:grid-cols-3 gap-2">
                 {CHAIN_KEYS.map((k) => {
@@ -548,7 +560,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                         <span className={`font-semibold text-sm ${active ? "text-brand" : "text-ink"}`}>{CHAIN_LABELS[k]}</span>
                         {active ? <Check size={15} strokeWidth={2.6} aria-hidden="true" className="ml-auto shrink-0 text-brand" /> : null}
                       </span>
-                      <span className="mt-2 block text-xs text-body leading-snug">{!ok ? UNCONFIGURED_CHAIN_COPY : CHAIN_COPY[k].blurb}</span>
+                      <span className="mt-2 block text-xs text-body leading-snug">{!ok ? t(`chain.${UNCONFIGURED_CHAIN_COPY}`) : t(`chain.blurb.${k}`)}</span>
                     </button>
                   );
                 })}
@@ -557,9 +569,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               {cfg.quotes.length > 0 ? (
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <span className="text-sm font-medium text-ink">Priced in</span>
-                    <ToggleGroup aria-label="Quote asset" value={[quoteKey]} onValueChange={(values) => { const next = values[0] as Quote["key"] | undefined; if (!next) return; setQuoteKey(next); setMcapPick(null); setCustomMcap(""); }}>
-                      {[...cfg.quotes.map((q) => ({ key: q.key, label: q.symbol })), ...(STOCK_SOURCE[chain] ? [{ key: "stock" as const, label: "Stock" }] : [])].map((q) => (
+                    <span className="text-sm font-medium text-ink">{t("quote.pricedIn")}</span>
+                    <ToggleGroup aria-label={t("quote.label")} value={[quoteKey]} onValueChange={(values) => { const next = values[0] as Quote["key"] | undefined; if (!next) return; setQuoteKey(next); setMcapPick(null); setCustomMcap(""); }}>
+                      {[...cfg.quotes.map((q) => ({ key: q.key, label: q.symbol })), ...(STOCK_SOURCE[chain] ? [{ key: "stock" as const, label: t("quote.stock") }] : [])].map((q) => (
                         <ToggleGroupItem key={q.key} value={q.key} className="px-3 text-xs font-semibold">
                           <QuoteMark k={q.key} />
                           {q.label}
@@ -569,11 +581,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   </div>
                   <p className="text-xs text-muted">
                     {/* the picked quote key, not the resolved quote: with Stock chosen and no stock yet, the quote still falls back to the first one */}
-                    {quoteKey === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : isBrandQuote ? `Buyers pay with ${quote.symbol}; fees are paid in ${quote.symbol}, or burned.` : "Buyers pay with ETH."}
+                    {quoteKey === "stock" ? (stockCopy?.pays ?? "") : quote.key === "usdg" || quote.key === "usdc" ? t("quote.paysDollars", { symbol: quote.symbol }) : isBrandQuote ? t("quote.paysBrand", { symbol: quote.symbol }) : t("quote.paysEth")}
                   </p>
                   {brandQuote && quote.key !== brandQuote.key ? (
-                    <button type="button" onClick={() => { setQuoteKey(brandQuote.key); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-ink motion-reduce:transition-none" title={`Pair with ${brandQuote.symbol} and your token carries the ${brandQuote.symbol} badge everywhere on the site`}>
-                      Pair with {brandQuote.symbol}, get the <QuoteBrandBadge quoteKey={brandQuote.key} /> badge
+                    <button type="button" onClick={() => { setQuoteKey(brandQuote.key); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-ink motion-reduce:transition-none" title={t("quote.pairTitle", { symbol: brandQuote.symbol })}>
+                      {t.rich("quote.pair", { symbol: brandQuote.symbol, badge: () => <QuoteBrandBadge quoteKey={brandQuote.key} /> })}
                     </button>
                   ) : null}
                 </div>
@@ -587,16 +599,15 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                     ) : null}
                     {quote.symbol}
                     <span className="font-normal text-xs opacity-80">{quote.name}</span>
-                    {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price unavailable</span>}
+                    {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">{t("quote.priceUnavailable")}</span>}
                   </span>
                   <p className={helper}>
-                    Your token carries the <QuoteBrandBadge quoteKey={quote.key} /> badge on the launch list, trending, the activity feed, its page and its share card.{" "}
-                    {quote.key === "twig" ? (
-                      <>TWIG is Twigpine&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and the fees are burned as TWIG when collected. Priced at GITLAWB&apos;s price, from the Uniswap v4 WETH/GITLAWB pool on Base.</>
-                    ) : (
-                      <>GITLAWB is Twigpine&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base.</>
-                    )}{" "}
-                    <a href={quote.key === "twig" ? TWIG_WRAP_URL : GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{quote.key === "twig" ? "wrap.twigpine.com" : "twigpine.com"} ↗</a>
+                    {t.rich(quote.key === "twig" ? "quote.brandTwig" : "quote.brandGitlawb", {
+                      bridged: CHAIN_COPY[chain].bridgedGitlawb ? "yes" : "no",
+                      site: quote.key === "twig" ? "wrap.twigpine.com" : "twigpine.com",
+                      badge: () => <QuoteBrandBadge quoteKey={quote.key} />,
+                      link: (chunks) => <a href={quote.key === "twig" ? TWIG_WRAP_URL : GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{chunks}</a>,
+                    })}
                   </p>
                 </div>
               ) : null}
@@ -610,7 +621,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                           <img src={stock.logo} alt="" width={22} height={22} className={`${stock.logo.startsWith("data:") ? "rounded-md" : "rounded-full"} bg-card`} referrerPolicy="no-referrer" />
                         ) : null}
                         {stock.symbol}
-                        <span className="font-normal text-xs opacity-80">{CHAIN_COPY[chain].stock?.badge}</span>
+                        <span className="font-normal text-xs opacity-80">{stockCopy?.badge}</span>
                         <span className="font-normal text-xs opacity-80">{stock.name}</span>
                         {stock.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(stock.usd)}</span> : null}
                         <button
@@ -619,7 +630,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                             setStock(null);
                             setStockQ("");
                           }}
-                          aria-label="clear stock quote"
+                          aria-label={t("stock.clear")}
                           className="ml-1 opacity-70 hover:opacity-100"
                         >
                           ×
@@ -627,7 +638,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                       </span>
                     ) : (
                       <>
-                        <input className={`${input} h-10 max-w-xs font-mono uppercase`} value={stockQ} onChange={(e) => setStockQ(e.target.value)} placeholder="Search ticker, e.g. AAPL" aria-label="search stock tokens" autoComplete="off" />
+                        <input className={`${input} h-10 max-w-xs font-mono uppercase`} value={stockQ} onChange={(e) => setStockQ(e.target.value)} placeholder={t("stock.searchPlaceholder")} aria-label={t("stock.searchLabel")} autoComplete="off" />
                         <button
                           type="button"
                           className="text-xs font-semibold text-muted underline underline-offset-2"
@@ -639,7 +650,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                             setCustomMcap("");
                           }}
                         >
-                          Switch quote
+                          {t("stock.switchQuote")}
                         </button>
                       </>
                     )}
@@ -656,7 +667,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                               setCustomMcap("");
                             }}
                             className="inline-flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-full border border-line bg-card text-xs font-semibold text-ink hover:border-ink/40"
-                            title={h.issued === false ? `${h.name}: none issued yet` : h.name}
+                            title={h.issued === false ? t("stock.noneIssuedTitle", { name: h.name ?? h.symbol }) : h.name}
                           >
                             {h.logo ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -664,26 +675,26 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                             ) : null}
                             {h.symbol}
                             {h.usd ? <span className="font-mono font-normal text-muted">{fmtUsd(h.usd)}</span> : null}
-                            {h.issued === false ? <span className="font-normal text-muted">not issued yet</span> : null}
+                            {h.issued === false ? <span className="font-normal text-muted">{t("stock.notIssued")}</span> : null}
                           </button>
                         </li>
                       ))}
-                      {stockHits.length === 0 ? <li className="text-xs text-muted">{CHAIN_COPY[chain].stock?.empty}</li> : null}
+                      {stockHits.length === 0 ? <li className="text-xs text-muted">{stockCopy?.empty}</li> : null}
                     </ul>
                   ) : null}
                   {/* a listed stock with no supply: the launch works, but until the issuer puts some in circulation nobody holds any to buy with */}
                   {stock?.issued === false ? (
                     <p className={helper}>
-                      None of {stock.symbol} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some. You can still launch now.
+                      {t("stock.noneIssued", { symbol: stock.symbol })}
                     </p>
                   ) : null}
                   {/* the list is one page: say how many more there are, or the rest stays invisible (a broad search like "S" has more matches than fit) */}
                   {stockMore > 0 ? (
                     <p className={helper}>
-                      {stockQ.trim() ? `Showing ${stockHits.length} of ${stockHits.length + stockMore} matches. Keep typing to narrow it down.` : `Showing ${stockHits.length} of ${stockHits.length + stockMore}. Search a ticker or a company name for the rest.`}
+                      {stockQ.trim() ? t("stock.showingMatches", { shown: stockHits.length, total: stockHits.length + stockMore }) : t("stock.showing", { shown: stockHits.length, total: stockHits.length + stockMore })}
                     </p>
                   ) : null}
-                  <p className={helper}>{CHAIN_COPY[chain].stock?.issuer}</p>
+                  <p className={helper}>{stockCopy?.issuer}</p>
                 </div>
               ) : null}
             </section>
@@ -692,21 +703,21 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           {/* 2 · identity */}
           <Step n={2} done={done.token}>
             <section className={`${card} p-5 space-y-5`}>
-              <h2 className="text-sm font-semibold text-ink">Token</h2>
+              <h2 className="text-sm font-semibold text-ink">{t("token.heading")}</h2>
               <div>
                 <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
                   <div>
                     <label className={label} htmlFor="name">
-                      Name
+                      {t("token.name")}
                     </label>
                     <div className="relative">
-                      <input id="name" className={`${input} pr-16`} value={name} onChange={(e) => setName(e.target.value)} placeholder="Clear Sky" maxLength={32} autoComplete="off" />
+                      <input id="name" className={`${input} pr-16`} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("token.namePlaceholder")} maxLength={32} autoComplete="off" />
                       <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-mono text-[11px] text-faint tnum">{name.length}/32</span>
                     </div>
                   </div>
                   <div>
                     <label className={label} htmlFor="symbol">
-                      Symbol
+                      {t("token.symbol")}
                     </label>
                     <input
                       id="symbol"
@@ -733,31 +744,31 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 </div>
                 {/* under both fields, so the symbol's rule reads in one line instead of a narrow column */}
                 <p id="symbol-help" className={helper}>
-                  Symbol: 1–10 English letters (A–Z) or digits (0–9), published in uppercase. Your token name can use other languages.
+                  {t("token.symbolHelp")}
                 </p>
               </div>
               <div>
                 <label className={label} htmlFor="desc">
-                  Description <span className="text-muted font-normal">· optional</span>
+                  {t("token.description")} <span className="text-muted font-normal">{t("optional")}</span>
                 </label>
-                <textarea id="desc" className={`${input} h-auto py-3 min-h-24 resize-y`} value={description} onChange={(e) => setDescription(e.target.value.slice(0, 280))} placeholder="What is this? One or two lines." />
-                <p className={`${helper} text-right tnum`}>{280 - description.length} left</p>
+                <textarea id="desc" className={`${input} h-auto py-3 min-h-24 resize-y`} value={description} onChange={(e) => setDescription(e.target.value.slice(0, 280))} placeholder={t("token.descriptionPlaceholder")} />
+                <p className={`${helper} text-right tnum`}>{t("token.left", { count: 280 - description.length })}</p>
               </div>
               <div>
                 <p className={label}>
-                  Artwork <span className="text-muted font-normal">· optional, but tokens with a logo get traded</span>
+                  {t("token.artwork")} <span className="text-muted font-normal">{t("token.artworkHint")}</span>
                 </p>
                 {/* the logo and the banner side by side, the way the card wears them */}
                 <div className="grid gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
                   <ImageUpload value={image} onChange={setImage} wallet={address} stacked />
                   <ImageUpload kind="banner" value={banner} onChange={setBanner} wallet={address} stacked />
                 </div>
-                <p className={helper}>The logo marks your token everywhere; the banner runs across the top of its card and page.</p>
+                <p className={helper}>{t("token.artworkHelp")}</p>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className={label} htmlFor="web">
-                    Website <span className="text-muted font-normal">· optional</span>
+                    {t("token.website")} <span className="text-muted font-normal">{t("optional")}</span>
                   </label>
                   <div className="relative">
                     <Globe size={16} aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
@@ -766,11 +777,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 </div>
                 <div>
                   <label className={label} htmlFor="x">
-                    X <span className="text-muted font-normal">· optional</span>
+                    X <span className="text-muted font-normal">{t("optional")}</span>
                   </label>
                   <div className="relative">
                     <span aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted"><XMark className="size-3.5" /></span>
-                    <input id="x" className={`${input} pl-11`} value={x} onChange={(e) => setX(e.target.value)} onBlur={() => { if (xParsed.ok && xParsed.handle) setX(`@${xParsed.handle}`); }} placeholder="@handle or x.com link" autoCapitalize="none" spellCheck={false} />
+                    <input id="x" className={`${input} pl-11`} value={x} onChange={(e) => setX(e.target.value)} onBlur={() => { if (xParsed.ok && xParsed.handle) setX(`@${xParsed.handle}`); }} placeholder={t("token.xPlaceholder")} autoCapitalize="none" spellCheck={false} />
                   </div>
                 </div>
               </div>
@@ -781,8 +792,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           <Step n={3} done={done.price}>
             <section className={`${card} p-5 space-y-4`}>
               <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                <h2 className="text-sm font-semibold text-ink">Starting market cap</h2>
-                <span className="text-xs text-muted">1,000,000,000 supply · all of it in the pool</span>
+                <h2 className="text-sm font-semibold text-ink">{t("price.heading")}</h2>
+                <span className="text-xs text-muted">{t("price.supply")}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {presets.map((v) => {
@@ -812,9 +823,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                       if (next.clearPick) setMcapPick(null);
                       setCustomMcap(next.value);
                     }}
-                    placeholder="custom"
+                    placeholder={t("price.custom")}
                     inputMode="decimal"
-                    aria-label={`custom starting market cap in ${entry.unit === "usd" ? "USD" : quote.symbol}`}
+                    aria-label={t("price.customLabel", { unit: entry.unit === "usd" ? "USD" : quote.symbol })}
                   />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{entry.unit === "usd" ? "USD" : quote.symbol}</span>
                 </div>
@@ -822,14 +833,19 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               {/* a stock without a price feed (most Coinbase stocks) has no dollar presets: say why the box wants stock units */}
               {quote.key === "stock" && entry.unit === "quote" ? (
                 <p className={helper}>
-                  {quote.symbol} has no USD price here: enter the starting market cap in {quote.symbol}.
+                  {t("price.noUsd", { symbol: quote.symbol })}
                 </p>
               ) : null}
               {fdvPreview !== null && tokensPerEth !== null ? (
                 <p className="rounded-xl border border-line bg-paper px-4 py-3 text-sm text-body">
-                  Opens at <span className="font-mono font-bold text-ink tnum">{cap(fdvPreview).main}</span>
-                  <span className="font-mono text-muted tnum"> · {cap(fdvPreview).detail}</span> fully diluted. The first {isBrandQuote ? "1M " : ""}{quote.symbol} buys about{" "}
-                  <span className="font-mono font-bold text-ink tnum">{fmtCompact(tokensPerEth * (isBrandQuote ? 1e6 : 1), 0)}</span> tokens, then the price climbs along the curve.
+                  {t.rich(isBrandQuote ? "price.opensAtMillion" : "price.opensAt", {
+                    cap: cap(fdvPreview).main,
+                    detail: cap(fdvPreview).detail,
+                    symbol: quote.symbol,
+                    tokens: fmtCompact(tokensPerEth * (isBrandQuote ? 1e6 : 1), 0),
+                    b: (chunks) => <span className="font-mono font-bold text-ink tnum">{chunks}</span>,
+                    muted: (chunks) => <span className="font-mono text-muted tnum">{chunks}</span>,
+                  })}
                 </p>
               ) : null}
             </section>
@@ -851,15 +867,15 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   return (
                     <div key={i} className="flex flex-col sm:flex-row gap-2">
                       <div className="relative min-w-0 flex-1">
-                        <input className={`${input} font-mono ${burn ? "pr-20" : ""}`} value={r.payout} onChange={(e) => setRow(i, { payout: e.target.value.trim() })} placeholder="0x…" aria-label={`beneficiary ${i + 1} address`} autoComplete="off" spellCheck={false} />
-                        {burn ? <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-warm/30 bg-warm-soft px-2 h-6 inline-flex items-center text-[11px] font-medium text-warm-ink pointer-events-none">burned</span> : null}
+                        <input className={`${input} font-mono ${burn ? "pr-20" : ""}`} value={r.payout} onChange={(e) => setRow(i, { payout: e.target.value.trim() })} placeholder="0x…" aria-label={t("split.address", { n: i + 1 })} autoComplete="off" spellCheck={false} />
+                        {burn ? <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-warm/30 bg-warm-soft px-2 h-6 inline-flex items-center text-[11px] font-medium text-warm-ink pointer-events-none">{t("split.burned")}</span> : null}
                       </div>
                       <div className="flex gap-2">
                         <div className="relative w-28 shrink-0">
-                          <input className={`${input} font-mono tnum pr-8`} value={r.pct} onChange={(e) => setRow(i, { pct: e.target.value.trim() })} placeholder="0" inputMode="decimal" aria-label={`beneficiary ${i + 1} share, percent`} />
+                          <input className={`${input} font-mono tnum pr-8`} value={r.pct} onChange={(e) => setRow(i, { pct: e.target.value.trim() })} placeholder="0" inputMode="decimal" aria-label={t("split.share", { n: i + 1 })} />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted pointer-events-none" aria-hidden>%</span>
                         </div>
-                        <button type="button" className={`${btn.icon} h-12 w-12 shrink-0`} onClick={() => removeRow(i)} aria-label={`remove beneficiary ${i + 1}`} disabled={rows.length === 1 && !r.payout && !r.pct}>
+                        <button type="button" className={`${btn.icon} h-12 w-12 shrink-0`} onClick={() => removeRow(i)} aria-label={t("split.remove", { n: i + 1 })} disabled={rows.length === 1 && !r.payout && !r.pct}>
                           ×
                         </button>
                       </div>
@@ -868,23 +884,23 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                 })}
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="button" className={btn.secondarySm} onClick={() => addRow()} disabled={rows.length >= MAX_RECIPIENTS}>
-                    + Add address
+                    {t("split.add")}
                   </button>
                   {address && !hasRow(address) ? (
                     <button type="button" className={btn.secondarySm} onClick={() => quickAdd(address)} disabled={rows.length >= MAX_RECIPIENTS && rows.every((x) => x.payout.trim() !== "")}>
-                      + Me ({shortAddr(address)})
+                      {t("split.addMe", { address: shortAddr(address) })}
                     </button>
                   ) : null}
                   {!hasRow(DEAD) ? (
                     <button type="button" className={btn.secondarySm} onClick={() => quickAdd(DEAD)} disabled={rows.length >= MAX_RECIPIENTS && rows.every((x) => x.payout.trim() !== "")}>
-                      + Burn a share
+                      {t("split.addBurn")}
                     </button>
                   ) : null}
                   <span className={`ml-auto text-xs tnum ${split.remainingBps === 0 ? "text-up" : "text-warm-ink"}`}>
-                    {split.remainingBps === 0 ? "Shares add up to 100%" : split.remainingBps > 0 ? `${bpsToPct(split.remainingBps)}% left to assign` : `${bpsToPct(-split.remainingBps)}% over`}
+                    {split.remainingBps === 0 ? t("split.complete") : split.remainingBps > 0 ? t("split.left", { pct: bpsToPct(split.remainingBps) }) : t("split.over", { pct: bpsToPct(-split.remainingBps) })}
                   </span>
                 </div>
-                <p className={helper}>Shares in percent, up to two decimals, must total exactly 100%. A row with 0x…dEaD burns that share.</p>
+                <p className={helper}>{t("split.help")}</p>
               </div>
             </LaunchFeeSettings>
           </Step>
@@ -894,9 +910,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
             <section className={`${card} p-5 space-y-4`}>
               <div className="flex items-baseline justify-between gap-3 flex-wrap">
                 <h2 className="text-sm font-semibold text-ink">
-                  First buy <span className="font-normal text-muted">· {buySource === "suggested" ? "suggested" : "optional"}</span>
+                  {t("buy.heading")} <span className="font-normal text-muted">{buySource === "suggested" ? t("suggested") : t("optional")}</span>
                 </h2>
-                <span className="text-xs text-muted">a second transaction, right after the launch confirms</span>
+                <span className="text-xs text-muted">{t("buy.note")}</span>
               </div>
               {BUY_PRESETS[quote.key].length ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -917,49 +933,56 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                     className={`${input} h-11 w-44 font-mono pr-16`}
                     value={initialBuy}
                     onChange={(e) => { const next = resolveFirstBuyInput(e.target.value); if (next.kind === "choose") chooseFirstBuy(next.value); else if (next.kind === "decline") declineFirstBuy(); }}
-                    placeholder="none"
+                    placeholder={t("buy.placeholder")}
                     inputMode="decimal"
-                    aria-label={`first buy amount in ${quote.symbol}`}
+                    aria-label={t("buy.amountLabel", { symbol: quote.symbol })}
                   />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{quote.symbol}</span>
                 </div>
-                {initialBuyRaw ? <button type="button" onClick={() => declineFirstBuy(true)} className={btn.secondarySm}>No first buy</button> : null}
+                {initialBuyRaw ? <button type="button" onClick={() => declineFirstBuy(true)} className={btn.secondarySm}>{t("buy.decline")}</button> : null}
                 {initialBuyRaw && buyBalance !== undefined ? (
-                  <span className="ml-auto text-xs font-mono text-muted tnum">balance {fmtQuoteUnits(units(buyBalance, quote.decimals), quote.decimals)}</span>
+                  <span className="ml-auto text-xs font-mono text-muted tnum">{t("buy.balance", { amount: fmtQuoteUnits(units(buyBalance, quote.decimals), quote.decimals) })}</span>
                 ) : null}
               </div>
               {buyPreview ? (
                 <div className="rounded-xl border border-line bg-paper px-4 py-3">
                   <dl className="grid gap-3 sm:grid-cols-2">
                     <div className="min-w-0">
-                      <dt className="text-[11px] text-muted">Estimated buy</dt>
+                      <dt className="text-[11px] text-muted">{t("buy.estimateLabel")}</dt>
                       <dd className="mt-0.5 text-sm text-body">
-                        about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> <span className="break-all">{symbolClean || "tokens"}</span>{" "}
-                        <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>
+                        {t.rich(buyUsd ? "buy.estimateUsd" : "buy.estimate", {
+                          amount: fmtCompact(buyPreview.tokensOut, 0),
+                          symbol: symbolClean || t("buy.tokens"),
+                          share: fmtPct(buyPreview.pctOfSupply),
+                          usd: buyUsd ? fmtUsd(buyUsd) : "",
+                          b: (chunks) => <span className="font-mono font-bold text-ink tnum">{chunks}</span>,
+                          sym: (chunks) => <span className="break-all">{chunks}</span>,
+                          muted: (chunks) => <span className="font-mono text-muted tnum">{chunks}</span>,
+                        })}
                       </dd>
                     </div>
                     <div className="min-w-0">
-                      <dt className="text-[11px] text-muted">Estimated market cap after your buy</dt>
+                      <dt className="text-[11px] text-muted">{t("buy.capAfterLabel")}</dt>
                       <dd className="mt-0.5 text-sm">
                         <span className="font-mono font-bold text-ink tnum">{cap(buyPreview.fdvAfter).main}</span><span className="font-mono text-muted tnum"> · {cap(buyPreview.fdvAfter).detail}</span>
                       </dd>
                     </div>
                   </dl>
-                  <p className={helper}>Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.</p>
+                  <p className={helper}>{t("buy.estimateHelp")}</p>
                 </div>
               ) : suggestion.reason === "not-issued" ? (
-                <p className={helper}>Nothing suggested: no {quote.symbol} has been issued yet, so there is none to buy with. The launch stays free.</p>
+                <p className={helper}>{t("buy.notIssued", { symbol: quote.symbol })}</p>
               ) : suggestion.reason === "insufficient" ? (
-                <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet {sharedGas ? `does not hold enough ${quote.symbol} for the buy plus its gas` : "holds only gas"}. The launch stays free; you can buy on the token page later.</p>
+                <p className={helper}>{t(sharedGas ? "buy.notEnough" : "buy.onlyGas", { amount: fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals), symbol: quote.symbol })}</p>
               ) : suggestion.reason === "no-gas" ? (
-                <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no {NATIVE_SYMBOL} left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
+                <p className={helper}>{t("buy.noGas", { amount: fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals), symbol: quote.symbol, native: NATIVE_SYMBOL })}</p>
               ) : suggestion.reason === "unknown-balance" ? (
-                <p className={helper}>Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount.</p>
+                <p className={helper}>{t("buy.unknownBalance")}</p>
               ) : suggestion.reason === "declined" && !typedBuy ? (
-                <p className={helper}>No first buy. The launch stays free.{defaultFirstBuy(quote) ? <> <button type="button" onClick={suggestAgain} className="font-medium text-brand underline underline-offset-4 hover:text-ink">Suggest {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol} again</button></> : null}</p>
+                <p className={helper}>{defaultFirstBuy(quote) ? t.rich("buy.declinedAgain", { amount: fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals), symbol: quote.symbol, again: (chunks) => <button type="button" onClick={suggestAgain} className="font-medium text-brand underline underline-offset-4 hover:text-ink">{chunks}</button> }) : t("buy.declined")}</p>
               ) : null}
-              <p className={helper}>A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.</p>
-              <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and pool fees apply.</p>
+              <p className={helper}>{t("buy.why")}</p>
+              <p className={helper}>{t("buy.slippage", { pct: FIRST_BUY_SLIPPAGE_BPS / 100 })}</p>
             </section>
           </Step>
 
@@ -967,30 +990,30 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           <Step n={6} done={false} last icon={<Rocket size={14} strokeWidth={2.2} />}>
             <section className={`${card} p-5 space-y-4`}>
               <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                <h2 className="text-sm font-semibold text-ink">Launch</h2>
-                <span className="text-xs text-muted">what happens when you sign</span>
+                <h2 className="text-sm font-semibold text-ink">{t("launch.heading")}</h2>
+                <span className="text-xs text-muted">{t("launch.note")}</span>
               </div>
               <ul className="space-y-2.5 text-[13px] text-body">
                 {[
-                  ["Deploys a plain ERC-20", "no mint, no pause, no blacklist, no tax"],
-                  ["Opens a Uniswap v4 pool", `${quote.symbol} / your token on ${CHAIN_LABELS[chain]}, no hook`],
-                  ["Locks 100% of supply as liquidity", "the position NFT lives in an ownerless locker, forever"],
-                  ["Routes trading fees", feePips === 0 ? "nothing to route at 0%" : feeMode === "burn" ? "burned at collect time" : recipients.length === 0 ? "to the beneficiaries you name, claimable any time" : `${describeShares(recipients, shortAddr)}, claimable any time`],
-                  ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuyLabel} right after the launch confirms, with a second wallet prompt`]] : []),
-                ].map(([t, d]) => (
-                  <li key={t} className="flex gap-2.5">
+                  [t("launch.deploy"), t("launch.deployDetail")],
+                  [t("launch.pool"), t("launch.poolDetail", { quote: quote.symbol, chain: CHAIN_LABELS[chain] })],
+                  [t("launch.lock"), t("launch.lockDetail")],
+                  [t("launch.fees"), feePips === 0 ? t("launch.feesNone") : feeMode === "burn" ? t("launch.feesBurned") : recipients.length === 0 ? t("launch.feesNamed") : t("launch.feesShares", { shares: describeShares(recipients, shortAddr) })],
+                  ...(initialBuyRaw ? [[t("launch.buy"), t("launch.buyDetail", { amount: initialBuyLabel })]] : []),
+                ].map(([title, detail]) => (
+                  <li key={title} className="flex gap-2.5">
                     <Check size={14} strokeWidth={2.5} aria-hidden className="mt-0.5 shrink-0 text-up" />
                     <span>
-                      <span className="font-medium text-ink">{t}</span> <span className="text-muted">{d}</span>
+                      <span className="font-medium text-ink">{title}</span> <span className="text-muted">{detail}</span>
                     </span>
                   </li>
                 ))}
               </ul>
               <div className="border-t border-line pt-4 lg:hidden">{action}</div>
               <p className="text-xs text-muted leading-relaxed">
-                One transaction on {CHAIN_LABEL}: deploys the token, creates the Uniswap v4 pool ({quote.symbol} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents.
-                Nothing is refundable and nothing can be edited afterwards.
-                {initialBuyRaw ? ` Then a second transaction buys ${initialBuyLabel} of your token${quote.key !== "eth" ? " (with a one-time approval the first time)" : ""}; if you reject it, the launch still stands.` : ""}
+                {initialBuyRaw
+                  ? t(quote.key !== "eth" ? "launch.summaryBuyApproval" : "launch.summaryBuy", { chain: CHAIN_LABEL, quote: quote.symbol, amount: initialBuyLabel })
+                  : t("launch.summary", { chain: CHAIN_LABEL, quote: quote.symbol })}
               </p>
             </section>
           </Step>
@@ -1002,7 +1025,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
         <div className={`${card} p-4`}>
           <LaunchPreview row={previewRow} />
           <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-4">
-            <p className="text-xs font-medium text-ink">At launch</p>
+            <p className="text-xs font-medium text-ink">{t("console.atLaunch")}</p>
             <span className="flex items-center gap-1.5">
               <QuoteBrandBadge quoteKey={quote.key} size="md" />
               <FeeChip lpFee={feePips} mode={feeMode} />
@@ -1010,10 +1033,10 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           </div>
           {/* hairlines between the tiles come from the gap over a line-coloured grid */}
           <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line">
-            <Mini k="Opens at" v={fdvPreview !== null ? cap(fdvPreview).main : "—"} sub={fdvPreview !== null ? cap(fdvPreview).detail : CHAIN_LABELS[chain]} />
-            <Mini k={buySource === "suggested" ? "First buy · suggested" : "First buy"} v={initialBuyRaw ? initialBuyLabel : "none"} sub={buyPreview ? `~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
-            <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feeRouteSub} />
-            <Mini k="Platform fee" v="0" sub="always" accent />
+            <Mini k={t("console.opensAt")} v={fdvPreview !== null ? cap(fdvPreview).main : "—"} sub={fdvPreview !== null ? cap(fdvPreview).detail : CHAIN_LABELS[chain]} />
+            <Mini k={buySource === "suggested" ? t("console.firstBuySuggested") : t("console.firstBuy")} v={initialBuyRaw ? initialBuyLabel : t("console.none")} sub={buyPreview ? t("console.ofSupply", { pct: fmtPct(buyPreview.pctOfSupply) }) : t("console.untouched")} />
+            <Mini k={t("console.tradingFee")} v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feeRouteSub} />
+            <Mini k={t("console.platformFee")} v="0" sub={t("console.always")} accent />
           </dl>
           <div className="mt-4 hidden border-t border-line pt-4 lg:block">{action}</div>
         </div>
@@ -1091,33 +1114,34 @@ function SubmitButton({
   onSwitch: () => void;
   label: string;
 }) {
+  const t = useTranslations("launch.form.submit");
   const cls = `${btn.primary} bb-sheen relative overflow-hidden w-full min-h-12 text-[15px]`;
   if (!configured)
     return (
       <button type="button" disabled className={cls}>
-        Launchpad not configured
+        {t("notConfigured")}
       </button>
     );
   if (!connected)
     return (
       <button type="button" onClick={onConnect} disabled={connecting} className={cls}>
-        {connecting ? "Connecting…" : "Connect wallet to launch"}
+        {connecting ? t("connecting") : t("connect")}
       </button>
     );
   if (!onChain)
     return (
       <button type="button" onClick={onSwitch} disabled={connecting} className={`${btn.warm} w-full min-h-12 text-[15px]`}>
-        {connecting ? "Switching…" : `Switch to ${chainLabel}`}
+        {connecting ? t("switching") : t("switchTo", { chain: chainLabel })}
       </button>
     );
   const busyLabel: Partial<Record<Phase["k"], string>> = {
-    saving: "Saving details…",
-    simulating: "Checking the launch…",
-    signing: "Confirm in your wallet…",
-    sent: `Confirming on ${chainLabel}…`,
-    buying: "Launched! Buying your first tokens…",
-    indexing: "Almost there…",
-    done: "Launched!",
+    saving: t("saving"),
+    simulating: t("simulating"),
+    signing: t("signing"),
+    sent: t("sent", { chain: chainLabel }),
+    buying: t("buying"),
+    indexing: t("indexing"),
+    done: t("done"),
   };
   const busy = busyLabel[phase.k];
   return (
@@ -1134,31 +1158,26 @@ function SubmitButton({
 }
 
 function PhaseNote({ phase, chain }: { phase: Phase; chain: ChainKey }) {
+  const t = useTranslations("launch.form.phase");
+  const explain = useReason();
   if (phase.k === "error")
     return (
       <p className="rounded-xl bg-down-soft border border-down/20 text-down-ink text-sm px-3 py-2" role="alert">
-        {phase.message}
+        {explain(phase.message)}
       </p>
     );
-  if (phase.k === "sent" || phase.k === "buying" || phase.k === "indexing" || phase.k === "done")
+  if (phase.k === "sent" || phase.k === "buying" || phase.k === "indexing" || phase.k === "done") {
+    // the transaction the line is about: the buy once it is sent, else the launch
+    const hash = phase.k === "buying" && phase.step === "sent" ? phase.buyHash : phase.hash;
+    const note = phase.k === "done" ? "txDone" : phase.k === "buying" ? (phase.step === "quote" ? "buyQuote" : phase.step === "approve" ? "buyApprove" : phase.step === "sign" ? "buySign" : "buySent") : "txSent";
     return (
       <p className="text-xs text-muted">
-        {phase.k === "buying" && phase.step === "sent" ? "Launched. Buy " : phase.k === "buying" ? "Launch " : "Transaction "}
-        <a href={explorerTx(chain, phase.k === "buying" && phase.step === "sent" ? phase.buyHash : phase.hash)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2 hover:text-ink">
-          {(phase.k === "buying" && phase.step === "sent" ? phase.buyHash : phase.hash).slice(0, 10)}…
-        </a>
-        {phase.k === "done"
-          ? " confirmed. Taking you to your token."
-          : phase.k === "buying"
-            ? phase.step === "quote"
-              ? " confirmed. Pricing your first buy…"
-              : phase.step === "approve"
-                ? " confirmed. Approve the quote token in your wallet (one time)…"
-                : phase.step === "sign"
-                  ? " confirmed. Confirm the buy in your wallet…"
-                  : " sent, waiting for confirmation…"
-            : " sent."}
+        {t.rich(note, {
+          hash: `${hash.slice(0, 10)}…`,
+          tx: (chunks) => <a href={explorerTx(chain, hash)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2 hover:text-ink">{chunks}</a>,
+        })}
       </p>
     );
+  }
   return null;
 }

@@ -1,0 +1,407 @@
+{
+  "page": {
+    "title": "免费发行代币",
+    "description": "在 Base、Robinhood Chain 或 Arc 上部署代币，100% 的供应量锁定为 Uniswap v4 流动性。无平台费，只需支付 Gas。",
+    "heading": "发行代币",
+    "intro": "选一条链，填好信息，签名一次，就完成了。无平台费，你只需支付 Gas。",
+    "loading": "正在加载发行表单"
+  },
+  "form": {
+    "optional": "· 选填",
+    "suggested": "· 建议",
+    "unnamed": "你的代币",
+    "chain": {
+      "heading": "链",
+      "note": "每条链上都是同样的发行、同样的规则",
+      "comingSoon": "即将上线。",
+      "notConfigured": "此处尚未配置。当前环境缺少合约设置。",
+      "blurb": {
+        "base": "以 ETH、TWIG 或 Coinbase 代币化股票计价。Gas 约几美分。",
+        "robinhood": "以 USDG（美元）、ETH、GITLAWB 或 Robinhood Stock Token 计价。Gas 约几美分。",
+        "arc": "以 USDC（美元）计价。Gas 也用 USDC 支付：每笔交易几美分，发行一次远低于 1 美元。"
+      }
+    },
+    "quote": {
+      "pricedIn": "计价资产",
+      "label": "计价资产",
+      "stock": "股票",
+      "paysDollars": "买家用 {symbol} 支付；市值和手续费以美元计。",
+      "paysBrand": "买家用 {symbol} 支付；手续费以 {symbol} 支付，或被销毁。",
+      "paysEth": "买家用 ETH 支付。",
+      "pairTitle": "与 {symbol} 配对，你的代币会在全站带有 {symbol} 徽章",
+      "pair": "与 {symbol} 配对，获得 <badge></badge> 徽章",
+      "priceUnavailable": "暂无价格",
+      "brandTwig": "你的代币会在发行列表、热门、动态信息流、代币页面和分享卡片上带有 <badge></badge> 徽章。TWIG 是 Twigpine 在 Base 上的代币：GITLAWB 的 1:1 包装代币，任何人都可以随时包装或解包，无需费用。没有所有者，没有转账限制。不指定受益人时，手续费会在领取时以 TWIG 形式销毁。按 GITLAWB 的价格计价，价格来自 Base 上的 Uniswap v4 WETH/GITLAWB 资金池。<link>{site} ↗</link>",
+      "brandGitlawb": "你的代币会在发行列表、热门、动态信息流、代币页面和分享卡片上带有 <badge></badge> 徽章。GITLAWB 是 Twigpine 的代币{bridged, select, yes {，通过 LayerZero 从 Base 1:1 跨链到 Robinhood Chain} other {}}：普通的 ERC-20，没有转账限制，没有发行方开关。不指定受益人时，手续费会在领取时以 GITLAWB 形式销毁。价格来自 Base 上的 Uniswap v4 WETH/GITLAWB 资金池。<link>{site} ↗</link>"
+    },
+    "stock": {
+      "pick": "请选择一只股票为代币计价，或切换计价资产。",
+      "clear": "清除股票计价",
+      "searchPlaceholder": "搜索股票代码，例如 AAPL",
+      "searchLabel": "搜索股票代币",
+      "switchQuote": "切换计价资产",
+      "noneIssuedTitle": "{name}：尚未发行",
+      "notIssued": "尚未发行",
+      "noneIssued": "{symbol} 尚未发行，因此还没有人持有，在 Coinbase 发行之前，也没有人能用它买入你的代币。你现在仍然可以发行。",
+      "showingMatches": "显示 {total} 个匹配结果中的 {shown} 个。继续输入可缩小范围。",
+      "showing": "显示 {total} 个中的 {shown} 个。搜索股票代码或公司名称查看其余部分。",
+      "coinbase": {
+        "pays": "买家用 Coinbase 代币化股票支付；手续费以该股票支付。",
+        "badge": "Coinbase 股票",
+        "empty": "没有匹配结果。可搜索股票代码或公司名称，例如 NVDA、AMD 或 Netflix。",
+        "issuer": "Coinbase 代币化股票是 Coinbase 依据 Regulation S 发行的证券，不向位于美国、英国、加拿大、澳大利亚、新加坡或瑞士的人士提供。这是 Coinbase 对该股票代币的规定，不是我们的规定。资金池本身就是普通的 Uniswap v4。"
+      },
+      "robinhood": {
+        "pays": "买家用 Robinhood Stock Token 支付；手续费以该股票支付。",
+        "badge": "Robinhood 股票",
+        "empty": "没有匹配结果。共有 194 个 Robinhood Stock Token 可选，例如 AAPL、TSLA、NVDA、SPY。",
+        "issuer": "Robinhood Stock Token 是 Robinhood 发行的代币化证券，不向美国人士提供。这是 Robinhood 对该股票代币的规定，不是我们的规定。资金池本身就是普通的 Uniswap v4。"
+      }
+    },
+    "token": {
+      "heading": "代币",
+      "name": "代币名称",
+      "namePlaceholder": "晴空",
+      "symbol": "代币代码",
+      "symbolHelp": "代币代码：1–10 个英文字母（A–Z）或数字（0–9），以大写形式发布。代币名称可以使用其他语言。",
+      "description": "简介",
+      "descriptionPlaceholder": "这是什么？一两句话就好。",
+      "left": "还可输入 {count} 字",
+      "artwork": "图片",
+      "artworkHint": "· 选填，但有 Logo 的代币会有人交易",
+      "artworkHelp": "Logo 会在各处标识你的代币；横幅横跨代币卡片和页面的顶部。",
+      "website": "网站",
+      "xPlaceholder": "@用户名 或 x.com 链接",
+      "nameInvalid": "代币名称：1–32 个字符。",
+      "symbolInvalid": "代币代码：请使用 1–10 个英文字母（A–Z）或数字（0–9）。",
+      "imageInvalid": "图片必须是 https 网址。",
+      "bannerInvalid": "横幅必须是 https 网址。",
+      "websiteInvalid": "网站必须是 https 网址。",
+      "xInvalid": "X：请输入用户名或 x.com 链接。"
+    },
+    "price": {
+      "heading": "初始市值",
+      "supply": "供应量 1,000,000,000 · 全部注入资金池",
+      "custom": "自定义",
+      "customLabel": "以 {unit} 计的自定义初始市值",
+      "noUsd": "{symbol} 在这里没有美元价格：请以 {symbol} 输入初始市值。",
+      "opensAt": "开盘完全稀释市值 <b>{cap}</b><muted> · {detail}</muted>。最初的 1 {symbol} 约可买入 <b>{tokens}</b> 个代币，之后价格沿曲线上涨。",
+      "opensAtMillion": "开盘完全稀释市值 <b>{cap}</b><muted> · {detail}</muted>。最初的 1M {symbol} 约可买入 <b>{tokens}</b> 个代币，之后价格沿曲线上涨。",
+      "capInvalid": "初始市值必须是正数。",
+      "brandUnpriced": "{symbol} 目前无法获取价格：请以 {symbol} 输入自定义初始市值，或重新加载。"
+    },
+    "split": {
+      "address": "受益人 {n} 的地址",
+      "burned": "销毁",
+      "share": "受益人 {n} 的份额（百分比）",
+      "remove": "移除受益人 {n}",
+      "add": "+ 添加地址",
+      "addMe": "+ 我（{address}）",
+      "addBurn": "+ 销毁部分份额",
+      "complete": "份额合计 100%",
+      "left": "还有 {pct}% 待分配",
+      "over": "超出 {pct}%",
+      "help": "份额以百分比填写，最多两位小数，合计必须正好是 100%。地址为 0x…dEaD 的行会销毁该份额。"
+    },
+    "buy": {
+      "heading": "首次买入",
+      "note": "第二笔交易，在发行确认后立即发送",
+      "placeholder": "无",
+      "amountLabel": "以 {symbol} 计的首次买入金额",
+      "decline": "不进行首次买入",
+      "balance": "余额 {amount}",
+      "estimateLabel": "预计买入",
+      "estimate": "约 <b>{amount}</b> <sym>{symbol}</sym><muted>（占供应量 {share}）</muted>",
+      "estimateUsd": "约 <b>{amount}</b> <sym>{symbol}</sym><muted>（占供应量 {share} · ≈ {usd}）</muted>",
+      "tokens": "代币",
+      "capAfterLabel": "买入后的预计市值",
+      "estimateHelp": "已计入价格影响和资金池手续费；确切数量会在买入前于链上报价。",
+      "notIssued": "没有建议金额：{symbol} 尚未发行，所以无法用它买入。发行仍然免费。",
+      "onlyGas": "建议买入 {amount} {symbol}，但此钱包的余额只够支付 Gas。发行仍然免费；你可以稍后在代币页面买入。",
+      "notEnough": "建议买入 {amount} {symbol}，但此钱包的 {symbol} 不够支付这笔买入及其 Gas。发行仍然免费；你可以稍后在代币页面买入。",
+      "noGas": "建议买入 {amount} {symbol}，但此钱包已没有 {native} 支付这笔买入的 Gas。发行仍然免费；你可以稍后在代币页面买入。",
+      "unknownBalance": "无法读取你的余额，因此没有建议金额。发行仍然免费；你仍然可以输入金额。",
+      "declined": "不进行首次买入。发行仍然免费。",
+      "declinedAgain": "不进行首次买入。发行仍然免费。<again>恢复建议的 {amount} {symbol}</again>",
+      "why": "没有持有人、价格也没有变化的代币，在每个筛选器上看起来都像死币，在首页也会被归入冷清的发行。你的首次买入会开启图表。清空它，发行仍然免费。",
+      "slippage": "其他交易者可能先于你买入。首次买入滑点容差：{pct}%。需支付网络 Gas 和资金池手续费。",
+      "errors": {
+        "amount": "首次买入：请输入以 {symbol} 计的金额，或留空。",
+        "balanceFailed": "首次买入：无法读取你的 {symbol} 余额。请重试，或清空金额。",
+        "balanceChecking": "首次买入：正在检查你的余额…",
+        "shortWithGas": "首次买入：{symbol} 不足（需要留一点用于 Gas）。",
+        "short": "首次买入：此钱包中的 {symbol} 不足。",
+        "gasFailed": "首次买入：无法读取你用于 Gas 的 {native} 余额。请重试，或清空金额。",
+        "gasChecking": "首次买入：正在检查你用于 Gas 的 {native} 余额…",
+        "gasShort": "首次买入：用于 Gas 的 {native} 不足（发行、授权和买入各需要一点 {native}）。"
+      }
+    },
+    "launch": {
+      "heading": "发行",
+      "note": "签名后会发生什么",
+      "deploy": "部署一个普通的 ERC-20",
+      "deployDetail": "不能增发、不能暂停、没有黑名单、没有交易税",
+      "pool": "开设一个 Uniswap v4 资金池",
+      "poolDetail": "{quote} / 你的代币，在 {chain} 上，无 Hook",
+      "lock": "将 100% 的供应量锁定为流动性",
+      "lockDetail": "仓位 NFT 永久存放在无所有者的锁仓合约中",
+      "fees": "分配交易手续费",
+      "feesNone": "0% 时无需分配",
+      "feesBurned": "领取时销毁",
+      "feesNamed": "给你指定的受益人，可随时领取",
+      "feesShares": "{shares}，可随时领取",
+      "buy": "买入你的首批代币",
+      "buyDetail": "发行确认后立即用 {amount} 买入，钱包会再弹出一次确认",
+      "summary": "在 {chain} 上的一笔交易：部署代币，创建 Uniswap v4 资金池（{quote} / 你的代币），将 100% 的供应量永久锁定在其中，并登记手续费分配。费用：只需 Gas，通常几美分。一切都不可退还，之后也无法修改任何内容。",
+      "summaryBuy": "在 {chain} 上的一笔交易：部署代币，创建 Uniswap v4 资金池（{quote} / 你的代币），将 100% 的供应量永久锁定在其中，并登记手续费分配。费用：只需 Gas，通常几美分。一切都不可退还，之后也无法修改任何内容。随后第二笔交易会用 {amount} 买入你的代币；即使你拒绝这笔交易，发行依然有效。",
+      "summaryBuyApproval": "在 {chain} 上的一笔交易：部署代币，创建 Uniswap v4 资金池（{quote} / 你的代币），将 100% 的供应量永久锁定在其中，并登记手续费分配。费用：只需 Gas，通常几美分。一切都不可退还，之后也无法修改任何内容。随后第二笔交易会用 {amount} 买入你的代币（首次需要一次性授权）；即使你拒绝这笔交易，发行依然有效。"
+    },
+    "console": {
+      "atLaunch": "发行时",
+      "opensAt": "开盘市值",
+      "firstBuy": "首次买入",
+      "firstBuySuggested": "首次买入 · 建议",
+      "none": "无",
+      "ofSupply": "约占供应量 {pct}",
+      "untouched": "开盘时无人买入",
+      "tradingFee": "交易手续费",
+      "platformFee": "平台费",
+      "always": "始终"
+    },
+    "feeRoute": {
+      "free": "免费资金池",
+      "burned": "销毁",
+      "split": "分给 {count} 方",
+      "beneficiary": "给受益人"
+    },
+    "submit": {
+      "notConfigured": "发射台未配置",
+      "connecting": "连接中…",
+      "connect": "连接钱包以发行",
+      "switching": "切换中…",
+      "switchTo": "切换到 {chain}",
+      "saving": "正在保存信息…",
+      "simulating": "正在检查发行…",
+      "signing": "请在钱包中确认…",
+      "sent": "正在 {chain} 上确认…",
+      "buying": "已发行！正在买入你的首批代币…",
+      "indexing": "马上就好…",
+      "done": "已发行！",
+      "launchBuy": "发行 + 首次买入",
+      "launchFree": "免费发行，只需 Gas"
+    },
+    "phase": {
+      "txDone": "交易 <tx>{hash}</tx> 已确认。正在前往你的代币页面。",
+      "txSent": "交易 <tx>{hash}</tx> 已发送。",
+      "buyQuote": "发行交易 <tx>{hash}</tx> 已确认。正在为首次买入报价…",
+      "buyApprove": "发行交易 <tx>{hash}</tx> 已确认。请在钱包中授权计价代币（仅需一次）…",
+      "buySign": "发行交易 <tx>{hash}</tx> 已确认。请在钱包中确认买入…",
+      "buySent": "已发行。买入交易 <tx>{hash}</tx> 已发送，等待确认…"
+    },
+    "toast": {
+      "live": "{name} 已在 {chain} 上线",
+      "liveSub": "流动性已永久锁定。正在前往你的代币页面。",
+      "bought": "你买入了 {amount} {symbol}",
+      "boughtAbout": "你买入了约 {amount} {symbol}",
+      "buyConfirmed": "买入已在 {chain} 上确认",
+      "buyFailed": "已发行，但首次买入没有成功",
+      "buyFailedSub": "{reason} 你可以在代币页面买入。"
+    },
+    "reasons": {
+      "metadata": "无法保存元数据",
+      "metadataChanged": "盐值搜索期间元数据 URI 发生了变化",
+      "txReverted": "交易在链上被回滚。",
+      "buyReverted": "买入交易在链上被回滚。",
+      "slowDown": "操作太频繁，请稍后再试",
+      "unconfigured": "发射台未配置"
+    }
+  },
+  "fees": {
+    "heading": "交易手续费",
+    "platform": "0% 平台费",
+    "intro": "选择交易者每次买入和卖出时支付多少。",
+    "rateLegend": "交易手续费率",
+    "rateLabel": "{rate} 交易手续费",
+    "noFee": "无交易手续费",
+    "perHundred": "每交易 100 收取 {amount}",
+    "routeLegend": "手续费应该归谁？",
+    "routeHelp": "全部交易手续费都按你的分配发放。Openlaunch 不收取任何部分。",
+    "routes": {
+      "burn": {
+        "title": "销毁手续费",
+        "description": "领取时发送到 0x…dEaD，没有人会收到。"
+      },
+      "me": {
+        "title": "你的钱包",
+        "description": "你连接后用于发行的钱包。"
+      },
+      "custom": {
+        "title": "多个钱包或分成",
+        "description": "最多选择 {max} 个受益人，可包含部分销毁。"
+      }
+    },
+    "summary": {
+      "none": "没有可分配的手续费",
+      "yours": "你的手续费分配",
+      "across": "100% 分配到 {count} 个去向",
+      "incomplete": "分配未完成",
+      "one": "100% 归一个去向"
+    },
+    "burnAddress": "销毁地址",
+    "ofFees": "手续费的 {pct}%",
+    "tradingFee": "交易手续费",
+    "beneficiaries": "受益人",
+    "yourWallet": "你的钱包",
+    "completeSplit": "请完成上方的分成",
+    "allFees": "手续费的 100%",
+    "destination": {
+      "paid": "领取时直接支付到每个钱包。销毁份额会发送到 0x…dEaD。",
+      "incomplete": "发行前请添加有效地址，并使份额合计为 100%。",
+      "burned": "领取时销毁",
+      "connect": "请在发行前连接钱包",
+      "claimable": "领取地址"
+    },
+    "example": "每交易 100 个单位，其中 <strong>{count} 个单位是交易手续费</strong>。仍会产生网络 Gas 和价格影响。",
+    "exampleFree": "不收取任何交易手续费。仍会产生网络 Gas 和价格影响。",
+    "permanent": "发行时即固定。手续费率之后无法更改。",
+    "permanentAllocation": "发行时即固定。手续费率和分配之后都无法更改。"
+  },
+  "preview": {
+    "label": "预览",
+    "board": "列表中",
+    "page": "代币页面",
+    "justLaunched": "刚刚发行",
+    "noBanner": "暂无横幅",
+    "onChain": "<symbol></symbol> 在 <chain></chain> 上",
+    "opensAt": "开盘市值",
+    "noDescription": "添加简介，让交易者知道这是什么。"
+  },
+  "receipt": {
+    "title": "发行凭证",
+    "verify": "验证发行交易",
+    "tx": "发行交易",
+    "supply": "固定供应量",
+    "intoPool": "发行时注入资金池",
+    "liquidity": "流动性",
+    "lockerTitle": "仓位由无所有者的锁仓合约持有。查看代码。",
+    "locked": "永久锁定",
+    "platformFee": "平台费",
+    "footnote": "没有提取密钥，没有平台抽成。这并不能防止代币价格下跌。"
+  },
+  "upload": {
+    "connect": "请先连接钱包再上传。",
+    "maxSize": "最大 {mb} MB。",
+    "formats": "仅支持 PNG、JPEG、WebP 或 GIF。",
+    "failedStatus": "上传失败（{status}）",
+    "failed": "上传失败",
+    "uploadBanner": "上传代币横幅",
+    "uploadImage": "上传代币图片",
+    "uploading": "上传中…",
+    "changeBanner": "更换横幅",
+    "addBanner": "上传横幅",
+    "resizing": "正在调整为 {size}",
+    "bannerHint": "宽幅，约 3:1 · PNG、JPEG、WebP 或 GIF · 最大 {mb} MB",
+    "removeBanner": "移除横幅",
+    "changeImage": "更换图片",
+    "addImage": "上传图片",
+    "logoHintStacked": "方形 · PNG、JPEG、WebP 或 GIF · 最大 2 MB",
+    "logoHint": "PNG、JPEG、WebP 或 GIF · 最大 2 MB · 拖放到这里或点击",
+    "pasteBanner": "或粘贴横幅网址",
+    "pasteImage": "或粘贴图片网址",
+    "bannerUrl": "横幅网址",
+    "imageUrl": "图片网址",
+    "reasons": {
+      "notConfigured": "上传功能未配置",
+      "slowDown": "操作太频繁，请稍后再试",
+      "badForm": "表单无效",
+      "connectFirst": "请先连接钱包",
+      "fileRequired": "请选择文件",
+      "limit": "已达到上传上限，请稍后再试",
+      "formats": "仅支持 PNG、JPEG、WebP 或 GIF",
+      "notImage": "不是有效的图片",
+      "logoSmall": "图片太小（最小 16×16）",
+      "bannerSmall": "横幅太小（最小 300×100）",
+      "storage": "存储出错，请重试",
+      "tooBig": "图片不能超过 {mb} MB"
+    }
+  },
+  "totals": {
+    "label": "全网统计",
+    "trades": "交易笔数",
+    "tradesNote": "买入和卖出，全部在链上",
+    "launched": "已发行代币",
+    "launchedNote": "在 {chains} 上",
+    "volume": "累计成交量",
+    "volumeNote": "通过 Uniswap v4 资金池",
+    "toRecipients": "给接收方的手续费",
+    "toRecipientsNote": "进入创建者选择的钱包",
+    "platformFee": "平台费",
+    "platformFeeNote": "付给我们的，每条链都是",
+    "chains": "{first} 和 {last}",
+    "chainSeparator": "、",
+    "breakdown": "{chains} 的各项数据",
+    "chainLaunches": "{chain} 发行数",
+    "allTrades": "累计交易笔数",
+    "burned": "已销毁手续费",
+    "gitlawbBurned": "已销毁 GITLAWB",
+    "gitlawbBurnedTitle": "由 Base 和 Robinhood Chain 上以 GITLAWB 计价的发行发送到 0x…dEaD",
+    "twigBurned": "已销毁 TWIG",
+    "twigBurnedTitle": "由 Base 上以 TWIG 计价的发行发送到 0x…dEaD",
+    "usdNote": "部分发行目前以没有美元价格的资产计价；在价格恢复之前，美元合计不包含这些发行。",
+    "volumeTitle": "{usd} · 按当前汇率计算的计价资产成交量",
+    "feesTitle": "{usd} · 按当前汇率计算的计价资产手续费",
+    "feesExplained": "创建者可选择 0%、1% 或 3% 的交易手续费，付给他们指定的接收方，或被销毁。平台不收取任何部分：工厂合约中没有手续费地址，锁仓合约中没有平台抽成。",
+    "readContracts": "查看合约源码"
+  },
+  "machine": {
+    "eyebrow": "一笔交易，长久存续。",
+    "newLaunchOn": "{chain} 上有新发行",
+    "motionDisabled": "已开启减少动态效果，动画已停用",
+    "play": "播放发行动画",
+    "pause": "暂停发行动画",
+    "motionOff": "动画已关闭",
+    "playShort": "播放",
+    "pauseShort": "暂停",
+    "explore": "了解发行机制",
+    "verify": "验证锁仓合约",
+    "stages": {
+      "token": {
+        "label": "你的代币",
+        "title": "一个想法变成一个代币。",
+        "description": "你的名称、你的代币代码、固定的供应量，一笔交易即可创建。"
+      },
+      "pool": {
+        "label": "资金池",
+        "title": "从第一笔交易起就开放。",
+        "description": "100% 的供应量按你选择的初始市值注入 Uniswap v4 资金池。"
+      },
+      "lock": {
+        "label": "锁定",
+        "title": "流动性已锁定，不留任何密钥。",
+        "description": "流动性仓位永久存放在无所有者的锁仓合约中。代币仍可交易。"
+      }
+    },
+    "drawing": {
+      "noKey": "无提取密钥",
+      "token": "01 / 你的代币",
+      "fixedSupply": "固定供应量",
+      "pool": "02 / 资金池",
+      "lock": "03 / 锁定",
+      "noExpiry": "永不到期。"
+    }
+  },
+  "recipients": {
+    "none": "受益人：请至少添加一个地址，或选择销毁。",
+    "tooMany": "受益人：最多 {max} 个地址。",
+    "invalid": "受益人 {n}：请输入有效地址。",
+    "zero": "受益人 {n}：零地址无法接收手续费。如需销毁份额，请使用 0x…dEaD。",
+    "duplicate": "受益人 {n}：与受益人 {first} 的地址相同。请合并为一行，填写合计份额。",
+    "badShare": "受益人 {n}：份额必须是 0.01 到 100 之间的百分比，最多两位小数。",
+    "zeroShare": "受益人 {n}：份额至少为 0.01%。",
+    "under": "受益人：份额合计 {total}%，还有 {left}% 待分配。",
+    "over": "受益人：份额合计 {total}%，请减少 {over}%。",
+    "shareTo": "{pct}% 给 {address}",
+    "shareBurned": "{pct}% 销毁",
+    "separator": "，"
+  }
+}

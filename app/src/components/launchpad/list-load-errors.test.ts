@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for how the home board survives a failing list: Volume with a window once answered 502, and the
@@ -21,9 +22,12 @@ test("a non-OK list or live response is caught, never thrown into render", () =>
 test("the inline error is an alert with a retry for both a failed view and a failed page", () => {
   assert.match(list, /<p role="alert"[^\n]*\n[^\n]*loadError/);
   assert.match(list, /failedLoad\.current === "more" \? loadMore\(\) : loadSelection\(selectionRef\.current\)/);
-  assert.match(list, />Try again<\/button>/);
-  assert.match(list, /failedLoad\.current = "view"/);
-  assert.match(list, /failedLoad\.current = "more"/);
+  assert.match(list, />\{t\("tryAgain"\)\}<\/button>/);
+  assert.equal(en.market.list.tryAgain, "Try again");
+  assert.match(list, /failedLoad\.current = "view"; setLoadError\("refreshFailed"\)/);
+  assert.match(list, /failedLoad\.current = "more"; setLoadError\("moreFailed"\)/);
+  assert.equal(en.market.list.refreshFailed, "Could not refresh this view.");
+  assert.equal(en.market.list.moreFailed, "Could not load more launches.");
 });
 
 test("on the home page a selection changes the address only; it does not navigate through the server", () => {

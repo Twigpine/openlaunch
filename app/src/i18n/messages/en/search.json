@@ -1,0 +1,78 @@
+{
+  "dialog": "Search openlaunch",
+  "input": "Search tokens, pages and actions",
+  "placeholder": "Search tokens by name, symbol or address",
+  "searching": "Searching tokens…",
+  "unavailable": "Token search is unavailable right now. Pages and actions still work.",
+  "empty": "Nothing matches “{query}”. Try a token symbol or paste its contract address.",
+  "page": "Page",
+  "action": "Action",
+  "hint": "Use the arrow keys to move and Enter to open.",
+  "open": "Open",
+  "groups": {
+    "tokens": "Tokens",
+    "trending": "Trending now",
+    "pages": "Pages",
+    "actions": "Actions"
+  },
+  "pages": {
+    "home": {
+      "label": "Launchpad",
+      "keywords": "home market tokens list trending new top"
+    },
+    "launch": {
+      "label": "Launch a token",
+      "keywords": "create deploy new token mint start"
+    },
+    "feed": {
+      "label": "Posts",
+      "keywords": "community comments social feed conversation"
+    },
+    "rules": {
+      "label": "How it works",
+      "keywords": "rules learn fees locker liquidity contracts risks faq"
+    },
+    "agents": {
+      "label": "Agents and API",
+      "keywords": "api developers llms json bots code"
+    },
+    "me": {
+      "label": "Your dashboard",
+      "keywords": "me wallet portfolio fees collect launches holdings"
+    },
+    "about": {
+      "label": "About openlaunch",
+      "keywords": "about open source mit"
+    },
+    "base": {
+      "label": "Launches on Base",
+      "keywords": "base chain network"
+    },
+    "robinhood": {
+      "label": "Launches on Robinhood Chain",
+      "keywords": "robinhood chain network stocks"
+    },
+    "arc": {
+      "label": "Launches on Arc",
+      "keywords": "arc chain network usdc"
+    },
+    "earn": {
+      "label": "Earn on idle USDC",
+      "keywords": "earn lend deposit usdc vault morpho interest savings withdraw"
+    }
+  },
+  "actions": {
+    "bridge": {
+      "label": "Bridge funds between chains",
+      "keywords": "bridge relay move deposit base robinhood arc"
+    },
+    "dark": {
+      "label": "Switch to the dark theme",
+      "keywords": "theme dark mode appearance colors"
+    },
+    "light": {
+      "label": "Switch to the light theme",
+      "keywords": "theme light mode appearance colors"
+    }
+  }
+}

@@ -2,6 +2,7 @@
 
 import { useId, type ReactNode } from "react";
 import { ArrowUpRight, Flame, LockKeyhole, Wallet } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { isAddress } from "viem";
 import { FEE_PRESETS, MAX_RECIPIENTS } from "@/lib/launchpad/config";
 import { bpsToPct, isBurnAddress, type SplitResult } from "@/lib/launchpad/recipients";
@@ -22,27 +23,28 @@ type Props = {
 };
 
 export default function LaunchFeeSettings({ feePips, beneficiary, address, split, children, onFeeChange, onBeneficiaryChange }: Props) {
+  const t = useTranslations("launch.fees");
   const id = useId();
   const feePerHundred = feePips / 10_000;
   const custom = beneficiary === "custom";
   const customReady = split.errors.length === 0 && split.recipients.length > 0;
   const destination = beneficiary === "burn" ? "0x…dEaD" : address;
   const routes = [
-    { value: "burn", title: "Burn the fees", description: "Sent to 0x…dEaD when collected. Nobody receives them.", Icon: Flame },
-    { value: "me", title: "Your wallet", description: address ? shortAddr(address) : "The wallet you connect to launch.", Icon: Wallet },
-    { value: "custom", title: "Wallets or a split", description: `Choose up to ${MAX_RECIPIENTS} beneficiaries, including a partial burn.`, Icon: ArrowUpRight },
+    { value: "burn", title: t("routes.burn.title"), description: t("routes.burn.description"), Icon: Flame },
+    { value: "me", title: t("routes.me.title"), description: address ? shortAddr(address) : t("routes.me.description"), Icon: Wallet },
+    { value: "custom", title: t("routes.custom.title"), description: t("routes.custom.description", { max: MAX_RECIPIENTS }), Icon: ArrowUpRight },
   ] as const;
 
   return (
     <section className={`${card} ${styles.section}`} aria-labelledby={`${id}-heading`}>
       <div className={styles.heading}>
-        <h2 id={`${id}-heading`}>Trading fee</h2>
-        <span className={styles.platform}>0% platform fee</span>
+        <h2 id={`${id}-heading`}>{t("heading")}</h2>
+        <span className={styles.platform}>{t("platform")}</span>
       </div>
-      <p className={styles.intro}>Choose what traders pay on each buy and sell.</p>
+      <p className={styles.intro}>{t("intro")}</p>
 
       <fieldset className={styles.fieldset}>
-        <legend className="sr-only">Trading fee rate</legend>
+        <legend className="sr-only">{t("rateLegend")}</legend>
         <div className={styles.rates}>
           {FEE_PRESETS.map((fee) => (
             <label key={fee.pips} className={styles.rate} data-selected={feePips === fee.pips}>
@@ -55,10 +57,10 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
                   onFeeChange(fee.pips);
                   if (fee.pips === 0) onBeneficiaryChange("burn");
                 }}
-                aria-label={`${fee.label} trading fee`}
+                aria-label={t("rateLabel", { rate: fee.label })}
               />
               <span className={styles.rateValue}>{fee.label}</span>
-              <span className={styles.rateCaption}>{fee.pips === 0 ? "No trading fee" : `${fee.pips / 10_000} per 100 traded`}</span>
+              <span className={styles.rateCaption}>{fee.pips === 0 ? t("noFee") : t("perHundred", { amount: fee.pips / 10_000 })}</span>
             </label>
           ))}
         </div>
@@ -66,8 +68,8 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
 
       {feePips > 0 ? (
         <fieldset className={`${styles.fieldset} ${styles.routing}`}>
-          <legend>Where should the fees go?</legend>
-          <p className={styles.routeHelp}>The full trading fee follows your allocation. Openlaunch takes none.</p>
+          <legend>{t("routeLegend")}</legend>
+          <p className={styles.routeHelp}>{t("routeHelp")}</p>
           <div className={styles.routes}>
             {routes.map(({ value, title, description, Icon }) => (
               <label key={value} className={styles.route} data-selected={beneficiary === value}>
@@ -91,19 +93,19 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
 
       <div className={styles.summary}>
         <div className={styles.summaryTitle}>
-          <h3>{feePips === 0 ? "No fees to distribute" : "Your fee allocation"}</h3>
-          {feePips > 0 ? <span>{custom ? customReady ? `100% across ${split.recipients.length} ${split.recipients.length === 1 ? "destination" : "destinations"}` : "Allocation incomplete" : "100% to one destination"}</span> : null}
+          <h3>{feePips === 0 ? t("summary.none") : t("summary.yours")}</h3>
+          {feePips > 0 ? <span>{custom ? customReady ? t("summary.across", { count: split.recipients.length }) : t("summary.incomplete") : t("summary.one")}</span> : null}
         </div>
         <dl className={styles.breakdown}>
           {feePips > 0 && custom && customReady ? split.recipients.map((recipient) => (
             <div key={recipient.payout}>
-              <dt title={recipient.payout}>{isBurnAddress(recipient.payout) ? "Burn address" : shortAddr(recipient.payout)}</dt>
-              <dd>{bpsToPct(recipient.bps)}% of fees</dd>
+              <dt title={recipient.payout}>{isBurnAddress(recipient.payout) ? t("burnAddress") : shortAddr(recipient.payout)}</dt>
+              <dd>{t("ofFees", { pct: bpsToPct(recipient.bps) })}</dd>
             </div>
           )) : (
             <div>
-              <dt>{feePips === 0 ? "Trading fee" : custom ? "Beneficiaries" : beneficiary === "burn" ? "Burn address" : "Your wallet"}</dt>
-              <dd>{feePips === 0 ? "0%" : custom ? "Complete the split above" : "100% of fees"}</dd>
+              <dt>{feePips === 0 ? t("tradingFee") : custom ? t("beneficiaries") : beneficiary === "burn" ? t("burnAddress") : t("yourWallet")}</dt>
+              <dd>{feePips === 0 ? "0%" : custom ? t("completeSplit") : t("allFees")}</dd>
             </div>
           )}
           <div>
@@ -113,19 +115,18 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, split
         </dl>
         {feePips > 0 ? (
           <p className={styles.destination}>
-            {custom ? customReady ? "Paid directly to each wallet at collection. Burn shares go to 0x…dEaD." : "Add valid addresses and shares totaling 100% before launch." : beneficiary === "burn" ? "Burned at collection" : !address ? "Connect your wallet before launch" : "Claimable by"}
+            {custom ? customReady ? t("destination.paid") : t("destination.incomplete") : beneficiary === "burn" ? t("destination.burned") : !address ? t("destination.connect") : t("destination.claimable")}
             {!custom && destination && (beneficiary === "burn" || isAddress(destination)) ? <span title={destination}>{beneficiary === "burn" ? destination : shortAddr(destination)}</span> : null}
           </p>
         ) : null}
         <p className={styles.example}>
-          {feePips === 0 ? "No trading fees are collected. " : <>For every 100 units traded, <strong>{feePerHundred} {feePerHundred === 1 ? "unit is" : "units are"} the trading fee</strong>. </>}
-          Network gas and price impact still apply.
+          {feePips === 0 ? t("exampleFree") : t.rich("example", { count: feePerHundred, strong: (chunks) => <strong>{chunks}</strong> })}
         </p>
       </div>
 
       <p className={styles.permanent}>
         <LockKeyhole size={14} strokeWidth={1.8} aria-hidden="true" />
-        <span>Fixed at launch. The fee rate{feePips > 0 ? " and allocation" : ""} cannot be changed later.</span>
+        <span>{feePips > 0 ? t("permanentAllocation") : t("permanent")}</span>
       </p>
     </section>
   );

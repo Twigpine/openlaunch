@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { useMessages, useTranslations } from "use-intl";
 import { Dialog } from "@base-ui/react/dialog";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { ArrowLeftRight, CornerDownLeft, FileText, Moon, Search, Sun } from "lucide-react";
@@ -10,7 +11,7 @@ import TokenAvatar from "@/components/launchpad/TokenAvatar";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
 import { marketChange, marketUsd } from "@/lib/launchpad/market-format";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
-import { buildPaletteGroups, isSearchableQuery, paletteTokenFrom, type PaletteGroup, type PaletteItem, type PaletteToken } from "@/lib/command-palette";
+import { buildPaletteGroups, isSearchableQuery, paletteTokenFrom, type PaletteGroup, type PaletteItem, type PaletteText, type PaletteToken } from "@/lib/command-palette";
 import { useOpenBridge } from "./bridge/BridgeProvider";
 import { useEarnInfo } from "./earn/earnInfo";
 
@@ -24,6 +25,7 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const openBridge = useOpenBridge();
+  const t = useTranslations("search");
   const hintId = useId();
   const [query, setQuery] = useState("");
   const [trending, setTrending] = useState<PaletteToken[] | null>(null);
@@ -65,10 +67,12 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
   const current = results && results.q === q ? results : null;
   const searching = isSearchableQuery(q) && !current;
   const theme = resolvedTheme === "dark" ? "dark" : "light";
+  const { search: words } = useMessages();
+  const text = useMemo<PaletteText>(() => ({ groups: words.groups, pages: words.pages, actions: words.actions }), [words]);
   // the Earn entry exists only while the feature is switched on; asked once, on the first open
   const earn = useEarnInfo(open)?.enabled === true;
-  const groups = useMemo(() => buildPaletteGroups({ query, tokens: current?.tokens ?? [], trending: trending ?? [], theme, earn }), [query, current, trending, theme, earn]);
-  const status = searching ? "Searching tokens…" : current?.failed ? "Token search is unavailable right now. Pages and actions still work." : "";
+  const groups = useMemo(() => buildPaletteGroups({ query, tokens: current?.tokens ?? [], trending: trending ?? [], theme, text, earn }), [query, current, trending, theme, text, earn]);
+  const status = searching ? t("searching") : current?.failed ? t("unavailable") : "";
 
   const close = () => {
     onOpenChange(false);
@@ -97,7 +101,7 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
         <Dialog.Backdrop className="fixed inset-0 z-[90] bg-scrim/50 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none" />
         <Dialog.Viewport className="fixed inset-0 z-[91] flex items-start justify-center overflow-hidden px-3 pt-[min(14vh,7rem)] pb-3">
           <Dialog.Popup
-            aria-label="Search openlaunch"
+            aria-label={t("dialog")}
             className="relative flex max-h-[min(36rem,calc(100dvh-6rem))] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-raised text-ink shadow-dialog transition-[opacity,translate,scale] duration-150 ease-out data-[ending-style]:-translate-y-2 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:-translate-y-2 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 motion-reduce:transition-none"
           >
             <Autocomplete.Root
@@ -118,9 +122,9 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
               <Autocomplete.InputGroup className="flex items-center gap-3 border-b border-line px-4 transition-colors focus-within:border-brand">
                 <Search size={18} className="shrink-0 text-muted" aria-hidden />
                 <Autocomplete.Input
-                  aria-label="Search tokens, pages and actions"
+                  aria-label={t("input")}
                   aria-describedby={hintId}
-                  placeholder="Search tokens by name, symbol or address"
+                  placeholder={t("placeholder")}
                   className="h-14 w-full border-0 bg-transparent text-base text-ink outline-none! placeholder:text-muted"
                 />
                 <Dialog.Close className="shrink-0 rounded-md border border-line-strong px-1.5 py-0.5 font-mono text-[11px] text-muted hover:text-ink">Esc</Dialog.Close>
@@ -130,7 +134,7 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
                 <Autocomplete.Status className="px-4 pt-1 pb-2 text-xs text-muted empty:hidden">{status}</Autocomplete.Status>
                 <Autocomplete.Empty>
                   <div className="px-4 py-8 text-center text-sm text-muted">
-                    {searching ? "Searching tokens…" : <>Nothing matches “{q}”. Try a token symbol or paste its contract address.</>}
+                    {searching ? t("searching") : t("empty", { query: q })}
                   </div>
                 </Autocomplete.Empty>
                 <Autocomplete.List>
@@ -155,8 +159,8 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
               </div>
 
               <div className="flex items-center gap-4 border-t border-line bg-card px-4 py-2.5 text-[11px] text-muted">
-                <span id={hintId}>Use the arrow keys to move and Enter to open.</span>
-                <span className="ml-auto inline-flex items-center gap-1"><CornerDownLeft size={12} aria-hidden /> Open</span>
+                <span id={hintId}>{t("hint")}</span>
+                <span className="ml-auto inline-flex items-center gap-1"><CornerDownLeft size={12} aria-hidden /> {t("open")}</span>
               </div>
             </Autocomplete.Root>
           </Dialog.Popup>
@@ -167,6 +171,7 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
 }
 
 function PaletteRow({ item }: { item: PaletteItem }) {
+  const tr = useTranslations("search");
   if (item.kind === "token") {
     const t = item.token;
     const change = marketChange(t.change);
@@ -187,12 +192,12 @@ function PaletteRow({ item }: { item: PaletteItem }) {
       </>
     );
   }
-  const Icon = item.kind === "page" ? FileText : item.action === "bridge" ? ArrowLeftRight : item.label.includes("light") ? Sun : Moon;
+  const Icon = item.kind === "page" ? FileText : item.action === "bridge" ? ArrowLeftRight : item.theme === "light" ? Sun : Moon;
   return (
     <>
       <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-card text-body group-data-[highlighted]:text-ink"><Icon size={15} aria-hidden /></span>
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      <span className="shrink-0 text-xs text-muted">{item.kind === "page" ? "Page" : "Action"}</span>
+      <span className="shrink-0 text-xs text-muted">{item.kind === "page" ? tr("page") : tr("action")}</span>
     </>
   );
 }

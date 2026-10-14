@@ -1,0 +1,78 @@
+{
+  "dialog": "搜索 openlaunch",
+  "input": "搜索代币、页面和操作",
+  "placeholder": "按名称、代码或地址搜索代币",
+  "searching": "正在搜索代币…",
+  "unavailable": "代币搜索暂时不可用，页面和操作仍可使用。",
+  "empty": "没有与“{query}”匹配的结果。试试代币代码，或粘贴合约地址。",
+  "page": "页面",
+  "action": "操作",
+  "hint": "用方向键移动，按 Enter 打开。",
+  "open": "打开",
+  "groups": {
+    "tokens": "代币",
+    "trending": "当前热门",
+    "pages": "页面",
+    "actions": "操作"
+  },
+  "pages": {
+    "home": {
+      "label": "发射台",
+      "keywords": "首页 市场 代币 列表 热门 最新"
+    },
+    "launch": {
+      "label": "发行代币",
+      "keywords": "创建 发币 部署 新币 铸造 开始"
+    },
+    "feed": {
+      "label": "帖子",
+      "keywords": "社区 帖子 评论 社交 讨论 动态"
+    },
+    "rules": {
+      "label": "运作方式",
+      "keywords": "规则 说明 手续费 锁仓 流动性 合约 风险 常见问题"
+    },
+    "agents": {
+      "label": "智能体与 API",
+      "keywords": "接口 开发者 机器人 代码"
+    },
+    "me": {
+      "label": "我的面板",
+      "keywords": "我的 钱包 持仓 手续费 领取 发行"
+    },
+    "about": {
+      "label": "关于 openlaunch",
+      "keywords": "关于 开源"
+    },
+    "base": {
+      "label": "Base 上的发行",
+      "keywords": "Base 链 网络"
+    },
+    "robinhood": {
+      "label": "Robinhood Chain 上的发行",
+      "keywords": "Robinhood 链 网络 股票"
+    },
+    "arc": {
+      "label": "Arc 上的发行",
+      "keywords": "Arc 链 网络 USDC"
+    },
+    "earn": {
+      "label": "用闲置 USDC 赚取收益",
+      "keywords": "赚取 收益 存入 借出 金库 利息 理财 取出 USDC Morpho"
+    }
+  },
+  "actions": {
+    "bridge": {
+      "label": "在链之间跨链转移资金",
+      "keywords": "跨链 转移 存入 Base Robinhood Arc"
+    },
+    "dark": {
+      "label": "切换到深色主题",
+      "keywords": "主题 深色 模式 外观 颜色"
+    },
+    "light": {
+      "label": "切换到浅色主题",
+      "keywords": "主题 浅色 模式 外观 颜色"
+    }
+  }
+}

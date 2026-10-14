@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the line that closes the hero. It is a pulse, not content: chains and dollar amounts only
@@ -14,8 +15,13 @@ const hero = read("./LaunchHero.tsx");
 test("the ticker names a chain and a dollar amount, never a token", () => {
   assert.doesNotMatch(ticker, /\.name\b|\.symbol\b|image_url|TokenAvatar|\.trader\b/, "no token name, symbol, picture or wallet");
   assert.match(ticker, /const chain = CHAIN_LABELS\[item\.chain\];/, "a chain in full, never the bare broker name");
-  assert.match(ticker, /\$\{item\.is_buy \? "Buy" : "Sell"\}\$\{item\.usd !== null \? ` \$\{riverUsd\(item\.usd\)\}` : ""\} on \$\{chain\}/);
-  assert.match(ticker, /`New launch on \$\{chain\}`/);
+  assert.match(ticker, /item\.usd !== null \? t\(item\.is_buy \? "buy" : "sell", \{ usd: riverUsd\(item\.usd\), chain \}\) : t\(item\.is_buy \? "buyUnpriced" : "sellUnpriced", \{ chain \}\)/);
+  assert.match(ticker, /t\("launch", \{ chain \}\)/);
+  assert.equal(en.token.ticker.buy, "Buy {usd} on {chain}");
+  assert.equal(en.token.ticker.sellUnpriced, "Sell on {chain}");
+  assert.equal(en.token.ticker.launch, "New launch on {chain}");
+  // in every language the line has room for a chain and an amount, nothing that names the token
+  for (const locale of ["en", "zh-CN"] as const) assert.doesNotMatch(JSON.stringify(messagesFor(locale).token.ticker), /\{(name|symbol|token)\}/);
 });
 
 test("it shows the newest event worth a line and links to that token", () => {
@@ -27,7 +33,7 @@ test("it shows the newest event worth a line and links to that token", () => {
 test("the poll is the clock: no timer, no request, and a new event replays its entrance on its own key", () => {
   assert.doesNotMatch(ticker, /setTimeout|setInterval|requestAnimationFrame|\bfetch\s*\(/);
   assert.match(ticker, /const \{ live \} = useLive\(\);/);
-  assert.match(ticker, /ago\(item\.at, live\.at\)/);
+  assert.match(ticker, /short\(item\.at, live\.at\)/);
   assert.match(ticker, /<Link key=\{feedKey\(item\)\}/);
   assert.match(css, /\.enter \{ animation: tickerIn 320ms [^}]*backwards; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.enter \{ animation: none; \}/);

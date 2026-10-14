@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { clientTranslator } from "@/i18n/client";
 
 type WalletQueueClient = {
   getTransactionCount: (request: { address: Address; blockTag: "latest" | "pending" }) => Promise<number>;
@@ -16,9 +17,9 @@ export async function assertBridgeWalletQueueClear(client: WalletQueueClient, ad
   const pending = await client.getTransactionCount({ address, blockTag: "pending" });
   const latest = await client.getTransactionCount({ address, blockTag: "latest" });
   if (!Number.isSafeInteger(pending) || pending < 0 || !Number.isSafeInteger(latest) || latest < 0 || pending < latest) {
-    throw new Error(`Could not verify a consistent transaction count on ${networkName}. Wait a moment and try again before approving or bridging.`);
+    throw new Error(clientTranslator("bridge")("errors.nonceInconsistent", { network: networkName }));
   }
   if (pending > latest) {
-    throw new Error(`Your wallet has a pending transaction on ${networkName}. Open your wallet and resolve the earliest pending transaction before approving or bridging.`);
+    throw new Error(clientTranslator("bridge")("errors.pendingTransaction", { network: networkName }));
   }
 }

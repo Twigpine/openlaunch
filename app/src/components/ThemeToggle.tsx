@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
+import { useTranslations } from "use-intl";
 import { SunMoon } from "lucide-react";
 import { AnimatedThemeToggler } from "@/components/vendor/animated-theme-toggler";
 
@@ -15,6 +16,7 @@ import { AnimatedThemeToggler } from "@/components/vendor/animated-theme-toggler
  */
 export default function ThemeToggle({ block = false }: { block?: boolean }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useTranslations("header.theme");
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -31,9 +33,9 @@ export default function ThemeToggle({ block = false }: { block?: boolean }) {
   }
 
   const theme = resolvedTheme === "dark" ? "dark" : "light";
-  const next = theme === "dark" ? "light" : "dark";
+  const switchLabel = theme === "dark" ? t("toLight") : t("toDark");
   const toggler = (
-    <AnimatedThemeToggler className={control} theme={theme} onThemeChange={setTheme} duration={400} variant="circle" title={`Switch to ${next} mode`} aria-label={`Switch to ${next} mode`} />
+    <AnimatedThemeToggler className={control} theme={theme} onThemeChange={setTheme} duration={400} variant="circle" title={switchLabel} aria-label={switchLabel} />
   );
 
   if (!block) return toggler;
@@ -44,7 +46,7 @@ export default function ThemeToggle({ block = false }: { block?: boolean }) {
     <div className="min-h-12 px-3 flex items-center gap-3 rounded-xl text-[15px] font-medium text-ink">
       <SunMoon size={17} strokeWidth={1.8} aria-hidden className="shrink-0" />
       <span>
-        Theme <span className="text-muted">· {theme === "dark" ? "Dark" : "Light"}</span>
+        {t("label")} <span className="text-muted">· {theme === "dark" ? t("dark") : t("light")}</span>
       </span>
       <span className="ml-auto">{toggler}</span>
     </div>

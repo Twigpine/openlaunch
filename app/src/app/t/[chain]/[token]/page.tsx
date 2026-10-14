@@ -5,7 +5,7 @@ import { isAddress, type Address } from "viem";
 import { ArrowLeft, ArrowUpRight, Globe, Share2 } from "lucide-react";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
 import { MorphAvatar, MorphName } from "@/components/launchpad/TokenMorph";
-import { feeModeOf } from "@/components/launchpad/FeeChip";
+import { feeModeOf } from "@/lib/launchpad/creator";
 import TradePanel from "@/components/launchpad/TradePanel";
 import CollectPanel from "@/components/launchpad/CollectPanel";
 import CopyChip from "@/components/launchpad/CopyChip";
@@ -22,7 +22,7 @@ import NamesProvider from "@/components/profile/NamesProvider";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
-import { ago, nowMs } from "@/lib/launchpad/time";
+import { agoParts, nowMs } from "@/lib/launchpad/time";
 import { getLaunch, getSwaps } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { NATIVE, SWAP_SITES, TICK_SPACING, type Quote } from "@/lib/launchpad/config";
@@ -51,9 +51,10 @@ import { BorderBeam } from "@/components/vendor/border-beam";
 import { Banner } from "@/components/launchpad/LaunchCard";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
 import type { ProofKey } from "@/lib/launchpad/proof";
+import { getLocale, getTranslations } from "@/i18n/server";
 
-/** Where GITLAWB lives, as said beside a GITLAWB-quoted pool. */
-const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: " (bridged 1:1 from Base over LayerZero; one supply, two chains)", arc: "" /* not bridged to Arc */ };
+/** Where GITLAWB lives, as said beside a GITLAWB-quoted pool: the message token.page.aboutTab.gitlawb.<variant>. */
+const GITLAWB_ORIGIN: Record<ChainKey, "base" | "bridged" | "plain"> = { base: "base", robinhood: "bridged", arc: "plain" /* not bridged to Arc */ };
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,10 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ chain: string; token: string }> }): Promise<Metadata> {
   const { chain, token } = await params;
   const l = isChainKey(chain) && isAddress(token) ? await getLaunch(chain, token) : null;
-  if (!l) return { title: "Token not found" };
+  const t = await getTranslations("token");
+  if (!l) return { title: t("meta.notFound") };
   const title = `${l.name} (${l.symbol})`;
-  const description = clampSocial(l.description ?? `${l.name} launched on openlaunch.lol. 100% of supply locked as Uniswap v4 liquidity on ${CHAIN_LABELS[l.chain]}, ${l.lp_fee === 0 ? "0% trading fee" : "no platform fee"}.`, 155);
+  const description = clampSocial(l.description ?? t("meta.description", { name: l.name, chain: CHAIN_LABELS[l.chain], fee: l.lp_fee === 0 ? "free" : "paid" }), 155);
   // Next replaces nested metadata objects rather than merging them, so repeat the site-level fields here:
   // og:site_name (Discord shows it above the title) and twitter summary_large_image (full-width card).
   return {
@@ -99,27 +101,36 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   // a failed lookup seeds nothing (the browser then asks itself); only an answer says "no profile" for a wallet
   const known = await namesFor(nameWallets).catch(() => null);
   const names: Record<string, NameEntry | null> = known ? Object.fromEntries([...new Set(nameWallets.map((w) => w.toLowerCase()))].map((w) => [w, known[w] ?? null])) : {};
+  const [t, tc, locale] = await Promise.all([getTranslations("token"), getTranslations("common"), getLocale()]);
   const now = nowMs();
+  /** How long ago, in the reader's language ("3m", "3分钟"). */
+  const short = (iso: string) => {
+    const { n, unit } = agoParts(iso, now);
+    return tc(`time.${unit}`, { n });
+  };
   const mode = feeModeOf(l.lp_fee, l.recipients);
   const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals });
-  const proof = proofFacts({ holders, symbol: l.symbol, launcher: l.launcher, launcherName: names[l.launcher.toLowerCase()]?.u ?? null, lpFee: l.lp_fee, mode, recipients: l.recipients.length });
+  const proof = proofFacts({ holders, symbol: l.symbol, launcher: l.launcher, launcherName: names[l.launcher.toLowerCase()]?.u ?? null, lpFee: l.lp_fee, mode, recipients: l.recipients.length, locale });
   const locker = launchpad(chain).locker;
   const proofLinks: Partial<Record<ProofKey, ProofLink>> = {
-    ...(locker ? { lock: { href: explorerAddress(chain, locker), label: "View locker", external: true } } : {}),
-    creator: { href: explorerAddress(chain, l.launcher), label: "Creator wallet", external: true },
-    spread: { href: "#holders", label: "All holders" },
-    launch: { href: explorerTx(chain, l.tx_hash), label: "Launch transaction", external: true },
-    fees: { href: "#contracts", label: "Fee settings" },
+    ...(locker ? { lock: { href: explorerAddress(chain, locker), label: t("page.proofLinks.lock"), external: true } } : {}),
+    creator: { href: explorerAddress(chain, l.launcher), label: t("page.proofLinks.creator"), external: true },
+    spread: { href: "#holders", label: t("page.proofLinks.spread") },
+    launch: { href: explorerTx(chain, l.tx_hash), label: t("page.proofLinks.launch"), external: true },
+    fees: { href: "#contracts", label: t("page.proofLinks.fees") },
   };
   const poolKey = { currency0: l.quote as Address, currency1: l.token as Address, fee: l.lp_fee, tickSpacing: TICK_SPACING, hooks: NATIVE as Address };
   const priceUsd = l.price_usd;
   const chainLabel = CHAIN_LABELS[chain];
-  const shareText = `${l.name} ($${l.symbol}) on ${chainLabel}. ${l.lp_fee === 0 ? "0% fee" : mode === "burn" ? "fees burned" : "no platform fee"}, liquidity locked forever`;
+  const shareText = t("page.shareText", { name: l.name, symbol: l.symbol, chain: chainLabel, fee: l.lp_fee === 0 ? "free" : mode === "burn" ? "burn" : "paid" });
 
   const supplyLabel = fmtCompact(Number(BigInt(l.supply)) / 1e18, 0);
-  const feeRoute = mode === "free" ? "No trading fee" : `${pipsToPct(l.lp_fee)} trading fee → ${mode === "burn" ? "burned" : mode === "split" ? "beneficiaries" : "beneficiary"}`;
+  const pct = pipsToPct(l.lp_fee);
+  const feeRoute = t(`page.feeRoute.${mode}`, { pct });
   // the trade box's own wording: short, no arrow
-  const tradeFee = mode === "free" ? "None" : `${pipsToPct(l.lp_fee)}, ${mode === "burn" ? "burned" : mode === "split" ? `to ${l.recipients.length} recipients` : "to the recipient"}`;
+  const tradeFee = t(`page.tradeFee.${mode}`, { pct, count: l.recipients.length });
+  // a pair's own token on its fee sentence (MUSEWORLD, TWIG, GITLAWB)
+  const pairFees = (symbol: string) => (mode === "free" ? t("page.aboutTab.pairFees.free") : mode === "burn" ? t("page.aboutTab.pairFees.burn", { symbol }) : t("page.aboutTab.pairFees.paid", { symbol }));
   const swapSite = SWAP_SITES[chain];
   const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
   // a chip on the cover: dark glass, so it reads over any banner in either theme (display is set where it is used)
@@ -161,8 +172,8 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             <Banner token={l.token} image={l.image_url} banner={l.banner_url} />
             {/* the cover melts into the card, so the mark and the name read on one surface */}
             <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-3/4 bg-linear-to-b from-transparent via-card/50 to-card" />
-            <nav aria-label="Breadcrumb" className="absolute inset-x-3 top-3 flex items-center justify-between gap-2 sm:inset-x-4 sm:top-4">
-              <Link href="/#launches" className={`inline-flex ${glass} transition-colors hover:bg-black/60 motion-reduce:transition-none`}><ArrowLeft size={13} aria-hidden="true" /> All launches</Link>
+            <nav aria-label={t("page.breadcrumb")} className="absolute inset-x-3 top-3 flex items-center justify-between gap-2 sm:inset-x-4 sm:top-4">
+              <Link href="/#launches" className={`inline-flex ${glass} transition-colors hover:bg-black/60 motion-reduce:transition-none`}><ArrowLeft size={13} aria-hidden="true" /> {t("page.allLaunches")}</Link>
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className={`inline-flex ${glass}`}><ChainLogo chain={chain} size={14} />{chainLabel}</span>
                 <span className={`hidden sm:inline-flex ${glass}`}>Uniswap v4</span>
@@ -185,28 +196,28 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                 <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted sm:gap-x-1.5">
                   <span className="font-mono text-body">{l.symbol}</span>
                   <span aria-hidden="true" className="max-sm:hidden">·</span>
-                  {quote.key === "twig" ? <TwigBadge label="Paired with TWIG" /> : quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : quote.key === "museworld" ? <MuseworldBadge label="Paired with MUSEWORLD" /> : <span>paired with {quote.symbol}</span>}
+                  {quote.key === "twig" ? <TwigBadge label={t("page.pairedWith", { symbol: "TWIG" })} /> : quote.key === "gitlawb" ? <GitlawbBadge label={t("page.pairedWith", { symbol: "GITLAWB" })} /> : quote.key === "museworld" ? <MuseworldBadge label={t("page.pairedWith", { symbol: "MUSEWORLD" })} /> : <span>{t("page.pairedWithLower", { symbol: quote.symbol })}</span>}
                   {unlisted ? <UnlistedPairBadge symbol={quote.symbol} /> : null}
                   <span aria-hidden="true" className="max-sm:hidden">·</span>
-                  <span title={new Date(l.block_time).toUTCString()}>launched {ago(l.block_time, now)} ago</span>
+                  <span title={new Date(l.block_time).toUTCString()}>{t("page.launchedAgo", { time: short(l.block_time) })}</span>
                 </p>
               </div>
             </div>
             <div className="md:row-span-2 md:text-right">
-              <p className="text-xs text-muted">Market cap</p>
+              <p className="text-xs text-muted">{t("page.marketCap")}</p>
               <p className="mt-1 font-mono text-3xl font-bold tracking-[-0.03em] text-ink tnum sm:text-4xl" title={cap.usd !== null ? fmtUsd(cap.usd) : cap.main}>{cap.main}</p>
-              <p className="mt-1 font-mono text-[11px] text-muted tnum">{cap.detail}</p>
+              <p className="mt-1 font-mono text-[11px] text-muted tnum">{cap.usd === null ? t("page.noUsdPrice") : cap.detail}</p>
               <p className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted md:justify-end">
-                <span className="text-sm"><ChangeChip v={l.change_from_launch} plain /> <span className="text-muted">since launch</span></span>
+                <span className="text-sm"><ChangeChip v={l.change_from_launch} plain /> <span className="text-muted">{t("page.sinceLaunch")}</span></span>
                 <span aria-hidden="true">·</span>
-                <span><span className="font-mono text-body tnum">{l.holders.toLocaleString("en-US")}</span> holders, <span className="font-mono text-body tnum">{(l.buys + l.sells).toLocaleString("en-US")}</span> trades</span>
+                <span>{t.rich("page.holdersTrades", { holders: l.holders.toLocaleString("en-US"), trades: (l.buys + l.sells).toLocaleString("en-US"), num: (chunks) => <span className="font-mono text-body tnum">{chunks}</span> })}</span>
               </p>
             </div>
             <div className="flex max-w-full flex-wrap items-center gap-2">
               <WatchButton token={{ chain, token: l.token, name: l.name, symbol: l.symbol }} labelled />
               {/* the token's links as one bar, the Watch button's height: share, copy the address, the explorer */}
               <div className="inline-flex h-10 max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-card text-xs font-medium text-body sm:h-9">
-                <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label="Share token on X"><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">Share</span></a>
+                <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label={t("page.shareLabel")}><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">{t("page.share")}</span></a>
                 <CopyChip value={l.token} className={`inline-flex ${segment} border-l border-line font-code`} />
                 {/* phones keep one row of actions; the explorer link is also in About & contracts */}
                 <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={`hidden sm:inline-flex ${segment} border-l border-line`}>{explorerName(chain)}<ArrowUpRight size={13} aria-hidden="true" /></a>
@@ -220,10 +231,10 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             <TokenChart chain={chain} token={l.token} symbol={l.symbol} poolId={l.pool_id} quote={l.quote} launchedAt={l.block_time} hasTrades={l.buys + l.sells > 0} />
             {/* hairlines between the cells come from the gap over a line-coloured grid, so they hold in both layouts */}
             <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-4">
-              <Stat k="Price" v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
-              <Stat k="24h volume" v={l.volume_24h_usd !== null ? marketUsd(l.volume_24h_usd) : fmtQuote(l.volume_24h, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_24h, quote.decimals, quote.symbol)} />
-              <Stat k="Total volume" v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />
-              <Stat k="Buys and sells" v={<><span className="text-up">{count(l.buys)}</span><span className="px-1 text-faint">/</span><span className="text-down-ink">{count(l.sells)}</span></>} sub={`${count(l.buys + l.sells)} trades`}>
+              <Stat k={t("page.stats.price")} v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
+              <Stat k={t("page.stats.volume24h")} v={l.volume_24h_usd !== null ? marketUsd(l.volume_24h_usd) : fmtQuote(l.volume_24h, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_24h, quote.decimals, quote.symbol)} />
+              <Stat k={t("page.stats.volumeTotal")} v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />
+              <Stat k={t("page.stats.buysSells")} v={<><span className="text-up">{count(l.buys)}</span><span className="px-1 text-faint">/</span><span className="text-down-ink">{count(l.sells)}</span></>} sub={t("page.stats.trades", { count: count(l.buys + l.sells) })}>
                 <BuySellBar buys={l.buys} sells={l.sells} />
               </Stat>
             </dl>
@@ -248,50 +259,58 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
               holders={<HoldersPanel chain={chain} symbol={l.symbol} p={holders} embedded />}
               conversation={<TokenComments chain={chain} token={l.token} symbol={l.symbol} launcher={l.launcher} embedded />}
               about={<section className="p-5">
-                <h2 className="text-base font-semibold text-ink">Behind {l.symbol}</h2>
-                <p className="mt-2 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed text-body text-pretty">{l.description || "The creator has not added a description yet. The contract details below are recorded on-chain."}</p>
+                <h2 className="text-base font-semibold text-ink">{t("page.aboutTab.heading", { symbol: l.symbol })}</h2>
+                <p className="mt-2 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed text-body text-pretty">{l.description || t("page.aboutTab.noDescription")}</p>
                 {l.website || l.x_handle || swapSite ? <div className="mt-4 flex flex-wrap gap-2">
-                  {l.website ? <a href={l.website} target="_blank" rel="noreferrer nofollow" className={utility}><Globe size={13} /> Website ↗</a> : null}
+                  {l.website ? <a href={l.website} target="_blank" rel="noreferrer nofollow" className={utility}><Globe size={13} /> {t("page.aboutTab.website")} ↗</a> : null}
                   {l.x_handle ? <a href={`https://x.com/${l.x_handle}`} target="_blank" rel="noreferrer nofollow" className={utility}>@{l.x_handle} ↗</a> : null}
-                  {swapSite ? <a href={swapSite.url(l.token)} target="_blank" rel="noreferrer" className={utility}>Open in {swapSite.name} ↗</a> : null}
+                  {swapSite ? <a href={swapSite.url(l.token)} target="_blank" rel="noreferrer" className={utility}>{t("page.aboutTab.openIn", { name: swapSite.name })} ↗</a> : null}
                 </div> : null}
                 <dl className="mt-5 divide-y divide-line border-y border-line text-xs">
-                  <Row k="Creator" v={<A href={explorerAddress(chain, l.launcher)}>{shortAddr(l.launcher)} ↗</A>} />
-                  <Row k="Token contract" v={<A href={explorerAddress(chain, l.token)}>{shortAddr(l.token)} ↗</A>} />
-                  <Row k="Launch transaction" v={<A href={explorerTx(chain, l.tx_hash)}>{shortAddr(l.tx_hash)} ↗</A>} />
-                  <Row k="Pool ID" v={<CopyChip value={l.pool_id} />} />
-                  <Row k="Market" v={`${quote.symbol} / ${l.symbol} · Uniswap v4 · no hook`} />
-                  {unlisted ? <Row k="Pair token" v={<A href={explorerAddress(chain, l.quote)}>{shortAddr(l.quote)} ↗</A>} /> : null}
-                  <Row k="Trading fee" v={feeRoute} />
-                  <Row k="Fixed supply" v={`${supplyLabel} ${l.symbol}`} />
-                  <Row k="Launched" v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
+                  <Row k={t("page.aboutTab.creator")} v={<A href={explorerAddress(chain, l.launcher)}>{shortAddr(l.launcher)} ↗</A>} />
+                  <Row k={t("page.aboutTab.tokenContract")} v={<A href={explorerAddress(chain, l.token)}>{shortAddr(l.token)} ↗</A>} />
+                  <Row k={t("page.aboutTab.launchTx")} v={<A href={explorerTx(chain, l.tx_hash)}>{shortAddr(l.tx_hash)} ↗</A>} />
+                  <Row k={t("page.aboutTab.poolId")} v={<CopyChip value={l.pool_id} />} />
+                  <Row k={t("page.aboutTab.market")} v={t("page.aboutTab.marketValue", { quote: quote.symbol, symbol: l.symbol })} />
+                  {unlisted ? <Row k={t("page.aboutTab.pairToken")} v={<A href={explorerAddress(chain, l.quote)}>{shortAddr(l.quote)} ↗</A>} /> : null}
+                  <Row k={t("page.aboutTab.tradingFee")} v={feeRoute} />
+                  <Row k={t("page.aboutTab.fixedSupply")} v={`${supplyLabel} ${l.symbol}`} />
+                  <Row k={t("page.aboutTab.launched")} v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
                 </dl>
-                {unlisted ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {quote.symbol}, a token openlaunch does not list. The launch contracts accept any ERC-20 as the pair; its name here is what its own contract reports, so check the pair token address above. Prices are in {quote.symbol} only, with no USD figure, and this launch is not ranked in Trending.</p> : null}
-                {quote.key === "museworld" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with MUSEWORLD, the official token of <a href={MUSEWORLD_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Museworld</a>, where AI agents launch their tokens. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Trading fees on this pool are burned as MUSEWORLD when collected." : "Trading fees on this pool are paid out in MUSEWORLD."} USD figures use the MUSEWORLD/GITLAWB pool on openlaunch (checked against its 30-minute average) and GITLAWB&apos;s own price.</p> : null}
-                {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {stockQuote.name} ({stockQuote.symbol}), a third-party tokenized stock. These securities are not offered to US persons. The quote asset is identified from the issuer registry, not its token name.</p> : null}
-                {quote.key === "twig" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with TWIG, <a href={TWIG_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Twigpine</a>&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap at <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">wrap.twigpine.com</a>, with no fee. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Trading fees on this pool are burned as TWIG when collected." : "Trading fees on this pool are paid out in TWIG."} USD figures use GITLAWB&apos;s price (one TWIG unwraps to one GITLAWB), from the Uniswap v4 WETH/GITLAWB pool on Base.</p> : null}
-                {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with GITLAWB, <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Twigpine</a>&apos;s token{GITLAWB_ORIGIN[chain]}. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Trading fees on this pool are burned as GITLAWB when collected." : "Trading fees on this pool are paid out in GITLAWB."} USD figures use the Uniswap v4 WETH/GITLAWB pool price on Base.</p> : null}
+                {unlisted ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t("page.aboutTab.unlisted", { symbol: quote.symbol })}</p> : null}
+                {quote.key === "museworld" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t.rich("page.aboutTab.museworld", { fees: pairFees("MUSEWORLD"), link: pairLink(MUSEWORLD_SITE) })}</p> : null}
+                {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t("page.aboutTab.stock", { name: stockQuote.name, symbol: stockQuote.symbol })}</p> : null}
+                {quote.key === "twig" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t.rich("page.aboutTab.twig", { fees: pairFees("TWIG"), twigpine: pairLink(TWIG_SITE), wrap: pairLink(TWIG_WRAP_URL) })}</p> : null}
+                {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t.rich(`page.aboutTab.gitlawb.${GITLAWB_ORIGIN[chain]}`, { fees: pairFees("GITLAWB"), link: pairLink(GITLAWB_SITE) })}</p> : null}
               </section>}
             />
           </div>
         </div>
       </main>
       </div>
-      <MobileBuyBar symbol={l.symbol} mcap={cap.compact} />
+      <MobileBuyBar symbol={l.symbol} mcap={cap.usd === null ? t("page.capUnpriced", { cap: cap.main }) : cap.compact} />
     </NamesProvider>
   );
 }
 
+/** A link inside a pair's note in the About & contracts tab. */
+function pairLink(href: string) {
+  return function PairLink(chunks: React.ReactNode) {
+    return <a href={href} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{chunks}</a>;
+  };
+}
 function Stat({ k, v, sub, children }: { k: string; v: React.ReactNode; sub: string; children?: React.ReactNode }) {
   return <div className="min-w-0 bg-card px-4 py-3.5"><dt className="text-[11px] text-muted">{k}</dt><dd className="mt-1.5 truncate font-mono text-[15px] font-bold tracking-tight text-ink tnum">{v}</dd><dd className="mt-1 truncate font-mono text-[10px] text-muted tnum" title={sub}>{sub}</dd>{children}</div>;
 }
 /** Buys against sells as one thin bar; no trades draws an empty track, never an even split. */
-function BuySellBar({ buys, sells }: { buys: number; sells: number }) {
+async function BuySellBar({ buys, sells }: { buys: number; sells: number }) {
+  const t = await getTranslations("token");
   const trades = buys + sells;
   const share = trades ? Math.round((buys / trades) * 100) : 0;
-  return <dd className="mt-2 flex h-1 gap-px overflow-hidden rounded-full" title={trades ? `${share}% of trades are buys` : "No trades yet"}>
+  const label = trades ? t("page.stats.buyShare", { share }) : t("page.stats.noTrades");
+  return <dd className="mt-2 flex h-1 gap-px overflow-hidden rounded-full" title={label}>
     {trades ? <><span className="bg-up" style={{ width: `${(buys / trades) * 100}%` }} /><span className="flex-1 bg-down" /></> : <span className="flex-1 bg-line-strong" />}
-    <span className="sr-only">{trades ? `${share}% of trades are buys` : "No trades yet"}</span>
+    <span className="sr-only">{label}</span>
   </dd>;
 }
 function Row({ k, v }: { k: string; v: React.ReactNode }) {

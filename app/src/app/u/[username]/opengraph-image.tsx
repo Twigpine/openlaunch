@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 import { rasterSharp } from "@/lib/launchpad/imageProcess";
-import { loadOgFonts } from "@/lib/ogFonts";
+import { loadCjkOgFonts, loadOgFonts } from "@/lib/ogFonts";
 import { memo } from "@/lib/launchpad/memo";
 import { readImage } from "@/lib/launchpad/imageStore";
 import { getProfile } from "@/lib/profiles/server";
@@ -41,6 +41,8 @@ export default async function ProfileOg({ params }: { params: Promise<{ username
   const u = usernameFromPath(username);
   const [fonts, p] = await Promise.all([loadOgFonts(), u ? memo(`og-u:${u}`, 30_000, () => getProfile({ username: u })) : Promise.resolve(null)]);
   const facts = p ? await memo(`u-facts:${p.wallet}`, 10_000, () => walletFacts(p.wallet)) : null;
+  // a display name in Chinese, Japanese or Korean gets a subset face; Geist alone would draw empty boxes
+  const cjk = p ? await loadCjkOgFonts(p.display_name) : [];
   const avatar = p ? await memo(`og-u-avatar:${p.wallet}:${p.avatar_url ?? ""}`, 60_000, () => avatarPng(p.avatar_url)) : null;
   // no picture: the same wallet mark the site draws (WalletAvatar), so the card and the page look like one person
   const hue = p ? walletHue(p.wallet) : 212;
@@ -106,6 +108,6 @@ export default async function ProfileOg({ params }: { params: Promise<{ username
         </div>
       </div>
     ),
-    { ...size, fonts },
+    { ...size, fonts: [...fonts, ...cjk] },
   );
 }

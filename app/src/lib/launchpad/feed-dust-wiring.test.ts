@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fmtQuote } from "./math.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 // Source contracts for the dust fix: the feed query filters through feed-dust.ts, and every surface that shows a
 // swap amount formats it with fmtQuote (which owns the display floor). These read the sources rather than run
@@ -26,7 +27,8 @@ test("getLaunchFeed pages swaps through collectNonDust and merges them with the 
 
 test("the tape, the toasts and the trade table all format swap amounts through fmtQuote with the quote's decimals", () => {
   assert.match(tape, /fmtQuote\(item\.quote_wei, item\.quote_decimals, item\.quote_symbol\)/);
-  assert.match(toasts, /\$\{fmtQuote\(i\.quote_wei, i\.quote_decimals, i\.quote_symbol\)\} of \$\{i\.symbol\}/);
+  assert.match(toasts, /amount: fmtQuote\(i\.quote_wei, i\.quote_decimals, i\.quote_symbol\), symbol: i\.symbol/);
+  assert.equal(en.activity.toasts.buy, "Buy {amount} of {symbol}");
   assert.match(trades, /fmtQuote\(q < 0n \? -q : q, quote\.decimals, ""\)\.trim\(\)/);
   for (const src of [tape, toasts, trades]) assert.doesNotMatch(src, /fmtEth\(|fmtQuoteUnits\(/, "no surface bypasses fmtQuote for a swap amount");
 });
