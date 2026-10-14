@@ -26,9 +26,14 @@ test("hero separates the permanent position lock from circulating token supply",
   assert.doesNotMatch(zh.copy, /供应量[^。]*永久|永久[^。]*供应量/);
   assert.doesNotMatch(JSON.stringify(en.hero), /\bbest\b|safest|guaranteed|audited|risk.free/i);
   assert.doesNotMatch(JSON.stringify(zh), /最好|最佳|最安全|保证|审计|零风险|无风险/);
-  assert.match(machine, /liquidity position stays in an ownerless locker forever/i);
-  assert.match(machine, /Tokens remain tradeable/);
+  assert.match(machine, /description: t\(`stages\.\$\{key\}\.description`\)/);
+  assert.match(en.launch.machine.stages.lock.description, /liquidity position stays in an ownerless locker forever/i);
+  assert.match(en.launch.machine.stages.lock.description, /Tokens remain tradeable/);
   assert.doesNotMatch(hero + machine, /100% of (?:the )?supply[, ]+forever|supply locked forever/i);
+  // the machine's words in either language: the lock is the position's, never the supply's
+  assert.doesNotMatch(JSON.stringify(en.launch.machine), /100% of (?:the )?supply[, ]+forever|supply locked forever/i);
+  assert.match(messagesFor("zh-CN").launch.machine.stages.lock.description, /流动性仓位永久存放在无所有者的锁仓合约中/);
+  assert.doesNotMatch(JSON.stringify(messagesFor("zh-CN").launch.machine), /供应量[^。"]*永久|永久[^。"]*供应量/);
 });
 
 test("hero metrics preserve shared live totals without inventing per-chain dollar sums", () => {
@@ -42,7 +47,8 @@ test("hero metrics preserve shared live totals without inventing per-chain dolla
   // while any quote is unpriced the three dollar figures say "≈" with a tooltip instead of a confident undercount
   assert.match(metrics, /t\.usd_partial \? "≈" : ""/);
   for (const field of ["volume_usd", "fees_to_creators_usd", "fees_burned_usd"]) assert.ok(metrics.includes(`usd(t.${field}`), `${field} not routed through the ≈ guard`);
-  assert.match(metrics, /no USD price right now/);
+  assert.match(metrics, /const usdNote = t\.usd_partial \? tr\("usdNote"\) : undefined;/);
+  assert.match(en.launch.totals.usdNote, /no USD price right now/);
   // the GITLAWB burn: a GITLAWB amount (compact, exact in the title), never a USD figure, no per-chain split, behind the breakdown toggle
   assert.match(metrics, /fmtQuote\(t\.gitlawb_burned, GITLAWB_DECIMALS, GITLAWB_SYMBOL\)/);
   assert.match(metrics, /title=\{gitlawbBurnedExact\}/);
@@ -51,11 +57,14 @@ test("hero metrics preserve shared live totals without inventing per-chain dolla
   assert.doesNotMatch(metrics, /by_chain\.\w+\.gitlawb_burned/, "no per-chain split for the GITLAWB burn");
   // the breakdown opens in place, under the strip (a disclosure that works without a pointer); the GITLAWB burn stays inside it
   const details = metrics.indexOf("<details");
-  assert.ok(details >= 0 && metrics.indexOf(">GITLAWB burned<") > details, "the GITLAWB burn stays behind the breakdown toggle");
-  assert.match(metrics, /All-time volume/);
-  assert.match(metrics, /Fees to recipients/);
+  assert.ok(details >= 0 && metrics.indexOf('>{tr("gitlawbBurned")}<') > details, "the GITLAWB burn stays behind the breakdown toggle");
+  assert.equal(en.launch.totals.gitlawbBurned, "GITLAWB burned");
+  assert.match(metrics, /tr\("volume"\)/);
+  assert.equal(en.launch.totals.volume, "All-time volume");
+  assert.match(metrics, /tr\("toRecipients"\)/);
+  assert.equal(en.launch.totals.toRecipients, "Fees to recipients");
   assert.doesNotMatch(metrics, /volume_quote_eth|volume_quote_usdg|\bfetch\s*\(|\bsetInterval\s*\(/);
-  assert.doesNotMatch(metrics, /\bTVL\b|creator profit|paid out/i);
+  assert.doesNotMatch(metrics + JSON.stringify(en.launch.totals), /\bTVL\b|creator profit|paid out/i);
 });
 
 test("launch machine keeps proof links and the header CTA handoff contract", () => {
@@ -68,7 +77,8 @@ test("launch machine keeps proof links and the header CTA handoff contract", () 
 
 test("decorative geometry has readable keyboard-operable mechanism controls", () => {
   assert.match(machine, /<svg\b[^>]*aria-hidden="true"[^>]*focusable="false"/);
-  assert.match(machine, /role="group" aria-label="Explore the launch mechanism"/);
+  assert.match(machine, /role="group" aria-label=\{t\("explore"\)\}/);
+  assert.equal(en.launch.machine.explore, "Explore the launch mechanism");
   assert.match(machine, /<button\b[^>]*type="button"[^>]*aria-pressed=/);
   assert.match(machine, /aria-controls="launch-stage-detail"/);
   assert.match(machine, /id="launch-stage-detail"/);
@@ -78,8 +88,9 @@ test("decorative geometry has readable keyboard-operable mechanism controls", ()
 test("hero autoplay loops on CSS clocks with a user pause and cleaned-up observers", () => {
   assert.match(css, /animation: token-cycle[^;]+infinite/);
   assert.match(css, /animation-play-state: var\(--motion-state\)/);
-  assert.match(machine, /Pause launch animation/);
-  assert.match(machine, /Play launch animation/);
+  assert.match(machine, /paused \|\| inspecting \? t\("play"\) : t\("pause"\)/);
+  assert.equal(en.launch.machine.pause, "Pause launch animation");
+  assert.equal(en.launch.machine.play, "Play launch animation");
   assert.doesNotMatch(machine, /\bsetInterval\s*\(|\bsetTimeout\s*\(|<canvas\b|\bfetch\s*\(/);
   assert.match(machine, /observer\.disconnect\(\)/);
   assert.match(machine, /removeEventListener\("change",/);

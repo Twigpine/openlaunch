@@ -106,7 +106,7 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   assert.match(src("../../components/launchpad/TrendingStrip.tsx"), /hasQuoteBrandBadge\(row\.quote_key\)/, "TWIG rows show the badge, not the bare symbol");
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.match(form, /const brandQuote = cfg\.quotes\.find\(\(q\) => q\.key === "twig"\) \?\? cfg\.quotes\.find\(\(q\) => q\.key === "gitlawb"\) \?\? null;/, "TWIG is the nudge wherever the form offers it");
-  assert.match(form, /Pair with \{brandQuote\.symbol\}, get the <QuoteBrandBadge quoteKey=\{brandQuote\.key\} \/> badge/);
+  assert.match(form, /t\.rich\("quote\.pair", \{ symbol: brandQuote\.symbol, badge: \(\) => <QuoteBrandBadge quoteKey=\{brandQuote\.key\} \/> \}\)/, "the nudge's sentence carries the badge (its English: launch-form.test.ts)");
   assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} size="md" \/>/);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label=\{t\("page\.pairedWith", \{ symbol: "TWIG" \}\)\} \/>/);
   assert.equal(en.token.page.pairedWith, "Paired with {symbol}");

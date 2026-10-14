@@ -4,9 +4,12 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { isAddress } from "viem";
+import { createTranslator } from "use-intl/core";
 import { BPS, DEAD, FEE_PRESETS, MAX_RECIPIENTS } from "../../lib/launchpad/config.ts";
 import { bpsToPct, buildRecipients, isBurnAddress } from "../../lib/launchpad/recipients.ts";
 import { shortAddr } from "../../lib/chainPublic.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
+import type { Locale } from "../../i18n/locales.ts";
 
 type Element = { type: string; props: Record<string, unknown>; children: unknown[] };
 const source = readFileSync(new URL("./LaunchFeeSettings.tsx", import.meta.url), "utf8");
@@ -15,14 +18,17 @@ const ast = ts.createSourceFile("LaunchFeeSettings.tsx", source, ts.ScriptTarget
 const declaration = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "LaunchFeeSettings");
 assert.ok(declaration);
 const { outputText } = ts.transpileModule(`(${declaration.getText(ast).replace(/^export default /, "")})`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } });
-// Exercise the actual JSX and change handlers without a wallet, browser, or transaction.
+// Exercise the actual JSX and change handlers without a wallet, browser, or transaction, in either language
+// (use-intl's own translator over the real messages stands in for useTranslations).
 // Native arrow-key navigation and layout are verified in the browser separately.
-const render = runInNewContext(outputText, {
+const renderIn = (locale: Locale) => runInNewContext(outputText, {
   React: { createElement: (type: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ type, props: props ?? {}, children }), Fragment: "fragment" },
   useId: () => "fees", FEE_PRESETS, MAX_RECIPIENTS, isAddress, shortAddr, bpsToPct, isBurnAddress, card: "card",
   styles: new Proxy({}, { get: (_target, key) => key }),
   ArrowUpRight: "ArrowUpRight", Flame: "Flame", LockKeyhole: "LockKeyhole", Wallet: "Wallet",
+  useTranslations: (namespace: string) => createTranslator({ locale, messages: messagesFor(locale), namespace, timeZone: "UTC" }),
 }) as (props: Record<string, unknown>) => Element;
+const render = renderIn("en");
 const defaults = { feePips: 0, beneficiary: "burn", split: buildRecipients([{ payout: "", pct: "" }]), children: null, onFeeChange: () => {}, onBeneficiaryChange: () => {} };
 
 function elements(node: unknown): Element[] {
@@ -110,10 +116,28 @@ test("custom allocation renders the parent editor and validation, with honest pe
   assert.ok(!elements(render({ ...defaults, beneficiary: "custom", split, children: editor })).includes(editor));
 });
 
+test("in Chinese the fee card keeps every disclosure the English one makes", () => {
+  const zh = renderIn("zh-CN");
+  const free = text(zh(defaults));
+  assert.match(free, /0% 平台费/);
+  assert.match(free, /不收取任何交易手续费/);
+  assert.match(free, /仍会产生网络 Gas 和价格影响/);
+  assert.match(free, /手续费率之后无法更改/);
+  const paid = text(zh({ ...defaults, feePips: 30_000, beneficiary: "burn" }));
+  assert.match(paid, /每交易 100 个单位，其中\s+3 个单位是交易手续费/);
+  assert.match(paid, /手续费率和分配之后都无法更改/);
+  assert.match(paid, /Openlaunch 不收取任何部分/);
+  assert.match(paid, /领取时销毁\s+0x…dEaD/);
+  // in either language the card says the platform takes nothing, and promises nothing more
+  assert.match(en.launch.fees.routeHelp, /Openlaunch takes none\./);
+  assert.doesNotMatch(JSON.stringify(messagesFor("zh-CN").launch.fees), /保证|零风险|无风险|最低|最好/);
+});
+
 test("fee redesign preserves split validation, editor controls and the exact launch payload", () => {
   assert.match(formSource, /if \(feePips > 0 && beneficiary === "custom"\) errors\.push\(\.\.\.split\.errors\)/);
   assert.match(formSource, /split=\{split\}/);
-  assert.match(formSource, /aria-label=\{`beneficiary \$\{i \+ 1\} address`\}/);
+  assert.match(formSource, /aria-label=\{t\("split\.address", \{ n: i \+ 1 \}\)\}/);
+  assert.equal(en.launch.form.split.address, "beneficiary {n} address");
   assert.match(formSource, /onChange=\{\(e\) => setRow\(i, \{ pct: e.target.value.trim\(\) \}\)\}/);
   assert.match(formSource, /quickAdd\(DEAD\)/);
   assert.match(formSource, /rows.length >= MAX_RECIPIENTS/);
@@ -149,9 +173,10 @@ test("an unconfigured chain says Coming soon in production and explains the miss
   visit(formAst);
   assert.ok(declaration?.initializer);
   const { outputText } = ts.transpileModule(`(${declaration.initializer.getText(formAst)})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
-  const copy = (NODE_ENV: string) => runInNewContext(outputText, { process: { env: { NODE_ENV } } });
+  // the constant names the message (launch.form.chain.<key>), so either language reads the same rule
+  const copy = (NODE_ENV: string) => en.launch.form.chain[runInNewContext(outputText, { process: { env: { NODE_ENV } } }) as "comingSoon" | "notConfigured"];
   assert.equal(copy("production"), "Coming soon.");
   assert.equal(copy("development"), "Not configured here. Contract settings are missing in this environment.");
   assert.equal(copy("test"), "Not configured here. Contract settings are missing in this environment.");
-  assert.match(formSource, /\{!ok \? UNCONFIGURED_CHAIN_COPY : /, "the chain button renders this copy for an unconfigured chain");
+  assert.match(formSource, /\{!ok \? t\(`chain\.\$\{UNCONFIGURED_CHAIN_COPY\}`\) : /, "the chain button renders this copy for an unconfigured chain");
 });
