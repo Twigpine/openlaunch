@@ -14,5 +14,6 @@
   "slippage": "价格变动超过 {percent}%，请重试。",
   "reverted": "交易已回滚：{name}",
   "gas": "Gas 代币（ETH，在 Arc 上为 USDC）余额不足，无法支付此交易及 Gas。",
+  "insufficientLiquidity": "金库目前无法支付这么多：大部分资金已被借出。请尝试更小的金额，或稍后再试。",
   "unknown": "出了点问题。"
 }

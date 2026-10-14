@@ -13,6 +13,7 @@ import { marketChange, marketUsd } from "@/lib/launchpad/market-format";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
 import { buildPaletteGroups, isSearchableQuery, paletteTokenFrom, type PaletteGroup, type PaletteItem, type PaletteText, type PaletteToken } from "@/lib/command-palette";
 import { useOpenBridge } from "./bridge/BridgeProvider";
+import { useEarnInfo } from "./earn/earnInfo";
 
 type LaunchesResponse = { launches?: Parameters<typeof paletteTokenFrom>[0][] };
 
@@ -68,7 +69,9 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
   const theme = resolvedTheme === "dark" ? "dark" : "light";
   const { search: words } = useMessages();
   const text = useMemo<PaletteText>(() => ({ groups: words.groups, pages: words.pages, actions: words.actions }), [words]);
-  const groups = useMemo(() => buildPaletteGroups({ query, tokens: current?.tokens ?? [], trending: trending ?? [], theme, text }), [query, current, trending, theme, text]);
+  // the Earn entry exists only while the feature is switched on; asked once, on the first open
+  const earn = useEarnInfo(open)?.enabled === true;
+  const groups = useMemo(() => buildPaletteGroups({ query, tokens: current?.tokens ?? [], trending: trending ?? [], theme, text, earn }), [query, current, trending, theme, text, earn]);
   const status = searching ? t("searching") : current?.failed ? t("unavailable") : "";
 
   const close = () => {

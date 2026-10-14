@@ -55,6 +55,10 @@
     "arc": {
       "label": "Launches on Arc",
       "keywords": "arc chain network usdc"
+    },
+    "earn": {
+      "label": "Earn on idle USDC",
+      "keywords": "earn lend deposit usdc vault morpho interest savings withdraw"
     }
   },
   "actions": {

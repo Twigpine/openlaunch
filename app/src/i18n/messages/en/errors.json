@@ -14,5 +14,6 @@
   "slippage": "Price moved more than {percent}%. Try again.",
   "reverted": "Reverted: {name}",
   "gas": "Not enough of the gas token (ETH, or USDC on Arc) for this transaction plus gas.",
+  "insufficientLiquidity": "The vault cannot pay out that much right now: most of it is lent out. Try a smaller amount, or try again later.",
   "unknown": "Something went wrong."
 }

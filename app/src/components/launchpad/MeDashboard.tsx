@@ -31,6 +31,7 @@ import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
 import ProfileIdentity from "@/components/profile/ProfileIdentity";
 import SeasonCard from "@/components/points/SeasonCard";
+import EarnCard from "@/components/earn/EarnCard";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -211,6 +212,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       <div className={styles.dashboard}>
         {walletBar}
         <SeasonCard address={address} />
+        <EarnCard address={address} />
         {err ? <div className={styles.error} role="alert"><h2>{tr("loadError")}</h2><p>{tr("loadErrorDetail", { error: err })}</p><button type="button" className={styles.outlineButton} onClick={() => void load()} disabled={refreshing}>{tr("tryAgain")}<RefreshCw size={14} aria-hidden="true" /></button></div> : <div className={styles.loading} aria-busy="true" aria-label={tr("loading")}><dl className={styles.loadingStats}>{Array.from({ length: 4 }, (_, k) => <SkStat key={k} />)}</dl><ul className={styles.loadingRows}>{Array.from({ length: 3 }, (_, k) => <SkRow key={k} i={k} />)}</ul></div>}
       </div>
     );
@@ -219,6 +221,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
     <div className={styles.dashboard}>
       {walletBar}
       <SeasonCard address={address} />
+      <EarnCard address={address} />
       {err ? <p className={styles.error} role="alert">{tr("refreshFailed", { error: err })}</p> : null}
       <dl className={styles.stats}>
         <Stat k={tr("stats.launches")} icon={<Layers3 size={14} />} v={String(me.launches.length)} hint={tr("stats.launchesHint")} />
