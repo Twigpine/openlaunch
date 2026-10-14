@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Execute the actual component handlers with inert dependencies. This avoids a
@@ -130,7 +131,8 @@ for (const status of ["reverted", "success"]) {
 test("preparing a trade disables the same controls as signing and confirming", () => {
   const source = readFileSync(new URL("./TradePanel.tsx", import.meta.url), "utf8");
   assert.match(source, /const busy = phase\.k === "preparing" \|\| phase\.k === "approving"/);
-  assert.match(source, /Preparing trade…/);
+  assert.match(source, /phase\.k === "preparing" \? \(\s*<><Spinner size=\{14\} \/> \{t\("preparing"\)\}<\/>/);
+  assert.equal(en.trade.panel.preparing, "Preparing trade…");
   assert.match(source, /<input[^>]*disabled=\{busy\}/);
   assert.match(source, /if \(!v\[0\] \|\| busy\) return/);
 });

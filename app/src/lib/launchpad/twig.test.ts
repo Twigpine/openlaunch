@@ -11,6 +11,7 @@ import { quotePillOf } from "./ogcard.ts";
 import { FILTERS, filterOnChain, isFilter, matchesFilter } from "./search.ts";
 import { TWIG_ADDRESS, TWIG_ADDRESSES, TWIG_LOGO_PATH, gitlawbLinkedUsd, twigUsdFromGitlawb } from "./twig.ts";
 import { cleanQuoteSymbol } from "./unlisted-quote.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * TWIG (twig.ts) is the quote the Base launch form offers in GITLAWB's place: badged, priced at GITLAWB's USD price
@@ -110,7 +111,8 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label="Paired with TWIG" \/>/);
   assert.deepEqual(quotePillOf("twig", "TWIG"), { symbol: "TWIG", ticker: "TW", kind: "twig" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /card\.quote\.kind === "twig"/);
-  assert.match(src("../../components/launchpad/TradePanel.tsx"), /quote\.key === "twig"[\s\S]{0,240}Need TWIG\? Wrap GITLAWB 1:1 or buy TWIG at/);
+  assert.match(src("../../components/launchpad/TradePanel.tsx"), /quote\.key === "twig"[\s\S]{0,240}t\.rich\("needTwig"/);
+  assert.match(en.trade.panel.needTwig, /^Need TWIG\? Wrap GITLAWB 1:1 or buy TWIG at <link>/);
 });
 
 test("the published TWIG address is the one in config, everywhere agents read it", () => {

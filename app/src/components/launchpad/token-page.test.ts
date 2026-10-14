@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the token page: its tint, the Proof panel, price impact in the trade box and the chart
@@ -36,7 +37,8 @@ test("price impact uses the pool's own spot and fee, and a big move takes a seco
   assert.match(panel, /onClick=\{onTrade\}/);
   const trade = panel.slice(panel.indexOf("async function trade()"), panel.indexOf("const outLabel"));
   assert.doesNotMatch(trade, /armed|impact/, "trade() keeps its synchronous lock as the first thing it does");
-  assert.match(panel, /Sell it all now/);
+  assert.match(panel, /t\("sellAll"\)/);
+  assert.equal(en.trade.panel.sellAll, "Sell it all now");
 });
 
 test("our on-chain chart is the default; GeckoTerminal is checked only when asked for and framed safely", () => {

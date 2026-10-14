@@ -51,12 +51,15 @@ export function formatChartAxis(value: number): string {
   return (magnitude >= 1000 ? compactAxisPrice : preciseAxisPrice).format(value);
 }
 
-/** How long a stretch of the chart covers, as a short label: "45m", "18h", "4d". Empty for no stretch at all. */
-export function chartSpanLabel(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "";
-  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}m`;
-  if (seconds < 2 * 86400) return `${Math.round(seconds / 3600)}h`;
-  return `${Math.round(seconds / 86400)}d`;
+/**
+ * How long a stretch of the chart covers, as a count and its unit: 45 "m", 18 "h", 4 "d" (the words come from the
+ * reader's language, common.time: "45m" / "45分钟"). Null for no stretch at all.
+ */
+export function chartSpanParts(seconds: number): { n: number; unit: "m" | "h" | "d" } | null {
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 3600) return { n: Math.max(1, Math.round(seconds / 60)), unit: "m" };
+  if (seconds < 2 * 86400) return { n: Math.round(seconds / 3600), unit: "h" };
+  return { n: Math.round(seconds / 86400), unit: "d" };
 }
 
 export type WalletChartMarker = { t: number; is_buy: boolean; quote: string };

@@ -43,17 +43,22 @@ test("aligned requests delegate snapshot reconciliation without crossing request
   assert.match(loader, /mergeChartPayload\(\s*current\?\.key === requestKey \? current\.data : null,\s*payload,\s*tailOnly\s*\)/);
   assert.match(renderer, /hasWallet && showTrades \? aggregateWalletMarkers/);
   assert.match(renderer, /trade\.count/);
-  assert.match(renderer, /latest 200 indexed trades within this range/);
+  assert.match(renderer, /title=\{t\("myTradesTitle"\)\}/);
+  assert.match(en.trade.chart.myTradesTitle, /latest 200 indexed trades within this range/);
 });
 
 test("real history baselines and quiet ranges are not presented as executed trades", () => {
   assert.match(renderer, /fillCandles\(data\.candles, INTERVALS\[interval\], data\.from, data\.asOf, data\.baseline\.price\)/);
   assert.match(renderer, /data\?\.baseline\.hasPriorTrades/);
-  assert.match(renderer, /Carried price · no swaps/);
-  assert.match(renderer, /A launch price is not trading history/);
-  assert.match(renderer, /Showing the last indexed price\. No swaps in this range/);
+  assert.match(renderer, /inspected\.filled \? <span className=\{styles\.carried\}>\{t\("carried"\)\}<\/span>/);
+  assert.equal(en.trade.chart.carried, "Carried price · no swaps");
+  assert.match(renderer, /hasHistory \? t\("quietHelp"\) : t\("noTradesHelp"\)/);
+  assert.match(en.trade.chart.noTradesHelp, /A launch price is not trading history/);
+  assert.match(en.trade.chart.quietHelp, /Showing the last indexed price\. No swaps in this range/);
   assert.match(renderer, /selectedRangeStats\(series, visible\?\.from, visible\?\.to\)/);
-  assert.match(renderer, /context=\{inspected \? "against the first candle in view" : "across the visible candles"\}/);
+  assert.match(renderer, /context=\{inspected \? t\("vsFirst"\) : t\("acrossVisible"\)\}/);
+  assert.equal(en.trade.chart.vsFirst, "against the first candle in view");
+  assert.equal(en.trade.chart.acrossVisible, "across the visible candles");
   // scrubbing compares against the same first candle the resting change uses, never a launch or all-time figure
   assert.match(renderer, /inspected\.close \/ stats\.open - 1/);
   assert.doesNotMatch(renderer, /\bMath\.random\s*\(|\bfaker\b|\bdemoCandles\b|\bmockCandles\b/);
@@ -66,9 +71,10 @@ test("chart currency conversion and quote volume are explicitly distinct", () =>
   assert.match(renderer, /formatChartPrice\(inspected\.volume, true\)/);
   // dollar figures say how they were converted, wherever USD is showing
   assert.match(renderer, /\{usd \? \(\s*<Popover\.Root>/);
-  assert.match(renderer, /Every candle is converted to USD at today’s \{data\?\.quote\.symbol\} price, not the rate at the time\./);
+  assert.match(renderer, /t\("usdNote", \{ symbol: data\?\.quote\.symbol \?\? "" \}\)/);
+  assert.equal(en.trade.chart.usdNote, "Every candle is converted to USD at today’s {symbol} price, not the rate at the time.");
   // volume always carries the pool's quote unit beside the figure
-  assert.equal((renderer.match(/<small>\{data\?\.quote\.symbol \?\? "Quote"\}<\/small>/g) ?? []).length, 2);
+  assert.equal((renderer.match(/<small>\{data\?\.quote\.symbol \?\? t\("quote"\)\}<\/small>/g) ?? []).length, 2);
   assert.match(renderer, /formatChartAxis\(coordinate \* prepared\.priceDivisor\)/);
   assert.match(renderer, /formatChartAxis\(coordinate \* prepared\.volumeDivisor\)/);
   assert.doesNotMatch(renderer, /value:\s*bar\.volume\s*\*/);
@@ -130,9 +136,12 @@ test("keyboard inspection and fullscreen retain focus and announce recoverable f
   assert.match(renderer, /document\.fullscreenElement === panel\.current/);
   assert.match(renderer, /fullscreenButton\.current\?\.focus\(\)/);
   assert.match(renderer, /disabled=\{!fullscreenAvailable\}/);
-  assert.match(renderer, /Your browser couldn’t open fullscreen/);
-  assert.match(renderer, /Retry chart/);
-  assert.match(renderer, /Refresh failed\. Showing the last snapshot/);
+  assert.match(renderer, /setAnnouncement\(t\("fullscreenFailed"\)\)/);
+  assert.match(en.trade.chart.fullscreenFailed, /Your browser couldn’t open fullscreen/);
+  assert.match(renderer, /onClick=\{onRefresh\}>\{t\("retry"\)\}/);
+  assert.equal(en.trade.chart.retry, "Retry chart");
+  assert.match(renderer, /t\("refreshFailed"\)/);
+  assert.equal(en.trade.chart.refreshFailed, "Refresh failed. Showing the last snapshot.");
 });
 
 test("chart wallet controls are read-only and cannot initiate a trade or signature", () => {

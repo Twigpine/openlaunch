@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "use-intl";
 import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
@@ -66,6 +67,8 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const fmtQ = (raw: bigint) => `${fmtQuoteUnits(units(raw, quote.decimals), quote.decimals)} ${quote.symbol}`;
   const router = useRouter();
+  const t = useTranslations("trade.panel");
+  const tc = useTranslations("common");
   const config = useConfig();
   const { address, isConnected, chainId } = useHydratedAccount();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
@@ -230,10 +233,10 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
       const hash = await wallet.writeContract(request);
       setPhase({ k: "sent", hash });
       const rc = await pub.waitForTransactionReceipt({ hash });
-      if (rc.status !== "success") throw new Error("Transaction reverted on-chain.");
+      if (rc.status !== "success") throw new Error(t("reverted"));
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
       setPhase({ k: "done", hash, side });
-      toast({ kind: side, title: side === "buy" ? `You bought ${quote_ ? fmtCompact(Number(quote_.out) / 1e18) : ""} ${symbol}` : `You sold ${fmtCompact(Number(amountIn) / 1e18)} ${symbol}`, sub: `Confirmed on ${CHAIN_LABEL}`, chain, token, symbol, celebrate: side === "buy" });
+      toast({ kind: side, title: side === "buy" ? t("toastBought", { amount: quote_ ? fmtCompact(Number(quote_.out) / 1e18) : "", symbol }) : t("toastSold", { amount: fmtCompact(Number(amountIn) / 1e18), symbol }), sub: t("toastConfirmed", { chain: CHAIN_LABEL }), chain, token, symbol, celebrate: side === "buy" });
       setAmount("");
       setQuote(null);
       void eth.refetch();
@@ -265,25 +268,25 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
   const sold = sellAll && tokenBalance !== undefined && tokenBalance > 0n && sellAll.forBalance === tokenBalance.toString() ? sellAll : null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-line bg-card scroll-mt-24" id="trade" tabIndex={-1} aria-label={`Trade ${symbol}`}>
-      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-line px-5"><h2 className="min-w-0 truncate text-sm font-semibold text-ink">Trade {symbol}</h2><span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-muted"><ChainLogo chain={chain} size={12} />{CHAIN_LABEL}</span></div>
+    <section className="overflow-hidden rounded-2xl border border-line bg-card scroll-mt-24" id="trade" tabIndex={-1} aria-label={t("title", { symbol })}>
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-line px-5"><h2 className="min-w-0 truncate text-sm font-semibold text-ink">{t("title", { symbol })}</h2><span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-muted"><ChainLogo chain={chain} size={12} />{CHAIN_LABEL}</span></div>
       <div className="space-y-4 p-4 sm:p-5">
-      <ToggleGroup aria-label="Trade side" value={[side]} onValueChange={(v) => { if (!v[0] || busy) return; setSide(v[0] as Side); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid w-full grid-cols-2">
-        {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} thumbClassName={s === "buy" ? "bg-up-soft" : "bg-down-soft"} className={`min-h-10 text-sm font-semibold ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? "Buy" : "Sell"}</ToggleGroupItem>)}
+      <ToggleGroup aria-label={t("side")} value={[side]} onValueChange={(v) => { if (!v[0] || busy) return; setSide(v[0] as Side); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid w-full grid-cols-2">
+        {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} thumbClassName={s === "buy" ? "bg-up-soft" : "bg-down-soft"} className={`min-h-10 text-sm font-semibold ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? t("buy") : t("sell")}</ToggleGroupItem>)}
       </ToggleGroup>
 
       {side === "buy" && ethRoute ? (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] text-muted">Pay with</span>
-            <ToggleGroup aria-label="Pay with" value={[payWith]} onValueChange={(v) => { if (!v[0] || busy) return; setPayWith(v[0] as "eth" | "quote"); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid grid-cols-2">
+            <span className="text-[11px] text-muted">{t("payWith")}</span>
+            <ToggleGroup aria-label={t("payWith")} value={[payWith]} onValueChange={(v) => { if (!v[0] || busy) return; setPayWith(v[0] as "eth" | "quote"); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid grid-cols-2">
               <ToggleGroupItem value="eth" disabled={busy} className="min-h-8 px-3 font-mono text-xs">{NATIVE_SYMBOL}</ToggleGroupItem>
               <ToggleGroupItem value="quote" disabled={busy} className="min-h-8 px-3 font-mono text-xs">{quote.symbol}</ToggleGroupItem>
             </ToggleGroup>
           </div>
           {viaEth ? (
             <p className="text-right font-mono text-[10px] text-muted">
-              One swap through Uniswap: {[...ethRoute.via, symbol].join(" → ")}
+              {t("route", { path: [...ethRoute.via, symbol].join(" → ") })}
             </p>
           ) : null}
         </div>
@@ -291,45 +294,50 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
 
       {unlisted ? (
         <p role="note" className="rounded-xl border border-warm/30 bg-warm-soft px-3 py-2 text-[11px] leading-relaxed text-warm-ink text-pretty">
-          <b>Unlisted pair.</b> Priced in {quote.symbol} (<a href={explorerAddress(chain, quote.address)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2">{shortAddr(quote.address)} ↗</a>), a token openlaunch does not list. Anyone can deploy a token with any name, so check that address before you trade. No USD price is shown.
+          {t.rich("unlisted", {
+            symbol: quote.symbol,
+            address: shortAddr(quote.address),
+            b: (chunks) => <b>{chunks}</b>,
+            link: (chunks) => <a href={explorerAddress(chain, quote.address)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2">{chunks}</a>,
+          })}
         </p>
       ) : null}
 
       <div className="relative">
         {/* the pay well: amount, its token, the balance and quick amounts; the well itself shows the input's focus */}
         <div className="rounded-2xl border border-line bg-paper px-4 pb-3.5 pt-3 transition-[border-color,box-shadow] has-[input:focus-visible]:border-transparent has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand/60 motion-reduce:transition-none">
-          <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? "You pay" : "You sell"}</label>
-            {balance !== undefined ? <button type="button" disabled={busy} className="-mr-1.5 inline-flex max-w-[65%] items-center gap-1 truncate rounded-md px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-ink/5 hover:text-ink motion-reduce:transition-none" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} aria-label={`Use balance ${side === "buy" ? fmtPay(balance) : fmtCompact(Number(balance) / 1e18)}`} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, pay.decimals) : formatEther(balance))}><Wallet size={11} aria-hidden className="shrink-0" />{side === "buy" ? fmtPay(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? t("youPay") : t("youSell")}</label>
+            {balance !== undefined ? <button type="button" disabled={busy} className="-mr-1.5 inline-flex max-w-[65%] items-center gap-1 truncate rounded-md px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-ink/5 hover:text-ink motion-reduce:transition-none" title={t("useMax", { symbol: NATIVE_SYMBOL })} aria-label={t("useBalance", { balance: side === "buy" ? fmtPay(balance) : fmtCompact(Number(balance) / 1e18) })} onClick={() => setAmount(side === "buy" ? formatUnits(balance > buyReserve ? balance - buyReserve : 0n, pay.decimals) : formatEther(balance))}><Wallet size={11} aria-hidden className="shrink-0" />{side === "buy" ? fmtPay(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
           </div>
           <div className="mt-1.5 flex items-center gap-3">
-            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink placeholder:text-faint focus-visible:outline-none! tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${pay.symbol} amount` : `${symbol} amount`} />
+            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink placeholder:text-faint focus-visible:outline-none! tnum" value={amount} onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={t("amount", { symbol: side === "buy" ? pay.symbol : symbol })} />
             <span className="max-w-28 shrink-0 truncate rounded-full border border-line bg-card px-3 py-1.5 text-xs font-semibold text-ink">{side === "buy" ? pay.symbol : symbol}</span>
           </div>
           <div className="mt-3 flex gap-1.5">
-            {side === "buy" ? BUY_PRESETS[viaEth ? "eth" : quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${pay.symbol}`} className={`min-h-7 flex-1 rounded-full border px-2 font-mono text-[11px] tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none ${amount === p ? "border-line-strong bg-card text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), pay.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-7 flex-1 rounded-full border border-line px-2 font-mono text-[11px] text-muted tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none">{pct === 100 ? "Max" : `${pct}%`}</button>)}
+            {side === "buy" ? BUY_PRESETS[viaEth ? "eth" : quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={t("payPreset", { amount: p, symbol: pay.symbol })} className={`min-h-7 flex-1 rounded-full border px-2 font-mono text-[11px] tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none ${amount === p ? "border-line-strong bg-card text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), pay.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-7 flex-1 rounded-full border border-line px-2 font-mono text-[11px] text-muted tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none">{pct === 100 ? t("max") : `${pct}%`}</button>)}
           </div>
         </div>
         {/* the arrow sits in a cut between the two wells, ringed in the card's own colour */}
         <div className="relative z-10 mx-auto -my-3.5 flex size-9 items-center justify-center rounded-full border-4 border-card bg-paper text-muted" aria-hidden><ArrowDown size={14} /></div>
         <div className="rounded-2xl border border-line bg-paper px-4 pb-3 pt-3.5">
-          <div className="text-[11px] text-muted">You receive <span className="text-faint">· estimated</span></div>
+          <div className="text-[11px] text-muted">{t.rich("youReceive", { muted: (chunks) => <span className="text-faint">{chunks}</span> })}</div>
           <div className="mt-1.5 flex min-h-9 items-center justify-between gap-3">
             <span className={`min-w-0 break-words font-mono text-[22px] font-bold leading-tight tnum ${outLabel ? "text-ink" : "text-faint"}`}>{outLabel ?? "—"}</span>{quoting && amountIn !== null ? <Spinner size={13} className="shrink-0 text-muted" /> : null}
           </div>
-          <div className="mt-1 min-h-4 text-[10px] text-muted">{inUsd ?? outUsd ?? "Quote includes the pool trading fee."}</div>
+          <div className="mt-1 min-h-4 text-[10px] text-muted">{inUsd ?? outUsd ?? t("feeIncluded")}</div>
         </div>
       </div>
       <dl className="space-y-2.5 px-1 text-[11px]">
-        <div className="flex justify-between gap-3"><dt className="text-muted">Price impact</dt><dd className={`flex items-center gap-1.5 text-right font-mono tnum ${level === "warn" || level === "confirm" ? "text-warm-ink" : "text-body"}`}>{level === "warn" || level === "confirm" ? <span aria-hidden className="size-1.5 rounded-full bg-warm" /> : null}{impact === null ? "—" : fmtImpact(impact)}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-muted">Trading fee</dt><dd className="text-right text-body">{feeRoute}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-muted">Platform fee</dt><dd className="text-right font-mono text-up tnum">$0</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-muted">Minimum received</dt><dd className="text-right font-mono text-body tnum">{quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(minOut(quote_.out, slippageBps)) / 1e18)} ${symbol}` : fmtQ(minOut(quote_.out, slippageBps))) : "—"}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">{t("priceImpact")}</dt><dd className={`flex items-center gap-1.5 text-right font-mono tnum ${level === "warn" || level === "confirm" ? "text-warm-ink" : "text-body"}`}>{level === "warn" || level === "confirm" ? <span aria-hidden className="size-1.5 rounded-full bg-warm" /> : null}{impact === null ? "—" : fmtImpact(impact)}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">{t("tradingFee")}</dt><dd className="text-right text-body">{feeRoute}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">{t("platformFee")}</dt><dd className="text-right font-mono text-up tnum">$0</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">{t("minReceived")}</dt><dd className="text-right font-mono text-body tnum">{quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(minOut(quote_.out, slippageBps)) / 1e18)} ${symbol}` : fmtQ(minOut(quote_.out, slippageBps))) : "—"}</dd></div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted"><label htmlFor={`slippage-${chain}-${token}`}>Slippage tolerance</label></dt>
+          <dt className="text-muted"><label htmlFor={`slippage-${chain}-${token}`}>{t("slippage")}</label></dt>
           <dd className="flex items-center gap-1.5">
             {/* a custom value that matches no preset leaves the presets unpressed */}
-            <ToggleGroup aria-label="Slippage presets" value={SLIPPAGE_PRESETS_BPS.includes(slippageBps) ? [String(slippageBps)] : []} onValueChange={(values) => { const p = Number(values[0]); if (!values[0] || !Number.isFinite(p)) return; setSlippageBps(chain, p); setSlippageInput(null); setSlippageError(null); }} className="rounded-[9px] p-0.5">
-              {SLIPPAGE_PRESETS_BPS.map((p) => <ToggleGroupItem key={p} value={String(p)} disabled={busy} aria-label={`Slippage ${formatSlippageBps(p)}`} className="min-h-6 rounded-[7px] px-2 font-mono text-[11px] tnum">{formatSlippageBps(p)}</ToggleGroupItem>)}
+            <ToggleGroup aria-label={t("slippagePresets")} value={SLIPPAGE_PRESETS_BPS.includes(slippageBps) ? [String(slippageBps)] : []} onValueChange={(values) => { const p = Number(values[0]); if (!values[0] || !Number.isFinite(p)) return; setSlippageBps(chain, p); setSlippageInput(null); setSlippageError(null); }} className="rounded-[9px] p-0.5">
+              {SLIPPAGE_PRESETS_BPS.map((p) => <ToggleGroupItem key={p} value={String(p)} disabled={busy} aria-label={t("slippagePreset", { value: formatSlippageBps(p) })} className="min-h-6 rounded-[7px] px-2 font-mono text-[11px] tnum">{formatSlippageBps(p)}</ToggleGroupItem>)}
             </ToggleGroup>
             <span className="relative">
               <input
@@ -348,32 +356,32 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
                 onBlur={() => setSlippageInput(null)}
                 inputMode="decimal"
                 autoComplete="off"
-                aria-label="Custom slippage percent"
+                aria-label={t("customSlippage")}
                 aria-describedby={slippageError ? `slippage-err-${chain}` : undefined}
               />
               <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted">%</span>
             </span>
           </dd>
         </div>
-        {slippageError ? <p id={`slippage-err-${chain}`} role="alert" className="text-right text-[10px] text-down-ink">Use 0.1–20%.</p> : null}
+        {slippageError ? <p id={`slippage-err-${chain}`} role="alert" className="text-right text-[10px] text-down-ink">{t("slippageRange")}</p> : null}
       </dl>
       {level === "confirm" && impact !== null ? (
         <p role="note" className="rounded-xl border border-warm/30 bg-warm-soft px-3 py-2 text-[11px] leading-relaxed text-warm-ink text-pretty">
-          This trade moves the price {fmtImpact(impact)}. New pools are thin, so a smaller amount can fill at a much better price. The button asks for a second tap.
+          {t("impactNote", { impact: fmtImpact(impact) })}
         </p>
       ) : null}
 
       {!configured || !tradable ? (
         <button type="button" disabled className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}>
-          {configured ? "Checking the pair token…" : "Trading unavailable"}
+          {configured ? t("checkingPair") : t("unavailable")}
         </button>
       ) : !isConnected ? (
         <ConnectWallet className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}>
-          Connect wallet <ArrowRight size={15} />
+          {tc("connectWallet")} <ArrowRight size={15} />
         </ConnectWallet>
       ) : !onChain ? (
         <button type="button" onClick={() => void switchChainAsync({ chainId: CHAIN.id })} disabled={switching} className={`${btn.warm} w-full min-h-12`}>
-          {switching ? "Switching…" : `Switch to ${CHAIN_LABEL}`}
+          {switching ? t("switching") : t("switchTo", { chain: CHAIN_LABEL })}
         </button>
       ) : (
         <button
@@ -383,35 +391,34 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
           className={`${confirming ? btn.warm : side === "buy" ? btn.up : `${btn.primary} !bg-down hover:brightness-110`} w-full min-h-12 text-[15px]`}
         >
           {phase.k === "preparing" ? (
-            <><Spinner size={14} /> Preparing trade…</>
+            <><Spinner size={14} /> {t("preparing")}</>
           ) : phase.k === "approving" ? (
             <>
-              <Spinner size={14} /> {phase.step === "erc20" ? "Approve once (1/2)…" : "Allow router (2/2)…"}
+              <Spinner size={14} /> {phase.step === "erc20" ? t("approveOnce") : t("allowRouter")}
             </>
           ) : phase.k === "signing" ? (
             <>
-              <Spinner size={14} /> Confirm in your wallet…
+              <Spinner size={14} /> {t("confirmInWallet")}
             </>
           ) : phase.k === "sent" ? (
             <>
-              <Spinner size={14} /> Confirming on {CHAIN_LABEL}…
+              <Spinner size={14} /> {t("confirmingOn", { chain: CHAIN_LABEL })}
             </>
           ) : insufficient ? (
-            `Not enough ${side === "buy" ? pay.symbol : symbol}`
+            t("notEnough", { symbol: side === "buy" ? pay.symbol : symbol })
           ) : confirming && impact !== null ? (
-            `Tap again to ${side} at ${fmtImpact(impact)} impact`
+            t(side === "buy" ? "tapAgainBuy" : "tapAgainSell", { impact: fmtImpact(impact) })
           ) : side === "buy" ? (
-            `Buy ${symbol}`
+            t("buySymbol", { symbol })
           ) : (
-            `Sell ${symbol}`
+            t("sellSymbol", { symbol })
           )}
         </button>
       )}
 
       {side === "buy" && quote.key === "twig" && !viaEth && (balance === undefined || balance === 0n || insufficient) ? (
         <p className="text-center text-xs text-muted text-pretty">
-          Need TWIG? Wrap GITLAWB 1:1 or buy TWIG at{" "}
-          <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">wrap.twigpine.com ↗</a>
+          {t.rich("needTwig", { link: (chunks) => <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{chunks}</a> })}
         </p>
       ) : null}
       {phase.k === "error" ? (
@@ -421,7 +428,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
       ) : null}
       {phase.k === "done" ? (
         <p className="text-xs text-up">
-          {phase.side === "buy" ? "Bought" : "Sold"}.{" "}
+          {phase.side === "buy" ? t("bought") : t("sold")}{" "}
           <a href={explorerTx(chain, phase.hash)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2">
             {phase.hash.slice(0, 10)}…
           </a>
@@ -429,12 +436,12 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
       ) : null}
       {sold && tokenBalance !== undefined ? (
         <dl className="space-y-1 rounded-xl border border-line bg-paper px-3 py-2.5 text-[11px]">
-          <div className="flex justify-between gap-3"><dt className="text-muted">Your {symbol}</dt><dd className="font-mono text-ink tnum">{fmtCompact(Number(tokenBalance) / 1e18)}</dd></div>
-          <div className="flex justify-between gap-3"><dt className="text-muted">Sell it all now</dt><dd className="text-right font-mono text-body tnum">≈ {fmtQ(sold.out)}{sold.impact !== null ? `, ${fmtImpact(sold.impact)} impact` : ""}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted">{t("yourBalance", { symbol })}</dt><dd className="font-mono text-ink tnum">{fmtCompact(Number(tokenBalance) / 1e18)}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted">{t("sellAll")}</dt><dd className="text-right font-mono text-body tnum">{sold.impact !== null ? t("sellAllImpact", { amount: fmtQ(sold.out), impact: fmtImpact(sold.impact) }) : `≈ ${fmtQ(sold.out)}`}</dd></div>
         </dl>
       ) : null}
       </div>
-      <div className="border-t border-line px-5 py-3 text-[11px] leading-relaxed text-muted text-pretty">Your wallet trades with the pool directly. openlaunch never holds your funds. Network gas applies.</div>
+      <div className="border-t border-line px-5 py-3 text-[11px] leading-relaxed text-muted text-pretty">{t("custody")}</div>
     </section>
   );
 }
