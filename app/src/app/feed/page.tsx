@@ -8,7 +8,11 @@ import styles from "@/components/sections/SectionShell.module.css";
 import { listFeed } from "@/lib/launchpad/postsServer";
 import { getTranslations } from "@/i18n/server";
 
-export const metadata: Metadata = pageMetadata({ path: "/feed", title: "Posts", description: "What people are saying about tokens launched on openlaunch.lol." });
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("posts");
+  return pageMetadata({ path: "/feed", title: t("page.meta.title"), description: t("page.meta.description") });
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function FeedPage() {

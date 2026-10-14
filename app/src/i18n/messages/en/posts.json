@@ -73,6 +73,10 @@
     "on": "on <token>{symbol}</token>"
   },
   "page": {
+    "meta": {
+      "title": "Posts",
+      "description": "What people are saying about tokens launched on openlaunch.lol."
+    },
     "eyebrow": "Community posts",
     "title": "Behind every token.",
     "description": "Holders, traders and creators, in their own words. Follow the conversation across Base, Robinhood Chain and Arc.",

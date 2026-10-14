@@ -73,6 +73,10 @@
     "on": "关于 <token>{symbol}</token>"
   },
   "page": {
+    "meta": {
+      "title": "帖子",
+      "description": "大家如何评价在 openlaunch.lol 上发行的代币。"
+    },
     "eyebrow": "社区帖子",
     "title": "每个代币背后的声音。",
     "description": "听听持有人、交易者和创建者怎么说。关注 Base、Robinhood Chain 和 Arc 上的讨论。",
