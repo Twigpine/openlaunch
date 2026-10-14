@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 import { isAddress } from "viem";
-import { loadOgFonts } from "@/lib/ogFonts";
+import { loadCjkOgFonts, loadOgFonts } from "@/lib/ogFonts";
 import { getLaunch } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { memo } from "@/lib/launchpad/memo";
@@ -76,6 +76,8 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
   const [usd, fonts] = await Promise.all([ethUsd(), loadOgFonts()]);
   const l = isChainKey(chain) && isAddress(token) ? await memo(`og:${chain}:${token.toLowerCase()}`, 30_000, () => getLaunch(chain, token, usd)) : null;
   const card = l ? shapeCard(l, nowMs()) : null;
+  // a name or ticker in Chinese, Japanese or Korean gets a subset face; Geist alone would draw empty boxes
+  const cjk = card ? await loadCjkOgFonts(`${card.title} ${card.symbol}`) : [];
   const glLogo = card?.quote?.kind === "gitlawb" ? await logoDataUrl(GITLAWB_LOGO_PATH) : null;
   const mwLogo = card?.quote?.kind === "museworld" ? await logoDataUrl(MUSEWORLD_LOGO_PATH) : null;
   const twLogo = card?.quote?.kind === "twig" ? await logoDataUrl(TWIG_LOGO_PATH) : null;
@@ -168,6 +170,6 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
         </div>
       </div>
     ),
-    { ...size, fonts },
+    { ...size, fonts: [...fonts, ...cjk] },
   );
 }
