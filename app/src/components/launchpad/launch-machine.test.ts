@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 /**
  * Source-contract checks, not a browser interaction suite. These protect the
@@ -15,8 +16,16 @@ const metrics = read("./LaunchMechanism.tsx");
 const hero = read("./LaunchHero.tsx");
 
 test("hero separates the permanent position lock from circulating token supply", () => {
-  assert.match(hero, /liquidity position locked forever/i);
-  assert.match(hero, /100% of the supply goes into the pool at launch/i);
+  assert.match(hero, /\{t\.rich\("copy", /);
+  assert.match(en.hero.copy, /liquidity position locked forever/i);
+  assert.match(en.hero.copy, /100% of the supply goes into the pool at launch/i);
+  // in either language the lock is the position's, never the supply's, and the hero claims nothing the English does not
+  const zh = messagesFor("zh-CN").hero;
+  assert.doesNotMatch(en.hero.copy, /100% of (?:the )?supply[, ]+forever|supply locked forever/i);
+  assert.match(zh.copy, /永久锁定的流动性仓位/);
+  assert.doesNotMatch(zh.copy, /供应量[^。]*永久|永久[^。]*供应量/);
+  assert.doesNotMatch(JSON.stringify(en.hero), /\bbest\b|safest|guaranteed|audited|risk.free/i);
+  assert.doesNotMatch(JSON.stringify(zh), /最好|最佳|最安全|保证|审计|零风险|无风险/);
   assert.match(machine, /liquidity position stays in an ownerless locker forever/i);
   assert.match(machine, /Tokens remain tradeable/);
   assert.doesNotMatch(hero + machine, /100% of (?:the )?supply[, ]+forever|supply locked forever/i);
@@ -113,9 +122,12 @@ test("the home hero shows the looping locker and points to the rules guide", () 
   // the hero's locker is the same drawing /rules shows, wrapped so a real launch can put its picture on the coin
   assert.match(hero, /<div className="relative"><HeroLocker imageBase=\{coinPicturesEnabled\(\) \? imagePublicBase\(\) : null\} \/><\/div>/);
   assert.doesNotMatch(hero, /<LaunchMachine/, "the hero never draws the machine itself");
-  assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works"/);
+  assert.match(hero, /<Link href="\/rules#launchpad" aria-label=\{t\("seeHowItWorks"\)\}/);
+  assert.equal(en.hero.seeHowItWorks, "See how it works");
   assert.doesNotMatch(hero, /See what&apos;s trending/);
-  assert.match(hero, /Launch a token\.\s*<br \/>\s*We take <span className="text-brand">nothing\.<\/span>/);
+  assert.match(hero, /\{t\("headlineTop"\)\}\s*<br \/>\s*\{t\.rich\("headlineBottom", \{ brand: \(chunks\) => <span className="text-brand">\{chunks\}<\/span> \}\)\}/);
+  assert.equal(en.hero.headlineTop, "Launch a token.");
+  assert.equal(en.hero.headlineBottom, "We take <brand>nothing.</brand>");
 });
 
 test("a host can tighten the locker's size without touching its clocks", () => {

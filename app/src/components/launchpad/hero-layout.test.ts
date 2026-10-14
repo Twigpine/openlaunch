@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { HERO } from "./hero-layout.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the home page's first screen: the hero grid and its loading skeleton share their class
@@ -36,11 +37,13 @@ test("the headline is stepped so it stays two lines, and the hero grid has three
 test("the hero has two ways in, and the proofs are chips that are easy to hit", () => {
   // the filled button, and the way in for someone who wants it explained first: the rules guide
   assert.match(hero, /<HeroCtaLink id="hero-cta" href="\/launch"/);
-  assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works" className="group inline-flex min-h-12 /);
-  assert.match(hero, /<span aria-hidden="true" className="hidden truncate sm:inline">See how it works<\/span>/);
+  assert.match(hero, /<Link href="\/rules#launchpad" aria-label=\{t\("seeHowItWorks"\)\} className="group inline-flex min-h-12 /);
+  assert.match(hero, /<span aria-hidden="true" className="hidden truncate sm:inline">\{t\("seeHowItWorks"\)\}<\/span>/);
+  assert.equal(en.hero.seeHowItWorks, "See how it works");
   // phones: both buttons share one row, and below 380px the second is just its tile so the filled one keeps its words
   assert.ok(HERO.actions.split(" ").includes("items-center") && !HERO.actions.split(" ").includes("flex-col"));
-  assert.match(hero, /truncate max-\[379px\]:hidden sm:hidden">How it works</);
+  assert.match(hero, /truncate max-\[379px\]:hidden sm:hidden">\{t\("howItWorks"\)\}</);
+  assert.equal(en.hero.howItWorks, "How it works");
   // larger text: the buttons no longer fit side by side, so the row wraps (the second goes under the first) instead of the
   // filled button shrinking to an icon or the second running off the page; the filled button keeps room for its words
   // From 640px it never wraps (the tablet hero is laid out around one row), so none of this changes there.

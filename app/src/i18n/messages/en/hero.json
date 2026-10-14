@@ -1,1 +1,33 @@
-{}
+{
+  "chip": "Free to launch on Base, Robinhood Chain and Arc",
+  "headlineTop": "Launch a token.",
+  "headlineBottom": "We take <brand>nothing.</brand>",
+  "copy": "<link>openlaunch</link> is the free, open-source launchpad on Base, Robinhood Chain and Arc. One transaction: your token, a Uniswap v4 pool, and a liquidity position locked forever. 100% of the supply goes into the pool at launch. You only pay gas.",
+  "howItWorks": "How it works",
+  "seeHowItWorks": "See how it works",
+  "proofs": {
+    "license": "MIT licensed",
+    "source": "Source",
+    "sourceOnGithub": "Source on GitHub",
+    "verified": "Verified contracts"
+  },
+  "notConfigured": "Launchpad contracts are not configured yet. Read-only until NEXT_PUBLIC_LAUNCH_FACTORY / _LOCKER are set.",
+  "whyFree": {
+    "title": "Why it's free",
+    "platformFee": "platform fee",
+    "everywhere": "On every launch and every trade, on every chain.",
+    "feeGoes": "Where a trading fee goes",
+    "toCreator": "The creator's wallets, or burned",
+    "tradingFee": "Trading fee",
+    "pickedAtLaunch": "Picked by the creator at launch",
+    "facts": {
+      "noFeeAddress": "No fee address in the factory",
+      "noPlatformCut": "No platform cut in the locker"
+    },
+    "readContracts": "Read the contracts",
+    "agents": "Agents launch too"
+  },
+  "home": {
+    "aside": "New launches and community"
+  }
+}

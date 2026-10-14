@@ -1,1 +1,33 @@
-{}
+{
+  "chip": "在 Base、Robinhood Chain 和 Arc 上免费发行",
+  "headlineTop": "发行代币。",
+  "headlineBottom": "我们<brand>分文不取。</brand>",
+  "copy": "<link>openlaunch</link> 是 Base、Robinhood Chain 和 Arc 上免费、开源的发射台。一笔交易，一步到位：你的代币、一个 Uniswap v4 资金池，以及一个永久锁定的流动性仓位。发行时，100% 的供应量都会注入资金池。你只需支付 Gas。",
+  "howItWorks": "运作方式",
+  "seeHowItWorks": "了解运作方式",
+  "proofs": {
+    "license": "MIT 许可证",
+    "source": "源代码",
+    "sourceOnGithub": "GitHub 源代码",
+    "verified": "已验证的合约"
+  },
+  "notConfigured": "发射台合约尚未配置。设置 NEXT_PUBLIC_LAUNCH_FACTORY / _LOCKER 之前为只读模式。",
+  "whyFree": {
+    "title": "为什么免费",
+    "platformFee": "平台费",
+    "everywhere": "适用于每条链上的每次发行和每笔交易。",
+    "feeGoes": "交易手续费的去向",
+    "toCreator": "创建者的钱包，或销毁",
+    "tradingFee": "交易手续费",
+    "pickedAtLaunch": "由创建者在发行时选定",
+    "facts": {
+      "noFeeAddress": "工厂合约中没有手续费地址",
+      "noPlatformCut": "锁仓合约中没有平台抽成"
+    },
+    "readContracts": "查看合约源码",
+    "agents": "智能体也能发行"
+  },
+  "home": {
+    "aside": "最新发行与社区"
+  }
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { en } from "../../i18n/messages/index.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 const page = readFileSync(new URL("../../app/about/page.tsx", import.meta.url), "utf8");
 const hero = readFileSync(new URL("../launchpad/LaunchHero.tsx", import.meta.url), "utf8");
@@ -27,7 +27,9 @@ test("about page states facts, not value claims", () => {
 });
 
 test("the brand appears as a plain word above the fold and links to the entity page", () => {
-  assert.match(hero, /<Link href="\/about"[^>]*>openlaunch<\/Link> is the free, open-source launchpad/);
+  assert.match(hero, /t\.rich\("copy", \{ link: \(chunks\) => <Link href="\/about"[^>]*>\{chunks\}<\/Link> \}\)/);
+  assert.match(en.hero.copy, /^<link>openlaunch<\/link> is the free, open-source launchpad/);
+  assert.match(messagesFor("zh-CN").hero.copy, /^<link>openlaunch<\/link> /, "the linked brand word leads the Chinese copy too");
   assert.ok(footer.includes('{ href: "/about", key: "about" }'), "footer links the about page");
   assert.equal(en.footer.links.about, "About openlaunch");
   assert.match(llms, /> openlaunch \(\$\{BRAND_DOMAIN\}\) is an open-source/);
