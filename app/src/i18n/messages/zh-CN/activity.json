@@ -1,1 +1,135 @@
-{}
+{
+  "river": {
+    "liveNow": "实时动态",
+    "liveOn": "{chains} 实时动态",
+    "chainList": "{others} 和 {last}",
+    "chainSeparator": "、",
+    "view": "动态视图",
+    "showBubbles": "以气泡显示",
+    "bubbles": "气泡",
+    "showRiver": "以河流显示",
+    "river": "河流",
+    "showList": "以列表显示",
+    "list": "列表",
+    "bubblesHelp": "每个气泡代表最近 {window}内有交易或发行的一个代币，气泡大小对应成交的美元金额。选择“以列表显示”可通过链接查看相同的事件。",
+    "riverHelp": "最近 30 分钟交易和发行的示意图。选择“以列表显示”可通过链接查看相同的事件。",
+    "listLabel": "最近 {window}的交易和发行",
+    "legend": {
+      "bigger": "气泡越大，美元成交额越高",
+      "moreBought": "买入更多",
+      "moreSold": "卖出更多",
+      "launched": "已发行，暂无交易",
+      "buys": "买入位于中线上方",
+      "sells": "卖出位于中线下方",
+      "launches": "发行位于中线",
+      "taller": "越大越高，美元金额越多"
+    },
+    "quiet": "最近 30 分钟没有动静",
+    "quietSince": "最近一次交易或发行是在 {ago}。新的会从右侧流入。",
+    "quietNever": "新的会从右侧流入。",
+    "minAgo": "{minutes}分钟前",
+    "now": "现在",
+    "justNow": "刚刚",
+    "summary": {
+      "nothing": "最近 30 分钟暂无动态",
+      "trades": "{count, number} 笔交易",
+      "launches": "{count, number} 次发行",
+      "both": "{trades}和 {launches}",
+      "inWindow": "最近 30 分钟内有 {activity}",
+      "latest": "最新 {activity}"
+    },
+    "flow": {
+      "note": "视图中有美元价格的交易的美元价值。",
+      "noteUnpriced": "视图中有美元价格的交易的美元价值。另有 {count} 笔没有美元价格的交易未计入。",
+      "bought": "买入 <amount></amount>",
+      "sold": "卖出 <amount></amount>"
+    },
+    "card": {
+      "launch": "发行",
+      "buy": "买入",
+      "sell": "卖出",
+      "symbolOn": "{chain} 上的 {symbol}",
+      "tradingFee": "{fee}% 交易手续费",
+      "locked": "流动性永久锁定",
+      "byCreator": "由创建者交易",
+      "trader": "交易者 {address}",
+      "tradesInWindow": "最近 30 分钟内有 {count} 笔交易",
+      "tradesInView": "视图中有 {count} 笔交易"
+    }
+  },
+  "bubbles": {
+    "new": "新发行",
+    "trades": "{count} 笔交易",
+    "emptyHelp": "新的动态一发生就会显示在这里。",
+    "card": {
+      "symbolOn": "{chain} 上的 {symbol}",
+      "bought": "买入",
+      "sold": "卖出",
+      "noTrades": "已发行，暂无交易",
+      "tradesInWindow": "此时段内有 {count, number} 笔交易",
+      "tradesInView": "视图中有 {count, number} 笔交易",
+      "unpriced": "，其中 {count} 笔没有美元价格",
+      "launchedHere": "。在此时段内发行"
+    },
+    "summary": {
+      "nothing": "最近 24 小时没有交易或发行",
+      "tokens": "{count, number} 个代币",
+      "trades": "{count, number} 笔交易",
+      "launches": "{count, number} 次发行",
+      "both": "{trades}和 {launches}",
+      "inWindow": "最近 {window}内有 {tokens}，{activity}",
+      "latest": "最新 {activity}涉及 {tokens}",
+      "minutes": "{count} 分钟",
+      "hour": "1 小时",
+      "hours": "{count} 小时"
+    }
+  },
+  "feed": {
+    "latest": "最新",
+    "empty": "新的交易和发行一发生就会显示在这里。",
+    "listLabel": "最新交易和发行",
+    "launched": "发行",
+    "bought": "买入",
+    "sold": "卖出",
+    "launchDetail": "{fee}% 手续费，在 {chain} 上",
+    "symbolOn": "{chain} 上的 {symbol}",
+    "byCreator": "，来自创建者"
+  },
+  "tape": {
+    "recent": "最近的发行和交易",
+    "empty": "最近 30 分钟暂无动态。",
+    "emptyHelp": "新的发行和交易一发生就会显示在这里。",
+    "launched": "发行",
+    "buy": "买入",
+    "sell": "卖出",
+    "byCreator": "来自创建者",
+    "zeroFee": "，0% 交易手续费"
+  },
+  "justLaunched": {
+    "title": "刚刚发行",
+    "seeAll": "查看全部",
+    "empty": "暂无发行。",
+    "emptyHelp": "新代币一发行就会显示在这里。",
+    "listLabel": "最新发行",
+    "nameOn": "{chain} 上的 {name}",
+    "marketCap": "，市值 ",
+    "trades": "<n>{count}</n> 笔交易",
+    "noTrades": "暂无交易"
+  },
+  "toasts": {
+    "launched": "{name} 刚刚在 {chain} 上发行",
+    "by": "由 {address} 发行",
+    "zeroFee": "0% 手续费",
+    "buy": "买入价值 {amount} 的 {symbol}",
+    "sell": "卖出价值 {amount} 的 {symbol}",
+    "devBuy": "开发者买入价值 {amount} 的 {symbol}",
+    "devSell": "开发者卖出价值 {amount} 的 {symbol}",
+    "creatorWallet": "创建者钱包",
+    "update": "提示",
+    "confirmed": "已确认",
+    "live": "实时动态",
+    "viewToken": "查看代币",
+    "dismiss": "关闭",
+    "queued": "{count} 条待显示"
+  }
+}

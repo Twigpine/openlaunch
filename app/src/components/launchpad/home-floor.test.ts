@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { createTranslator } from "use-intl/core";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the home page's live floor: the Trending board, the river, the Just launched rail and the
@@ -31,7 +33,8 @@ test("river marks never prefetch a token page each, and the drawing has a list f
   assert.match(river, /prefetch=\{false\}/, "a hundred marks must not mean a hundred prefetches");
   assert.match(river, /tabIndex=\{-1\}/);
   assert.match(river, /ref=\{field\} aria-hidden="true"/);
-  assert.match(river, /aria-label="Show as a list"/);
+  assert.match(river, /aria-label=\{t\("showList"\)\}/);
+  assert.equal(en.activity.river.showList, "Show as a list");
   // the list carries the same events as the default bubble map: the window it chose, as links
   assert.match(river, /<TapeList items=\{inView\.map\(\(e\) => e\.item\)\}/);
 });
@@ -46,7 +49,8 @@ test("the latest column is real links in a fixed-height list, so an arrival neve
   // the column reads the day-long history in both drawings, so a quiet half hour never empties it
   assert.equal((river.match(/<RiverFeed entries=\{recent\} now=\{now\} \/>/g) ?? []).length, 2);
   // phones show one card (the hero's live line carries the newest event), tablets a row of two, the desktop column four
-  assert.match(feed, /<AnimatedList aria-label="Latest trades and launches" className="[^"]*\bh-\[3\.375rem\][^"]*\boverflow-hidden\b[^"]*\blg:h-\\?\[15rem\]/);
+  assert.match(feed, /<AnimatedList aria-label=\{t\("listLabel"\)\} className="[^"]*\bh-\[3\.375rem\][^"]*\boverflow-hidden\b[^"]*\blg:h-\\?\[15rem\]/);
+  assert.equal(en.activity.feed.listLabel, "Latest trades and launches");
   assert.match(feed, /max-sm:\[&>li:nth-child\(n\+2\)\]:hidden max-lg:\[&>li:nth-child\(n\+3\)\]:hidden/);
   assert.match(feed, /prefetch=\{false\}/);
 });
@@ -58,7 +62,7 @@ test("the hover card is part of the drawing: hidden from assistive tech and only
 
 test("a cut-off seed never claims a 30-minute total", () => {
   assert.match(home, /coveredSince=\{riverCoverage\(feed, RIVER_SEED, now\)\}/);
-  assert.match(river, /riverSummary\(entries, complete\)/);
+  assert.match(river, /riverSummary\(entries, complete, riverWords\)/);
 });
 
 test("the Just launched rail re-reads the market model only when an event says it changed", () => {
@@ -66,7 +70,8 @@ test("the Just launched rail re-reads the market model only when an event says i
   assert.match(rail, /\/api\/launch\/list\?sort=new&limit=\$\{JUST_LAUNCHED_SIZE\}/);
   assert.match(rail, /const MIN_GAP_MS = 10_000;/);
   assert.doesNotMatch(rail, /setInterval\(\s*\(\)\s*=>\s*(?:void\s+)?load/, "no polling of its own");
-  assert.match(rail, /trades \? .*"No trades yet"/s);
+  assert.match(rail, /trades \? .*t\("noTrades"\)/s);
+  assert.equal(en.activity.justLaunched.noTrades, "No trades yet");
 });
 
 test("cards keep the star outside the card link, and the layout comes from the visitor's cookie on the server", () => {
@@ -300,8 +305,13 @@ test("below 1024px the board is a row to swipe, led by a compact leader; the big
 });
 
 test("on phones the live panel says what it is in one line and shows less, without losing its name for assistive tech", () => {
-  assert.match(river, /<span aria-hidden="true" className="sm:hidden">Live now<\/span><span className="sr-only sm:not-sr-only">Live on \{WHERE\}<\/span>/);
-  assert.match(river, /<li className="max-sm:hidden">Bigger bubble, more dollars traded<\/li>/, "the legend fits one row");
+  assert.match(river, /<span aria-hidden="true" className="sm:hidden">\{t\("liveNow"\)\}<\/span><span className="sr-only sm:not-sr-only">\{t\("liveOn", \{ chains: where \}\)\}<\/span>/);
+  assert.match(river, /t\("chainList", \{ others: NAMES\.slice\(0, -1\)\.join\(t\("chainSeparator"\)\), last: NAMES\[NAMES\.length - 1\] \}\)/);
+  const words = createTranslator({ locale: "en", messages: en, namespace: "activity.river", timeZone: "UTC" });
+  assert.equal(words("liveNow"), "Live now");
+  assert.equal(words("liveOn", { chains: words("chainList", { others: ["Base", "Robinhood Chain"].join(words("chainSeparator")), last: "Arc" }) }), "Live on Base, Robinhood Chain and Arc");
+  assert.match(river, /<li className="max-sm:hidden">\{t\("legend\.bigger"\)\}<\/li>/, "the legend fits one row");
+  assert.equal(en.activity.river.legend.bigger, "Bigger bubble, more dollars traded");
   const bubbles = read("./LiveBubbles.module.css");
   assert.match(bubbles, /\.field \{\n\s*position: relative;\n\s*height: 250px;/);
   assert.match(bubbles, /@media \(min-width: 640px\) \{\n\s*\.field \{ height: 320px; \}/);
