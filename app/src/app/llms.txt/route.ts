@@ -1,6 +1,24 @@
 import { SITE_URL } from "@/lib/chainPublic";
 import { launchpad } from "@/lib/launchpad/config";
 import { BRAND_DOMAIN, BRAND_GITHUB } from "@/lib/brand";
+import { boostEnabled } from "@/lib/launchpad/boostServer";
+import { BOOST_FLOOR_TWIG, BOOST_TOKEN, BOOST_WINDOW_H } from "@/lib/launchpad/boost";
+
+/** The Boost section, only while the switch is on (boost.ts holds the rule). */
+function boostSection(): string {
+  if (!boostEnabled()) return "";
+  return `
+## Boost (Base, optional, paid in TWIG)
+A separate "Boosted" lane on the home page: the 5 tokens with the most TWIG sent to 0x000000000000000000000000000000000000dEaD for them in the last ${BOOST_WINDOW_H}h.
+It is not part of the ranking: sort=live and the Trending board count outside wallets only. Nothing is paid to openlaunch.
+To boost a launch: TWIG (${BOOST_TOKEN}).transfer(0x…dEaD, amount) with amount = whole * 10^18 + token_id
+(whole = a count of whole TWIG, at least ${BOOST_FLOOR_TWIG}; token_id = the launch's position id, the list API's token_id field,
+greater than 0 and less than 10^11). The last 12 digits name the launch; a transfer outside these bounds is not a boost.
+Then POST ${SITE_URL}/api/launch/sync?chain=base&tx=0x… to show it at once. Burns are final.
+- GET  ${SITE_URL}/api/boost?chain=base                (the lane: twig, boosts, last_at, expires_at, launch)
+- GET  ${SITE_URL}/api/boost?chain=base&token=0x…      (one token: twig in the window, place, hidden)
+`;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +86,7 @@ Optional metadata: POST ${SITE_URL}/api/launch/meta {chain, launcher, salt, name
 Recommended: buy a little right after launch (a Universal Router swap on the new pool; the site's form suggests ≈ $25). A token with no
 holder and no price move reads as dead on screeners and sits under "quiet launches" on the home page until an outside wallet trades it.
 
+${boostSection()}
 ## API
 - GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50
   sort=live (the home page default; "trending" is an alias): tokens an outside wallet traded in the last 24h first, ranked by outside

@@ -134,6 +134,13 @@ After review the vault no longer keeps a per-quote `pendingClaims` total or emit
 - Contract sources are unchanged by this app fix. Live forks and Arc/B20 native runtimes were not re-run; validating those native runtimes against the payout-gas fix remains a deployment gate.
 - Upstream's new PR guard blocks this PR's existing `.github/workflows/ci.yml` additions under `ci-config`. Retaining those CI checks requires the documented admin exception; the guard and deployed-source lock remain unchanged.
 
+### Upstream integration — 15 October 2026
+
+- Merged upstream `main` through `5287f93`, including Earn and Boost. The token page retains Boost alongside the recorded suite locker, vault collection and creator trading fee. The indexer retains separate suite cursors and quote-hook swap amounts.
+- Boost ingestion excludes TWIG fee burns from every configured locker and fee vault. PostgreSQL regressions cover wallet boosts through receipts and range polling, smart-wallet sender attribution, fee-burn exclusion, and deduplication across overlapping suite ranges and receipt replays.
+- App lint, type checking and the production build passed; **1,299 tests passed**, with eleven optional live checks skipped (ten Relay checks and the new Earn vault check). PostgreSQL 16 integration, the deployed-source lock and Arc source-comparison checks passed.
+- Contract sources and CI configuration are unchanged by this merge. Contract and guard/workflow tests were not re-run; their 14 October results remain above. The `ci-config` admin exception and Arc/B20 native-runtime deployment gate remain outstanding.
+
 ## Reference and attribution
 
 The settlement design was informed by o1's MIT-licensed, verified [LaunchHook/FeeEscrow source on Base](https://basescan.org/address/0x1f91c998e7c2F4b690D75BDBf6502BDcD6e02AcC#code), linked from its [production registry](https://docs.o1.exchange/launchpad/reference/production-contracts). This implementation uses this repository's pinned v4 interfaces and pips, fixed recipients, and an immutable NFT locker. It excludes o1's mutable controllers, referral splits and buybacks.

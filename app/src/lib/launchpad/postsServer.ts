@@ -25,11 +25,12 @@ export function adminWallets(): Set<string> {
   return new Set((process.env.ADMIN_WALLETS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter((s) => isAddress(s)));
 }
 
-function isNonce(v: unknown): v is string {
+export function isNonce(v: unknown): v is string {
   return typeof v === "string" && /^[0-9a-f]{32}$/.test(v);
 }
 
-async function consumeNonce(nonce: string, wallet: string): Promise<boolean> {
+/** Spend a single-use signing nonce for `wallet`; false when it was already used (a replay). Shared with boost moderation. */
+export async function consumeNonce(nonce: string, wallet: string): Promise<boolean> {
   const db = maybeDb()!;
   try {
     await db`INSERT INTO bb_post_nonces (nonce, wallet) VALUES (${nonce}, ${wallet})`;
@@ -40,7 +41,8 @@ async function consumeNonce(nonce: string, wallet: string): Promise<boolean> {
   }
 }
 
-async function verify(chain: ChainKey, wallet: string, message: string, signature: unknown): Promise<boolean> {
+/** True when `signature` is `wallet`'s signature of `message` (EOAs and smart wallets). Shared with boost moderation. */
+export async function verify(chain: ChainKey, wallet: string, message: string, signature: unknown): Promise<boolean> {
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) return false;
   try {
     return await publicClient(chain).verifyMessage({ address: wallet as Address, message, signature: signature as Hex });

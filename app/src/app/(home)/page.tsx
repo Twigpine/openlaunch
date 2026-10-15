@@ -15,6 +15,8 @@ import { isFilter } from "@/lib/launchpad/search";
 import { nowMs } from "@/lib/launchpad/time";
 import { feedKey, inRiverWindow, riverCoverage } from "@/lib/launchpad/river";
 import TrendingStrip from "@/components/launchpad/TrendingStrip";
+import BoostedLane from "@/components/launchpad/BoostedLane";
+import { boostLaneOrNull } from "@/lib/launchpad/boostServer";
 import LaunchPill from "@/components/launchpad/LaunchPill";
 import WhyFree from "@/components/launchpad/WhyFree";
 import { MagicCard } from "@/components/vendor/magic-card";
@@ -36,12 +38,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   const usd = await ethUsd();
   const layout = parseLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
   const listOpts = { sort, window, chain, filter, limit: PAGE_SIZE, ethUsd: usd };
-  const [page, feed, fresh, posts, fetchedTrending] = await Promise.all([
+  const [page, feed, fresh, posts, fetchedTrending, boost] = await Promise.all([
     listLaunchesPage(listOpts),
     getLaunchFeed(RIVER_SEED, usd),
     listLaunchesPage({ sort: "new", limit: JUST_LAUNCHED_SIZE, ethUsd: usd }),
     listFeed(30),
     isTrendingSource(listOpts) ? null : getTrending(usd),
+    boostLaneOrNull(usd),
   ]);
   const trending = await withBoardTape(fetchedTrending ?? trendingFrom(page.items)); // the default view's first page doubles as the strip's candidates; the tapes are the cards' recent trades
   const now = nowMs();
@@ -52,6 +55,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
         <LaunchHero configured={LAUNCHPAD_CONFIGURED} />
         {/* what is hot first (names and numbers to act on), then the last half hour as it happens, then every launch */}
         <TrendingStrip initial={trending} serverNow={now} seenKeys={feed.filter((item) => item.kind === "swap").map(feedKey)} />
+        {/* paid and labelled, after the facts-only board and never inside it (boost.ts); nothing while BOOST is off */}
+        <BoostedLane initial={boost ?? { enabled: false }} serverNow={now} />
         <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} recent={feed} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
         <div className="grid items-start gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
           <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>

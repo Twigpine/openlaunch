@@ -7,8 +7,9 @@ process.env.DATABASE_URL = process.env.QUOTE_TEST_DATABASE_URL;
 const factory="0x000000000000000000000000000000000000a001", locker="0x000000000000000000000000000000000000a002", vault="0x000000000000000000000000000000000000a003", hook="0x00000000000000000000000000000000000020cc";
 const legacyFactory="0x000000000000000000000000000000000000a101", legacyLocker="0x000000000000000000000000000000000000a102";
 Object.assign(process.env,{ NEXT_PUBLIC_QUOTE_FACTORY:factory,NEXT_PUBLIC_QUOTE_LOCKER:locker,NEXT_PUBLIC_QUOTE_VAULT:vault,NEXT_PUBLIC_QUOTE_HOOK:hook,NEXT_PUBLIC_QUOTE_DEPLOY_BLOCK:"1",NEXT_PUBLIC_QUOTE_LAUNCH_ENABLED:"true",NEXT_PUBLIC_LAUNCH_FACTORY:legacyFactory,NEXT_PUBLIC_LAUNCH_LOCKER:legacyLocker,LAUNCH_DEPLOY_BLOCK:"1" });
-const [{db},{publicClient},{QUOTE_FACTORY_ABI,QUOTE_HOOK_ABI,QUOTE_VAULT_ABI},{POOL_MANAGER_ABI,LAUNCH_FACTORY_ABI,LAUNCH_LOCKER_ABI},{applyLaunchTx,pollLaunches,launchDeployBlock},{walletQuoteFees},{launchpad}] = await Promise.all([
+const [{db},{publicClient},{QUOTE_FACTORY_ABI,QUOTE_HOOK_ABI,QUOTE_VAULT_ABI},{POOL_MANAGER_ABI,LAUNCH_FACTORY_ABI,LAUNCH_LOCKER_ABI,ERC20_TRANSFER_EVENT},{applyLaunchTx,pollLaunches,launchDeployBlock},{walletQuoteFees},{launchpad}] = await Promise.all([
   import("../src/lib/db"),import("../src/lib/chain"),import("../src/lib/launchpad/quote-abi"),import("../src/lib/launchpad/abi"),import("../src/lib/launchpad/indexer"),import("../src/lib/launchpad/queries"),import("../src/lib/launchpad/config")]);
+const {BOOST_TOKEN,BOOST_DEAD,boostAmount}=await import("../src/lib/launchpad/boost");
 const sql=db();
 const client=publicClient("base");
 const token="0x000000000000000000000000000000000000ffff" as Address, quote="0x0000000000000000000000000000000000000000" as Address, wallet="0x000000000000000000000000000000000000b001" as Address;
@@ -34,7 +35,7 @@ client.getBlock=async()=>({timestamp:123n}) as Awaited<ReturnType<typeof client.
 client.getTransaction=async()=>({from:receiptFrom,to:receiptTo}) as Awaited<ReturnType<typeof client.getTransaction>>;
 client.readContract=(async (p: {functionName: string})=> p.functionName==="name"?"Quote":p.functionName==="symbol"?"QT":[{payout:wallet,bps:10000}]) as typeof client.readContract;
 client.getBlockNumber=async()=>4n;
-client.getLogs=(async (p: {address: string | string[];fromBlock: bigint;toBlock: bigint})=>parseEventLogs({abi:[...QUOTE_FACTORY_ABI,...QUOTE_HOOK_ABI,...QUOTE_VAULT_ABI,...POOL_MANAGER_ABI,...LAUNCH_FACTORY_ABI,...LAUNCH_LOCKER_ABI],logs:logs.filter((l)=>(Array.isArray(p.address)?p.address:[p.address]).some((a)=>l.address.toLowerCase()===a.toLowerCase()) && l.blockNumber!>=p.fromBlock && l.blockNumber!<=p.toBlock)})) as typeof client.getLogs;
+client.getLogs=(async (p: {address: string | string[];fromBlock: bigint;toBlock: bigint})=>parseEventLogs({abi:[...QUOTE_FACTORY_ABI,...QUOTE_HOOK_ABI,...QUOTE_VAULT_ABI,...POOL_MANAGER_ABI,...LAUNCH_FACTORY_ABI,...LAUNCH_LOCKER_ABI,ERC20_TRANSFER_EVENT],logs:logs.filter((l)=>(Array.isArray(p.address)?p.address:[p.address]).some((a)=>l.address.toLowerCase()===a.toLowerCase()) && l.blockNumber!>=p.fromBlock && l.blockNumber!<=p.toBlock)})) as typeof client.getLogs;
 try {
   const schema=await readFile(new URL("../db/schema.sql",import.meta.url),"utf8");
   await sql.begin((tx)=>tx.unsafe(schema)); await sql.begin((tx)=>tx.unsafe(schema));
@@ -105,6 +106,20 @@ try {
   assert.equal((await sql`SELECT last_error FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].last_error,null);
   const [migrated]=await sql`SELECT factory_address,locker_address,fee_contract_address FROM bb_launches WHERE token=${legacyToken}`;
   assert.deepEqual(migrated,{factory_address:legacyFactory,locker_address:legacyLocker,fee_contract_address:legacyLocker});
+  // Boost ingestion must accept wallet burns while excluding every suite's fee burns, even if their amounts carry a valid tag.
+  const boostLogs = () => [smartWallet,legacyLocker,locker,vault].map((from,index) =>
+    event([ERC20_TRANSFER_EVENT],"Transfer",BOOST_TOKEN,{from,to:BOOST_DEAD,value:boostAmount(100_000n,1n)},index));
+  receiptHash=`0x${"7".repeat(64)}`; logs=boostLogs();
+  assert.equal((await applyLaunchTx("base",receiptHash)).boosts,1);
+  assert.equal((await applyLaunchTx("base",receiptHash)).boosts,0,"receipt replay cannot count a boost twice");
+  assert.deepEqual((await sql`SELECT booster,tag FROM bb_boosts`).map((row)=>({...row})),[{booster:smartWallet,tag:1n}],"the Transfer sender is the booster, not its bundler");
+  receiptHash=`0x${"8".repeat(64)}`; logs=boostLogs();
+  await sql`UPDATE bb_launch_suite_cursor SET cursor_block=2 WHERE chain_id=8453`;
+  assert.equal((await pollLaunches("base")).boosts,1,"overlapping suite ranges count a new wallet boost once");
+  assert.equal((await pollLaunches("base")).boosts,0,"range replay cannot count a boost twice");
+  assert.equal((await applyLaunchTx("base",receiptHash)).boosts,0,"a receipt applied after polling is already counted");
+  assert.equal((await sql`SELECT count(*) AS n FROM bb_boosts`)[0].n,2n);
+  assert.equal((await sql`SELECT count(*) AS n FROM bb_boosts WHERE booster != ${smartWallet}`)[0].n,0n,"locker and vault fee burns never become boosts");
   process.env.LAUNCH_DEPLOY_BLOCK="9";
   assert.equal(launchDeployBlock("base"),1n,"season history starts at the earliest indexed suite");
   // Repairing orphan events must respect the same fee-contract namespace as live ingestion.
@@ -118,5 +133,5 @@ try {
   try { await connection.unsafe(repair); } finally { connection.release(); }
   assert.deepEqual((await sql`SELECT token FROM bb_launch_fee_events WHERE tx_hash=${orphanHash} ORDER BY log_index`).map((r)=>r.token),[token,legacyToken,null]);
   assert.equal((await sql`SELECT volume_quote FROM bb_launches WHERE token=${token}`)[0].volume_quote,"300");
-  console.log("quote indexer: schema replay, dedupe, trader amounts, smart-wallet attribution, suite isolation, credit/claim earnings, cursor migration and orphan repair passed");
+  console.log("quote indexer: schema replay, dedupe, trader amounts, smart-wallet attribution, suite isolation, credit/claim earnings, cursor migration, boost fee-burn exclusion and orphan repair passed");
 } finally { await sql.end(); }

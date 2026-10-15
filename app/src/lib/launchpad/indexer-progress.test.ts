@@ -66,7 +66,7 @@ for (const failure of ["head", "lp-v1", "quote-v2"]) {
       applyRange: async (_db: unknown, _chain: string, from: bigint, _to: bigint, suite: { id: string }) => {
         ranges.push({ suite: suite.id, from });
         if (failingRead === suite.id) throw new Error(`${suite.id} range unavailable`);
-        return { launches: 0, swaps: 0, fees: 0 };
+        return { launches: 0, swaps: 0, fees: 0, boosts: 0 };
       },
     });
     const indexedThrough = productionFunction("../points/server.ts", "indexedThrough", {

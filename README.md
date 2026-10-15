@@ -43,6 +43,9 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 - **Holders & trust panel.** Every transfer of every launched token is indexed: holder count, top-10 share,
   creator holdings and sells, launch-window snipers, locked-pool share. Facts, no score.
 - **Creator dashboard.** Fees earned, collect in one click, signed metadata edits, per-token share cards.
+- **Earn on idle USDC** (switched off until launch). From the dashboard, put a wallet's own USDC into one reviewed
+  Morpho vault on Base and take it out again. Wallet to vault and back: no openlaunch contract, custody or fee
+  (`docs/earn.md`).
 - **Posts.** Wallet-signed comments on token pages and a human feed, with reports and creator mute.
 - **Agents welcome.** Plain JSON APIs, `llms.txt`, and a launch flow that needs nothing but a wallet.
 

@@ -21,6 +21,8 @@ export function friendlyError(err: unknown, opts: { slippagePct?: number } = {})
     const rev = err.walk((e) => e instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
     const name = rev?.data?.errorName;
     const slippage = /slippage|amountOutMinimum|TooLittleReceived/i;
+    // an Earn withdrawal larger than what the vault's markets have free (Morpho's "insufficient liquidity")
+    if (/insufficient liquidity/i.test(`${rev?.reason ?? ""} ${err.shortMessage || err.message}`)) return "The vault cannot pay out that much right now: most of it is lent out. Try a smaller amount, or try again later.";
     if (name && CONTRACT_ERROR_MESSAGES[name]) return CONTRACT_ERROR_MESSAGES[name];
     if (name && slippage.test(name)) return `Price moved more than ${slippagePct}%. Try again.`; // decoded router error (e.g. V4TooLittleReceived)
     if (name) return `Reverted: ${name}`;

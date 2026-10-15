@@ -50,6 +50,11 @@ import WatchButton from "@/components/launchpad/WatchButton";
 import { BorderBeam } from "@/components/vendor/border-beam";
 import { Banner } from "@/components/launchpad/LaunchCard";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
+import BoostPanel from "@/components/launchpad/BoostPanel";
+import { boostEnabled, getTokenBoost, type TokenBoost } from "@/lib/launchpad/boostServer";
+import { BOOST_CHAIN } from "@/lib/launchpad/boost";
+import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
+import { twigUsdFromGitlawb } from "@/lib/launchpad/twig";
 import type { ProofKey } from "@/lib/launchpad/proof";
 
 /** Where GITLAWB lives, as said beside a GITLAWB-quoted pool. */
@@ -76,7 +81,7 @@ export async function generateMetadata({ params }: { params: Promise<{ chain: st
 }
 
 /** A token's page: market, chart, trades, holders and comments, with every wallet named by its profile where it has one. */
-export default async function TokenPage({ params }: { params: Promise<{ chain: string; token: string }> }) {
+export default async function TokenPage({ params, searchParams }: { params: Promise<{ chain: string; token: string }>; searchParams: Promise<{ boost?: string }> }) {
   const { chain, token } = await params;
   if (!isChainKey(chain) || !isAddress(token)) notFound();
   const usd = await ethUsd();
@@ -93,7 +98,16 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   };
   const unlisted = quote.key === "other";
   const stockQuote = quote.key === "stock" ? stockByAddress(chain, l.quote) : null;
-  const [swaps, holders, tint] = await Promise.all([getSwaps(chain, l.token, quote.decimals, 40), memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)), tokenTint(l.image_url, l.token)]);
+  // Boost (Base only, while the switch is on): the token's line and TWIG's price for the dialog; a failed read shows no panel
+  const boostable = chain === BOOST_CHAIN && boostEnabled();
+  const [swaps, holders, tint, boost, twigUsd] = await Promise.all([
+    getSwaps(chain, l.token, quote.decimals, 40),
+    memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)),
+    tokenTint(l.image_url, l.token),
+    boostable ? getTokenBoost(l.token).catch((): TokenBoost | null => null) : null,
+    boostable ? gitlawbUsd().then(twigUsdFromGitlawb).catch(() => null) : null,
+  ]);
+  const boostOpen = (await searchParams).boost === "1";
   // names for every wallet the server renders (trades, creator, fee recipients, top holders): the first paint shows them
   const nameWallets = [l.launcher, ...swaps.map((s) => s.trader), ...l.recipients.map((r) => r.payout), ...(holders?.top ?? []).map((h) => h.address)].filter((w): w is string => Boolean(w));
   // a failed lookup seeds nothing (the browser then asks itself); only an answer says "no profile" for a wallet
@@ -239,6 +253,8 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             </div>
             {/* the token at a glance beside the trade box, as other launchpads keep it; the full record is in the About tab */}
             <TokenAbout chain={chain} token={l.token} symbol={l.symbol} description={l.description} website={l.website} x_handle={l.x_handle} launcher={l.launcher} launchedAt={l.block_time} now={now} swap={swapSite ? { name: swapSite.name, url: swapSite.url(l.token) } : null} />
+            {/* Boost (Base, while the switch is on): under the About card, which stays right under the trade box */}
+            {boost ? <BoostPanel token={l.token} tokenId={l.token_id} symbol={l.symbol} name={l.name} initial={boost} twigUsd={twigUsd} serverNow={now} autoOpen={boostOpen} /> : null}
             <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} locker={locker} />
             <CollectPanel launchIdentity={l} chain={chain} quote={quote} token={l.token as Address} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} collectedToken={l.fees_token_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} priceQuote={l.price_quote} ethUsd={usd} />
           </aside>

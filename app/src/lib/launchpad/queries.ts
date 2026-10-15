@@ -10,6 +10,8 @@ import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
 import { gitlawbLinkedUsd } from "./twig";
+import { BOOST_CHAIN_ID } from "./boost";
+import { boostEnabled } from "./boostSwitch";
 import { canonicalImageUrl, pictureKey, reusedPictures, type PictureUse } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, STRIP_SIZE, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
@@ -541,10 +543,13 @@ export type LaunchTotals = {
    */
   gitlawb_burned: string;
   /**
-   * TWIG sent to 0x…dEaD by launches quoted in it, raw 18-dec (Base only). Kept apart from gitlawb_burned: the GITLAWB
-   * behind burned TWIG stays in the TWIG contract, so it is TWIG that was burned, and it is shown as such.
+   * TWIG sent to 0x…dEaD, raw 18-dec (Base only): the trading fees of launches quoted in it, plus boosts (boost.ts).
+   * Kept apart from gitlawb_burned: the GITLAWB behind burned TWIG stays in the TWIG contract, so it is TWIG that was
+   * burned, and it is shown as such.
    */
   twig_burned: string;
+  /** The boosts' part of twig_burned, raw 18-dec (the hero's tooltip splits the two). */
+  twig_boost_burned: string;
   by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
 };
 
@@ -559,16 +564,32 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     usd_partial: false,
     gitlawb_burned: "0",
     twig_burned: "0",
+    twig_boost_burned: "0",
     by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0", volume_quote_twig: "0" }])) as LaunchTotals["by_chain"],
   });
   const db = maybeDb();
   if (!db) return empty();
   await withStocks();
-  const rows = await db<{ chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string }[]>`
+  const [rows, [boosted]] = await Promise.all([
+    db<{ chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string }[]>`
     SELECT chain_id, quote, count(*)::bigint AS launches, COALESCE(sum(buys + sells), 0)::bigint AS trades,
            COALESCE(sum(volume_quote), 0)::text AS volume, COALESCE(sum(fees_quote_burned), 0)::text AS burned,
            COALESCE(sum(fees_quote_collected - fees_quote_burned), 0)::text AS creators
-      FROM bb_launches GROUP BY chain_id, quote`;
+      FROM bb_launches GROUP BY chain_id, quote`,
+    // boosts are TWIG sent to 0x…dEaD too (boost.ts): they join the TWIG burned figure while the switch is on, and
+    // nothing else reads them here. Only boosts that name a launch count (the lane's own join), so a stray burn whose
+    // last digits name nothing is never called a boost. Display only: a failed read counts none rather than taking
+    // every page's totals down with it.
+    boostEnabled()
+      ? db<{ burned: string }[]>`
+          SELECT COALESCE(sum(b.amount), 0)::text AS burned FROM bb_boosts b
+            JOIN bb_launches l ON l.chain_id = b.chain_id AND l.token_id = b.tag
+           WHERE b.chain_id = ${BOOST_CHAIN_ID}`.catch((err) => {
+          console.warn("[totals] boost burns unread:", err instanceof Error ? err.message : err);
+          return [{ burned: "0" }];
+        })
+      : Promise.resolve([{ burned: "0" }]),
+  ]);
   const t = empty();
   const add = (a: string, b: string) => (BigInt(a) + BigInt(b)).toString();
   for (const r of rows) {
@@ -601,6 +622,8 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
       t.twig_burned = add(t.twig_burned, r.burned); // TWIG is only ever the quote side here too
     }
   }
+  t.twig_boost_burned = boosted?.burned ?? "0";
+  t.twig_burned = add(t.twig_burned, t.twig_boost_burned);
   return t;
 }
 

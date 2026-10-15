@@ -457,3 +457,22 @@ ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS computed_until timestamptz;   --
 ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS published_at timestamptz;     -- first publish: the season's clock starts here
 CREATE INDEX IF NOT EXISTS bb_points_creator_idx ON bb_points (season_id, rank_creator) WHERE rank_creator IS NOT NULL;
 CREATE INDEX IF NOT EXISTS bb_points_scout_idx ON bb_points (season_id, rank_scout) WHERE rank_scout IS NOT NULL;
+
+-- ── boosts (TWIG sent to 0x…dEaD for a place in the Boosted lane; lib/launchpad/boost.ts) ──────────────────────────
+-- Raw facts from TWIG Transfer logs to 0x…dEaD on Base whose amount names a launch in its last 12 digits: the tag is
+-- that launch's bb_launches.token_id (its position id). The launch is joined at read time, so a boost indexed before
+-- its launch still counts once the launch is in. Never read by the Live sort, the Trending board or ranking.ts.
+CREATE TABLE IF NOT EXISTS bb_boosts (
+  chain_id     integer NOT NULL,
+  tx_hash      text NOT NULL,
+  log_index    integer NOT NULL,
+  booster      text NOT NULL,                               -- the Transfer's sender (a smart wallet itself, never its bundler)
+  amount       numeric(78,0) NOT NULL,                      -- raw TWIG, the tag included
+  tag          bigint NOT NULL,                             -- amount mod 10^12
+  block_number bigint NOT NULL,
+  block_time   timestamptz NOT NULL,
+  PRIMARY KEY (chain_id, tx_hash, log_index)
+);
+CREATE INDEX IF NOT EXISTS bb_boosts_time_idx ON bb_boosts (chain_id, block_time DESC);
+CREATE INDEX IF NOT EXISTS bb_boosts_tag_idx ON bb_boosts (chain_id, tag);
+ALTER TABLE bb_token_settings ADD COLUMN IF NOT EXISTS boost_hidden boolean NOT NULL DEFAULT false;  -- admin: kept out of the Boosted lane
