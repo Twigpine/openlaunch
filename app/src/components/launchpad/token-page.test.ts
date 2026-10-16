@@ -29,9 +29,9 @@ test("the Proof panel is built from facts with a link for each, holder facts gat
   assert.match(page, /bar=\{proof\.holdersReady && holders \?/);
 });
 
-test("price impact uses the pool's own spot and fee, and a big move takes a second tap outside trade()", () => {
+test("price impact uses the pool's spot and the trading fee, and a big move takes a second tap outside trade()", () => {
   assert.match(panel, /functionName: "getSlot0", args: \[poolId\]/);
-  assert.match(panel, /priceImpact\(\{ sqrtPriceX96: fresh\.sqrtPriceX96, amountIn, amountOut: fresh\.out, zeroForOne: side === "buy", feePips: poolKey\.fee \}\)/);
+  assert.match(panel, /priceImpact\(\{ sqrtPriceX96: fresh\.sqrtPriceX96, amountIn, amountOut: fresh\.out, zeroForOne: side === "buy", feePips: tradingFeePips \}\)/);
   assert.match(panel, /if \(level === "confirm" && armed !== quoteKey\) \{ setArmed\(quoteKey\); return; \}/);
   assert.match(panel, /onClick=\{onTrade\}/);
   const trade = panel.slice(panel.indexOf("async function trade()"), panel.indexOf("const outLabel"));

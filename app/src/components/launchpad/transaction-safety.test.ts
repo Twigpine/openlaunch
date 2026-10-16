@@ -85,11 +85,11 @@ for (const status of ["reverted", "success"]) {
       const effects: string[] = [];
       const phases: { k: string; message?: string }[] = [];
       const send = handler("./CollectPanel.tsx", "send", {
-        LOCKER_ADDRESS: "locker", address: "wallet", config: {}, CHAIN: { id: 8453 },
-        chain: "base", tokenId: 1, quote: { address: "quote" }, symbol: "TEST", isBurnOnly: false,
-        LAUNCH_LOCKER_ABI: [], BUILDER_DATA_SUFFIX: "0x",
+        target: { feeContract: "locker" }, address: "wallet", config: {}, CHAIN: { id: 8453 },
+        chain: "base", quote: { address: "quote" }, symbol: "TEST", isBurnOnly: false, quoteOnly: false,
+        collectRequest: async () => ({}), claimRequest: async () => ({}),
         setPhase: (phase: { k: string; message?: string }) => phases.push(phase),
-        getPublicClient: () => ({ simulateContract: async () => ({ request: {} }), waitForTransactionReceipt: async () => ({ status }) }),
+        getPublicClient: () => ({ waitForTransactionReceipt: async () => ({ status }) }),
         getWalletClient: async () => ({ writeContract: async () => "0xhash" }),
         fetch: async () => { effects.push("sync"); },
         mine: { refetch: () => effects.push("balance") }, router: { refresh: () => effects.push("refresh") },
@@ -112,10 +112,9 @@ for (const status of ["reverted", "success"]) {
     const busyStates: (string | null)[] = [];
     const collect = handler("./MeDashboard.tsx", "collect", {
       address: "wallet", config: {}, CHAINS: { base: { id: 8453 } },
-      launchpad: () => ({ locker: "locker" }), key: () => "base:token",
-      LAUNCH_LOCKER_ABI: [], BUILDER_DATA_SUFFIX: "0x",
+      feeContractForLaunch: () => "locker", collectRequest: async () => ({}), key: () => "base:token",
       setBusy: (value: string | null) => busyStates.push(value),
-      getPublicClient: () => ({ simulateContract: async () => ({ request: {} }), waitForTransactionReceipt: async () => ({ status }) }),
+      getPublicClient: () => ({ waitForTransactionReceipt: async () => ({ status }) }),
       getWalletClient: async () => ({ writeContract: async () => "0xhash" }),
       fetch: async () => { effects.push("sync"); }, load: async () => { effects.push("reload"); },
       isBurnOnly: () => false, friendlyError: (error: Error) => error.message,

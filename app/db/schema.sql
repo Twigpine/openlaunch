@@ -319,6 +319,34 @@ CREATE TABLE IF NOT EXISTS bb_quote_tokens (
   PRIMARY KEY (chain_id, address)
 );
 
+-- Immutable deployment and pool identity. lp_fee remains the displayed trading rate.
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS suite_id text NOT NULL DEFAULT 'lp-v1';
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fee_asset_mode text NOT NULL DEFAULT 'both';
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS factory_address text;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS locker_address text;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fee_contract_address text;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS hook_address text NOT NULL DEFAULT '0x0000000000000000000000000000000000000000';
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS pool_fee_pips integer;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS creator_fee_pips integer;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS tick_spacing integer NOT NULL DEFAULT 200;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fees_quote_accrued numeric(78,0) NOT NULL DEFAULT 0;
+UPDATE bb_launches SET pool_fee_pips = lp_fee WHERE pool_fee_pips IS NULL;
+UPDATE bb_launches SET creator_fee_pips = lp_fee WHERE creator_fee_pips IS NULL;
+-- Nullable during rolling deploys: the legacy indexer can still insert rows.
+
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS quote_fee numeric(78,0) NOT NULL DEFAULT 0;
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_amount0 numeric(78,0);
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS trader_amount1 numeric(78,0);
+ALTER TABLE bb_launch_fee_events ADD COLUMN IF NOT EXISTS fee_contract_address text;
+-- New suites need their own cursor when enabled after the legacy cursor has already passed their deployment.
+CREATE TABLE IF NOT EXISTS bb_launch_suite_cursor (
+  chain_id integer NOT NULL,
+  suite_id text NOT NULL,
+  factory_address text NOT NULL,
+  cursor_block bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (chain_id, suite_id, factory_address)
+);
+
 -- ── token banners (2026-10-05) ─────────────────────────────────────────────
 -- An optional wide image the creator uploads beside the logo. Same rules as image_url (https only; uploads are
 -- re-encoded server-side, here to a 1500×500 WebP). NULL means no banner: the market cards draw one from the logo.

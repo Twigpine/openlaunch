@@ -78,7 +78,7 @@ export type ScoreLaunch = {
   quoteUsd: number | null; // USD per whole quote unit; null = unpriced → the token is out of scoring
   tokenUsd: number | null; // USD per whole token now; null → out of scoring
 };
-export type ScoreSwap = { key: string; trader: string; isBuy: boolean; quoteRaw: bigint; tokenRaw: bigint; block: number; logIndex: number; time: number; tx: string };
+export type ScoreSwap = { key: string; trader: string; isBuy: boolean; quoteRaw: bigint; tokenRaw: bigint; quoteFeeRaw?: bigint; block: number; logIndex: number; time: number; tx: string };
 /** A wallet's first buy of a token, all-time (its rank among real buyers decides "early"). */
 export type FirstBuy = { key: string; wallet: string; block: number; logIndex: number; time: number; quoteRaw: bigint; tokenRaw: bigint; tx: string };
 
@@ -138,6 +138,8 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   const insider = (l: ScoreLaunch, w: string) => w === l.launcher || l.recipients.includes(w) || input.system.has(w) || input.flagged.has(w) || (input.linked.get(l.key)?.has(w) ?? false);
   const sniper = (l: ScoreLaunch, block: number, time: number) => block <= l.launchBlock + RULES.sniperBlocks || time - l.launchTime < RULES.sniperMs;
   const quoteUsd = (l: ScoreLaunch, raw: bigint) => units(raw, l.quoteDecimals) * (l.quoteUsd as number);
+  // Quote-only pools report the exact fee, including rounding. Legacy pools retain the rate-based calculation.
+  const feeUsd = (l: ScoreLaunch, s: ScoreSwap) => s.quoteFeeRaw === undefined ? (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000 : quoteUsd(l, s.quoteFeeRaw);
   const tokenUsd = (l: ScoreLaunch, raw: bigint) => units(raw, 18) * (l.tokenUsd as number);
   const inSeason = (t: number) => t >= input.seasonStart && t < end;
   // lots per (token, wallet): each incoming transfer is a lot; each outgoing one uses up the newest lots first (LIFO).
@@ -250,7 +252,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     // fees count only on buys by points-eligible traders who are net buyers: wash trades need real accounts and capital
     if (!s.isBuy || !input.eligible.has(s.trader) || !heldBuy(s)) continue;
     const l = launches.get(s.key)!;
-    const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;
+    const fee = feeUsd(l, s);
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
   }
   // the creator's in-season outflows of each token: a sell, or tokens moved to any other wallet (one that then sells
@@ -392,7 +394,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     if (!s.isBuy || !heldBuy(s)) continue;
     if (holderCount(s.key) < RULES.scoutFeeMinHolders || (eligibleHolders.get(s.key) ?? 0) < RULES.scoutFeeMinEligibleHolders) continue;
     const l = launches.get(s.key)!;
-    const fee = (quoteUsd(l, s.quoteRaw) * l.lpFee) / 1_000_000;
+    const fee = feeUsd(l, s);
     if (fee <= 0) continue;
     const k = `${s.trader}|${utcDay(s.time)}`;
     const used = scoutFeeUsed.get(k) ?? 0;
