@@ -8,5 +8,6 @@ export function holderFactsAvailable(panel: { synced: boolean } | null): boolean
 }
 
 export function marketCount(value: number): string {
+  if (!Number.isFinite(value)) return "—";
   return value.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
 }

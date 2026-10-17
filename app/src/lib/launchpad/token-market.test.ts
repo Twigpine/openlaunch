@@ -20,3 +20,8 @@ test("trade counts stay integral while large values stay compact", () => {
   assert.equal(marketCount(3), "3");
   assert.equal(marketCount(12500), "12.5K");
 });
+test("trade counts never render NaN or Infinity", () => {
+  assert.equal(marketCount(NaN), "—");
+  assert.equal(marketCount(Infinity), "—");
+  assert.equal(marketCount(-Infinity), "—");
+});

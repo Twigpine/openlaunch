@@ -16,6 +16,16 @@ export type MetaInput = { chain: ChainKey; launcher: string; salt: Hex; meta_key
 export const LIMITS = { name: 32, symbol: 10, description: 280 } as const;
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 
+/** GET /api/launch/meta/<token> and /<launcher>/<key> params: reject before SQL, never after. */
+export function isMetaTokenParam(v: unknown): boolean {
+  return typeof v === "string" && isAddress(v);
+}
+
+/** A meta_key is always a bytes32 hex string (see validateMeta). */
+export function isMetaKeyParam(v: unknown): v is Hex {
+  return typeof v === "string" && BYTES32.test(v);
+}
+
 export function validateMeta(m: Partial<MetaInput> & { meta_key?: string }): { ok: true; value: MetaInput } | { ok: false; error: string } {
   const name = (m.name ?? "").trim();
   const symbol = (m.symbol ?? "").trim().toUpperCase();
