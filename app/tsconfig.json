@@ -15,7 +15,11 @@
     "incremental": true,
     "allowImportingTsExtensions": true,
     "plugins": [{ "name": "next" }],
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@openlaunch/solana-sdk": ["./packages/solana-sdk/src/index.ts"],
+      "@openlaunch/solana-sdk/math": ["./packages/solana-sdk/src/math.ts"]
+    }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
   "exclude": ["node_modules", "**/*.test.ts", "scripts", "skills"]

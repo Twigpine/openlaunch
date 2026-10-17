@@ -3,6 +3,8 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],
+      "@openlaunch/solana-sdk": ["./packages/solana-sdk/src/index.ts"],
+      "@openlaunch/solana-sdk/math": ["./packages/solana-sdk/src/math.ts"],
       "@/lib/db": ["./src/lib/db-mock.ts"],
       "@/lib/chain": ["./src/lib/chain-mock.ts"]
     }

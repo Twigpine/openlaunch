@@ -1,0 +1,13 @@
+{
+  "name": "@openlaunch/solana-model",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test model.test.mjs",
+    "test:sdk": "node --experimental-strip-types --test differential.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
