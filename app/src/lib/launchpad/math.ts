@@ -121,14 +121,20 @@ export function minOut(amountOut: bigint, slippageBps: number): bigint {
 
 // ── formatting ───────────────────────────────────────────────────────────────
 
+const COMPACT_UNITS: readonly [number, string][] = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]];
+
+/** Compact number with a K/M/B/T suffix. A value that rounds up to 1000 of a unit takes the next one: 999,999 → "1.00M", never "1000.00K". */
 export function fmtCompact(n: number, digits = 2): string {
   if (!Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
-  if (abs >= 1e12) return `${(n / 1e12).toFixed(digits)}T`;
-  if (abs >= 1e9) return `${(n / 1e9).toFixed(digits)}B`;
-  if (abs >= 1e6) return `${(n / 1e6).toFixed(digits)}M`;
-  if (abs >= 1e3) return `${(n / 1e3).toFixed(digits)}K`;
-  return n.toFixed(abs >= 100 ? 0 : abs >= 1 ? 2 : digits);
+  const i = COMPACT_UNITS.findIndex(([size]) => abs >= size);
+  if (i === -1) return n.toFixed(abs >= 100 ? 0 : abs >= 1 ? 2 : digits);
+  const [size, suffix] = COMPACT_UNITS[i];
+  if (i > 0 && Math.abs(Number((n / size).toFixed(digits))) >= 1000) {
+    const [nextSize, nextSuffix] = COMPACT_UNITS[i - 1];
+    return `${(n / nextSize).toFixed(digits)}${nextSuffix}`;
+  }
+  return `${(n / size).toFixed(digits)}${suffix}`;
 }
 
 /** Quote amount for display: "0.0421" style, trimming noise. bigint = wei (18 dec); number = whole units. */
