@@ -20,6 +20,11 @@ export function clearMemo(): void {
   store.clear();
 }
 
+/** Drop one key, so the next read is fresh (after a write that changes what it holds). Other keys are untouched. */
+export function forgetMemo(key: string): void {
+  store.delete(key);
+}
+
 /** Test-only: current entry count. */
 export function memoSizeForTests(): number {
   return store.size;

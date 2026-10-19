@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Flame, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
 import { useConfig } from "wagmi";
 import { useTranslations } from "use-intl";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -10,7 +10,7 @@ import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner, ChainLogoStack } from "./ChainLogo";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import EditTokenSheet from "./EditTokenSheet";
@@ -32,6 +32,8 @@ import ConnectWallet from "@/components/ConnectWallet";
 import ProfileIdentity from "@/components/profile/ProfileIdentity";
 import SeasonCard from "@/components/points/SeasonCard";
 import EarnCard from "@/components/earn/EarnCard";
+import { useBoostOn } from "./useBoostOn";
+import { BOOST_CHAIN } from "@/lib/launchpad/boost";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -55,6 +57,7 @@ export default function MeDashboard() {
 /** The dashboard for one connected wallet: its profile card, figures, launches, holdings and trades. */
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
   const config = useConfig();
+  const boostOn = useBoostOn();
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>({});
@@ -264,7 +267,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       <div className={styles.tokenName}>
                         <span className="font-semibold text-[15px] text-ink truncate">{l.name}</span>
                         <span className="font-mono text-xs text-muted">{l.symbol}</span>
-                        <QuoteBrandBadge quoteKey={l.quote_key} />
+                        <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} />
                         {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} /> : null}
                       </div>
                       <div className={styles.tokenMeta}>
@@ -293,6 +296,12 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <button type="button" onClick={() => setEditing(l)} className={styles.quietButton} aria-label={tr("launches.editFor", { symbol: l.symbol })}>
                       <PencilLine size={14} aria-hidden="true" />{tr("launches.edit")}
                     </button>
+                    {/* Boost opens the dialog on the token's page (Base only, while the switch is on) */}
+                    {boostOn && l.chain === BOOST_CHAIN ? (
+                      <Link href={`/t/${l.chain}/${l.token}?boost=1#boost`} className={styles.quietButton} aria-label={`Boost ${l.symbol} with TWIG`}>
+                        <Flame size={14} aria-hidden="true" />Boost
+                      </Link>
+                    ) : null}
                   </div>
               </li>
             );
@@ -317,7 +326,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <div className={styles.tokenName}>
                       <span className="font-semibold text-ink truncate">{t.name}</span>
                       <span className="font-mono text-xs text-muted">{t.symbol}</span>
-                      <QuoteBrandBadge quoteKey={t.quote_key} />
+                      <QuoteBrandBadge quoteKey={t.quote_key} symbol={t.quote_symbol} logo={t.quote_logo} />
                       {t.quote_key === "other" ? <UnlistedPairBadge symbol={t.quote_symbol} /> : null}
                     </div>
                     <div className={styles.tokenMeta}>

@@ -56,6 +56,10 @@
       "label": "Arc 上的发行",
       "keywords": "Arc 链 网络 USDC"
     },
+    "boosted": {
+      "label": "推广代币",
+      "keywords": "推广 代币 TWIG 销毁 展示位 boost boosted"
+    },
     "earn": {
       "label": "用闲置 USDC 赚取收益",
       "keywords": "赚取 收益 存入 借出 金库 利息 理财 取出 USDC Morpho"

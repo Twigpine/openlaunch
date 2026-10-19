@@ -347,6 +347,7 @@
     "gitlawbBurnedTitle": "Sent to 0x…dEaD by GITLAWB-quoted launches on Base and Robinhood Chain",
     "twigBurned": "TWIG burned",
     "twigBurnedTitle": "Sent to 0x…dEaD by TWIG-quoted launches on Base",
+    "twigBoostBurnedTitle": "Sent to 0x…dEaD on Base: {fees} from the trading fees of TWIG-quoted launches, {boosts} by boosts",
     "usdNote": "Some launches are quoted in an asset with no USD price right now; dollar totals exclude them until it returns.",
     "volumeTitle": "{usd} · quote volume valued at current rates",
     "feesTitle": "{usd} · quote-asset fees valued at current rates",

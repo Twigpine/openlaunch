@@ -110,6 +110,7 @@ test("post texts carry the code, the brand account and the profile link; the pic
   }
   assert.equal(postTextFor("kevin", "OL-7K2QXM9A", "openlaunch_lol", "openlaunch.lol"), postTextFor("kevin", "OL-7K2QXM9A", "openlaunch_lol", "openlaunch.lol"));
   assert.match(intentUrl("a b\nc"), /^https:\/\/x\.com\/intent\/post\?text=a%20b%0Ac$/);
+  assert.equal(intentUrl("hi", { url: "https://openlaunch.lol/t/base/0xabc?x=1&y=2", via: "openlaunch_lol" }), "https://x.com/intent/post?text=hi&url=https%3A%2F%2Fopenlaunch.lol%2Ft%2Fbase%2F0xabc%3Fx%3D1%26y%3D2&via=openlaunch_lol");
 });
 
 test("oEmbed parsing: text out of the blockquote, author from author_url", () => {

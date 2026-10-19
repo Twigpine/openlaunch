@@ -14,7 +14,7 @@ import { previewLaunch } from "@/lib/launchpad/launch-preview";
 import ImageUpload from "./ImageUpload";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import LaunchFeeSettings, { type FeeBeneficiary } from "./LaunchFeeSettings";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import { GitlawbMark } from "./GitlawbBadge";
 import { TwigMark } from "./TwigBadge";
 import { ChainLogo } from "./ChainLogo";

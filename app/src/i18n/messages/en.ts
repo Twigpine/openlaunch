@@ -1,7 +1,7 @@
 import type { Locale } from "../locales";
 import common from "./en/common.json";
 import header from "./en/header.json";
-import wallet from "./en/wallet.json";
+import wallet from "./en/account-ui.json";
 import search from "./en/search.json";
 import market from "./en/market.json";
 import activity from "./en/activity.json";

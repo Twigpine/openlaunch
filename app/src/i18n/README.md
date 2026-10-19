@@ -2,6 +2,11 @@
 
 The site reads in English or Simplified Chinese (`zh-CN`). English is the source text; Chinese is a translation of it.
 
+This release translates the original public launch, trade, bridge, Earn and account surfaces. The newer community-pair
+application/directory pages and Boost dialogs, lanes and rules entry are still in English. Their behavior is preserved
+when syncing main; the shared token-page pair disclosures, quote badges, Boost search entry and burn totals are translated.
+Admin surfaces, signed messages and API responses also remain in English.
+
 ## How a page picks its language
 
 1. The `NEXT_LOCALE` cookie, set by the language switch in the header (`components/LanguageSwitcher.tsx`).

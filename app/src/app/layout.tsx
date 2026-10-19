@@ -7,6 +7,7 @@ import TxToasts from "@/components/launchpad/TxToasts";
 import LiveProvider from "@/components/launchpad/LiveProvider";
 import { getLaunchFeed, getLaunchTotalsForRequest } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
+import { boostEnabled } from "@/lib/launchpad/boostSwitch";
 import { SITE_URL } from "@/lib/chainPublic";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
 import { siteJsonLdHtml, siteVerification } from "@/lib/seo";
@@ -64,7 +65,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <IntlProvider locale={locale} translation={locale === "en" ? undefined : translationOf(locale)}>
         <ThemeProvider nonce={nonce}>
         <Web3Provider>
-          <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
+          <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd, boost_on: boostEnabled() }}>
           <Suspense fallback={null}>
             <RouteProgress />
           </Suspense>

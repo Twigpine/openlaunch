@@ -50,6 +50,13 @@ export default function LaunchMechanism() {
   // TWIG burned: its own figure (the GITLAWB behind it stays in the TWIG contract), shown once there is any; null-safe for a poll from an older machine
   const twigBurned = t.twig_burned ?? "0";
   const twigBurnedExact = `${fmtUnitsExact(twigBurned, TWIG_DECIMALS)} ${TWIG_SYMBOL}`;
+  // boosts send TWIG to 0x…dEaD too: the label says where each part came from once there is any boost (null-safe for an older machine)
+  const twigBoosted = BigInt(t.twig_boost_burned ?? "0");
+  // never below zero: mid rolling deploy the two figures can come from machines a release apart
+  const twigFees = BigInt(twigBurned) > twigBoosted ? BigInt(twigBurned) - twigBoosted : 0n;
+  const twigBurnedWhy = twigBoosted > 0n
+    ? tr("twigBoostBurnedTitle", { fees: fmtQuote(twigFees.toString(), TWIG_DECIMALS, TWIG_SYMBOL), boosts: fmtQuote(twigBoosted.toString(), TWIG_DECIMALS, TWIG_SYMBOL) })
+    : tr("twigBurnedTitle");
   return <section aria-label={tr("label")} className={styles.panel}>
     <dl className={styles.readings}>
       <Reading lead label={tr("trades")} note={tr("tradesNote")} chars={countChars(t.trades)}>{count(t.trades)}</Reading>
@@ -68,7 +75,7 @@ export default function LaunchMechanism() {
         <div><dt className="text-muted">{tr("toRecipients")}</dt><dd className="mt-1 font-mono text-up tnum" title={usdNote}>{usd(t.fees_to_creators_usd)}</dd></div>
         <div><dt className="text-muted">{tr("burned")}</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={usdNote}>{usd(t.fees_burned_usd)}</dd></div>
         <div className="col-span-2"><dt className="flex items-center gap-1.5 text-muted" title={tr("gitlawbBurnedTitle")}><GitlawbMark size={14} />{tr("gitlawbBurned")}</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={gitlawbBurnedExact}>{fmtQuote(t.gitlawb_burned, GITLAWB_DECIMALS, GITLAWB_SYMBOL)}</dd></div>
-        {BigInt(twigBurned) > 0n ? <div className="col-span-2"><dt className="flex items-center gap-1.5 text-muted" title={tr("twigBurnedTitle")}><TwigMark size={14} />{tr("twigBurned")}</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={twigBurnedExact}>{fmtQuote(twigBurned, TWIG_DECIMALS, TWIG_SYMBOL)}</dd></div> : null}
+        {BigInt(twigBurned) > 0n ? <div className="col-span-2"><dt className="flex items-center gap-1.5 text-muted" title={twigBurnedWhy}><TwigMark size={14} />{tr("twigBurned")}</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={twigBurnedExact}>{fmtQuote(twigBurned, TWIG_DECIMALS, TWIG_SYMBOL)}</dd></div> : null}
       </dl>
       {/* the "≈" explained in the open: a title alone cannot be reached by touch or keyboard */}
       {usdNote ? <p className="mb-2 max-w-2xl text-pretty text-[11px] leading-relaxed text-body">≈ {usdNote}</p> : null}

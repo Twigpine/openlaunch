@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
 import { admitAdmin } from "@/lib/profiles/server";
+import { requireAdmin, requireAdminAction } from "@/lib/admin/session";
 import { SEASON_ACTIONS, buildPointsAdminMessage, isPointsAdminAction, normalizeSeasonDays, normalizeSeasonId } from "@/lib/points/auth";
 import { currentSeason, endSeasonNow, finalizeIfEnded, hideSeason, previewBoards, previousPublishedSeason, publishSeason, recomputeNow, seasonById, seasonEnded, seasonFinal, startSeason, type Season } from "@/lib/points/server";
 
@@ -22,9 +23,22 @@ async function adminView() {
   return { season: view(season), previous: previous ? view(previous) : null, ...(await previewBoards(season.id)) };
 }
 
+/** GET → the admin view, for an admin session. */
+export async function GET(req: Request) {
+  if (rateLimited(`points-admin:ip:${clientIp(req)}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
+  const a = await requireAdmin(req);
+  if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
+  try {
+    return NextResponse.json(await adminView(), { headers: { "cache-control": "private, no-store" } });
+  } catch (err) {
+    console.error("[points] admin view failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "could not load" }, { status: 502 });
+  }
+}
+
 /**
- * POST {action, days?, seasonId?, chain, wallet, nonce, ts, signature} → one admin-signed points action:
- * preview (the admin view), start (a new season as a shadow run; a previous season that went public gets its final
+ * POST {action, days?, seasonId?, chain, wallet, nonce, ts, signature} → one admin-signed points action, from the
+ * signed-in admin's wallet: start (a new season as a shadow run; a previous season that went public gets its final
  * standings first), publish / unpublish (show or hide one named season; the first publish of the current one starts
  * its clock), end (the named current season, now), recompute (now; not after the final). The length of a start and
  * the season of publish / unpublish / end are part of the signed message.
@@ -33,6 +47,8 @@ export async function POST(req: Request) {
   if (rateLimited(`points-admin:ip:${clientIp(req)}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
+  const session = await requireAdminAction(req, b.wallet);
+  if (!session.ok) return NextResponse.json({ error: session.error }, { status: session.status });
   const action = b.action;
   if (!isPointsAdminAction(action)) return NextResponse.json({ error: "bad action" }, { status: 400 });
   const days = normalizeSeasonDays(b.days); // signed for "start": the season is exactly as long as the admin signed
@@ -44,8 +60,6 @@ export async function POST(req: Request) {
   try {
     const season = await currentSeason();
     switch (action) {
-      case "preview":
-        return NextResponse.json(await adminView(), { headers: { "cache-control": "no-store" } });
       case "start": {
         if (season && !seasonEnded(season)) return NextResponse.json({ error: `${season.name} is still running` }, { status: 409 });
         // a season that went public keeps its final standings, so they are computed first; a hidden run that was

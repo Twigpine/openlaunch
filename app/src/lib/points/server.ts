@@ -21,7 +21,7 @@ import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type Creat
  * season on the next run.
  *
  * Prices: without ETH, GITLAWB or TWIG a run writes nothing (the last board stays). Another quote that normally has a
- * price (MUSEWORLD, a stock) but has none right now only takes its own tokens out of an hourly run, which the next run
+ * price (a community pair priced from an openlaunch pool, a stock) but has none right now only takes its own tokens out of an hourly run, which the next run
  * puts back; a run that would fix the FINAL standings writes nothing instead (for up to a day), so a price blip can
  * never drop tokens from them for good. Tokens quoted in an unlisted pair never count (they have no price to hold
  * anything to).
@@ -199,7 +199,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const toks = [...scope.values()].map((x) => x.token);
 
   // ETH, GITLAWB and TWIG price most of the board: without them the run would be wrong everywhere, so it writes
-  // nothing. Another quote that normally has a price but has none now (MUSEWORLD, a stock with a feed) takes its own
+  // nothing. Another quote that normally has a price but has none now (a community pair priced from an openlaunch pool, a stock with a feed) takes its own
   // tokens out of an hourly run (the next run puts them back); the final run waits for it instead (up to a day: a
   // feed gone for good then drops its tokens, logged).
   // An unlisted pair, or a stock nothing prices, has no price to begin with: never scored, never waited for.

@@ -23,7 +23,7 @@ function offline(t: TestContext) {
 }
 
 test("hasPriceSource: an unlisted ERC-20 and a stock without a feed have none; every other quote does", () => {
-  for (const key of ["eth", "usdg", "usdc", "gitlawb", "twig", "museworld"] as const) assert.equal(hasPriceSource({ key }), true, key);
+  for (const key of ["eth", "usdg", "usdc", "gitlawb", "twig", "pair"] as const) assert.equal(hasPriceSource({ key }), true, key);
   assert.equal(hasPriceSource({ key: "stock" }), true, "a stock with a feed, or any Robinhood Stock Token");
   assert.equal(hasPriceSource({ key: "stock", unpriced: false }), true);
   assert.equal(hasPriceSource({ key: "stock", unpriced: true }), false);

@@ -68,15 +68,18 @@ export function paletteTokenFrom(l: LaunchLike): PaletteToken {
 /** Listed only while the Earn switch is on (GET /api/earn); it lands on the /me card. */
 export const EARN_PAGE = { id: "page:earn", label: "Earn on idle USDC", href: "/me#earn", keywords: "earn lend deposit usdc vault morpho interest savings withdraw" } as const;
 
+/** Listed only while the Boost switch is on (the live poll says so); it lands on the home page's Boosted lane. */
+export const BOOST_PAGE = { id: "page:boosted", label: "Boosted tokens", href: "/#boosted", keywords: "boost boosted twig burn lane dead" } as const;
+
 /**
  * Results in reading order: tokens first (search hits, or what is trending before anything is
  * typed), then pages, then actions. Empty groups are dropped.
  */
-export function buildPaletteGroups({ query, tokens, trending, theme, text, earn = false }: { query: string; tokens: PaletteToken[]; trending: PaletteToken[]; theme: "light" | "dark"; text?: PaletteText; earn?: boolean }): PaletteGroup[] {
+export function buildPaletteGroups({ query, tokens, trending, theme, text, earn = false, boost = false }: { query: string; tokens: PaletteToken[]; trending: PaletteToken[]; theme: "light" | "dark"; text?: PaletteText; earn?: boolean; boost?: boolean }): PaletteGroup[] {
   const q = query.trim();
   const tokenList = q ? (isSearchableQuery(q) ? tokens : []) : trending;
   const tokenItems: PaletteItem[] = tokenList.map((t) => ({ kind: "token", id: `token:${t.chain}:${t.token}`, label: t.name, token: t }));
-  const pages: PaletteItem[] = [...PALETTE_PAGES, ...(earn ? [EARN_PAGE] : [])].map((p) => {
+  const pages: PaletteItem[] = [...PALETTE_PAGES, ...(earn ? [EARN_PAGE] : []), ...(boost ? [BOOST_PAGE] : [])].map((p) => {
     const words = text?.pages[p.id.replace(/^page:/, "")];
     return { kind: "page" as const, ...p, label: words?.label ?? p.label, keywords: words ? `${p.label} ${p.keywords} ${words.keywords}` : p.keywords };
   }).filter((p) => !q || matchesQuery(q, `${p.label} ${p.keywords}`));

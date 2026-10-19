@@ -4,13 +4,17 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, errMessage, type Db } from "@/lib/db";
 import { LAUNCH_FACTORY_ABI, LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCHED_EVENT, POOL_SWAP_EVENT, LOCKER_EVENTS } from "./abi";
-import { CONFIGURED_CHAINS, launchpad, listedQuoteAddresses } from "./config";
+import { CONFIGURED_CHAINS, DEAD, launchpad, listedQuoteAddresses } from "./config";
 import { validDecimals } from "./unlisted-quote";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
 import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
+import { TWIG_ADDRESSES } from "./twig";
+import { boostFromTransfer } from "./boost";
+import { pairBurnFromTransfer } from "./pairApply";
+import { recordPairBurn } from "./pairApplyServer";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -22,6 +26,7 @@ import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
  *   LaunchFactory.Launched                → bb_launches (+ name/symbol read from the token)
  *   PoolManager.Swap (id ∈ our pool ids)  → bb_launch_swaps + rolling price / volume on bb_launches
  *   LaunchLocker.Collected/Burned/Credited/Claimed → bb_launch_fee_events + fee totals
+ *   TWIG.Transfer to 0x…dEaD naming a launch (Base) → bb_boosts (boost.ts; the locker's own fee burns are skipped)
  * Everything is idempotent on (tx_hash, log_index).
  */
 export type LaunchSyncResult = {
@@ -33,6 +38,7 @@ export type LaunchSyncResult = {
   launches?: number;
   swaps?: number;
   fees?: number;
+  boosts?: number;
   caught_up?: boolean;
 };
 
@@ -200,6 +206,38 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   }) as Promise<boolean>;
 }
 
+type TransferArgs = { from: Address; to: Address; value: bigint };
+
+/** Record one TWIG transfer to 0x…dEaD as a boost when its amount names a launch (boost.ts). The launch locker's own fee burns are never boosts. */
+async function applyBoost(db: Db, chain: ChainKey, log: Log & { args: TransferArgs }, locker: string): Promise<boolean> {
+  const row = boostFromTransfer(
+    { address: log.address, from: log.args.from, to: log.args.to, value: log.args.value, txHash: log.transactionHash!, logIndex: Number(log.logIndex!), blockNumber: log.blockNumber! },
+    [locker],
+  );
+  if (!row) return false;
+  const time = await timeOf(chain, log.blockNumber!);
+  const rows = await db`
+    INSERT INTO bb_boosts (chain_id, tx_hash, log_index, booster, amount, tag, block_number, block_time)
+    VALUES (${chainIdOf(chain)}, ${row.tx_hash}, ${row.log_index}, ${row.booster}, ${row.amount}, ${row.tag}, ${row.block_number}, ${time})
+    ON CONFLICT DO NOTHING
+    RETURNING tx_hash`;
+  return rows.length > 0;
+}
+
+/** Record one TWIG transfer to 0x…dEaD as a pair-application fee when its amount names an application (pairApply.ts, tag kind 3). */
+async function applyPairBurn(chain: ChainKey, log: Log & { args: TransferArgs }, locker: string): Promise<boolean> {
+  const twig = TWIG_ADDRESSES[chain];
+  if (!twig) return false;
+  const row = pairBurnFromTransfer(
+    { address: log.address, from: log.args.from, to: log.args.to, value: log.args.value, txHash: log.transactionHash!, logIndex: Number(log.logIndex!), blockNumber: log.blockNumber! },
+    twig,
+    DEAD,
+    [locker],
+  );
+  if (!row) return false;
+  return recordPairBurn(chain, row, new Date(await timeOf(chain, log.blockNumber!)));
+}
+
 type FeeLog = Log &
   (
     | { eventName: "Collected"; args: { tokenId: bigint; token: Address; quoteAmount: bigint; tokenAmount: bigint } }
@@ -280,7 +318,7 @@ async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<str
 const SELECTOR_CAPS = new Map<ChainKey, number>([["robinhood", 1000]]);
 
 /** Apply every launchpad-relevant log in one range. Launched first so same-range swaps resolve. */
-async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Promise<{ launches: number; swaps: number; fees: number }> {
+async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Promise<{ launches: number; swaps: number; fees: number; boosts: number }> {
   const client = publicClient(chain);
   const cfg = launchpad(chain);
   const factory = cfg.factory!;
@@ -306,10 +344,20 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   }
   const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: f, toBlock: t }), from, to);
   for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
+  // boosts: TWIG sent to 0x…dEaD, one filtered log query per range, only where TWIG exists (Base)
+  let boosts = 0;
+  const twig = TWIG_ADDRESSES[chain];
+  if (twig) {
+    const burnLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: twig as Address, event: ERC20_TRANSFER_EVENT, args: { to: DEAD }, fromBlock: f, toBlock: t }), from, to);
+    for (const l of burnLogs) {
+      if (await applyBoost(db, chain, l as Log & { args: TransferArgs }, locker.toLowerCase())) boosts++;
+      else await applyPairBurn(chain, l as Log & { args: TransferArgs }, locker.toLowerCase());
+    }
+  }
   // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
   const tokens = [...new Set([...poolToToken.values()])];
   if (tokens.length > 0) await applyTransfers(db, chain, tokens, from, to);
-  return { launches, swaps, fees };
+  return { launches, swaps, fees, boosts };
 }
 
 // ── swap attribution backlog ─────────────────────────────────────────────────
@@ -767,7 +815,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
     const deploy = launchDeployBlock(chain);
     let from = cursor_block > 0n ? cursor_block - syncOverlapBlocks() : deploy;
     if (from < deploy) from = deploy;
-    const totals = { launches: 0, swaps: 0, fees: 0 };
+    const totals = { launches: 0, swaps: 0, fees: 0, boosts: 0 };
     let chunks = 0;
     let to = from;
     while (from <= confirmed && chunks < SYNC_MAX_CHUNKS_PER_CALL) {
@@ -777,6 +825,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
       totals.launches += r.launches;
       totals.swaps += r.swaps;
       totals.fees += r.fees;
+      totals.boosts += r.boosts;
       await db`UPDATE bb_launch_sync_cursor SET cursor_block = ${to}, head_block = ${head}, last_run_at = now(), last_error = NULL WHERE chain_id = ${cid}`;
       from = to + 1n;
       chunks++;
@@ -791,9 +840,9 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
 }
 
 // ── receipt apply ────────────────────────────────────────────────────────────
-export type ApplyLaunchTxResult = { status: "applied" | "not_found" | "reverted" | "skipped"; reason?: string; launches?: number; swaps?: number; fees?: number; tokens?: string[] };
+export type ApplyLaunchTxResult = { status: "applied" | "not_found" | "reverted" | "skipped"; reason?: string; launches?: number; swaps?: number; fees?: number; boosts?: number; tokens?: string[] };
 
-/** Apply one transaction's launches, swaps and fee events straight from its receipt (right after a wallet returns). */
+/** Apply one transaction's launches, swaps, fee events and boosts straight from its receipt (right after a wallet returns). */
 export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLaunchTxResult> {
   const reason = skipReason(chain);
   if (reason) return { status: "skipped", reason };
@@ -833,5 +882,14 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   }
   const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
   for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
-  return { status: "applied", launches, swaps, fees, tokens };
+  let boosts = 0;
+  const twig = TWIG_ADDRESSES[chain];
+  if (twig) {
+    const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
+    for (const l of burnLogs) {
+      if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
+      else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+    }
+  }
+  return { status: "applied", launches, swaps, fees, boosts, tokens };
 }

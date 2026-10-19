@@ -19,7 +19,7 @@ test("below 1024px the quote badge drops under the token name instead of squeezi
   assert.doesNotMatch(row, /<div className="flex min-w-0 items-center gap-1\.5">\n\s*<MorphName /, "the single-line name row is gone");
   // the name still truncates, and every badge keeps its width, so the badge is what moves
   assert.match(row, /<span className="truncate text-sm font-semibold text-ink">\{l\.name\}<\/span>/);
-  assert.match(row, /<QuoteBrandBadge quoteKey=\{l\.quote_key\} collapse \/>\n\s*\{l\.quote_key === "other" \? <UnlistedPairBadge symbol=\{l\.quote_symbol\} className="shrink-0" \/> : null\}/);
+  assert.match(row, /<QuoteBrandBadge quoteKey=\{l\.quote_key\} symbol=\{l\.quote_symbol\} logo=\{l\.quote_logo\} collapse \/>\n\s*\{l\.quote_key === "other" \? <UnlistedPairBadge symbol=\{l\.quote_symbol\} className="shrink-0" \/> : null\}/);
 });
 
 test("on phones a long quote figure truncates in its own column instead of taking the whole row", () => {

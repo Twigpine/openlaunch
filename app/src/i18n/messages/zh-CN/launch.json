@@ -347,6 +347,7 @@
     "gitlawbBurnedTitle": "由 Base 和 Robinhood Chain 上以 GITLAWB 计价的发行发送到 0x…dEaD",
     "twigBurned": "已销毁 TWIG",
     "twigBurnedTitle": "由 Base 上以 TWIG 计价的发行发送到 0x…dEaD",
+    "twigBoostBurnedTitle": "在 Base 上发送到 0x…dEaD：{fees} 来自以 TWIG 计价的发行的交易手续费，{boosts} 来自推广",
     "usdNote": "部分发行目前以没有美元价格的资产计价；在价格恢复之前，美元合计不包含这些发行。",
     "volumeTitle": "{usd} · 按当前汇率计算的计价资产成交量",
     "feesTitle": "{usd} · 按当前汇率计算的计价资产手续费",

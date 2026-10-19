@@ -20,7 +20,7 @@ export function previewLaunch(p: {
   website: string;
   xHandle: string | null;
   fdvQuote: number | null;
-  quote: { key: Quote["key"]; symbol: string; decimals: number; usd: number | null };
+  quote: { key: Quote["key"]; symbol: string; decimals: number; usd: number | null; logo?: string | null };
   lpFee: number;
   launcher: string | null;
   unnamed?: string;
@@ -37,6 +37,7 @@ export function previewLaunch(p: {
     launcher: p.launcher ?? "0x0000000000000000000000000000000000000000",
     quote: "",
     quote_key: p.quote.key,
+    quote_logo: p.quote.key === "pair" ? (p.quote.logo ?? null) : null,
     quote_symbol: p.quote.symbol,
     quote_decimals: p.quote.decimals,
     quote_decimals_known: true,

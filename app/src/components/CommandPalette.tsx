@@ -14,6 +14,7 @@ import { setPendingToken } from "@/lib/launchpad/token-transition";
 import { buildPaletteGroups, isSearchableQuery, paletteTokenFrom, type PaletteGroup, type PaletteItem, type PaletteText, type PaletteToken } from "@/lib/command-palette";
 import { useOpenBridge } from "./bridge/BridgeProvider";
 import { useEarnInfo } from "./earn/earnInfo";
+import { useBoostOn } from "./launchpad/useBoostOn";
 
 type LaunchesResponse = { launches?: Parameters<typeof paletteTokenFrom>[0][] };
 
@@ -71,7 +72,9 @@ export default function CommandPalette({ open, onOpenChange }: { open: boolean; 
   const text = useMemo<PaletteText>(() => ({ groups: words.groups, pages: words.pages, actions: words.actions }), [words]);
   // the Earn entry exists only while the feature is switched on; asked once, on the first open
   const earn = useEarnInfo(open)?.enabled === true;
-  const groups = useMemo(() => buildPaletteGroups({ query, tokens: current?.tokens ?? [], trending: trending ?? [], theme, text, earn }), [query, current, trending, theme, text, earn]);
+  // the Boosted entry follows the live poll's switch: no request of its own
+  const boost = useBoostOn();
+  const groups = useMemo(() => buildPaletteGroups({ query, tokens: current?.tokens ?? [], trending: trending ?? [], theme, text, earn, boost }), [query, current, trending, theme, text, earn, boost]);
   const status = searching ? t("searching") : current?.failed ? t("unavailable") : "";
 
   const close = () => {

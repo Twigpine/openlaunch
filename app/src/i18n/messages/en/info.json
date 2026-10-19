@@ -82,6 +82,10 @@
       "noAdmin": {
         "title": "No admin",
         "description": "No owner, no pause, no upgrade, no allowlist. The contracts are the same for everyone, forever."
+      },
+      "anyPair": {
+        "title": "Any token as the pair",
+        "description": "The contracts accept any ERC-20 as the pair. The site lists community pairs after public checks (/pairs); a pair it does not list still trades, shown as an unlisted pair with no USD price."
       }
     },
     "points": {

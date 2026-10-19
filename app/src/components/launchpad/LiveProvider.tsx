@@ -5,6 +5,7 @@ import type { FeedItem, LaunchRow, LaunchSort, LaunchTotals, TrendingSnap, Volum
 import type { ChainKey } from "@/lib/chainPublic";
 import type { LaunchFilter } from "@/lib/launchpad/search";
 import type { PostRow } from "@/lib/launchpad/postsServer";
+import type { BoostLane } from "@/lib/launchpad/boostServer";
 
 /**
  * One poller for the whole page. Everything live (toasts, tape, hero totals,
@@ -26,6 +27,10 @@ export type Live = {
   has_more?: boolean | null;
   posts?: PostRow[];
   trending?: TrendingSnap;
+  /** Whether BOOST is on: every answer carries it (an older machine does not, and the last value stands). */
+  boost_on?: boolean;
+  /** The Boosted lane, only while a lane is on screen (wantBoost); absent when not asked for or not read this tick. */
+  boost?: BoostLane;
 };
 type ListParams = { sort: LaunchSort; window: VolumeWindow; chain: ChainKey | null; filter: LaunchFilter | null; limit: number };
 type Listener = (live: Live) => void;
@@ -35,6 +40,8 @@ type Ctx = {
   refresh: () => void;
   /** Called after every successful tick with the fresh snapshot. Use for setState from a callback (never from an effect body). */
   subscribe: (fn: Listener) => () => void;
+  /** A Boosted lane is on screen: polls ask for the lane until the returned function is called. */
+  wantBoost: () => () => void;
 };
 const LiveCtx = createContext<Ctx | null>(null);
 const POLL_MS = 5_000;
@@ -44,6 +51,7 @@ export default function LiveProvider({ initial, children }: { initial: Omit<Live
   const params = useRef<ListParams | null>(initial.sort ? { sort: initial.sort, window: initial.window ?? "all", chain: initial.chain ?? null, filter: initial.filter ?? null, limit: initial.limit ?? 40 } : null);
   const inflight = useRef(false);
   const listeners = useRef(new Set<Listener>());
+  const boostWanted = useRef(0);
   const last = useRef<Live>(live);
 
   const tick = useCallback(async () => {
@@ -51,7 +59,9 @@ export default function LiveProvider({ initial, children }: { initial: Omit<Live
     inflight.current = true;
     try {
       const p = params.current;
-      const q = p ? `?sort=${p.sort}&window=${p.window}&limit=${p.limit}${p.chain ? `&chain=${p.chain}` : ""}${p.filter ? `&filter=${p.filter}` : ""}` : "";
+      const parts = p ? [`sort=${p.sort}`, `window=${p.window}`, `limit=${p.limit}`, ...(p.chain ? [`chain=${p.chain}`] : []), ...(p.filter ? [`filter=${p.filter}`] : [])] : [];
+      if (boostWanted.current > 0) parts.push("boost=1");
+      const q = parts.length ? `?${parts.join("&")}` : "";
       const res = await fetch(`/api/launch/live${q}`, { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as Live;
@@ -60,7 +70,8 @@ export default function LiveProvider({ initial, children }: { initial: Omit<Live
       // totals merge field-by-field: during a rolling deploy a poll can land on a machine that predates a newly added
       // total, and a missing field must fall back to the last value the client already had, never to undefined in render
       // by_chain is merged one level deeper for the same reason: an older machine answers without a newly added chain
-      const merged: Live = { ...data, totals: { ...last.current.totals, ...data.totals, by_chain: { ...last.current.totals.by_chain, ...data.totals?.by_chain } }, launches: data.launches ?? (p ? last.current.launches : null) };
+      // boost_on falls back the same way; the lane (`boost`) does not: a tick without it is simply no news for the lane
+      const merged: Live = { ...data, totals: { ...last.current.totals, ...data.totals, by_chain: { ...last.current.totals.by_chain, ...data.totals?.by_chain } }, launches: data.launches ?? (p ? last.current.launches : null), boost_on: data.boost_on ?? last.current.boost_on };
       last.current = merged;
       setLive(merged);
       listeners.current.forEach((fn) => fn(merged));
@@ -97,7 +108,14 @@ export default function LiveProvider({ initial, children }: { initial: Omit<Live
     };
   }, []);
 
-  const value = useMemo(() => ({ live, setListParams, refresh: () => void tick(), subscribe }), [live, setListParams, tick, subscribe]);
+  const wantBoost = useCallback(() => {
+    boostWanted.current += 1;
+    return () => {
+      boostWanted.current = Math.max(0, boostWanted.current - 1);
+    };
+  }, []);
+
+  const value = useMemo(() => ({ live, setListParams, refresh: () => void tick(), subscribe, wantBoost }), [live, setListParams, tick, subscribe, wantBoost]);
   return <LiveCtx.Provider value={value}>{children}</LiveCtx.Provider>;
 }
 

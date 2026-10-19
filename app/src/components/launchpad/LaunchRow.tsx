@@ -10,7 +10,7 @@ import { fmtCompact, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
 import { useAgo } from "@/i18n/useAgo";
 import ChangeChip from "./ChangeChip";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import { marketUsd } from "@/lib/launchpad/market-format";
 import { capDisplay } from "@/lib/launchpad/market-cap";
@@ -126,7 +126,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
                 <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
               </MorphName>
               {/* phones show the badge's mark only, so the name keeps its room */}
-              <QuoteBrandBadge quoteKey={l.quote_key} collapse />
+              <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} collapse />
               {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} className="shrink-0" /> : null}
               {hl?.kind === "new" ? <span className="shrink-0 rounded-md bg-brand-soft px-1.5 py-px text-[10px] font-semibold text-brand">{t("row.new")}</span> : null}
             </div>

@@ -1,7 +1,7 @@
 import type { Translation } from "./en";
 import common from "./zh-CN/common.json";
 import header from "./zh-CN/header.json";
-import wallet from "./zh-CN/wallet.json";
+import wallet from "./zh-CN/account-ui.json";
 import search from "./zh-CN/search.json";
 import market from "./zh-CN/market.json";
 import activity from "./zh-CN/activity.json";

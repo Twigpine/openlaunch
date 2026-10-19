@@ -122,6 +122,12 @@ export function stockByAddress(chain: ChainKey, address: string): Stock | null {
   return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo, priced: true } : null;
 }
 
+/** The chain's stock tickers, or null when its list has never been read (Robinhood before the registry's first good read). */
+export function stockTickers(chain: ChainKey): readonly string[] | null {
+  if (STOCK_SOURCE[chain] === "robinhood-registry" && !registry) return null;
+  return stockList(chain).map((s) => s.symbol);
+}
+
 export function stockList(chain: ChainKey): readonly Stock[] {
   if (STOCK_SOURCE[chain] === "coinbase-b20") return baseStocksFor(chain).list;
   if (STOCK_SOURCE[chain] !== "robinhood-registry") return [];

@@ -4,6 +4,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import LaunchList from "@/components/launchpad/LaunchList";
+import BoostedLane from "@/components/launchpad/BoostedLane";
+import { boostLaneOrNull } from "@/lib/launchpad/boostServer";
+import { BOOST_CHAIN } from "@/lib/launchpad/boost";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, EXPLORERS, explorerAddress, type ChainKey } from "@/lib/chainPublic";
@@ -38,9 +41,10 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
   const label = CHAIN_LABELS[chain];
   const lp = launchpad(chain);
   const usd = await ethUsd();
-  const [page, totals] = await Promise.all([
+  const [page, totals, boost] = await Promise.all([
     listLaunchesPage({ sort: "live", window: "all", chain, filter: null, limit: PAGE_SIZE, ethUsd: usd }),
     getLaunchTotalsForRequest(usd), // the root layout already ran it this request: shared, not repeated
+    chain === BOOST_CHAIN ? boostLaneOrNull(usd) : null, // boosts exist on Base only
   ]);
   const launches = totals.by_chain[chain].launches;
   const now = nowMs();
@@ -73,6 +77,9 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
           </p>
         ) : null}
       </section>
+
+      {/* always mounted on Base, so a switch-on reaches an open tab; the margin goes with the lane (empty:hidden) */}
+      {chain === BOOST_CHAIN ? <div className="mt-14 empty:hidden"><BoostedLane initial={boost ?? { enabled: false }} serverNow={now} source="base" /></div> : null}
 
       <section className={`${shell.anchorSection} mt-14`} aria-labelledby="chain-launches-heading">
         <h2 id="chain-launches-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">{t("chain.tokens", { chain: label })}</h2>

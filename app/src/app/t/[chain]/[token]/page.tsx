@@ -19,6 +19,7 @@ import TokenTrades from "@/components/launchpad/TokenTrades";
 import LaunchReceipt from "@/components/launchpad/LaunchReceipt";
 import TokenAbout from "@/components/launchpad/TokenAbout";
 import NamesProvider from "@/components/profile/NamesProvider";
+import { intentUrl } from "@/lib/profiles/xpost";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
@@ -31,8 +32,9 @@ import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
 import TwigBadge from "@/components/launchpad/TwigBadge";
 import { TWIG_SITE, TWIG_WRAP_URL } from "@/lib/launchpad/twig";
-import MuseworldBadge from "@/components/launchpad/MuseworldBadge";
-import { MUSEWORLD_SITE } from "@/lib/launchpad/museworld";
+import { CommunityPairBadge } from "@/components/launchpad/QuoteBadge";
+import { isPairChain, pairPath } from "@/lib/launchpad/pairs";
+import { pairByAddress } from "@/lib/launchpad/pairsServer";
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
@@ -50,6 +52,11 @@ import WatchButton from "@/components/launchpad/WatchButton";
 import { BorderBeam } from "@/components/vendor/border-beam";
 import { Banner } from "@/components/launchpad/LaunchCard";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
+import BoostPanel from "@/components/launchpad/BoostPanel";
+import { boostEnabled, getTokenBoost, type TokenBoost } from "@/lib/launchpad/boostServer";
+import { BOOST_CHAIN } from "@/lib/launchpad/boost";
+import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
+import { twigUsdFromGitlawb } from "@/lib/launchpad/twig";
 import type { ProofKey } from "@/lib/launchpad/proof";
 import { getLocale, getTranslations } from "@/i18n/server";
 
@@ -78,7 +85,7 @@ export async function generateMetadata({ params }: { params: Promise<{ chain: st
 }
 
 /** A token's page: market, chart, trades, holders and comments, with every wallet named by its profile where it has one. */
-export default async function TokenPage({ params }: { params: Promise<{ chain: string; token: string }> }) {
+export default async function TokenPage({ params, searchParams }: { params: Promise<{ chain: string; token: string }>; searchParams: Promise<{ boost?: string }> }) {
   const { chain, token } = await params;
   if (!isChainKey(chain) || !isAddress(token)) notFound();
   const usd = await ethUsd();
@@ -92,10 +99,22 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
     decimals: l.quote_decimals,
     usd: l.quote_usd,
     decimalsKnown: l.quote_decimals_known,
+    logo: l.quote_logo,
   };
   const unlisted = quote.key === "other";
+  // the pair's list record: a listed pair's price source for the About text, a suspended or delisted one's note
+  const pairRec = isPairChain(chain) && (quote.key === "pair" || unlisted) ? await pairByAddress(chain, l.quote) : null;
   const stockQuote = quote.key === "stock" ? stockByAddress(chain, l.quote) : null;
-  const [swaps, holders, tint] = await Promise.all([getSwaps(chain, l.token, quote.decimals, 40), memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)), tokenTint(l.image_url, l.token)]);
+  // Boost (Base only, while the switch is on): the token's line and TWIG's price for the dialog; a failed read shows no panel
+  const boostable = chain === BOOST_CHAIN && boostEnabled();
+  const [swaps, holders, tint, boost, twigUsd] = await Promise.all([
+    getSwaps(chain, l.token, quote.decimals, 40),
+    memo(`holders:${chain}:${l.token}`, 5_000, () => getHolderPanel(chain, l.token)),
+    tokenTint(l.image_url, l.token),
+    boostable ? getTokenBoost(l.token).catch((): TokenBoost | null => null) : null,
+    boostable ? gitlawbUsd().then(twigUsdFromGitlawb).catch(() => null) : null,
+  ]);
+  const boostOpen = (await searchParams).boost === "1";
   // names for every wallet the server renders (trades, creator, fee recipients, top holders): the first paint shows them
   const nameWallets = [l.launcher, ...swaps.map((s) => s.trader), ...l.recipients.map((r) => r.payout), ...(holders?.top ?? []).map((h) => h.address)].filter((w): w is string => Boolean(w));
   // a failed lookup seeds nothing (the browser then asks itself); only an answer says "no profile" for a wallet
@@ -196,7 +215,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                 <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted sm:gap-x-1.5">
                   <span className="font-mono text-body">{l.symbol}</span>
                   <span aria-hidden="true" className="max-sm:hidden">·</span>
-                  {quote.key === "twig" ? <TwigBadge label={t("page.pairedWith", { symbol: "TWIG" })} /> : quote.key === "gitlawb" ? <GitlawbBadge label={t("page.pairedWith", { symbol: "GITLAWB" })} /> : quote.key === "museworld" ? <MuseworldBadge label={t("page.pairedWith", { symbol: "MUSEWORLD" })} /> : <span>{t("page.pairedWithLower", { symbol: quote.symbol })}</span>}
+                  {quote.key === "twig" ? <TwigBadge label={t("page.pairedWith", { symbol: "TWIG" })} /> : quote.key === "gitlawb" ? <GitlawbBadge label={t("page.pairedWith", { symbol: "GITLAWB" })} /> : quote.key === "pair" ? <Link href={pairPath(chain, l.quote)} className="rounded-md focus-visible:outline-2 focus-visible:outline-brand"><CommunityPairBadge symbol={quote.symbol} logo={l.quote_logo} label={t("page.pairedWith", { symbol: quote.symbol })} /></Link> : <span>{t("page.pairedWithLower", { symbol: quote.symbol })}</span>}
                   {unlisted ? <UnlistedPairBadge symbol={quote.symbol} /> : null}
                   <span aria-hidden="true" className="max-sm:hidden">·</span>
                   <span title={new Date(l.block_time).toUTCString()}>{t("page.launchedAgo", { time: short(l.block_time) })}</span>
@@ -217,7 +236,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
               <WatchButton token={{ chain, token: l.token, name: l.name, symbol: l.symbol }} labelled />
               {/* the token's links as one bar, the Watch button's height: share, copy the address, the explorer */}
               <div className="inline-flex h-10 max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-card text-xs font-medium text-body sm:h-9">
-                <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label={t("page.shareLabel")}><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">{t("page.share")}</span></a>
+                <a href={intentUrl(shareText, { url: `${SITE_URL}/t/${chain}/${l.token}` })} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label={t("page.shareLabel")}><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">{t("page.share")}</span></a>
                 <CopyChip value={l.token} className={`inline-flex ${segment} border-l border-line font-code`} />
                 {/* phones keep one row of actions; the explorer link is also in About & contracts */}
                 <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={`hidden sm:inline-flex ${segment} border-l border-line`}>{explorerName(chain)}<ArrowUpRight size={13} aria-hidden="true" /></a>
@@ -249,6 +268,8 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             </div>
             {/* the token at a glance beside the trade box, as other launchpads keep it; the full record is in the About tab */}
             <TokenAbout chain={chain} token={l.token} symbol={l.symbol} description={l.description} website={l.website} x_handle={l.x_handle} launcher={l.launcher} launchedAt={l.block_time} now={now} swap={swapSite ? { name: swapSite.name, url: swapSite.url(l.token) } : null} />
+            {/* Boost (Base, while the switch is on): under the About card, which stays right under the trade box */}
+            {boost ? <BoostPanel token={l.token} tokenId={l.token_id} symbol={l.symbol} name={l.name} initial={boost} twigUsd={twigUsd} serverNow={now} autoOpen={boostOpen} /> : null}
             <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} />
             <CollectPanel chain={chain} quote={quote} token={l.token as Address} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} collectedToken={l.fees_token_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} priceQuote={l.price_quote} ethUsd={usd} />
           </aside>
@@ -278,7 +299,8 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                   <Row k={t("page.aboutTab.launched")} v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
                 </dl>
                 {unlisted ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t("page.aboutTab.unlisted", { symbol: quote.symbol })}</p> : null}
-                {quote.key === "museworld" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t.rich("page.aboutTab.museworld", { fees: pairFees("MUSEWORLD"), link: pairLink(MUSEWORLD_SITE) })}</p> : null}
+                {quote.key === "pair" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t("page.aboutTab.communityPair", { symbol: quote.symbol })} {pairFees(quote.symbol)}{pairRec ? ` ${t("page.aboutTab.pairPrice", { source: t(`page.aboutTab.pairSources.${pairRec.price_kind}`) })}` : ""} <Link href={pairPath(chain, l.quote)} className="underline decoration-line underline-offset-2 hover:text-ink">{t("page.aboutTab.pairRecord")}</Link></p> : null}
+                {unlisted && pairRec && pairRec.status !== "listed" ? <p className="mt-2 text-xs leading-relaxed text-warm-ink text-pretty">{pairRec.status === "suspended" ? t("page.aboutTab.pairSuspended", { symbol: pairRec.symbol, reason: pairRec.status_reason ? t("page.aboutTab.pairReason", { reason: pairRec.status_reason }) : "" }) : t("page.aboutTab.pairDelisted", { symbol: pairRec.symbol })} <Link href={pairPath(chain, l.quote)} className="underline decoration-line underline-offset-2 hover:text-ink">{t("page.aboutTab.pairStatusRecord")}</Link></p> : null}
                 {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t("page.aboutTab.stock", { name: stockQuote.name, symbol: stockQuote.symbol })}</p> : null}
                 {quote.key === "twig" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t.rich("page.aboutTab.twig", { fees: pairFees("TWIG"), twigpine: pairLink(TWIG_SITE), wrap: pairLink(TWIG_WRAP_URL) })}</p> : null}
                 {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{t.rich(`page.aboutTab.gitlawb.${GITLAWB_ORIGIN[chain]}`, { fees: pairFees("GITLAWB"), link: pairLink(GITLAWB_SITE) })}</p> : null}

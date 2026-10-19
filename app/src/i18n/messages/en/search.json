@@ -56,6 +56,10 @@
       "label": "Launches on Arc",
       "keywords": "arc chain network usdc"
     },
+    "boosted": {
+      "label": "Boosted tokens",
+      "keywords": "boost boosted twig burn lane dead"
+    },
     "earn": {
       "label": "Earn on idle USDC",
       "keywords": "earn lend deposit usdc vault morpho interest savings withdraw"

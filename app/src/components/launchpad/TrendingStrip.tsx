@@ -7,7 +7,7 @@ import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { useTranslations } from "use-intl";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner } from "./ChainLogo";
-import { QuoteBrandBadge, hasQuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge, hasQuoteBrandBadge } from "./QuoteBadge";
 import ChangeChip from "./ChangeChip";
 import Roll from "./Roll";
 import { useLive } from "./LiveProvider";
@@ -364,7 +364,7 @@ function Leader({ row, window, now, top, pips, fx: onToken, from }: { row: Launc
             <span className="font-mono text-brand tnum">{t.rich("leaderNumber", { rank: "01", sr })}</span>
             {/* "Leading" is a claim about right now; on the day window the top token may not have traded this hour */}
             {handover ? <span className="font-medium uppercase tracking-[0.08em] text-brand">{t("newLeader")}</span> : <span className="font-medium uppercase tracking-[0.08em] text-ink"><span aria-hidden="true">{window === "1h" ? t("leading") : t("top24")}</span><span className="sr-only">{window === "1h" ? t("leading") : t("top24Spoken")}</span></span>}
-            <span className="flex min-w-0 items-center gap-1.5 text-muted"><span aria-hidden="true">·</span><span className="sr-only">{t("comma")}</span>{CHAIN_SHORT[row.chain]}<span aria-hidden="true">·</span>{t.rich("leaderPair", { symbol: row.quote_symbol, sr, quote: (chunks) => (hasQuoteBrandBadge(row.quote_key) ? <QuoteBrandBadge quoteKey={row.quote_key} /> : <span className="truncate">{chunks}</span>) })}</span>
+            <span className="flex min-w-0 items-center gap-1.5 text-muted"><span aria-hidden="true">·</span><span className="sr-only">{t("comma")}</span>{CHAIN_SHORT[row.chain]}<span aria-hidden="true">·</span>{t.rich("leaderPair", { symbol: row.quote_symbol, sr, quote: (chunks) => (hasQuoteBrandBadge(row.quote_key) ? <QuoteBrandBadge quoteKey={row.quote_key} symbol={row.quote_symbol} logo={row.quote_logo} /> : <span className="truncate">{chunks}</span>) })}</span>
           </p>
           <div style={k(1)} className={`${styles.row} mt-3.5 flex min-w-0 items-center gap-3.5`}>
             <span className="relative shrink-0"><TokenAvatar chain={row.chain} token={row.token} symbol={row.symbol} image={row.image_url} size={52} className="rounded-2xl" /><ChainCorner chain={row.chain} size={18} /></span>
@@ -448,7 +448,7 @@ function Runner({ row, rank, window, top, now, pips, fx: onToken, move, lead = f
           {last === null ? null : <span className="shrink-0 font-mono tnum" title={t("lastTradeTitle", { time: fresh ? tm("now") : ago(new Date(last).toISOString(), now) })} suppressHydrationWarning>{t.rich(fresh ? "lastTradeSpokenNow" : "lastTradeSpoken", { time: fresh ? tm("now") : short(new Date(last).toISOString(), now), sr })}</span>}
           <Streak pips={pips} now={now} />
           <Tape pips={pips.slice(-PIPS_RUNNER)} now={now} className="w-[76px] shrink-0" />
-          {hasQuoteBrandBadge(row.quote_key) ? <span className="flex shrink-0 items-center">{t.rich("runnerPair", { sr, badge: () => <QuoteBrandBadge quoteKey={row.quote_key} /> })}</span> : null}
+          {hasQuoteBrandBadge(row.quote_key) ? <span className="flex shrink-0 items-center">{t.rich("runnerPair", { sr, badge: () => <QuoteBrandBadge quoteKey={row.quote_key} symbol={row.quote_symbol} logo={row.quote_logo} /> })}</span> : null}
         </div>
       </div>
     </Link>

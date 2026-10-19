@@ -14,7 +14,7 @@ import { rasterSharp } from "@/lib/launchpad/imageProcess";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GITLAWB_LOGO_BG, GITLAWB_LOGO_PATH } from "@/lib/launchpad/gitlawb";
-import { MUSEWORLD_BLUE, MUSEWORLD_LOGO_PATH } from "@/lib/launchpad/museworld";
+import { isSiteLogoPath } from "@/lib/launchpad/pairs";
 import { TWIG_LOGO_BG, TWIG_LOGO_PATH } from "@/lib/launchpad/twig";
 
 /** Brand logos from public/, inlined once per process each (satori needs a data URL or absolute URL). */
@@ -79,9 +79,10 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
   // a name or ticker in Chinese, Japanese or Korean gets a subset face; Geist alone would draw empty boxes
   const cjk = card ? await loadCjkOgFonts(`${card.title} ${card.symbol}`) : [];
   const glLogo = card?.quote?.kind === "gitlawb" ? await logoDataUrl(GITLAWB_LOGO_PATH) : null;
-  const mwLogo = card?.quote?.kind === "museworld" ? await logoDataUrl(MUSEWORLD_LOGO_PATH) : null;
+  // a community pair's logo: a tile served from public/ (MUSEWORLD's), or one on our own image host; nothing else is fetched
+  const pairLogoUrl = card?.quote?.kind === "pair" ? (card.quote.logo ?? null) : null;
+  const pLogo = pairLogoUrl ? (isSiteLogoPath(pairLogoUrl) ? await logoDataUrl(pairLogoUrl) : await memo(`og-pair-logo:${pairLogoUrl}`, 300_000, () => ownLogo(pairLogoUrl))) : null;
   const twLogo = card?.quote?.kind === "twig" ? await logoDataUrl(TWIG_LOGO_PATH) : null;
-  const official = card?.quote?.kind === "museworld";
   const logo = l ? await memo(`og-logo:${chain}:${token.toLowerCase()}`, 60_000, () => ownLogo(l.image_url)) : null;
   const h = hueOf(token);
   return new ImageResponse(
@@ -129,10 +130,10 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 26 }}>
                 {card.quote ? (
-                  <span style={{ display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 16px 0 7px", borderRadius: 999, border: `1px solid ${official ? MUSEWORLD_BLUE : LINE}`, background: official ? MUSEWORLD_BLUE : "#fff", color: official ? "#fff" : BODY, fontSize: 19, fontWeight: 600, whiteSpace: "nowrap" }}>
-                    {card.quote.kind === "museworld" ? (
-                      <span style={{ display: "flex", width: 30, height: 30, borderRadius: 8, overflow: "hidden" }}>
-                        {mwLogo ? <img src={mwLogo} width={30} height={30} alt="" /> : null}
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 16px 0 7px", borderRadius: 999, border: `1px solid ${LINE}`, background: "#fff", color: BODY, fontSize: 19, fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {card.quote.kind === "pair" ? (
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: LINE, color: BODY, fontSize: 14, fontWeight: 800, overflow: "hidden" }}>
+                        {pLogo ? <img src={pLogo} width={30} height={30} alt="" /> : card.quote.ticker.slice(0, 1)}
                       </span>
                     ) : card.quote.kind === "twig" ? (
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: TWIG_LOGO_BG, overflow: "hidden" }}>
@@ -147,7 +148,7 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
                         {card.quote.ticker}
                       </span>
                     )}
-                    {official ? `official · priced in ${card.quote.symbol}` : `priced in ${card.quote.symbol}`}
+                    {card.quote.kind === "pair" ? `community pair · priced in ${card.quote.symbol}` : `priced in ${card.quote.symbol}`}
                   </span>
                 ) : null}
                 {[card.fee, "liquidity locked forever", card.age].map((t, i) => (

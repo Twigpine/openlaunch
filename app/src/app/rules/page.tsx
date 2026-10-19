@@ -10,6 +10,8 @@ import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPu
 import { BRAND_GITHUB } from "@/lib/brand";
 import LaunchMachine from "@/components/launchpad/LaunchMachine";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
+import BoostRulesEntry from "@/components/launchpad/BoostRulesEntry";
+import { boostEnabled } from "@/lib/launchpad/boostServer";
 import { RULES } from "@/lib/points/score";
 import { getTranslations } from "@/i18n/server";
 
@@ -27,7 +29,7 @@ const STEPS = [
 ] as const;
 
 // title and description are messages: info.rules.fixed.<key>
-const FIXED = ["noFee", "noWithdrawal", "noPremine", "noAdmin"] as const;
+const FIXED = ["noFee", "noWithdrawal", "noPremine", "noAdmin", "anyPair"] as const;
 
 /** The guide's sections, each with the mark its heading carries (titles: info.rules.contents.<id>). */
 const CONTENTS = [
@@ -136,6 +138,7 @@ export default async function RulesPage() {
             <div className={styles.questions}>
               <details open><summary>{t("rules.know.price.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.price.curve")}</p><p>{t("rules.know.price.snipers")}</p><p>{t("rules.know.price.firstBuy")}</p></div></details>
               <details open><summary>{t("rules.know.quiet.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t.rich("rules.know.quiet.ranking", { strong: (chunks) => <strong>{chunks}</strong> })}</p><p>{t("rules.know.quiet.hidden")}</p></div></details>
+              {boostEnabled() ? <BoostRulesEntry /> : null}
               <details open><summary>{t("rules.know.change.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.change.answer")}</p></div></details>
               <details open><summary>{t("rules.know.twig.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.twig.twig")}</p><p>{t("rules.know.twig.gitlawb")}</p><p>{t("rules.know.twig.prices")}</p></div></details>
               <details open><summary>{t("rules.know.stocks.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.stocks.quotes")}</p><p>{t("rules.know.stocks.securities")}</p></div></details>

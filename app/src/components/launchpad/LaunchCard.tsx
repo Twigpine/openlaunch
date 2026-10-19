@@ -8,7 +8,7 @@ import TokenAvatar from "./TokenAvatar";
 import type { LaunchRow as L } from "@/lib/launchpad/queries";
 import { useAgo } from "@/i18n/useAgo";
 import ChangeChip from "./ChangeChip";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import { addressHue } from "@/lib/launchpad/tint";
@@ -52,7 +52,7 @@ export default function LaunchCard({ l, rank, hl = null, now, pop = false, chip 
           <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-b from-transparent via-card/45 to-card" />
           <div className="absolute left-2 top-2 flex min-w-0 items-center gap-1 pr-10">
             {rank !== undefined ? <span className={`grid h-6 min-w-6 shrink-0 place-items-center rounded-full px-1.5 text-xs font-bold tabular-nums ${rank <= 3 ? "bg-white text-black shadow-sm" : "bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-md"}`}><span className="sr-only">{t("card.rank")} </span>{rank}</span> : null}
-            <QuoteBrandBadge quoteKey={l.quote_key} />
+            <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} />
             {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} className="shrink-0" /> : null}
           </div>
         </div>
