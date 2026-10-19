@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
-import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { getWalletClient } from "wagmi/actions";
 import { btn, card } from "@/components/ui";
 import { buildModMessage } from "@/lib/launchpad/posts";
@@ -15,13 +15,13 @@ import { nonce } from "@/lib/nonce";
 
 /** Moderation queue: reported posts, hide/unhide with an admin-wallet signature. */
 export default function AdminQueue() {
-  const { address } = useHydratedAccount();
+  const { address } = useAdminAccount();
   const config = useConfig();
   const [posts, setPosts] = useState<PostRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!address) return;
-    const res = await fetch(`/api/posts/reported?wallet=${address}`, { cache: "no-store" });
+    const res = await fetch("/api/posts/reported", { cache: "no-store" });
     const d = (await res.json()) as { posts?: PostRow[]; error?: string };
     if (!res.ok) {
       setErr(d.error ?? "not allowed");

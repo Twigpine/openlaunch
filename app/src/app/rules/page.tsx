@@ -28,6 +28,7 @@ const FIXED = [
   ["No liquidity withdrawal", "Nobody can remove liquidity: not the creator, not us. Collecting fees removes zero liquidity."],
   ["No pre-mine", "Every token starts inside the pool. There is no creator-reserved allocation."],
   ["No admin", "No owner, no pause, no upgrade, no allowlist. The contracts are the same for everyone, forever."],
+  ["Any token as the pair", "The contracts accept any ERC-20 as the pair. The site lists community pairs after public checks (/pairs); a pair it does not list still trades, shown as an unlisted pair with no USD price."],
 ] as const;
 
 /** The guide's sections, each with the mark its heading carries. */

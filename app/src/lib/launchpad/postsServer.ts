@@ -21,6 +21,9 @@ const TOKEN_TARGET_RE = new RegExp(`^token:(${CHAIN_KEY_PATTERN}):(0x[0-9a-f]{40
  *   - creators can mute comments on their own token; admins (ADMIN_WALLETS)
  *     can hide/unhide posts; 5 distinct reports auto-hide pending review
  */
+/** Acting as an admin without the admin session of the signing wallet. */
+const ADMIN_SESSION_NEEDED = "admin session needed: sign in at /admin with this wallet";
+
 export function adminWallets(): Set<string> {
   return new Set((process.env.ADMIN_WALLETS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter((s) => isAddress(s)));
 }
@@ -190,7 +193,11 @@ export async function reportPost(p: { postId: unknown; wallet: string; reason: u
 }
 
 /** Creator mute/unmute of their own token, or admin hide/unhide of a post. */
-export async function moderate(p: { action: unknown; target: unknown; wallet: string; nonce: unknown; ts: unknown; signature: unknown }): Promise<{ ok: true } | Fail> {
+/**
+ * `session` is the wallet of the request's admin session (null without one): acting as an admin (hiding a post, or
+ * muting a token one did not launch) needs it to be the signing wallet, beside the signature itself.
+ */
+export async function moderate(p: { action: unknown; target: unknown; wallet: string; nonce: unknown; ts: unknown; signature: unknown }, session: string | null): Promise<{ ok: true } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   if (!isAddress(p.wallet)) return fail("bad address", 400);
@@ -208,8 +215,10 @@ export async function moderate(p: { action: unknown; target: unknown; wallet: st
     const [l] = await db<{ launcher: string }[]>`SELECT launcher FROM bb_launches WHERE chain_id = ${chainIdOf(chain)} AND token = ${m[2]}`;
     if (!l) return fail("unknown token", 404);
     if (l.launcher !== wallet && !admins.has(wallet)) return fail("not the creator", 403);
+    if (l.launcher !== wallet && session !== wallet) return fail(ADMIN_SESSION_NEEDED, 401);
   } else {
     if (!admins.has(wallet)) return fail("admin only", 403);
+    if (session !== wallet) return fail(ADMIN_SESSION_NEEDED, 401);
     if (!/^post:\d+$/.test(p.target)) return fail("bad target", 400);
   }
   const message = buildModMessage({ action, target: p.target, wallet, nonce: p.nonce, ts: Number(p.ts) });

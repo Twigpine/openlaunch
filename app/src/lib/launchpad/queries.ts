@@ -2,13 +2,13 @@ import "server-only";
 import { cache } from "react";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { quoteInfo as staticQuoteInfo, quoteUsdOf, hasPriceSource, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
+import { quoteInfo as staticQuoteInfo, quoteUsdOf, hasPriceSource, type Quote, fixedUsdQuotes, quotesWithKey } from "./config";
 import { ensureRegistry, stockByAddress, stockList, stockUsdInUse } from "./stocksServer";
 import { unlistedQuote, type QuoteTokenMeta } from "./unlisted-quote";
 import { memo } from "./memo";
 import { gitlawbUsd } from "./gitlawbServer";
-import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
-import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
+import { loadPairs } from "./pairsServer";
+import type { PairPublic } from "./pairs";
 import { gitlawbLinkedUsd } from "./twig";
 import { BOOST_CHAIN_ID } from "./boost";
 import { boostEnabled } from "./boostSwitch";
@@ -47,7 +47,8 @@ export type LaunchRow = {
   token_id: number;
   launcher: string;
   quote: string;
-  quote_key: Quote["key"]; // eth | usdg | usdc | gitlawb | twig | museworld | stock (a registry stock) | other (an unlisted ERC-20, unlisted-quote.ts)
+  quote_key: Quote["key"]; // eth | usdg | usdc | gitlawb | twig | pair (a listed community pair, pairs.ts) | stock (a registry stock) | other (an unlisted ERC-20, unlisted-quote.ts)
+  quote_logo: string | null; // a community pair's logo (its badge); null for every other quote
   quote_symbol: string;
   quote_decimals: number;
   quote_decimals_known: boolean; // false only for an unlisted quote not read yet: quote_decimals is a placeholder, do not trade
@@ -102,7 +103,7 @@ export type LaunchRow = {
   volume_24h_usd: number | null;
 };
 
-type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "quote_decimals_known" | "quote_priced" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "traders_1h_ex" | "trades_24h" | "traders_24h_ex" | "last_outside_trade_at" | "live_tier" | "launcher_collapsed" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
+type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_logo" | "quote_symbol" | "quote_decimals" | "quote_decimals_known" | "quote_priced" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "traders_1h_ex" | "trades_24h" | "traders_24h_ex" | "last_outside_trade_at" | "live_tier" | "launcher_collapsed" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
   token_id: bigint;
   block_number: bigint;
   tick: number | null;
@@ -123,62 +124,35 @@ let stockUsdNow = new Map<string, number | null>();
 /** Unlisted quotes' on-chain symbol / decimals (bb_quote_tokens, keyed `${chain_id}:${address}`), and each chain's stock tickers they may not borrow. */
 let quoteTokensNow = new Map<string, QuoteTokenMeta>();
 let stockSymbolsNow = new Map<ChainKey, string[]>();
-/** MUSEWORLD USD for this request (filled by `withStocks` from its own GITLAWB pool; null = unknown → no USD, 0 weight in USD sorts). */
-let museworldUsdNow: number | null = null;
+/** The community pairs for this request (filled by `withStocks`; every status, each listed one with its USD price or null), keyed `${chain_id}:${address}`. */
+let pairsNow = new Map<string, PairPublic>();
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
 
 /** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
-type PriceState = { gitlawb: number | null; museworld: number | null; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
-const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, museworld: museworldUsdNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
+type PriceState = { gitlawb: number | null; pairs: Map<string, PairPublic>; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
+const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, pairs: pairsNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
 
 /**
  * Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a
- * registry stock, else an unlisted quote. Priced from `st` (the prices loaded now unless a snapshot is passed).
+ * listed community pair, else a registry stock, else an unlisted quote. Priced from `st` (the prices loaded now unless a
+ * snapshot is passed). A suspended or delisted pair resolves as unlisted: no badge, no USD, out of Trending.
  */
 function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState()): Quote {
   const q = staticQuoteInfo(chain, address);
   const linked = gitlawbLinkedUsd(q.key, st.gitlawb); // GITLAWB, and TWIG at the same price
   if (linked !== undefined) return { ...q, usd: linked };
-  if (q.key === "museworld") return { ...q, usd: st.museworld };
   if (q.key !== "other") return q;
+  const pair = st.pairs.get(`${chainIdOf(chain)}:${address.toLowerCase()}`);
+  if (pair?.status === "listed") return { key: "pair", address: pair.address as Quote["address"], symbol: pair.symbol, decimals: pair.decimals, usd: pair.usd, name: pair.name, logo: pair.logo, pairKind: pair.price_kind };
   const stock = stockByAddress(chain, address);
   // a stock nothing prices says so: its missing USD is not an outage (hasPriceSource)
   if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo, ...(stock.priced ? {} : { unpriced: true }) };
-  return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, st.stockSymbols.get(chain) ?? []);
+  // an unlisted token may not borrow a stock ticker or a listed pair's symbol: it then shows by its address
+  return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, [...(st.stockSymbols.get(chain) ?? []), ...listedPairSymbols(st, chain)]);
 }
-
-/**
- * USD per MUSEWORLD (museworld.ts): GITLAWB per MUSEWORLD in its own openlaunch pool, times GITLAWB's USD price. The pool
- * leg comes from our index: the spot (bb_launches) unless it strays >25% from the 30-minute time-weighted price of the
- * swaps, then that average, the same rule as GITLAWB's own price. null when GITLAWB has no price, the launch row is not
- * indexed, or it is not the GITLAWB pool it should be.
- */
-async function readMuseworldUsd(gitlawbUsd: number | null): Promise<number | null> {
-  const db = maybeDb();
-  if (!db || gitlawbUsd === null || !(gitlawbUsd > 0)) return null;
-  const cid = chainIdOf("base");
-  const token = MUSEWORLD_ADDRESS.toLowerCase();
-  const now = Math.floor(Date.now() / 1000);
-  const from = now - MUSEWORLD_TWAP_WINDOW_S;
-  const [launch, before, recent] = await Promise.all([
-    db<{ quote: string; sqrt_price_x96: string | null }[]>`SELECT quote, sqrt_price_x96 FROM bb_launches WHERE chain_id = ${cid} AND token = ${token}`,
-    db<{ sqrt_price_x96: string }[]>`
-      SELECT sqrt_price_x96 FROM bb_launch_swaps WHERE chain_id = ${cid} AND token = ${token} AND block_time < to_timestamp(${from})
-       ORDER BY block_number DESC, log_index DESC LIMIT 1`,
-    db<{ t: number; sqrt_price_x96: string }[]>`
-      SELECT extract(epoch FROM block_time)::int AS t, sqrt_price_x96 FROM bb_launch_swaps
-       WHERE chain_id = ${cid} AND token = ${token} AND block_time >= to_timestamp(${from})
-       ORDER BY block_number, log_index LIMIT 5000`,
-  ]);
-  const row = launch[0];
-  if (!row?.sqrt_price_x96 || row.quote !== GITLAWB_ADDRESS.toLowerCase()) return null;
-  const spot = quotePerToken(BigInt(row.sqrt_price_x96), 18); // GITLAWB per MUSEWORLD
-  const baseline = before[0] ? quotePerToken(BigInt(before[0].sqrt_price_x96), 18) : null;
-  const twap = timeWeightedPrice(recent.map((r) => ({ t: Number(r.t), price: quotePerToken(BigInt(r.sqrt_price_x96), 18) })), baseline, from, now);
-  const { usd: perMuseworld, source, deviation } = reconcileGitlawbUsd(spot > 0 ? spot : null, twap);
-  if (source === "twap" && deviation !== null) console.warn(`[museworld] pool spot is ${Math.round(deviation * 100)}% off the 30m average; publishing the average`);
-  return perMuseworld === null ? null : perMuseworld * gitlawbUsd;
+function listedPairSymbols(st: PriceState, chain: ChainKey): string[] {
+  return [...st.pairs.values()].filter((p) => p.chain === chain && p.status === "listed").map((p) => p.symbol);
 }
 
 /** bb_quote_tokens is tiny (one row per unlisted quote) and changes only when the indexer reads a new one. */
@@ -199,10 +173,10 @@ async function withStocks(): Promise<void> {
     /* fail soft: stocks show without USD */
   }
   try {
-    museworldUsdNow = await memo("museworld-usd", 15_000, () => readMuseworldUsd(gitlawbUsdNow));
-  } catch (err) {
-    museworldUsdNow = null; // fail soft: MUSEWORLD pools show without USD
-    console.warn("[museworld] price read failed:", err instanceof Error ? err.message : err);
+    // never throws; the last good list (prices included) is served while a refresh runs in the background
+    pairsNow = new Map((await loadPairs()).map((p) => [`${chainIdOf(p.chain)}:${p.address}`, p]));
+  } catch {
+    /* fail soft: community pairs show as unlisted until the list reads */
   }
   stockSymbolsNow = new Map(CHAIN_KEYS.map((k) => [k, stockList(k).map((s) => s.symbol)]));
   try {
@@ -210,6 +184,15 @@ async function withStocks(): Promise<void> {
   } catch {
     /* fail soft (table not migrated yet, db blip): unlisted quotes show by address and do not trade */
   }
+}
+
+/** A community pair's logo for its badge; null for every other quote (a stock's logo can be a data URI, too heavy for every row). */
+function pairLogo(q: Quote): string | null {
+  return q.key === "pair" ? (q.logo ?? null) : null;
+}
+/** What a row needs to draw its quote's badge. */
+function quoteBadgeFields(q: Quote): { quote_key: Quote["key"]; quote_symbol: string; quote_logo: string | null } {
+  return { quote_key: q.key, quote_symbol: q.symbol, quote_logo: pairLogo(q) };
 }
 
 /** A quote's USD price (ETH-quoted through the ETH price; null when unknown). */
@@ -235,6 +218,7 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
     ...r,
     chain,
     quote_key: q.key,
+    quote_logo: pairLogo(q),
     quote_symbol: q.symbol,
     quote_decimals: q.decimals,
     quote_decimals_known: q.decimalsKnown !== false,
@@ -301,8 +285,7 @@ export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 /** The raw-quote volume a Volume sort ranks by, per window: the lateral `w` in SELECT carries v1 and v24; "all" is the launch's own total. */
 export const VOLUME_COLUMN_SQL: Record<VolumeWindow, string> = { "1h": "w.v1::numeric", "24h": "w.v24::numeric", all: "l.volume_quote" };
 
-export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
-const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
+export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; quote?: string; ethUsd?: number | null };
 const DEAD_ADDR = "0x000000000000000000000000000000000000dead";
 
 export type ListPage = { items: LaunchRow[]; hasMore: boolean };
@@ -334,6 +317,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const conds = [] as ReturnType<typeof db>[];
   if (opts.chain) conds.push(db`l.chain_id = ${chainIdOf(opts.chain)}`);
   if (opts.launcher) conds.push(db`l.launcher = ${opts.launcher.toLowerCase()}`);
+  if (opts.quote) conds.push(db`l.quote = ${opts.quote.toLowerCase()}`); // a community pair's launches (with `chain`)
   if (opts.filter === "fee0") conds.push(db`l.lp_fee = 0`);
   if (opts.filter === "burn") conds.push(db`l.lp_fee > 0 AND jsonb_array_length(l.recipients) = 1 AND lower(l.recipients->0->>'payout') = ${DEAD_ADDR}`);
   // a fixed quote (USDG, USDC) is matched per chain: the same address elsewhere is some other token
@@ -356,18 +340,24 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const stockArms = stockEntries.flatMap(([a, v]) => stockChains(a).map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${v}::double precision`));
   const stockCase = stockArms.length ? stockArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
-  const museworldFactor = museworldUsdNow !== null && museworldUsdNow > 0 ? museworldUsdNow : 0;
+  // community pairs: their USD price when listed and priced (else 0 weight, like an unknown stock), and their decimals
+  const pairs = [...pairsNow.values()].filter((p) => p.status === "listed");
+  const pairArms = pairs.map((p) => db`WHEN (l.chain_id = ${chainIdOf(p.chain)} AND l.quote = ${p.address}) THEN ${p.usd !== null && p.usd > 0 ? p.usd : 0}::double precision`);
+  const pairCase = pairArms.length ? pairArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stables = fixedUsdQuotes();
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
-  // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
-  const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
-  const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
+  // ETH's price for every quote keyed "eth": address(0) where the chain's native asset is ETH (a native stable, Arc's USDC, is
+  // keyed "usdc" and already in stableCase above) and WETH on Base
+  const ethArms = quotesWithKey("eth").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${ethFactor}::double precision`);
+  const ethCase = ethArms.length ? ethArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision ${pairCase} ${ethCase} ELSE 0.0 END)`;
   const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const qd = db`(CASE ${stableDecCase} ${decCase} ELSE 18 END)`;
+  const pairDec = pairs.filter((p) => p.decimals !== 18);
+  const pairDecCase = pairDec.length ? pairDec.map((p) => db`WHEN (l.chain_id = ${chainIdOf(p.chain)} AND l.quote = ${p.address}) THEN ${p.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const qd = db`(CASE ${stableDecCase} ${decCase} ${pairDecCase} ELSE 18 END)`;
   const volCol = db.unsafe(VOLUME_COLUMN_SQL[win]);
   const volUsd = db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
   // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
@@ -458,8 +448,8 @@ export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: nu
 
 /** Home tape: launches + trades across chains, newest first. */
 export type FeedItem =
-  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; image_url: string | null; image_reused?: true }
-  | { kind: "swap"; chain: ChainKey; at: string; tx_hash: string; log_index: number; token: string; name: string; symbol: string; trader: string | null; is_buy: boolean; is_dev: boolean; quote_wei: string; quote_key: Quote["key"]; quote_symbol: string; quote_decimals: number; usd: number | null; image_url: string | null };
+  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; quote_symbol: string; quote_logo: string | null; image_url: string | null; image_reused?: true }
+  | { kind: "swap"; chain: ChainKey; at: string; tx_hash: string; log_index: number; token: string; name: string; symbol: string; trader: string | null; is_buy: boolean; is_dev: boolean; quote_wei: string; quote_key: Quote["key"]; quote_symbol: string; quote_logo: string | null; quote_decimals: number; usd: number | null; image_url: string | null };
 
 export type FeedSwap = Extract<FeedItem, { kind: "swap" }>;
 
@@ -495,7 +485,7 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
     const chain = chainKeyOf(r.chain_id) ?? DEFAULT_CHAIN;
     const q = quoteInfo(chain, r.quote);
     const qu = quoteUsd(q, ethUsd);
-    return { kind: "swap", chain, at: r.at, tx_hash: r.tx_hash, log_index: r.log_index, token: r.token, name: r.name, symbol: r.symbol, trader: r.trader, is_buy: r.is_buy, is_dev: Boolean(r.is_dev), quote_wei: r.quote_wei, quote_key: q.key, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(r.quote_wei, q.decimals) * qu, image_url: image(r.image_url) };
+    return { kind: "swap", chain, at: r.at, tx_hash: r.tx_hash, log_index: r.log_index, token: r.token, name: r.name, symbol: r.symbol, trader: r.trader, is_buy: r.is_buy, is_dev: Boolean(r.is_dev), quote_wei: r.quote_wei, quote_key: q.key, quote_symbol: q.symbol, quote_logo: pairLogo(q), quote_decimals: q.decimals, usd: qu === null ? null : units(r.quote_wei, q.decimals) * qu, image_url: image(r.image_url) };
   };
   const [launches, swaps] = await Promise.all([
     db<{ chain_id: number; at: string; tx_hash: string; token: string; name: string; symbol: string; quote: string; launcher: string | null; lp_fee: number | null; image_url: string | null }[]>`
@@ -523,7 +513,7 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
   const reused = await pictureCopies(db, launches);
   const items: FeedItem[] = launches.map((r) => {
     const chain = chainKeyOf(r.chain_id) ?? DEFAULT_CHAIN;
-    return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.launcher ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: image(r.image_url), ...(reused.has(`${r.chain_id}:${r.token.toLowerCase()}`) ? { image_reused: true as const } : {}) };
+    return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.launcher ?? "", lp_fee: r.lp_fee ?? 0, ...quoteBadgeFields(quoteInfo(chain, r.quote)), image_url: image(r.image_url), ...(reused.has(`${r.chain_id}:${r.token.toLowerCase()}`) ? { image_reused: true as const } : {}) };
   });
   return [...items, ...swaps].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, n);
 }
@@ -862,6 +852,9 @@ export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainK
   const snap = priceState();
   return (chain, quote) => {
     const q = quoteInfo(chain, quote, snap);
+    // a community pair counts for points only when priced from an openlaunch pool (our own index, our own average);
+    // one priced from an outside pool is left out, like a quote nothing prices (reports/Community pairs plan.md, decision 9)
+    if (q.key === "pair" && q.pairKind !== "launch") return { key: q.key, decimals: q.decimals, usd: null, priced: false };
     return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd), priced: hasPriceSource(q) };
   };
 }

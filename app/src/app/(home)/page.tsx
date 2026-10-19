@@ -56,7 +56,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
         {/* what is hot first (names and numbers to act on), then the last half hour as it happens, then every launch */}
         <TrendingStrip initial={trending} serverNow={now} seenKeys={feed.filter((item) => item.kind === "swap").map(feedKey)} />
         {/* paid and labelled, after the facts-only board and never inside it (boost.ts); nothing while BOOST is off */}
-        <BoostedLane initial={boost ?? { enabled: false }} serverNow={now} />
+        <BoostedLane initial={boost ?? { enabled: false }} serverNow={now} source="home" />
         <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} recent={feed} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
         <div className="grid items-start gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
           <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>

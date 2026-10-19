@@ -141,6 +141,13 @@ After review the vault no longer keeps a per-quote `pendingClaims` total or emit
 - App lint, type checking and the production build passed; **1,299 tests passed**, with eleven optional live checks skipped (ten Relay checks and the new Earn vault check). PostgreSQL 16 integration, the deployed-source lock and Arc source-comparison checks passed.
 - Contract sources and CI configuration are unchanged by this merge. Contract and guard/workflow tests were not re-run; their 14 October results remain above. The `ci-config` admin exception and Arc/B20 native-runtime deployment gate remain outstanding.
 
+### Upstream integration — 19 October 2026
+
+- Merged upstream `main` through `1e006c3`, including community pairs on Base and Robinhood Chain, admin sessions and Boost reporting. The `llms.txt` merge keeps the new Base quote information and the distinction between legacy pools and quote-fee hooks.
+- Receipt and range indexing retain pair-application payments alongside Boost. Both paths exclude burns from every configured locker and fee vault. PostgreSQL regressions cover application-payment attribution, replay across overlapping suite ranges, and separation from Boost tags.
+- App lint, type checking and the production build passed; **1,391 tests passed**, with eleven optional live checks skipped. The build passed on retry after a Google Fonts download failure. PostgreSQL 16 integration, the deployed-source lock and Arc source-comparison checks passed.
+- Contract sources and CI configuration are unchanged by this merge. Contract and guard/workflow tests were not re-run. The existing `ci-config` admin exception and Arc/B20 native-runtime deployment gate remain outstanding.
+
 ## Reference and attribution
 
 The settlement design was informed by o1's MIT-licensed, verified [LaunchHook/FeeEscrow source on Base](https://basescan.org/address/0x1f91c998e7c2F4b690D75BDBf6502BDcD6e02AcC#code), linked from its [production registry](https://docs.o1.exchange/launchpad/reference/production-contracts). This implementation uses this repository's pinned v4 interfaces and pips, fixed recipients, and an immutable NFT locker. It excludes o1's mutable controllers, referral splits and buybacks.

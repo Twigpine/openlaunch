@@ -41,10 +41,10 @@ test("the SQL pricing tables carry the native stable and scope every arm by chai
   assert.ok(fixed.some((q) => q.chain === "arc" && q.address === "0x3600000000000000000000000000000000000000" && q.decimals === 6));
   assert.ok(fixed.some((q) => q.chain === "robinhood" && q.key === "usdg"));
   assert.ok(!fixed.some((q) => q.address === NATIVE && q.chain !== "arc"), "ETH is live-priced, never a fixed quote");
-  assert.deepEqual(quotesWithKey("eth").map((q) => q.chain).sort(), ["base", "robinhood"]);
-  assert.deepEqual(quotesWithKey("usdc").map((q) => `${q.chain}:${q.address}`).sort(), ["arc:0x0000000000000000000000000000000000000000", "arc:0x3600000000000000000000000000000000000000"]);
-  // the list query has no chain-agnostic "address(0) = ETH" arm left
+  assert.deepEqual(quotesWithKey("eth").map((q) => `${q.chain}:${q.address}`).sort(), ["base:0x0000000000000000000000000000000000000000", "base:0x4200000000000000000000000000000000000006", "robinhood:0x0000000000000000000000000000000000000000"], "native ETH where it is native, and WETH on Base; never Arc's address(0)");
+  assert.deepEqual(quotesWithKey("usdc").map((q) => `${q.chain}:${q.address}`).sort(), ["arc:0x0000000000000000000000000000000000000000", "arc:0x3600000000000000000000000000000000000000", "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"]);
+  // the list query has no chain-agnostic "address(0) = ETH" arm: ETH's price goes to the chain-scoped "eth" quotes only
   const queries = readFileSync(path.join(process.cwd(), "src/lib/launchpad/queries.ts"), "utf8");
   assert.doesNotMatch(queries, /WHEN l\.quote = \$\{NATIVE_ADDR\} THEN/);
-  assert.match(queries, /NATIVE_QUOTES\[k\]\.key === "eth"/);
+  assert.match(queries, /const ethArms = quotesWithKey\("eth"\)\.map\(\(\{ chain, address \}\) => db`WHEN \(l\.chain_id = \$\{chainIdOf\(chain\)\} AND l\.quote = \$\{address\}\) THEN \$\{ethFactor\}/);
 });

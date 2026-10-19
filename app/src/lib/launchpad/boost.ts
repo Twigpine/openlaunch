@@ -13,6 +13,8 @@
  */
 import { TWIG_ADDRESS, TWIG_DECIMALS, TWIG_SYMBOL } from "./twig.ts";
 import { CHAIN_IDS } from "../chainKeys.ts";
+import { BRAND_DOMAIN, BRAND_X } from "../brand.ts";
+import { intentUrl } from "../profiles/xpost.ts";
 
 /** Boosts exist on Base only: TWIG has not been bridged anywhere. */
 export const BOOST_CHAIN = "base" as const;
@@ -194,6 +196,152 @@ export function boostShowsNow(entry: LaneEntry, current: bigint, raw: bigint, in
   return current + raw >= BigInt(entry.cutoff);
 }
 
+/* ─────────────────────────────── the lane's invitation ─────────────────────────────── */
+
+/** "1st", "2nd", "5th": the place the lane's entry line names. */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
+/** "from 100K TWIG": what an open place asks, in the lane's entry line and on its open-place buttons. */
+export const BOOST_FROM_FLOOR = `from ${compactWhole(Number(BOOST_FLOOR_TWIG))} ${TWIG_SYMBOL}`;
+
+/**
+ * What it takes to get into the lane, read off the cards it shows (raw TWIG totals in lane order), so the line can
+ * never contradict them: "2 open spots · from 100K TWIG" while there is room, "Full · 5th place holds 1.2M TWIG" (what
+ * the last card shows, and what a boost has to reach) once there is not.
+ */
+export function boostEntryLine(totals: readonly string[]): string {
+  const open = BOOST_LANE_SIZE - totals.length;
+  if (open > 0) return `${open} open ${open === 1 ? "spot" : "spots"} · ${BOOST_FROM_FLOOR}`;
+  return `Full · ${ordinal(BOOST_LANE_SIZE)} place holds ${fmtBoostTwig(totals[BOOST_LANE_SIZE - 1])}`;
+}
+
+/** One wallet's boosts on one token inside the window (the database groups; topBoosters picks). */
+export type BoosterTotal = { token: string; booster: string; twig: string; last_at: string };
+
+/**
+ * Who a card credits: per token, the wallet that sent the most TWIG for it in the window; a tie goes to the newer
+ * boost, then to the address, so the credit never flickers between polls.
+ */
+export function topBoosters(rows: readonly BoosterTotal[]): Map<string, string> {
+  const best = new Map<string, BoosterTotal>();
+  for (const r of rows) {
+    const cur = best.get(r.token);
+    if (!cur) {
+      best.set(r.token, r);
+      continue;
+    }
+    const d = BigInt(r.twig) - BigInt(cur.twig);
+    const t = Date.parse(r.last_at) - Date.parse(cur.last_at);
+    if (d > 0n || (d === 0n && (t > 0 || (t === 0 && r.booster < cur.booster)))) best.set(r.token, r);
+  }
+  return new Map([...best].map(([token, r]) => [token, r.booster]));
+}
+
+/* ─────────────────────────────── results and sharing ─────────────────────────────── */
+
+/** The token page shows its clicks from the lane once there are this many: a fresh boost never reads "3 clicks". */
+export const BOOST_PANEL_CLICKS_MIN = 10;
+
+/**
+ * The post a booster can share once a boost is confirmed: what was sent and where it went, nothing about price. True
+ * whether or not the boost brought the token into the lane yet.
+ */
+export function boostShareText(symbol: string, raw: bigint | string): string {
+  return `Boosted $${symbol} with ${fmtBoostTwig(raw)} on ${BRAND_DOMAIN}. The TWIG went to 0x…dEaD.`;
+}
+
+/** The X intent for that post: the token's page as its link, via the official account (the one intent builder, xpost.ts). */
+export function boostShareUrl(symbol: string, raw: bigint | string, pageUrl: string): string {
+  return intentUrl(boostShareText(symbol, raw), { url: pageUrl, via: BRAND_X });
+}
+
+/* ─────────────────────────────── views and clicks ─────────────────────────────── */
+
+/**
+ * The lane counts how often it is seen and its cards are clicked: each card shows its clicks, /admin shows them all,
+ * and the ranking never reads them (boost-ui.test.ts). A click counts only while its token is in the lane, at the place
+ * the server's lane gives it.
+ */
+export const BOOST_SOURCES = ["home", "base"] as const;
+export type BoostSource = (typeof BOOST_SOURCES)[number];
+/** One click per visitor, token and slot: a reload or a double click counts once. */
+export const BOOST_CLICK_SLOT_MS = 30 * 60_000;
+/** The periods /admin can read. */
+export const BOOST_STATS_DAYS = [1, 7, 30] as const;
+export type BoostStatsDays = (typeof BOOST_STATS_DAYS)[number];
+
+/** What the lane's beacon reports: the lane came on screen, or a card was clicked. */
+export type BoostSeen = { kind: "view"; source: BoostSource } | { kind: "click"; source: BoostSource; token: string };
+
+/** A beacon body → what it reports (the token lowercased), or null when it is not one. Other fields are ignored. */
+export function parseBoostSeen(body: unknown): BoostSeen | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.source !== "string" || !(BOOST_SOURCES as readonly string[]).includes(b.source)) return null;
+  const source = b.source as BoostSource;
+  if (b.kind === "view") return { kind: "view", source };
+  if (b.kind === "click" && typeof b.token === "string" && /^0x[0-9a-fA-F]{40}$/.test(b.token)) return { kind: "click", source, token: b.token.toLowerCase() };
+  return null;
+}
+
+/** A token's place in the lane as it stands now (1-based), or null when it is not in it: then a click counts nothing. */
+export function boostPlace(lane: readonly string[], token: string): number | null {
+  const i = lane.indexOf(token.toLowerCase());
+  return i >= 0 ? i + 1 : null;
+}
+
+/** The start of the 30-minute slot a moment falls in (UTC). */
+export function boostClickSlot(nowMs: number): string {
+  return new Date(Math.floor(nowMs / BOOST_CLICK_SLOT_MS) * BOOST_CLICK_SLOT_MS).toISOString();
+}
+
+/** The hour a view is counted in (UTC). */
+export function boostViewHour(nowMs: number): string {
+  return new Date(Math.floor(nowMs / 3_600_000) * 3_600_000).toISOString();
+}
+
+/** Click rows are kept this long (each names a visitor of one day); /admin reads 30 days at most. Views are counts and stay. */
+export const BOOST_CLICKS_KEEP_DAYS = 90;
+
+/**
+ * Whether a beacon came from one of the site's own pages. Browsers send Sec-Fetch-Site on every request and Origin on
+ * every POST, so a page elsewhere that sends beacons from its own visitors' browsers (a text/plain beacon needs no CORS
+ * preflight) is refused here. A request with neither header is not a browser; it could forge both, and the per-IP
+ * limit is what holds it.
+ */
+export function boostBeaconSameOrigin(secFetchSite: string | null, origin: string | null, host: string | null): boolean {
+  if (secFetchSite) return secFetchSite === "same-origin";
+  if (origin) {
+    try {
+      return host !== null && new URL(origin).host === host;
+    } catch {
+      return false; // "null" (a sandboxed frame) or garbage
+    }
+  }
+  return true;
+}
+
+export function isBoostStatsDays(v: unknown): v is BoostStatsDays {
+  return typeof v === "number" && (BOOST_STATS_DAYS as readonly number[]).includes(v);
+}
+
+/** "4.2%": clicks per lane view; "–" before any view. */
+export function boostClickRate(clicks: number, views: number): string {
+  if (!(views > 0)) return "–";
+  return `${((clicks / views) * 100).toFixed(1)}%`;
+}
+
+/** Clicks per 100K TWIG (the floor) burned for the token in the same period; null when nothing was burned in it. */
+export function boostClicksPerFloor(clicks: number, twigRaw: string): number | null {
+  const whole = Number(boostWholeOf(BigInt(twigRaw)));
+  if (!(whole > 0)) return null;
+  return (clicks * Number(BOOST_FLOOR_TWIG)) / whole;
+}
+
 /* ─────────────────────────────── moderation ─────────────────────────────── */
 
 export const BOOST_MOD_ACTIONS = ["hide", "unhide"] as const;
@@ -222,6 +370,15 @@ export const BOOST_COPY = {
   laneTitle: "Boosted",
   laneNote: "Paid in TWIG sent to 0x…dEaD. Not a ranking: the Live sort and Trending count outside wallets only.",
   laneEmpty: "Nothing is boosted right now. Any Base launch can be boosted with TWIG from its page.",
+  cta: "Boost a token",
+  openSpot: "Open spot",
+  pickerNote: "Pick a Base token. The boost happens on its page, where you see the amount and the lane before anything is sent.",
+  pickerMine: "Your launches",
+  pickerTrending: "Trending on Base",
+  pickerSearch: "Search Base tokens",
+  pickerNone: "No Base token matches.",
+  pickerFailed: "Search is unavailable right now. Any token's page still has its Boost button.",
+  pickerHidden: "Not shown in the lane",
   what: "The Boosted lane shows the 5 tokens with the most TWIG sent for them in the last 24 hours. A boost counts toward that total for 24 hours. It does not change the Live sort or the Trending board, and it is not an endorsement.",
   tag: "The last digits of the amount name this token, so the transfer itself records what it boosted.",
   final: "The TWIG goes to 0x…dEaD. It cannot be undone or refunded, and nothing is paid to openlaunch or Twigpine.",

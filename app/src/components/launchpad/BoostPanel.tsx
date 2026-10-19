@@ -2,12 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, MousePointerClick } from "lucide-react";
 import { btn } from "@/components/ui";
 import { useLive } from "./LiveProvider";
 import { TwigMark } from "./TwigBadge";
 import type { TokenBoost } from "@/lib/launchpad/boostServer";
-import { BOOST_CHAIN, BOOST_COPY, boostTimeLeft, fmtBoostTwig } from "@/lib/launchpad/boost";
+import { BOOST_CHAIN, BOOST_COPY, BOOST_PANEL_CLICKS_MIN, boostTimeLeft, fmtBoostTwig } from "@/lib/launchpad/boost";
 import { explorerTx } from "@/lib/chainPublic";
 import type { PendingBoost } from "./BoostDialog";
 
@@ -15,8 +15,8 @@ import type { PendingBoost } from "./BoostDialog";
 const BoostDialog = dynamic(() => import("./BoostDialog"), { ssr: false });
 
 /**
- * A Base token's boost line on its page: whether it is in the Boosted lane, with how much TWIG and for how long, and
- * the button that opens the dialog. Nothing while BOOST is off. A token an admin hid says so and offers no button, so
+ * A Base token's boost line on its page: whether it is in the Boosted lane, with how much TWIG and for how long, what
+ * the lane brought it (clicks in the same 24 hours, from BOOST_PANEL_CLICKS_MIN up), and the button that opens the dialog. Nothing while BOOST is off. A token an admin hid says so and offers no button, so
  * nobody sends TWIG for a place it cannot get. `autoOpen` comes from /me's "Boost" link (?boost=1).
  */
 export default function BoostPanel({ token, tokenId, symbol, name, initial, twigUsd, serverNow, autoOpen = false }: { token: string; tokenId: number; symbol: string; name: string; initial: TokenBoost; twigUsd: number | null; serverNow: number; autoOpen?: boolean }) {
@@ -51,6 +51,8 @@ export default function BoostPanel({ token, tokenId, symbol, name, initial, twig
   if (!state.enabled) return null;
   const left = state.last_at ? boostTimeLeft(state.last_at, now) : null;
   const active = left !== null && BigInt(state.twig) > 0n;
+  // absent from a machine on an older build mid-deploy: no line, never "undefined"
+  const clicks = state.clicks ?? 0;
   return (
     <section id="boost" aria-labelledby="boost-heading" className="scroll-mt-24 rounded-2xl border border-line bg-card px-4 py-3.5 sm:px-5">
       <div className="flex items-center justify-between gap-3">
@@ -68,6 +70,13 @@ export default function BoostPanel({ token, tokenId, symbol, name, initial, twig
               <>Not boosted. Sending TWIG to 0x…dEaD puts {symbol} in the Boosted lane for 24 hours.</>
             )}
           </p>
+          {/* what the lane brought it: only while boosted, and not until it reads like a result */}
+          {active && clicks >= BOOST_PANEL_CLICKS_MIN ? (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-body">
+              <MousePointerClick size={12} aria-hidden="true" className="shrink-0 text-muted" />
+              <span><span className="font-mono text-ink tnum">{clicks.toLocaleString("en-US")}</span> clicks from the lane in the last 24 hours</span>
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <button type="button" onClick={() => setOpen(true)} className={btn.secondarySm}>{pending ? "Boost sent: check it" : "Boost with TWIG"}</button>
             {active && state.last_tx ? <a href={explorerTx(BOOST_CHAIN, state.last_tx)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] text-muted hover:text-ink">Latest burn<ArrowUpRight size={11} aria-hidden="true" /></a> : null}

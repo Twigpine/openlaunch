@@ -476,3 +476,179 @@ CREATE TABLE IF NOT EXISTS bb_boosts (
 CREATE INDEX IF NOT EXISTS bb_boosts_time_idx ON bb_boosts (chain_id, block_time DESC);
 CREATE INDEX IF NOT EXISTS bb_boosts_tag_idx ON bb_boosts (chain_id, tag);
 ALTER TABLE bb_token_settings ADD COLUMN IF NOT EXISTS boost_hidden boolean NOT NULL DEFAULT false;  -- admin: kept out of the Boosted lane
+
+-- ── Boosted lane views + clicks (2026-10-16): counted only while the token is in the lane ──
+-- Shown as each lane card's click count and on /admin; never read by the ranking (boost-ui.test.ts). visitor =
+-- sha256(address hash | token), cut short. The address hash (the client address, an IPv6 one by its /64, with the
+-- daily presence salt, no user agent) rotates every UTC day and cannot be reversed, and mixing in the token means one
+-- address's clicks on two tokens cannot be linked. One row per visitor, token and 30-minute slot: one address counts
+-- once per card every 30 minutes, whatever user agent it sends.
+CREATE TABLE IF NOT EXISTS bb_boost_clicks (
+  chain_id   integer NOT NULL,
+  token      text NOT NULL,
+  visitor    text NOT NULL,
+  slot       timestamptz NOT NULL,                          -- the 30-minute slot the click fell in
+  place      integer NOT NULL CHECK (place >= 1),           -- the token's place in the lane then, from the server's lane
+  source     text NOT NULL CHECK (source IN ('home', 'base')),
+  clicked_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain_id, token, visitor, slot)
+);
+CREATE INDEX IF NOT EXISTS bb_boost_clicks_time_idx ON bb_boost_clicks (chain_id, clicked_at DESC);
+CREATE INDEX IF NOT EXISTS bb_boost_clicks_token_time_idx ON bb_boost_clicks (chain_id, token, clicked_at DESC);  -- each card's 24 h count
+-- One count per token and hour: each page load that brings the lane on screen adds 1 to every token in it.
+CREATE TABLE IF NOT EXISTS bb_boost_views (
+  chain_id integer NOT NULL,
+  token    text NOT NULL,
+  hour_at  timestamptz NOT NULL,
+  views    integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (chain_id, token, hour_at)
+);
+CREATE INDEX IF NOT EXISTS bb_boost_views_time_idx ON bb_boost_views (chain_id, hour_at DESC);
+
+-- ── community pairs (2026-10-16; lib/launchpad/pairs.ts, reports/Community pairs plan.md) ──────────────────────────
+-- An app-level list of ERC-20s that launches may be paired with and that the site prices and badges. The contracts are
+-- untouched and still accept any ERC-20: a token missing here simply shows as an unlisted pair. A listing names the
+-- pool its USD price is read from (`price_kind`: 'launch' = an openlaunch pool indexed here, 'univ3' = a Uniswap v3 /
+-- Aerodrome Slipstream pool with an on-chain oracle, 'univ4' = a hookless Uniswap v4 pool, averaged from our own
+-- samples) and the core quote on its other side. Status: listed → suspended (by the hourly monitor after 24 h of
+-- failing checks, at once when the contract's code changes, or by an admin) → delisted (14 days suspended, or an admin).
+CREATE TABLE IF NOT EXISTS bb_pairs (
+  chain_id      integer NOT NULL,
+  address       text NOT NULL,                              -- lowercase
+  symbol        text NOT NULL,                              -- as shown (cleaned); unique among listed pairs per chain
+  name          text NOT NULL,
+  decimals      integer NOT NULL CHECK (decimals BETWEEN 6 AND 18),
+  logo_url      text,                                       -- our own image host, or a path on this site
+  website       text,
+  x_handle      text,
+  description   text,
+  status        text NOT NULL DEFAULT 'listed' CHECK (status IN ('listed', 'suspended', 'delisted')),
+  status_by     text NOT NULL DEFAULT 'admin' CHECK (status_by IN ('admin', 'monitor')),
+  status_reason text,
+  status_at     timestamptz NOT NULL DEFAULT now(),
+  price_kind    text NOT NULL CHECK (price_kind IN ('launch', 'univ3', 'univ4')),
+  price_pool    text NOT NULL,                              -- launch: the launched token; univ3: the pool; univ4: the pool id
+  price_quote   text NOT NULL,                              -- the core quote on the pool's other side (lowercase)
+  price_hook    text,                                       -- univ4: the pool's hook as read from its key, when it has one (named by the admin)
+  code_hash     text,                                       -- keccak256 of the runtime code when listed; a change suspends
+  failing_since timestamptz,                                -- first failing monitor run since the last healthy one
+  checked_at    timestamptz,
+  listed_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain_id, address)
+);
+-- One listed pair per symbol per chain (the badge is the symbol): a second one is refused, whatever path writes it.
+CREATE UNIQUE INDEX IF NOT EXISTS bb_pairs_listed_symbol_idx ON bb_pairs (chain_id, upper(symbol)) WHERE status = 'listed';
+-- The public record of every status change, shown on the pair page.
+CREATE TABLE IF NOT EXISTS bb_pair_events (
+  id         bigserial PRIMARY KEY,
+  chain_id   integer NOT NULL,
+  address    text NOT NULL,
+  status     text NOT NULL,
+  reason     text,
+  actor      text NOT NULL,                                 -- an admin wallet, or 'monitor'
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bb_pair_events_pair_idx ON bb_pair_events (chain_id, address, created_at DESC);
+-- Minute samples of a v4 price pool (quote units per pair token), for its 30-minute average: v4 keeps no oracle.
+CREATE TABLE IF NOT EXISTS bb_pair_prices (
+  chain_id integer NOT NULL,
+  address  text NOT NULL,
+  t        timestamptz NOT NULL,                            -- truncated to the minute: two machines write one row
+  price    double precision NOT NULL,
+  PRIMARY KEY (chain_id, address, t)
+);
+-- MUSEWORLD was an "official" quote in code until this list existed; it is the first community pair, under the same rules.
+INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, price_kind, price_pool, price_quote)
+VALUES (8453, '0x882c8e35504d58979b1280fe76d6553f717029f8', 'MUSEWORLD', 'Museworld', 18, '/museworld-mark.png', 'https://museworld.lol', 'museworldhq',
+        'Museworld''s token. Museworld''s AI agents launch their tokens paired with it.', 'listed', 'launch',
+        '0x882c8e35504d58979b1280fe76d6553f717029f8', '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3')
+ON CONFLICT (chain_id, address) DO NOTHING;
+INSERT INTO bb_pair_events (chain_id, address, status, reason, actor)
+SELECT 8453, '0x882c8e35504d58979b1280fe76d6553f717029f8', 'listed', 'Moved from an official quote to the community pairs list.', 'migration'
+ WHERE NOT EXISTS (SELECT 1 FROM bb_pair_events WHERE chain_id = 8453 AND address = '0x882c8e35504d58979b1280fe76d6553f717029f8');
+
+-- ── community pair applications (2026-10-16; lib/launchpad/pairApply.ts) ─────────────────────────────────────────────
+-- A community applies for its token after the free pre-check passes; the fee ($200 of TWIG, PAIR_LISTING_USD) is sent to
+-- 0x…dEaD naming the application in its last digits (Boost tag kind 3) and pays for up to 3 reviews within 60 days.
+CREATE TABLE IF NOT EXISTS bb_pair_applications (
+  id              bigserial PRIMARY KEY,
+  chain_id        integer NOT NULL,
+  address         text NOT NULL,                            -- the token (lowercase)
+  applicant       text NOT NULL,                            -- the wallet that signed (a verified X profile)
+  code            text NOT NULL,                            -- for the proof post, e.g. OL-12-K7QX
+  symbol          text NOT NULL,
+  name            text NOT NULL,
+  decimals        integer NOT NULL,
+  price_kind      text NOT NULL,
+  price_pool      text NOT NULL,
+  price_quote     text NOT NULL,
+  price_hook      text,
+  logo_url        text,
+  website         text,
+  x_handle        text,
+  description     text,
+  proof_url       text,
+  precheck        jsonb NOT NULL,                           -- the pre-check as it stood when the application was made
+  status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paid', 'changes', 'approved', 'rejected', 'expired')),
+  fee_usd         double precision NOT NULL,
+  paid_usd        double precision NOT NULL DEFAULT 0,
+  paid_at         timestamptz,
+  quote_twig      numeric(78,0),                            -- the locked quote: whole TWIG, its USD price, until when
+  quote_price_usd double precision,
+  quote_at        timestamptz,                              -- when the lock started: a burn sent before it is not at its price
+  quote_until     timestamptz,
+  reviews_used    integer NOT NULL DEFAULT 0,
+  reason          text,                                     -- the last decision's reason, shown to the applicant
+  decided_by      text,
+  decided_at      timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bb_pair_applications_status_idx ON bb_pair_applications (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS bb_pair_applications_applicant_idx ON bb_pair_applications (applicant);
+-- One application in progress per token.
+CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications (chain_id, address) WHERE status IN ('open', 'paid', 'changes');
+-- TWIG sent to 0x…dEaD for an application (raw facts from the Transfer log), each valued in USD when indexed.
+CREATE TABLE IF NOT EXISTS bb_pair_burns (
+  chain_id       integer NOT NULL,
+  tx_hash        text NOT NULL,
+  log_index      integer NOT NULL,
+  application_id bigint NOT NULL,
+  sender         text NOT NULL,
+  twig           numeric(78,0) NOT NULL,                    -- whole TWIG
+  usd            double precision,                          -- null until a price was there to value it
+  priced_by      text CHECK (priced_by IN ('quote', 'live')),
+  block_number   bigint NOT NULL,
+  block_time     timestamptz NOT NULL,
+  PRIMARY KEY (chain_id, tx_hash, log_index)
+);
+CREATE INDEX IF NOT EXISTS bb_pair_burns_app_idx ON bb_pair_burns (application_id);
+-- The end of the latest fee quote, kept when a landed burn spends the quote (that clears quote_until): another transfer
+-- sent under it may still be indexing, so a fee waiver waits for it as well.
+ALTER TABLE bb_pair_applications ADD COLUMN IF NOT EXISTS last_quote_until timestamptz;
+-- Backfill: a live quote's own end. Where a burn already spent the quote (that cleared quote_until) its end is unknown,
+-- but every such quote began before this runs, so it ends by now + 30 minutes: an application a waiver could still
+-- apply to waits that long. Later quotes record last_quote_until themselves.
+UPDATE bb_pair_applications SET last_quote_until = quote_until WHERE last_quote_until IS NULL AND quote_until IS NOT NULL;
+UPDATE bb_pair_applications a SET last_quote_until = now() + interval '30 minutes'
+ WHERE a.last_quote_until IS NULL AND a.status IN ('open', 'changes') AND EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id);
+
+-- ── admin sign-in (lib/admin) ───────────────────────────────────────────────
+-- Server-issued nonces for Sign-In with Ethereum messages: 5 minutes, single use.
+CREATE TABLE IF NOT EXISTS bb_admin_nonces (
+  nonce      text PRIMARY KEY,
+  expires_at timestamptz NOT NULL,
+  used_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- Admin sessions: 8 hours from sign-in. Only the SHA-256 of the cookie's token is kept, never the token.
+CREATE TABLE IF NOT EXISTS bb_admin_sessions (
+  id           bigserial PRIMARY KEY,
+  token_hash   text NOT NULL UNIQUE,
+  wallet       text NOT NULL,
+  device       text NOT NULL DEFAULT '',                    -- "Chrome · macOS": no user agent, no IP
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS bb_admin_sessions_wallet_idx ON bb_admin_sessions (wallet, created_at DESC);

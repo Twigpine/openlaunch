@@ -13,6 +13,7 @@ import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, STATE_VIEW_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI, V4_QUOTER_EXACT_INPUT_ABI } from "@/lib/launchpad/abi";
 import { fmtImpact, impactLevel, priceImpact } from "@/lib/launchpad/price-impact";
 import { BUY_PRESETS, NATIVE, SWAP_GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
+import { pairBuyPresets } from "@/lib/launchpad/pairs";
 import { TWIG_WRAP_URL } from "@/lib/launchpad/twig";
 import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units } from "@/lib/launchpad/math";
@@ -306,7 +307,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, trad
             <span className="max-w-28 shrink-0 truncate rounded-full border border-line bg-card px-3 py-1.5 text-xs font-semibold text-ink">{side === "buy" ? pay.symbol : symbol}</span>
           </div>
           <div className="mt-3 flex gap-1.5">
-            {side === "buy" ? BUY_PRESETS[viaEth ? "eth" : quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${pay.symbol}`} className={`min-h-7 flex-1 rounded-full border px-2 font-mono text-[11px] tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none ${amount === p ? "border-line-strong bg-card text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), pay.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-7 flex-1 rounded-full border border-line px-2 font-mono text-[11px] text-muted tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none">{pct === 100 ? "Max" : `${pct}%`}</button>)}
+            {side === "buy" ? (!viaEth && quote.key === "pair" ? pairBuyPresets(quote.usd, quote.decimals) : BUY_PRESETS[viaEth ? "eth" : quote.key]).map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${pay.symbol}`} className={`min-h-7 flex-1 rounded-full border px-2 font-mono text-[11px] tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none ${amount === p ? "border-line-strong bg-card text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), pay.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-7 flex-1 rounded-full border border-line px-2 font-mono text-[11px] text-muted tnum transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40 motion-reduce:transition-none">{pct === 100 ? "Max" : `${pct}%`}</button>)}
           </div>
         </div>
         {/* the arrow sits in a cut between the two wells, ringed in the card's own colour */}

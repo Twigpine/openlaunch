@@ -9,7 +9,7 @@ import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner, ChainLogoStack } from "./ChainLogo";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import EditTokenSheet from "./EditTokenSheet";
@@ -262,7 +262,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       <div className={styles.tokenName}>
                         <span className="font-semibold text-[15px] text-ink truncate">{l.name}</span>
                         <span className="font-mono text-xs text-muted">{l.symbol}</span>
-                        <QuoteBrandBadge quoteKey={l.quote_key} />
+                        <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} />
                         {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} /> : null}
                       </div>
                       <div className={styles.tokenMeta}>
@@ -321,7 +321,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <div className={styles.tokenName}>
                       <span className="font-semibold text-ink truncate">{t.name}</span>
                       <span className="font-mono text-xs text-muted">{t.symbol}</span>
-                      <QuoteBrandBadge quoteKey={t.quote_key} />
+                      <QuoteBrandBadge quoteKey={t.quote_key} symbol={t.quote_symbol} logo={t.quote_logo} />
                       {t.quote_key === "other" ? <UnlistedPairBadge symbol={t.quote_symbol} /> : null}
                     </div>
                     <div className={styles.tokenMeta}>

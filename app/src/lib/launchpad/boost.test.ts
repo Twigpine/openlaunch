@@ -31,6 +31,24 @@ import {
   maxBoostWhole,
   parseBoostWhole,
   rankLane,
+  BOOST_CLICK_SLOT_MS,
+  BOOST_CLICKS_KEEP_DAYS,
+  BOOST_FROM_FLOOR,
+  BOOST_PANEL_CLICKS_MIN,
+  boostShareText,
+  boostShareUrl,
+  boostEntryLine,
+  topBoosters,
+  BOOST_SOURCES,
+  boostBeaconSameOrigin,
+  boostViewHour,
+  BOOST_STATS_DAYS,
+  boostClickRate,
+  boostClickSlot,
+  boostClicksPerFloor,
+  boostPlace,
+  isBoostStatsDays,
+  parseBoostSeen,
   type BoostTransfer,
 } from "./boost.ts";
 import { TWIG_ADDRESS, TWIG_ADDRESSES } from "./twig.ts";
@@ -226,4 +244,124 @@ test("the dialog knows whether a boost shows now", () => {
   assert.equal(boostShowsNow(full, 0n, 1_000_000n * E18, false), true, "a tie goes to the newer boost");
   assert.equal(boostShowsNow(full, 900_000n * E18, 100_000n * E18, false), true, "it adds to what the token already has");
   assert.equal(boostShowsNow(full, 0n, 1n, true), true, "already in the lane");
+});
+
+test("the lane's beacon is a view or a click on a token, from the home page or /base", () => {
+  const TOKEN = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01";
+  assert.deepEqual([...BOOST_SOURCES], ["home", "base"]);
+  assert.deepEqual(parseBoostSeen({ kind: "view", source: "home" }), { kind: "view", source: "home" });
+  assert.deepEqual(parseBoostSeen({ kind: "view", source: "base", token: TOKEN }), { kind: "view", source: "base" }, "a view carries no token");
+  assert.deepEqual(parseBoostSeen({ kind: "click", source: "base", token: TOKEN, place: 1 }), { kind: "click", source: "base", token: TOKEN.toLowerCase() }, "lowercased; a place in the body is ignored");
+  for (const bad of [
+    null,
+    "view",
+    [{ kind: "view", source: "home" }],
+    {},
+    { kind: "view" },
+    { kind: "view", source: "token" },
+    { kind: "hover", source: "home" },
+    { kind: "click", source: "home" },
+    { kind: "click", source: "home", token: "0x123" },
+    { kind: "click", source: "home", token: `${TOKEN}00` },
+    { kind: "click", source: "home", token: 42 },
+  ]) {
+    assert.equal(parseBoostSeen(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("a click counts only for a token in the lane now, at the place the lane gives it", () => {
+  const lane = ["0xaaa", "0xbbb", "0xccc"];
+  assert.equal(boostPlace(lane, "0xaaa"), 1);
+  assert.equal(boostPlace(lane, "0xCCC"), 3, "any case");
+  assert.equal(boostPlace(lane, "0xddd"), null, "out of the lane (expired, hidden, never in it)");
+  assert.equal(boostPlace([], "0xaaa"), null, "an empty lane, or the switch off");
+});
+
+test("clicks fall in 30-minute slots, so a reload counts once", () => {
+  assert.equal(BOOST_CLICK_SLOT_MS, 1_800_000);
+  const t = Date.parse("2026-10-16T09:00:00.000Z");
+  assert.equal(boostClickSlot(t), "2026-10-16T09:00:00.000Z");
+  assert.equal(boostClickSlot(t + 1_799_999), "2026-10-16T09:00:00.000Z");
+  assert.equal(boostClickSlot(t + 1_800_000), "2026-10-16T09:30:00.000Z");
+  assert.equal(boostClickSlot(t - 1), "2026-10-16T08:30:00.000Z");
+});
+
+test("the admin figures: periods, click rate and clicks per 100K TWIG", () => {
+  assert.deepEqual([...BOOST_STATS_DAYS], [1, 7, 30]);
+  for (const d of BOOST_STATS_DAYS) assert.equal(isBoostStatsDays(d), true);
+  for (const d of [0, 2, 365, "7", null, Number.NaN]) assert.equal(isBoostStatsDays(d), false, String(d));
+  assert.equal(boostClickRate(21, 500), "4.2%");
+  assert.equal(boostClickRate(0, 10), "0.0%");
+  assert.equal(boostClickRate(3, 0), "–", "no view yet: no rate, never a confident 0");
+  assert.equal(boostClicksPerFloor(30, (300_000n * E18 + ID).toString()), 10, "30 clicks for 300K TWIG = 10 per 100K (the tag is ignored)");
+  assert.equal(boostClicksPerFloor(5, "0"), null, "nothing burned in the period");
+});
+
+test("views count by the hour; click rows are kept 90 days, past the longest period /admin reads", () => {
+  assert.equal(boostViewHour(Date.parse("2026-10-16T09:59:59.999Z")), "2026-10-16T09:00:00.000Z");
+  assert.equal(boostViewHour(Date.parse("2026-10-16T10:00:00.000Z")), "2026-10-16T10:00:00.000Z");
+  assert.ok(BOOST_CLICKS_KEEP_DAYS > Math.max(...BOOST_STATS_DAYS));
+});
+
+test("only the site's own pages may send the beacon: another site's visitors cannot raise a card's count", () => {
+  const HOST = "openlaunch.lol";
+  assert.equal(boostBeaconSameOrigin("same-origin", "https://openlaunch.lol", HOST), true);
+  assert.equal(boostBeaconSameOrigin("cross-site", "https://promoter.example", HOST), false, "a beacon from another site");
+  assert.equal(boostBeaconSameOrigin("same-site", "https://x.openlaunch.lol", HOST), false, "a subdomain is another origin");
+  assert.equal(boostBeaconSameOrigin("none", null, HOST), false, "not a page's request");
+  assert.equal(boostBeaconSameOrigin("cross-site", "https://openlaunch.lol", HOST), false, "Sec-Fetch-Site wins over a matching Origin");
+  // a browser without Sec-Fetch-Site still sends Origin on a POST
+  assert.equal(boostBeaconSameOrigin(null, "https://openlaunch.lol", HOST), true);
+  assert.equal(boostBeaconSameOrigin(null, "http://localhost:3000", "localhost:3000"), true);
+  assert.equal(boostBeaconSameOrigin(null, "https://promoter.example", HOST), false);
+  assert.equal(boostBeaconSameOrigin(null, "null", HOST), false, "a sandboxed frame");
+  assert.equal(boostBeaconSameOrigin(null, "https://openlaunch.lol", null), false, "no host to compare");
+  // neither header: not a browser page (a script could forge both); the per-IP limit holds it
+  assert.equal(boostBeaconSameOrigin(null, null, HOST), true);
+});
+
+test("the lane says what it takes to get in, read off the cards it shows", () => {
+  const twig = (whole: bigint) => (whole * E18 + ID).toString();
+  assert.equal(BOOST_FROM_FLOOR, "from 100K TWIG");
+  assert.equal(boostEntryLine([twig(3_000_000n), twig(500_000n), twig(300_000n)]), "2 open spots · from 100K TWIG");
+  assert.equal(boostEntryLine([twig(1n), twig(1n), twig(1n), twig(1n)]), "1 open spot · from 100K TWIG");
+  assert.equal(boostEntryLine([]), "5 open spots · from 100K TWIG", "an empty lane");
+  // full: the 5th card's own total, so the line and the cards always agree
+  assert.equal(boostEntryLine([twig(9_000_000n), twig(3_000_000n), twig(2_000_000n), twig(1_500_000n), twig(1_234_567n)]), "Full · 5th place holds 1.23M TWIG");
+  const banned = /\b(moon|rally|buyback|guarantee[ds]?|pump|gem|100x|profit|invest(ment)?|returns?|yield|airdrop|reward)\b/i;
+  for (const line of [boostEntryLine([twig(1n)]), boostEntryLine(Array(5).fill(twig(100_000n)))]) assert.ok(!banned.test(line), line);
+});
+
+test("a card credits the wallet that sent the most TWIG in the window; a tie goes to the newer boost, then the address", () => {
+  const row = (token: string, booster: string, whole: bigint, at: string) => ({ token, booster, twig: (whole * E18).toString(), last_at: at });
+  const picked = topBoosters([
+    row("0xt1", "0xaaa", 300_000n, "2026-10-16T01:00:00Z"),
+    row("0xt1", "0xbbb", 1_000_000n, "2026-10-16T00:00:00Z"), // most TWIG
+    row("0xt1", "0xccc", 100_000n, "2026-10-16T05:00:00Z"),
+    row("0xt2", "0xddd", 500_000n, "2026-10-16T01:00:00Z"),
+    row("0xt2", "0xeee", 500_000n, "2026-10-16T02:00:00Z"), // tie: the newer boost
+    row("0xt3", "0xfff", 100_000n, "2026-10-16T01:00:00Z"),
+    row("0xt3", "0x999", 100_000n, "2026-10-16T01:00:00Z"), // tie on both: the lower address
+  ]);
+  assert.equal(picked.get("0xt1"), "0xbbb");
+  assert.equal(picked.get("0xt2"), "0xeee");
+  assert.equal(picked.get("0xt3"), "0x999");
+  assert.equal(topBoosters([]).size, 0);
+});
+
+test("a booster's post says what was sent and where it went, links the token's page, and tags the official account", () => {
+  const raw = 1_000_000n * E18 + ID;
+  assert.equal(boostShareText("MUSEWORLD", raw), "Boosted $MUSEWORLD with 1M TWIG on openlaunch.lol. The TWIG went to 0x…dEaD.");
+  assert.equal(boostShareText("BSTR", (426_248n * E18).toString()), "Boosted $BSTR with 426.25K TWIG on openlaunch.lol. The TWIG went to 0x…dEaD.");
+  const url = new URL(boostShareUrl("A&B #1", raw, "https://openlaunch.lol/t/base/0xabc"));
+  assert.equal(url.origin + url.pathname, "https://x.com/intent/post", "the same intent the token page's Share uses");
+  assert.equal(url.searchParams.get("text"), "Boosted $A&B #1 with 1M TWIG on openlaunch.lol. The TWIG went to 0x…dEaD.", "a symbol never breaks out of its parameter");
+  assert.equal(url.searchParams.get("url"), "https://openlaunch.lol/t/base/0xabc");
+  assert.equal(url.searchParams.get("via"), "openlaunch_lol");
+  const banned = /\b(moon|rally|buyback|guarantee[ds]?|pump|gem|100x|profit|invest(ment)?|returns?|yield|airdrop|reward)\b/i;
+  assert.doesNotMatch(boostShareText("X", raw), banned);
+});
+
+test("the token page shows its clicks from the lane only once they read like a result", () => {
+  assert.equal(BOOST_PANEL_CLICKS_MIN, 10);
 });

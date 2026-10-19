@@ -16,7 +16,7 @@ import { DEAD } from "@/lib/launchpad/config";
 import { TWIG_WRAP_URL } from "@/lib/launchpad/twig";
 import { fmtUsd } from "@/lib/launchpad/math";
 import { friendlyError } from "@/lib/errors";
-import { BUILDER_DATA_SUFFIX, CHAINS, explorerTx } from "@/lib/chainPublic";
+import { BUILDER_DATA_SUFFIX, CHAINS, SITE_URL, explorerTx } from "@/lib/chainPublic";
 import {
   BOOST_CHAIN,
   BOOST_COPY,
@@ -33,6 +33,7 @@ import {
   isLaunchTag,
   maxBoostWhole,
   parseBoostWhole,
+  boostShareUrl,
 } from "@/lib/launchpad/boost";
 import { toast } from "./TxToasts";
 import { TwigMark } from "./TwigBadge";
@@ -150,6 +151,8 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
           <p className="text-xs leading-relaxed text-muted">{fmtBoostTwig(boostAmount(phase.whole, tag))} went to 0x…dEaD. It counts for the next 24 hours and adds up with any other boost on {symbol}; the lane shows the 5 largest totals.</p>
           <div className="flex flex-wrap gap-2">
             <a href={explorerTx(BOOST_CHAIN, phase.hash)} target="_blank" rel="noreferrer" className={btn.secondarySm}>View transaction<ArrowUpRight size={13} aria-hidden="true" /></a>
+            {/* the booster's own post: what was sent and where it went, the token's page as its link */}
+            <a href={boostShareUrl(symbol, boostAmount(phase.whole, tag), `${SITE_URL}/t/${BOOST_CHAIN}/${token}`)} target="_blank" rel="noreferrer" className={btn.secondarySm}>Share on X<ArrowUpRight size={13} aria-hidden="true" /></a>
             <Link href="/#boosted" onClick={onClose} className={btn.secondarySm}>See the lane</Link>
             <button type="button" onClick={onClose} className={btn.primarySm}>Done</button>
           </div>

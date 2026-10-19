@@ -11,7 +11,7 @@ import { fdvQuote } from "./math.ts";
  * The factory takes any ERC-20 as the quote (first seen 2026-09-25: SHEAF on Base). Such a pair is shown
  * as unlisted: the token's own symbol when it is safe to show, its real decimals, never a USD price, never trending.
  */
-/** Any ERC-20 no list knows (UNLISTED, the first one seen, is an official quote since; see museworld.test.ts). */
+/** Any ERC-20 no list knows (the first one seen, MUSEWORLD, is a community pair since; see pairs.test.ts). */
 const UNLISTED = "0x1234567890abcdef1234567890abcdef12345678";
 const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
 

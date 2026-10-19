@@ -10,6 +10,7 @@ Object.assign(process.env,{ NEXT_PUBLIC_QUOTE_FACTORY:factory,NEXT_PUBLIC_QUOTE_
 const [{db},{publicClient},{QUOTE_FACTORY_ABI,QUOTE_HOOK_ABI,QUOTE_VAULT_ABI},{POOL_MANAGER_ABI,LAUNCH_FACTORY_ABI,LAUNCH_LOCKER_ABI,ERC20_TRANSFER_EVENT},{applyLaunchTx,pollLaunches,launchDeployBlock},{walletQuoteFees},{launchpad}] = await Promise.all([
   import("../src/lib/db"),import("../src/lib/chain"),import("../src/lib/launchpad/quote-abi"),import("../src/lib/launchpad/abi"),import("../src/lib/launchpad/indexer"),import("../src/lib/launchpad/queries"),import("../src/lib/launchpad/config")]);
 const {BOOST_TOKEN,BOOST_DEAD,boostAmount}=await import("../src/lib/launchpad/boost");
+const {pairBurnAmount}=await import("../src/lib/launchpad/pairApply");
 const sql=db();
 const client=publicClient("base");
 const token="0x000000000000000000000000000000000000ffff" as Address, quote="0x0000000000000000000000000000000000000000" as Address, wallet="0x000000000000000000000000000000000000b001" as Address;
@@ -120,6 +121,21 @@ try {
   assert.equal((await applyLaunchTx("base",receiptHash)).boosts,0,"a receipt applied after polling is already counted");
   assert.equal((await sql`SELECT count(*) AS n FROM bb_boosts`)[0].n,2n);
   assert.equal((await sql`SELECT count(*) AS n FROM bb_boosts WHERE booster != ${smartWallet}`)[0].n,0n,"locker and vault fee burns never become boosts");
+  // Application tags use the same TWIG transfer stream. Missing applications retain raw facts for later reconciliation.
+  const pairLogs = () => [smartWallet,legacyLocker,locker,vault].map((from,index) =>
+    event([ERC20_TRANSFER_EVENT],"Transfer",BOOST_TOKEN,{from,to:BOOST_DEAD,value:pairBurnAmount(100_000n,42)},index));
+  receiptHash=`0x${"9".repeat(64)}`; logs=pairLogs();
+  assert.equal((await applyLaunchTx("base",receiptHash)).boosts,0,"an application payment is never a boost");
+  await applyLaunchTx("base",receiptHash);
+  assert.deepEqual((await sql`SELECT sender,application_id,twig FROM bb_pair_burns`).map((row)=>({...row})),
+    [{sender:smartWallet,application_id:42n,twig:"100000"}],"receipt replay preserves one payment from the Transfer sender and excludes all fee burns");
+  receiptHash=`0x${"a".repeat(64)}`; logs=pairLogs();
+  assert.equal((await pollLaunches("base")).boosts,0);
+  await pollLaunches("base");
+  await applyLaunchTx("base",receiptHash);
+  assert.equal((await sql`SELECT count(*) AS n FROM bb_pair_burns`)[0].n,2n,"overlapping suite ranges and receipt replay cannot duplicate an application payment");
+  assert.equal((await sql`SELECT count(*) AS n FROM bb_pair_burns WHERE sender != ${smartWallet}`)[0].n,0n,"locker and vault fee burns never become application payments");
+  assert.equal((await sql`SELECT count(*) AS n FROM bb_boosts`)[0].n,2n,"pair payments and boost tags stay separate");
   process.env.LAUNCH_DEPLOY_BLOCK="9";
   assert.equal(launchDeployBlock("base"),1n,"season history starts at the earliest indexed suite");
   // Repairing orphan events must respect the same fee-contract namespace as live ingestion.
@@ -133,5 +149,5 @@ try {
   try { await connection.unsafe(repair); } finally { connection.release(); }
   assert.deepEqual((await sql`SELECT token FROM bb_launch_fee_events WHERE tx_hash=${orphanHash} ORDER BY log_index`).map((r)=>r.token),[token,legacyToken,null]);
   assert.equal((await sql`SELECT volume_quote FROM bb_launches WHERE token=${token}`)[0].volume_quote,"300");
-  console.log("quote indexer: schema replay, dedupe, trader amounts, smart-wallet attribution, suite isolation, credit/claim earnings, cursor migration, boost fee-burn exclusion and orphan repair passed");
+  console.log("quote indexer: schema replay, dedupe, trader amounts, smart-wallet attribution, suite isolation, credit/claim earnings, cursor migration, boost and pair-payment fee-burn exclusion, and orphan repair passed");
 } finally { await sql.end(); }
