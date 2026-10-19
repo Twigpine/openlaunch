@@ -10,6 +10,12 @@ test("ledger money fits its column without rounding dust to zero", () => {
   assert.equal(marketUsd(Number.NaN), "—");
 });
 
+test("extreme finite dollar valuations stay readable without changing their value", () => {
+  assert.equal(marketUsd(1e15), "$1.0e+15");
+  assert.equal(marketUsd(9.994968468380422e35), "$1.0e+36");
+  assert.ok(marketUsd(Number.MAX_VALUE).length < 14);
+});
+
 test("rounded zero changes are neutral; extreme values stay bounded", () => {
   assert.deepEqual(marketChange(0.00000003), { label: "0.0%", direction: "flat" });
   assert.deepEqual(marketChange(-0.00000003), { label: "0.0%", direction: "flat" });

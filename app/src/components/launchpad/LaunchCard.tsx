@@ -20,6 +20,7 @@ import { XMark } from "./BrandMarks";
 import { MagicCard } from "@/components/vendor/magic-card";
 import { BorderBeam } from "@/components/vendor/border-beam";
 import type { RowHighlight } from "./LaunchRow";
+import { MCAP_FILTER_DESCRIPTION } from "@/lib/launchpad/mcap-policy";
 
 /**
  * The market list as cards: a banner, the token's mark over it, then only what decides a click (name, market cap,
@@ -82,6 +83,7 @@ export default function LaunchCard({ l, rank, hl = null, now, pop = false, chip 
             <span className="shrink-0"><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} /></span>
           </div>
           {activity ? <Activity chip={activity} /> : null}
+          {l.mcap?.classification === "limited-outside-trading" ? <p className="mt-1.5 text-[11px] text-muted" title={MCAP_FILTER_DESCRIPTION}>High starting valuation · limited outside trading</p> : null}
         </div>
         {/* buys against sells, flush with the bottom edge; no trades draws an empty track, never an even split */}
         <div className="mt-auto flex h-[3px] shrink-0 gap-px" title={trades ? `${l.buys.toLocaleString("en-US")} buys, ${l.sells.toLocaleString("en-US")} sells` : "No trades yet"}>

@@ -21,6 +21,7 @@ import LaunchPill from "@/components/launchpad/LaunchPill";
 import WhyFree from "@/components/launchpad/WhyFree";
 import { MagicCard } from "@/components/vendor/magic-card";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
+import { parseMcapMode } from "@/lib/launchpad/mcap-policy";
 
 export const dynamic = "force-dynamic";
 // Title and description come from the root layout; ?sort= / ?chain= / ?window= / ?view= are all this one page.
@@ -29,15 +30,17 @@ export const metadata: Metadata = { alternates: { canonical: "/" } };
 /** The river starts from the newest events (getLaunchFeed's ceiling) and keeps the ones from the last 30 minutes. */
 const RIVER_SEED = 100;
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ sort?: string; window?: string; chain?: string; filter?: string; view?: string }> }) {
+/** Render the home page with a URL-selected launch list, its valuation mode, and initial live activity. */
+export default async function Home({ searchParams }: { searchParams: Promise<{ sort?: string; window?: string; chain?: string; filter?: string; view?: string; mcap?: string }> }) {
   const sp = await searchParams;
   const sort = parseSort(sp.sort, "live");
+  const mcap = parseMcapMode(sp.mcap);
   const window: VolumeWindow = VOLUME_WINDOWS.includes(sp.window as VolumeWindow) ? (sp.window as VolumeWindow) : "all";
   const chain = visibleChainOr(sp.chain);
   const filter = isFilter(sp.filter) ? sp.filter : null;
   const usd = await ethUsd();
   const layout = parseLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
-  const listOpts = { sort, window, chain, filter, limit: PAGE_SIZE, ethUsd: usd };
+  const listOpts = { sort, window, chain, filter, mcap, limit: PAGE_SIZE, ethUsd: usd };
   const [page, feed, fresh, posts, fetchedTrending, boost] = await Promise.all([
     listLaunchesPage(listOpts),
     getLaunchFeed(RIVER_SEED, usd),
@@ -59,7 +62,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
         <BoostedLane initial={boost ?? { enabled: false }} serverNow={now} source="home" />
         <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} recent={feed} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
         <div className="grid items-start gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
-          <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>
+          <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialMcap={mcap} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>
           <aside aria-label="New launches and community" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
             <JustLaunched initial={fresh.items} serverNow={now} />
             <div className="min-w-0 space-y-4">

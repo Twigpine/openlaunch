@@ -1,6 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { launchKey, mergeLaunches, refreshInPlace } from "./list-state.ts";
+import { launchKey, matchesListSelection, mergeLaunches, refreshInPlace } from "./list-state.ts";
+import { MCAP_POLICY_VERSION } from "./mcap-policy.ts";
+
+test("market-cap requests reject previous modes, old servers and previous pages", () => {
+  const wanted = { sort: "mcap", window: "all", chain: null, filter: null, mcap: "filtered" as const, limit: 40 };
+  const response = { ...wanted, mcap_policy: MCAP_POLICY_VERSION };
+  assert.equal(matchesListSelection(wanted, response), true);
+  assert.equal(matchesListSelection(wanted, { ...response, mcap: "all" }), false);
+  assert.equal(matchesListSelection(wanted, { ...response, mcap_policy: undefined }), false);
+  assert.equal(matchesListSelection(wanted, { ...response, mcap: undefined }), false);
+  assert.equal(matchesListSelection(wanted, { ...response, limit: 80 }), false);
+  assert.equal(matchesListSelection(wanted, { ...response, chain: "arc" }), false);
+  assert.equal(matchesListSelection({ ...wanted, sort: "new" }, { ...response, sort: "new", mcap_policy: undefined, mcap: undefined }), true);
+});
 
 test("launch identity includes chain and normalizes address case", () => {
   assert.equal(launchKey({ chain: "base", token: "0xAbC" }), "base:0xabc");

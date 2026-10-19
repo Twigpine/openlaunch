@@ -44,6 +44,8 @@ export function capChipLabel(v: number, entry: CapEntry, quote: Pick<Quote, "sym
 
 /** A quote-denominated cap as quote text: "9.87 ETH", "25,000 USDG", "0.112 NVDA", "25,000 AMCc", "1.2M AMCc". */
 export function capQuoteLabel(fdvQuote: number, quote: Pick<Quote, "key" | "symbol" | "decimals">): string {
+  if (typeof fdvQuote !== "number" || !Number.isFinite(fdvQuote) || fdvQuote < 0) return "—";
+  if (fdvQuote >= 1e15) return `${fdvQuote.toExponential(1)} ${quote.symbol}`;
   if (quote.decimals <= 6) return `${fdvQuote.toLocaleString("en-US", { maximumFractionDigits: Math.abs(fdvQuote) < 100 ? 2 : 0 })} ${quote.symbol}`; // a 0.5 USDG cap is "0.5 USDG", not "1 USDG"
   // a stock cap is a fraction of a share when the stock is dear ("0.112 NVDA") and thousands of shares when it is cheap or has
   // no USD price, where this figure is the headline: three decimals under 100, grouped whole shares above, compact from 100K
@@ -65,8 +67,10 @@ export const NO_USD_PRICE = "no USD price";
  */
 export function capDisplay(fdvQuote: number, quoteUsd: number | null, quote: Pick<Quote, "key" | "symbol" | "decimals">): { main: string; detail: string; compact: string; usd: number | null } {
   const quoteText = capQuoteLabel(fdvQuote, quote);
+  if (quoteText === "—") return { main: "—", detail: "valuation unavailable", compact: "—", usd: null };
   if (quoteUsd !== null && Number.isFinite(quoteUsd) && quoteUsd > 0) {
     const usd = fdvQuote * quoteUsd;
+    if (!Number.isFinite(usd)) return { main: "—", detail: quoteText, compact: "—", usd: null };
     const main = marketUsd(usd);
     return { main, detail: quoteText, compact: main, usd };
   }

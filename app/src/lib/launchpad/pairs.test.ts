@@ -209,7 +209,7 @@ test("resolution: only a LISTED pair gets the pair key, a price and a badge; any
   assert.match(q, /if \(pair\?\.status === "listed"\) return \{ key: "pair",/);
   assert.match(q, /\.\.\.listedPairSymbols\(st, chain\)\]/, "an unlisted token may not borrow a listed pair's symbol");
   assert.match(q, /const pairCase = pairArms\.length/, "USD sorts price listed pairs");
-  assert.match(q, /\$\{pairDecCase\} ELSE 18 END/, "and read their decimals");
+  assert.match(q, /\$\{pairDecCase\} \$\{decCase\} ELSE 18 END/, "listed pair decimals take precedence over unlisted metadata");
   assert.match(q, /rankTrending\(rows\.filter\(\(r\) => r\.quote_key !== "other"\)/, "a suspended pair resolves as other, so it leaves Trending");
   assert.match(q, /if \(q\.key === "pair" && q\.pairKind !== "launch"\) return \{ key: q\.key, decimals: q\.decimals, usd: null, priced: false \};/, "points: only pairs priced from an openlaunch pool");
 });
