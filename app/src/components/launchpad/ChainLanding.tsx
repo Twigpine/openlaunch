@@ -20,11 +20,15 @@ import { dbConfigured } from "@/lib/db";
 import { pageMetadata } from "@/lib/seo";
 import { nowMs } from "@/lib/launchpad/time";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
+import { getTranslations } from "@/i18n/server";
 
-/** Metadata for /<chain>: its own title, snippet and canonical (never "/", see app/metadata.test.ts). */
-export function chainLandingMetadata(chain: ChainKey): Metadata {
-  const c = CHAIN_LANDING[chain];
-  return pageMetadata({ path: chainLandingPath(chain), title: c.title, description: c.description });
+/**
+ * Metadata for /<chain>: its own title, snippet and canonical (never "/", see app/metadata.test.ts). The words are
+ * messages (info.chain.<chain>); in English they are CHAIN_LANDING's, which lib/chainLanding.test.ts sizes for search.
+ */
+export async function chainLandingMetadata(chain: ChainKey): Promise<Metadata> {
+  const t = await getTranslations("info");
+  return pageMetadata({ path: chainLandingPath(chain), title: t(`chain.${chain}.title`), description: t(`chain.${chain}.description`) });
 }
 
 /**
@@ -33,7 +37,8 @@ export function chainLandingMetadata(chain: ChainKey): Metadata {
  */
 export default async function ChainLanding({ chain }: { chain: ChainKey }) {
   if (!hasChainPage(chain)) notFound();
-  const c = CHAIN_LANDING[chain];
+  const t = await getTranslations("info");
+  const label = CHAIN_LABELS[chain];
   const lp = launchpad(chain);
   const usd = await ethUsd();
   const [page, totals, boost] = await Promise.all([
@@ -48,24 +53,27 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
 
   return (
     <main className={shell.page}>
-      <SectionIntro eyebrow={CHAIN_LABELS[chain]} title={c.heading} description={c.intro}>
-        <Link href={`/launch?chain=${chain}`} className={shell.action}>Launch on {CHAIN_LABELS[chain]} <ArrowRight size={15} aria-hidden="true" /></Link>
-        <Link href="/rules#launchpad" className={shell.textLink}>How it works <ArrowRight size={14} aria-hidden="true" /></Link>
+      <SectionIntro eyebrow={label} title={t(`chain.${chain}.heading`)} description={t(`chain.${chain}.intro`)}>
+        <Link href={`/launch?chain=${chain}`} className={shell.action}>{t("chain.launchOn", { chain: label })} <ArrowRight size={15} aria-hidden="true" /></Link>
+        <Link href="/rules#launchpad" className={shell.textLink}>{t("chain.howItWorks")} <ArrowRight size={14} aria-hidden="true" /></Link>
       </SectionIntro>
 
       <section className={shell.anchorSection} aria-labelledby="facts-heading">
-        <h2 id="facts-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">{CHAIN_LABELS[chain]} at a glance</h2>
+        <h2 id="facts-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">{t("chain.glance", { chain: label })}</h2>
         <dl className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Fact term="Platform fee" value="$0" note={`You pay ${CHAIN_LABELS[chain]} gas in ${c.gas}, nothing else.`} />
-          <Fact term="Quote assets" value={lp.quotes.map((q) => q.symbol).join(" · ")} note="What the pool trades against, picked at launch." />
-          <Fact term="Launches" value={launches.toLocaleString("en-US")} note={`Tokens launched on ${CHAIN_LABELS[chain]} so far.`} />
-          <Fact term="Chain ID" value={String(CHAINS[chain].id)} note={`Liquidity: Uniswap v4 on ${CHAIN_LABELS[chain]}.`} />
+          <Fact term={t("chain.platformFee")} value="$0" note={t("chain.gas", { chain: label, gas: CHAIN_LANDING[chain].gas })} />
+          <Fact term={t("chain.quotes")} value={lp.quotes.map((q) => q.symbol).join(" · ")} note={t("chain.quotesNote")} />
+          <Fact term={t("chain.launches")} value={launches.toLocaleString("en-US")} note={t("chain.launchesNote", { chain: label })} />
+          <Fact term={t("chain.chainId")} value={String(CHAINS[chain].id)} note={t("chain.liquidity", { chain: label })} />
         </dl>
         {lp.factory ? (
           <p className="mt-4 text-sm text-muted">
-            Factory contract:{" "}
-            <a href={explorerAddress(chain, lp.factory)} target="_blank" rel="noopener noreferrer" className="font-mono text-body underline decoration-line-strong underline-offset-4 hover:text-ink break-all">{lp.factory}</a>{" "}
-            on {EXPLORERS[chain].name} <ArrowUpRight size={12} aria-hidden="true" className="inline" />
+            {t.rich("chain.factory", {
+              address: lp.factory,
+              explorer: EXPLORERS[chain].name,
+              link: (chunks) => <a href={explorerAddress(chain, lp.factory!)} target="_blank" rel="noopener noreferrer" className="font-mono text-body underline decoration-line-strong underline-offset-4 hover:text-ink break-all">{chunks}</a>,
+            })}{" "}
+            <ArrowUpRight size={12} aria-hidden="true" className="inline" />
           </p>
         ) : null}
       </section>
@@ -74,20 +82,20 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
       {chain === BOOST_CHAIN ? <div className="mt-14 empty:hidden"><BoostedLane initial={boost ?? { enabled: false }} serverNow={now} source="base" /></div> : null}
 
       <section className={`${shell.anchorSection} mt-14`} aria-labelledby="chain-launches-heading">
-        <h2 id="chain-launches-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Tokens on {CHAIN_LABELS[chain]}</h2>
+        <h2 id="chain-launches-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">{t("chain.tokens", { chain: label })}</h2>
         <div className="mt-6">
           <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort="live" initialWindow="all" initialChain={chain} initialFilter={null} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} />
         </div>
       </section>
 
       {others.length ? (
-        <nav className={`${shell.anchorSection} mt-10`} aria-label="Other chains">
+        <nav className={`${shell.anchorSection} mt-10`} aria-label={t("chain.others")}>
           <p className="text-sm text-muted">
-            Also on:{" "}
+            {t("chain.alsoOn")}{" "}
             {others.map((k, i) => (
               <span key={k}>
                 {i ? " · " : null}
-                <Link href={chainLandingPath(k)} className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">{BRAND} on {CHAIN_LABELS[k]}</Link>
+                <Link href={chainLandingPath(k)} className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">{t("chain.brandOn", { brand: BRAND, chain: CHAIN_LABELS[k] })}</Link>
               </span>
             ))}
           </p>

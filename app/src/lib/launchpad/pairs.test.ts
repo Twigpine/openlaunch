@@ -34,7 +34,7 @@ import {
  * Community pairs (pairs.ts): an app-level list with public checks. MUSEWORLD, an official quote in code until now, is
  * the first pair (seeded by db/schema.sql) and has no special status left anywhere in the code.
  */
-const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
+const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8").replaceAll("\r\n", "\n");
 const MUSEWORLD = "0x882c8e35504d58979b1280fe76d6553f717029f8";
 const GITLAWB = "0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3";
 

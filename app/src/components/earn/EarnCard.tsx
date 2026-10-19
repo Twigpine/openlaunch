@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Landmark } from "lucide-react";
 import type { Address } from "viem";
+import { useTranslations } from "use-intl";
 import { btn } from "@/components/ui";
 import { CHAIN_LABELS } from "@/lib/chainPublic";
 import { fmtAmount, fmtRate } from "@/lib/earn/math";
@@ -59,6 +60,7 @@ function EarnCardLive({ vault, snapshot }: { vault: EarnVault; snapshot: EarnVau
 
 /** The card itself, with no wallet behind it (the review page renders it with fixtures). */
 export function EarnCardView({ ref, vault, snapshot, balance, position, onOpen }: { ref?: React.Ref<HTMLElement>; vault: EarnVault; snapshot: EarnVaultSnapshot | null; balance: bigint | undefined; position: bigint | undefined; onOpen: (tab: EarnTab) => void }) {
+  const t = useTranslations("earn");
   const sym = vault.assetSymbol;
   const amt = (raw: bigint | undefined) => (raw === undefined ? "…" : fmtAmount(raw, vault.assetDecimals));
   const cell = (label: string, value: string, hint: string) => (
@@ -71,18 +73,18 @@ export function EarnCardView({ ref, vault, snapshot, balance, position, onOpen }
   return (
     <section ref={ref} id="earn" aria-labelledby="earn-card" className="mb-4 scroll-mt-24 rounded-2xl border border-line bg-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="earn-card" className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><Landmark size={15} className="text-brand" aria-hidden="true" />Earn on idle {sym}</h2>
+        <h2 id="earn-card" className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><Landmark size={15} className="text-brand" aria-hidden="true" />{t("card.title", { symbol: sym })}</h2>
         <p className="text-xs text-muted">{CHAIN_LABELS[vault.chain]} · {vault.name}</p>
       </div>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {cell("Last 30 days", fmtRate(snapshot?.rate ?? null), snapshot?.rate != null ? "Annualised. Variable." : "Rate unavailable right now")}
-        {cell(`${sym} in your wallet`, amt(balance), `On ${CHAIN_LABELS[vault.chain]}`)}
-        {cell("Your deposit", position === 0n ? "None" : amt(position), position !== undefined && position > 0n ? "What it withdraws for now" : "Nothing deposited yet")}
+        {cell(t("rate"), fmtRate(snapshot?.rate ?? null), snapshot?.rate != null ? t("rateHint") : t("rateUnavailable"))}
+        {cell(t("card.inWallet", { symbol: sym }), amt(balance), t("card.onChain", { chain: CHAIN_LABELS[vault.chain] }))}
+        {cell(t("yourDeposit"), position === 0n ? t("none") : amt(position), position !== undefined && position > 0n ? t("depositHint") : t("card.nothingYet"))}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" className={btn.primarySm} onClick={() => onOpen("deposit")} aria-haspopup="dialog"><ArrowDownToLine size={14} aria-hidden="true" />Deposit</button>
-        <button type="button" className={btn.secondarySm} onClick={() => onOpen("withdraw")} disabled={!position} aria-haspopup="dialog"><ArrowUpFromLine size={14} aria-hidden="true" />Withdraw</button>
-        <p className="ml-auto text-[11px] text-muted">Run by {vault.curator} on {vault.protocol}. Can lose money. No openlaunch fee.</p>
+        <button type="button" className={btn.primarySm} onClick={() => onOpen("deposit")} aria-haspopup="dialog"><ArrowDownToLine size={14} aria-hidden="true" />{t("deposit")}</button>
+        <button type="button" className={btn.secondarySm} onClick={() => onOpen("withdraw")} disabled={!position} aria-haspopup="dialog"><ArrowUpFromLine size={14} aria-hidden="true" />{t("withdraw")}</button>
+        <p className="ml-auto text-[11px] text-muted">{t("card.runBy", { curator: vault.curator, protocol: vault.protocol })}</p>
       </div>
     </section>
   );

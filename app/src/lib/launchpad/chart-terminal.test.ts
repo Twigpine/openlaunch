@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { INTERVALS, scaleCandles, type Candle } from "./candles.ts";
-import { LOG_SCALE_SPAN, aggregateWalletMarkers, chartLandmarks, chartRangeSelection, chartSpanLabel, defaultChartScale, formatChartAxis, formatChartPrice, selectedRangeStats, type WalletChartMarker } from "./chart-terminal.ts";
+import { LOG_SCALE_SPAN, aggregateWalletMarkers, chartLandmarks, chartRangeSelection, chartSpanParts, defaultChartScale, formatChartAxis, formatChartPrice, selectedRangeStats, type WalletChartMarker } from "./chart-terminal.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 test("chart ranges choose useful intervals and never request before launch", () => {
   const now = 100 * 86400;
@@ -139,6 +140,11 @@ test("landmarks: launch in the first bucket, peak at the highest traded high unl
 });
 
 test("the chart's span label reads a stretch of time in its largest sensible unit", () => {
+  // the label as the chart words it in English: the count in common.time's unit ("45m")
+  const chartSpanLabel = (seconds: number) => {
+    const parts = chartSpanParts(seconds);
+    return parts ? en.common.time[parts.unit].replace("{n}", String(parts.n)) : "";
+  };
   assert.equal(chartSpanLabel(60), "1m");
   assert.equal(chartSpanLabel(20), "1m", "a sliver still reads as a minute, never 0m");
   assert.equal(chartSpanLabel(45 * 60), "45m");
@@ -147,5 +153,5 @@ test("the chart's span label reads a stretch of time in its largest sensible uni
   assert.equal(chartSpanLabel(47 * 3600), "47h");
   assert.equal(chartSpanLabel(4 * 86400), "4d");
   assert.equal(chartSpanLabel(96 * INTERVALS["1h"]), "4d");
-  for (const nothing of [0, -60, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(chartSpanLabel(nothing), "");
+  for (const nothing of [0, -60, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(chartSpanParts(nothing), null);
 });

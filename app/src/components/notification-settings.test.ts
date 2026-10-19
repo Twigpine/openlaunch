@@ -3,8 +3,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { en } from "../i18n/messages/index.ts";
 
 type Element = { type: string; props: Record<string, unknown>; children: unknown[] };
+type Tree = { [key: string]: string | Tree };
+/** use-intl's useTranslations over the English messages: the text the component renders in English. */
+const useTranslations = (namespace: string) => (key: string) =>
+  `${namespace}.${key}`.split(".").reduce<string | Tree>((node, part) => (node as Tree)[part], en as unknown as Tree) as string;
 const source = readFileSync(new URL("./NotificationSettings.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("NotificationSettings.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const declaration = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "NotificationSettings");
@@ -32,6 +37,7 @@ function render(enabled: boolean, block = false, saved = true) {
     activityPreferenceSaved: () => saved,
     useState: () => [open, (value: boolean) => { open = value; }],
     useRef: () => ({ current: null }), useId: () => "notifications",
+    useTranslations,
   });
   return { nodes: flatten(component({ block })), saved: () => chosen, open: () => open };
 }
@@ -73,8 +79,10 @@ test("notification controls are available on desktop/mobile with reduced-motion 
   assert.match(css, /:focus-visible/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /calc\(100vw - 24px\)/);
-  assert.match(source, /Your transactions/);
-  assert.match(source, /Always on/);
+  assert.match(source, /t\("yours"\)/);
+  assert.match(source, /t\("alwaysOn"\)/);
+  assert.equal(en.header.notifications.yours, "Your transactions");
+  assert.equal(en.header.notifications.alwaysOn, "Always on");
   assert.doesNotMatch(source, /fetch\(|signMessage|sendTransaction|Notification.requestPermission/);
 });
 

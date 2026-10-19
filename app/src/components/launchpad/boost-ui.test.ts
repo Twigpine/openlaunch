@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 // Source contracts for Boost (like earn-ui.test.ts): they hold the rules that keep a paid lane honest in place.
-const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const dialog = read("./BoostDialog.tsx");
 const panel = read("./BoostPanel.tsx");
 const lane = read("./BoostedLane.tsx");

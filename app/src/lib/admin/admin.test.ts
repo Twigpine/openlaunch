@@ -9,7 +9,7 @@ import { ADMIN_COOKIE, adminCookieOptions, hashToken, isToken, requireAdmin, req
 import { verifySig } from "../profiles/server.ts";
 
 const SRC = path.resolve(import.meta.dirname, "../..");
-const src = (rel: string) => readFileSync(path.join(SRC, rel), "utf8");
+const src = (rel: string) => readFileSync(path.join(SRC, rel), "utf8").replaceAll("\r\n", "\n");
 
 const ORIGIN = "https://openlaunch.lol";
 const account = privateKeyToAccount(generatePrivateKey());
@@ -165,8 +165,8 @@ const SIGN_IN = new Set(["admin/session:POST", "admin/nonce:POST"]);
 test("every handler of every admin route requires the admin session", () => {
   const found: string[] = [];
   for (const file of routes()) {
-    const rel = path.relative(path.join(SRC, "app/api"), path.dirname(file));
-    const s = readFileSync(file, "utf8");
+    const rel = path.relative(path.join(SRC, "app/api"), path.dirname(file)).split(path.sep).join("/");
+    const s = readFileSync(file, "utf8").replaceAll("\r\n", "\n");
     if (!ADMIN_MARKERS.test(s) && !rel.startsWith("admin")) continue;
     found.push(rel);
     assert.doesNotMatch(s, /searchParams\.get\("wallet"\)/, `${rel}: a wallet in the URL is no proof of anything`);

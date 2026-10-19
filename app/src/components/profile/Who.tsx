@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowUpRight, BadgeCheck } from "lucide-react";
+import { useTranslations } from "use-intl";
 import WalletAvatar from "@/components/WalletAvatar";
 import { shortAddr } from "@/lib/chainPublic";
 import { cachedName, subscribeNames, watchName, type NameEntry } from "@/lib/profiles/names-client";
@@ -23,7 +24,8 @@ export function useName(address: string | null | undefined): NameEntry | null | 
 
 /** The ✓ only a verified X post earns. */
 export function VerifiedTick({ size = 13, className = "" }: { size?: number; className?: string }) {
-  return <BadgeCheck size={size} strokeWidth={2.2} className={`inline-block shrink-0 text-brand ${className}`} aria-label="Verified on X" role="img" />;
+  const t = useTranslations("account.who");
+  return <BadgeCheck size={size} strokeWidth={2.2} className={`inline-block shrink-0 text-brand ${className}`} aria-label={t("verified")} role="img" />;
 }
 
 /**
@@ -32,6 +34,7 @@ export function VerifiedTick({ size = 13, className = "" }: { size?: number; cla
  */
 export function WhoName({ address, fallback, className = "", tick = true, link = true, explorer }: { address: string; fallback?: ReactNode; className?: string; tick?: boolean; link?: boolean; explorer?: string }) {
   const n = useName(address);
+  const t = useTranslations("account.who");
   if (!n) return <>{fallback ?? <span className={`font-code ${className}`} title={address}>{shortAddr(address)}</span>}</>;
   const body = (
     <>
@@ -48,7 +51,7 @@ export function WhoName({ address, fallback, className = "", tick = true, link =
   return (
     <span className="inline-flex min-w-0 items-center gap-1">
       {name}
-      <a href={explorer} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center text-muted transition-colors hover:text-ink motion-reduce:transition-none" aria-label={`${n.u} on the block explorer`} title={address}>
+      <a href={explorer} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center text-muted transition-colors hover:text-ink motion-reduce:transition-none" aria-label={t("onExplorer", { name: n.u })} title={address}>
         <ArrowUpRight size={11} aria-hidden="true" />
       </a>
     </span>

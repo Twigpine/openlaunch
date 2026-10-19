@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { useTranslations } from "use-intl";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/vendor/tabs";
 
 /** Server-rendered facts stay on the server; only panel selection is client-side. */
 export default function TokenDetails({ trades, holders, conversation, about }: { trades: ReactNode; holders: ReactNode; conversation: ReactNode; about: ReactNode }) {
+  const t = useTranslations("token.details");
   const [tab, setTab] = useState("trades");
   useEffect(() => {
     let frame = 0;
@@ -15,12 +17,12 @@ export default function TokenDetails({ trades, holders, conversation, about }: {
   }, []);
   return (
     <Tabs id="token-details" value={tab} onValueChange={(v) => setTab(String(v))} className="scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-card">
-      <TabsList aria-label="Token details">
-        <TabsTab value="trades">Trades</TabsTab>
-        <TabsTab value="holders">Holders</TabsTab>
-        <TabsTab value="conversation">Conversation</TabsTab>
+      <TabsList aria-label={t("label")}>
+        <TabsTab value="trades">{t("trades")}</TabsTab>
+        <TabsTab value="holders">{t("holders")}</TabsTab>
+        <TabsTab value="conversation">{t("conversation")}</TabsTab>
         {/* the long label only where it fits beside the others */}
-        <TabsTab value="about"><span className="sm:hidden">About</span><span className="hidden sm:inline">About & contracts</span></TabsTab>
+        <TabsTab value="about"><span className="sm:hidden">{t("about")}</span><span className="hidden sm:inline">{t("aboutContracts")}</span></TabsTab>
       </TabsList>
       <TabsPanel value="trades">{trades}</TabsPanel>
       <TabsPanel value="holders">{holders}</TabsPanel>

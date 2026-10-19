@@ -21,6 +21,7 @@ import LaunchPill from "@/components/launchpad/LaunchPill";
 import WhyFree from "@/components/launchpad/WhyFree";
 import { MagicCard } from "@/components/vendor/magic-card";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/launchpad/list-layout";
+import { getTranslations } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
 // Title and description come from the root layout; ?sort= / ?chain= / ?window= / ?view= are all this one page.
@@ -48,6 +49,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   ]);
   const trending = await withBoardTape(fetchedTrending ?? trendingFrom(page.items)); // the default view's first page doubles as the strip's candidates; the tapes are the cards' recent trades
   const now = nowMs();
+  const t = await getTranslations("hero");
 
   return (
     <>
@@ -60,7 +62,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
         <LiveRiver initial={feed.filter((item) => inRiverWindow(item, now))} recent={feed} serverNow={now} coveredSince={riverCoverage(feed, RIVER_SEED, now)} lastActivityAt={feed[0] ? new Date(feed[0].at).getTime() : 0} />
         <div className="grid items-start gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
           <MagicCard className="min-w-0 rounded-2xl"><LaunchList frame="rounded-[inherit]" initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} initialView={sp.view === "watchlist" ? "watchlist" : "market"} initialLayout={layout} hasDb={dbConfigured()} serverNow={now} /></MagicCard>
-          <aside aria-label="New launches and community" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
+          <aside aria-label={t("home.aside")} className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
             <JustLaunched initial={fresh.items} serverNow={now} />
             <div className="min-w-0 space-y-4">
               <PostsFeed initial={posts} compact />

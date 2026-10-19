@@ -4,6 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { walletHue, walletMark } from "../lib/wallet-mark.ts";
+import { en } from "../i18n/messages/index.ts";
 
 type AvatarProps = { address: string; size?: number };
 type Element = { type: string; props: Record<string, unknown>; key?: string };
@@ -151,7 +152,8 @@ test("community posts lead with the author wallet and retain smaller token conte
   assert.match(heading, /<h3 title=\{post\.wallet\}>[\s\S]*?shortAddr\(post\.wallet\)/);
   assert.doesNotMatch(heading, /<TokenAvatar/);
   assert.match(feed.slice(bodyStart), /<TokenAvatar chain=\{post\.chain\} token=\{post\.token\} symbol=\{post\.symbol \?\? "\?"\} size=\{20\}/);
-  assert.match(feed.slice(bodyStart), /On <strong>\{post\.name \|\| post\.symbol \|\| shortAddr\(post\.token\)\}/);
+  assert.match(feed.slice(bodyStart), /t\.rich\("on", \{ token: post\.name \|\| post\.symbol \|\| shortAddr\(post\.token\), strong: /);
+  assert.equal(en.info.community.on, "On <strong>{token}</strong>");
 });
 
 test("homepage posts and shared token replies use the author's wallet avatar", () => {

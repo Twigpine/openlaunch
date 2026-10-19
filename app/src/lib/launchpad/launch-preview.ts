@@ -8,7 +8,7 @@ const SUPPLY = 1_000_000_000;
 /**
  * The market row a launch will have, built from the launch form before anything is sent, so the form can preview the
  * real board card. Only what the form knows is filled in; everything the chain decides later (address, pool, trades)
- * starts empty. Never stored or sent anywhere.
+ * starts empty. Never stored or sent anywhere. `unnamed` stands in for a blank name, in the reader's language.
  */
 export function previewLaunch(p: {
   chain: ChainKey;
@@ -23,6 +23,7 @@ export function previewLaunch(p: {
   quote: { key: Quote["key"]; symbol: string; decimals: number; usd: number | null; logo?: string | null };
   lpFee: number;
   launcher: string | null;
+  unnamed?: string;
 }): LaunchRow {
   const https = (v: string) => (/^https:\/\//.test(v.trim()) ? v.trim() : null);
   const fdv = p.fdvQuote !== null && Number.isFinite(p.fdvQuote) ? p.fdvQuote : 0;
@@ -46,7 +47,7 @@ export function previewLaunch(p: {
     lp_fee: p.lpFee,
     supply: String(SUPPLY),
     metadata_uri: "",
-    name: p.name.trim() || "Your token",
+    name: p.name.trim() || (p.unnamed ?? "Your token"),
     symbol,
     block_number: 0,
     block_time: new Date(0).toISOString(),

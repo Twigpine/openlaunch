@@ -1,0 +1,85 @@
+{
+  "tags": {
+    "creator": "Creator",
+    "whale": "Whale",
+    "holder": "Holder"
+  },
+  "comments": {
+    "title": "Comments",
+    "turnOn": "Turn comments on",
+    "turnOff": "Turn comments off",
+    "off": "The creator turned comments off for this token.",
+    "connectPrompt": "Connect a wallet to post. Free signature, no transaction. Holders, traders and creators can post.",
+    "connect": "Connect",
+    "replyingTo": "Replying to #{id}",
+    "cancel": "cancel",
+    "placeholder": "Say something about {symbol}…",
+    "signing": "Sign in wallet…",
+    "reply": "Reply",
+    "post": "Post",
+    "empty": "No comments yet.",
+    "hidden": "Post hidden after reports",
+    "reported": "Report received",
+    "thanks": "Thanks for keeping the feed clean.",
+    "reportFailed": "Could not report",
+    "commentsOff": "Comments off for {symbol}",
+    "commentsOn": "Comments on for {symbol}",
+    "commentsFailed": "Could not change comments"
+  },
+  "item": {
+    "reply": "reply",
+    "report": "report",
+    "reasons": {
+      "scam": "scam",
+      "spam": "spam",
+      "harassment": "harassment",
+      "other": "other"
+    }
+  },
+  "errors": {
+    "empty": "empty post",
+    "tooLong": "max {max} characters",
+    "noHtml": "no HTML",
+    "slowDown": "slow down",
+    "commentsOff": "comments are off for this token",
+    "wait": "wait {seconds}s between posts",
+    "dailyLimit": "daily post limit reached",
+    "parentNotFound": "parent not found",
+    "replyDepth": "replies are one level deep",
+    "notEligible": "hold the token, or trade or launch on openlaunch first, to post",
+    "badSignature": "signature does not match",
+    "nonceUsed": "nonce already used",
+    "staleSignature": "stale signature",
+    "staleNonce": "stale or bad nonce",
+    "unknownToken": "unknown token",
+    "postNotFound": "post not found",
+    "ownPost": "cannot report your own post",
+    "reportNotEligible": "trade, launch or post first to report",
+    "notCreator": "not the creator",
+    "unavailable": "db unconfigured",
+    "postRejected": "post rejected",
+    "reportRejected": "report rejected",
+    "failed": "failed"
+  },
+  "feed": {
+    "title": "Posts",
+    "showing": "Showing the latest {shown} of {total} recent posts",
+    "viewAll": "View all",
+    "show": "Show posts",
+    "hide": "Hide posts",
+    "subtitle": "what people are saying",
+    "emptyTitle": "The conversation starts on a token page.",
+    "emptyBody": "No posts yet. Holders, traders and creators can join with a wallet signature.",
+    "on": "on <token>{symbol}</token>"
+  },
+  "page": {
+    "meta": {
+      "title": "Posts",
+      "description": "What people are saying about tokens launched on openlaunch.lol."
+    },
+    "eyebrow": "Community posts",
+    "title": "Behind every token.",
+    "description": "Holders, traders and creators, in their own words. Follow the conversation across Base, Robinhood Chain and Arc.",
+    "explore": "Explore tokens"
+  }
+}

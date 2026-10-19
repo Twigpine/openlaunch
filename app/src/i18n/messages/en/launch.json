@@ -1,0 +1,408 @@
+{
+  "page": {
+    "title": "Launch a token for free",
+    "description": "Deploy a token on Base, Robinhood Chain or Arc with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
+    "heading": "Launch a token",
+    "intro": "Pick a chain, fill this in, sign once, done. No platform fee. You only pay gas.",
+    "loading": "loading launch form"
+  },
+  "form": {
+    "optional": "· optional",
+    "suggested": "· suggested",
+    "unnamed": "Your token",
+    "chain": {
+      "heading": "Chain",
+      "note": "same launch, same rules, on every chain",
+      "comingSoon": "Coming soon.",
+      "notConfigured": "Not configured here. Contract settings are missing in this environment.",
+      "blurb": {
+        "base": "Priced in ETH, TWIG or a Coinbase tokenized stock. Gas ≈ cents.",
+        "robinhood": "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents.",
+        "arc": "Priced in USDC (dollars). Gas is paid in USDC too: cents per trade, well under a dollar to launch."
+      }
+    },
+    "quote": {
+      "pricedIn": "Priced in",
+      "label": "Quote asset",
+      "stock": "Stock",
+      "paysDollars": "Buyers pay with {symbol}; market cap and fees are in dollars.",
+      "paysBrand": "Buyers pay with {symbol}; fees are paid in {symbol}, or burned.",
+      "paysEth": "Buyers pay with ETH.",
+      "pairTitle": "Pair with {symbol} and your token carries the {symbol} badge everywhere on the site",
+      "pair": "Pair with {symbol}, get the <badge></badge> badge",
+      "priceUnavailable": "price unavailable",
+      "brandTwig": "Your token carries the <badge></badge> badge on the launch list, trending, the activity feed, its page and its share card. TWIG is Twigpine's token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and the fees are burned as TWIG when collected. Priced at GITLAWB's price, from the Uniswap v4 WETH/GITLAWB pool on Base. <link>{site} ↗</link>",
+      "brandGitlawb": "Your token carries the <badge></badge> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Twigpine's token{bridged, select, yes {, bridged 1:1 from Base to Robinhood Chain over LayerZero} other {}}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base. <link>{site} ↗</link>"
+    },
+    "stock": {
+      "pick": "Pick a stock to price the token in, or switch the quote.",
+      "clear": "clear stock quote",
+      "searchPlaceholder": "Search ticker, e.g. AAPL",
+      "searchLabel": "search stock tokens",
+      "switchQuote": "Switch quote",
+      "noneIssuedTitle": "{name}: none issued yet",
+      "notIssued": "not issued yet",
+      "noneIssued": "None of {symbol} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some. You can still launch now.",
+      "showingMatches": "Showing {shown} of {total} matches. Keep typing to narrow it down.",
+      "showing": "Showing {shown} of {total}. Search a ticker or a company name for the rest.",
+      "coinbase": {
+        "pays": "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
+        "badge": "Coinbase stock",
+        "empty": "No match. Search a ticker or a company name, e.g. NVDA, AMD or Netflix.",
+        "issuer": "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
+      },
+      "robinhood": {
+        "pays": "Buyers pay with a Robinhood Stock Token; fees are paid in that stock.",
+        "badge": "Robinhood stock",
+        "empty": "No match. 194 Robinhood Stock Tokens are available, e.g. AAPL, TSLA, NVDA, SPY.",
+        "issuer": "Robinhood Stock Tokens are tokenised securities issued by Robinhood and are not offered to US persons. That is Robinhood's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
+      }
+    },
+    "token": {
+      "heading": "Token",
+      "name": "Name",
+      "namePlaceholder": "Clear Sky",
+      "symbol": "Symbol",
+      "symbolHelp": "Symbol: 1–10 English letters (A–Z) or digits (0–9), published in uppercase. Your token name can use other languages.",
+      "description": "Description",
+      "descriptionPlaceholder": "What is this? One or two lines.",
+      "left": "{count} left",
+      "artwork": "Artwork",
+      "artworkHint": "· optional, but tokens with a logo get traded",
+      "artworkHelp": "The logo marks your token everywhere; the banner runs across the top of its card and page.",
+      "website": "Website",
+      "xPlaceholder": "@handle or x.com link",
+      "nameInvalid": "Name: 1–32 characters.",
+      "symbolInvalid": "Symbol: use 1–10 English letters (A–Z) or digits (0–9).",
+      "imageInvalid": "Image must be an https URL.",
+      "bannerInvalid": "Banner must be an https URL.",
+      "websiteInvalid": "Website must be an https URL.",
+      "xInvalid": "X: enter a handle or an x.com link."
+    },
+    "price": {
+      "heading": "Starting market cap",
+      "supply": "1,000,000,000 supply · all of it in the pool",
+      "custom": "custom",
+      "customLabel": "custom starting market cap in {unit}",
+      "noUsd": "{symbol} has no USD price here: enter the starting market cap in {symbol}.",
+      "opensAt": "Opens at <b>{cap}</b><muted> · {detail}</muted> fully diluted. The first {symbol} buys about <b>{tokens}</b> tokens, then the price climbs along the curve.",
+      "opensAtMillion": "Opens at <b>{cap}</b><muted> · {detail}</muted> fully diluted. The first 1M {symbol} buys about <b>{tokens}</b> tokens, then the price climbs along the curve.",
+      "capInvalid": "Starting market cap must be a positive number.",
+      "brandUnpriced": "{symbol} price unavailable right now: enter a custom starting market cap in {symbol}, or reload."
+    },
+    "split": {
+      "address": "beneficiary {n} address",
+      "burned": "burned",
+      "share": "beneficiary {n} share, percent",
+      "remove": "remove beneficiary {n}",
+      "add": "+ Add address",
+      "addMe": "+ Me ({address})",
+      "addBurn": "+ Burn a share",
+      "complete": "Shares add up to 100%",
+      "left": "{pct}% left to assign",
+      "over": "{pct}% over",
+      "help": "Shares in percent, up to two decimals, must total exactly 100%. A row with 0x…dEaD burns that share."
+    },
+    "buy": {
+      "heading": "First buy",
+      "note": "a second transaction, right after the launch confirms",
+      "placeholder": "none",
+      "amountLabel": "first buy amount in {symbol}",
+      "decline": "No first buy",
+      "balance": "balance {amount}",
+      "estimateLabel": "Estimated buy",
+      "estimate": "about <b>{amount}</b> <sym>{symbol}</sym> <muted>({share} of supply)</muted>",
+      "estimateUsd": "about <b>{amount}</b> <sym>{symbol}</sym> <muted>({share} of supply · ≈ {usd})</muted>",
+      "tokens": "tokens",
+      "capAfterLabel": "Estimated market cap after your buy",
+      "estimateHelp": "Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.",
+      "notIssued": "Nothing suggested: no {symbol} has been issued yet, so there is none to buy with. The launch stays free.",
+      "onlyGas": "Suggested {amount} {symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.",
+      "notEnough": "Suggested {amount} {symbol}, but this wallet does not hold enough {symbol} for the buy plus its gas. The launch stays free; you can buy on the token page later.",
+      "noGas": "Suggested {amount} {symbol}, but this wallet has no {native} left for the buy's gas. The launch stays free; you can buy on the token page later.",
+      "unknownBalance": "Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount.",
+      "declined": "No first buy. The launch stays free.",
+      "declinedAgain": "No first buy. The launch stays free. <again>Suggest {amount} {symbol} again</again>",
+      "why": "A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.",
+      "slippage": "Other traders can buy before you. First-buy slippage tolerance: {pct}%. Network gas and pool fees apply.",
+      "errors": {
+        "amount": "First buy: enter an amount in {symbol}, or leave it empty.",
+        "balanceFailed": "First buy: could not read your {symbol} balance. Retry, or clear the amount.",
+        "balanceChecking": "First buy: checking your balance…",
+        "shortWithGas": "First buy: not enough {symbol} (leave a little for gas).",
+        "short": "First buy: not enough {symbol} in this wallet.",
+        "gasFailed": "First buy: could not read your {native} balance for gas. Retry, or clear the amount.",
+        "gasChecking": "First buy: checking your {native} balance for gas…",
+        "gasShort": "First buy: not enough {native} for gas (the launch, the approval and the buy each need a little {native})."
+      }
+    },
+    "launch": {
+      "heading": "Launch",
+      "note": "what happens when you sign",
+      "deploy": "Deploys a plain ERC-20",
+      "deployDetail": "no mint, no pause, no blacklist, no tax",
+      "pool": "Opens a Uniswap v4 pool",
+      "poolDetail": "{quote} / your token on {chain}, no hook",
+      "lock": "Locks 100% of supply as liquidity",
+      "lockDetail": "the position NFT lives in an ownerless locker, forever",
+      "fees": "Routes trading fees",
+      "feesNone": "nothing to route at 0%",
+      "feesBurned": "burned at collect time",
+      "feesNamed": "to the beneficiaries you name, claimable any time",
+      "feesShares": "{shares}, claimable any time",
+      "buy": "Buys your first tokens",
+      "buyDetail": "{amount} right after the launch confirms, with a second wallet prompt",
+      "summary": "One transaction on {chain}: deploys the token, creates the Uniswap v4 pool ({quote} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents. Nothing is refundable and nothing can be edited afterwards.",
+      "summaryBuy": "One transaction on {chain}: deploys the token, creates the Uniswap v4 pool ({quote} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents. Nothing is refundable and nothing can be edited afterwards. Then a second transaction buys {amount} of your token; if you reject it, the launch still stands.",
+      "summaryBuyApproval": "One transaction on {chain}: deploys the token, creates the Uniswap v4 pool ({quote} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents. Nothing is refundable and nothing can be edited afterwards. Then a second transaction buys {amount} of your token (with a one-time approval the first time); if you reject it, the launch still stands."
+    },
+    "console": {
+      "atLaunch": "At launch",
+      "opensAt": "Opens at",
+      "firstBuy": "First buy",
+      "firstBuySuggested": "First buy · suggested",
+      "none": "none",
+      "ofSupply": "~{pct} of supply",
+      "untouched": "pool opens untouched",
+      "tradingFee": "Trading fee",
+      "platformFee": "Platform fee",
+      "always": "always"
+    },
+    "feeRoute": {
+      "free": "free pool",
+      "burned": "burned",
+      "split": "split {count} ways",
+      "beneficiary": "to beneficiary"
+    },
+    "submit": {
+      "notConfigured": "Launchpad not configured",
+      "connecting": "Connecting…",
+      "connect": "Connect wallet to launch",
+      "switching": "Switching…",
+      "switchTo": "Switch to {chain}",
+      "saving": "Saving details…",
+      "simulating": "Checking the launch…",
+      "signing": "Confirm in your wallet…",
+      "sent": "Confirming on {chain}…",
+      "buying": "Launched! Buying your first tokens…",
+      "indexing": "Almost there…",
+      "done": "Launched!",
+      "launchBuy": "Launch + first buy",
+      "launchFree": "Launch for free, gas only"
+    },
+    "phase": {
+      "txDone": "Transaction <tx>{hash}</tx> confirmed. Taking you to your token.",
+      "txSent": "Transaction <tx>{hash}</tx> sent.",
+      "buyQuote": "Launch <tx>{hash}</tx> confirmed. Pricing your first buy…",
+      "buyApprove": "Launch <tx>{hash}</tx> confirmed. Approve the quote token in your wallet (one time)…",
+      "buySign": "Launch <tx>{hash}</tx> confirmed. Confirm the buy in your wallet…",
+      "buySent": "Launched. Buy <tx>{hash}</tx> sent, waiting for confirmation…"
+    },
+    "toast": {
+      "live": "{name} is live on {chain}",
+      "liveSub": "Liquidity locked forever. Taking you to your token.",
+      "bought": "You bought {amount} {symbol}",
+      "boughtAbout": "You bought about {amount} {symbol}",
+      "buyConfirmed": "Buy confirmed on {chain}",
+      "buyFailed": "Launched, but the first buy did not go through",
+      "buyFailedSub": "{reason} You can buy on the token page."
+    },
+    "reasons": {
+      "metadata": "could not save metadata",
+      "metadataChanged": "metadata URI changed during the salt search",
+      "txReverted": "Transaction reverted on-chain.",
+      "buyReverted": "The buy reverted on-chain.",
+      "slowDown": "slow down",
+      "unconfigured": "launchpad unconfigured"
+    }
+  },
+  "fees": {
+    "heading": "Trading fee",
+    "platform": "0% platform fee",
+    "intro": "Choose what traders pay on each buy and sell.",
+    "rateLegend": "Trading fee rate",
+    "rateLabel": "{rate} trading fee",
+    "noFee": "No trading fee",
+    "perHundred": "{amount} per 100 traded",
+    "routeLegend": "Where should the fees go?",
+    "routeHelp": "The full trading fee follows your allocation. Openlaunch takes none.",
+    "routes": {
+      "burn": {
+        "title": "Burn the fees",
+        "description": "Sent to 0x…dEaD when collected. Nobody receives them."
+      },
+      "me": {
+        "title": "Your wallet",
+        "description": "The wallet you connect to launch."
+      },
+      "custom": {
+        "title": "Wallets or a split",
+        "description": "Choose up to {max} beneficiaries, including a partial burn."
+      }
+    },
+    "summary": {
+      "none": "No fees to distribute",
+      "yours": "Your fee allocation",
+      "across": "100% across {count, plural, one {# destination} other {# destinations}}",
+      "incomplete": "Allocation incomplete",
+      "one": "100% to one destination"
+    },
+    "burnAddress": "Burn address",
+    "ofFees": "{pct}% of fees",
+    "tradingFee": "Trading fee",
+    "beneficiaries": "Beneficiaries",
+    "yourWallet": "Your wallet",
+    "completeSplit": "Complete the split above",
+    "allFees": "100% of fees",
+    "destination": {
+      "paid": "Paid directly to each wallet at collection. Burn shares go to 0x…dEaD.",
+      "incomplete": "Add valid addresses and shares totaling 100% before launch.",
+      "burned": "Burned at collection",
+      "connect": "Connect your wallet before launch",
+      "claimable": "Claimable by"
+    },
+    "example": "For every 100 units traded, <strong>{count, plural, one {# unit is} other {# units are}} the trading fee</strong>. Network gas and price impact still apply.",
+    "exampleFree": "No trading fees are collected. Network gas and price impact still apply.",
+    "permanent": "Fixed at launch. The fee rate cannot be changed later.",
+    "permanentAllocation": "Fixed at launch. The fee rate and allocation cannot be changed later."
+  },
+  "preview": {
+    "label": "Preview",
+    "board": "On the board",
+    "page": "Token page",
+    "justLaunched": "just launched",
+    "noBanner": "No banner yet",
+    "onChain": "<symbol></symbol> on <chain></chain>",
+    "opensAt": "Opens at",
+    "noDescription": "Add a description so traders know what this is."
+  },
+  "receipt": {
+    "title": "The launch receipt",
+    "verify": "Verify the launch transaction",
+    "tx": "Launch tx",
+    "supply": "Fixed supply",
+    "intoPool": "Into the pool at launch",
+    "liquidity": "Liquidity",
+    "lockerTitle": "An ownerless locker holds the position. Read the code.",
+    "locked": "Locked forever",
+    "platformFee": "Platform fee",
+    "footnote": "No withdrawal key. No platform cut. This does not prevent token prices from falling."
+  },
+  "upload": {
+    "connect": "Connect a wallet to upload.",
+    "maxSize": "Max {mb} MB.",
+    "formats": "PNG, JPEG, WebP or GIF only.",
+    "failedStatus": "upload failed ({status})",
+    "failed": "upload failed",
+    "uploadBanner": "Upload token banner",
+    "uploadImage": "Upload token image",
+    "uploading": "Uploading…",
+    "changeBanner": "Change banner",
+    "addBanner": "Upload banner",
+    "resizing": "Resizing to {size}",
+    "bannerHint": "Wide, about 3:1 · PNG, JPEG, WebP or GIF · max {mb} MB",
+    "removeBanner": "Remove banner",
+    "changeImage": "Change image",
+    "addImage": "Upload image",
+    "logoHintStacked": "Square · PNG, JPEG, WebP or GIF · max 2 MB",
+    "logoHint": "PNG, JPEG, WebP or GIF · max 2 MB · drop it here or tap",
+    "pasteBanner": "or paste a banner URL",
+    "pasteImage": "or paste an image URL",
+    "bannerUrl": "Banner URL",
+    "imageUrl": "Image URL",
+    "reasons": {
+      "notConfigured": "uploads not configured",
+      "slowDown": "slow down",
+      "badForm": "bad form",
+      "connectFirst": "connect a wallet first",
+      "fileRequired": "file required",
+      "limit": "upload limit reached, try later",
+      "formats": "PNG, JPEG, WebP or GIF only",
+      "notImage": "not a valid image",
+      "logoSmall": "image too small (min 16×16)",
+      "bannerSmall": "banner too small (min 300×100)",
+      "storage": "storage error, try again",
+      "tooBig": "image must be ≤ {mb} MB"
+    }
+  },
+  "totals": {
+    "label": "Network totals",
+    "trades": "Trades",
+    "tradesNote": "buys and sells, all on-chain",
+    "launched": "Tokens launched",
+    "launchedNote": "on {chains}",
+    "volume": "All-time volume",
+    "volumeNote": "through Uniswap v4 pools",
+    "toRecipients": "Fees to recipients",
+    "toRecipientsNote": "to the wallets creators chose",
+    "platformFee": "Platform fee",
+    "platformFeeNote": "to us, on every chain",
+    "chains": "{first} & {last}",
+    "chainSeparator": ", ",
+    "breakdown": "The numbers across {chains}",
+    "chainLaunches": "{chain} launches",
+    "allTrades": "All-time trades",
+    "burned": "Fees burned",
+    "gitlawbBurned": "GITLAWB burned",
+    "gitlawbBurnedTitle": "Sent to 0x…dEaD by GITLAWB-quoted launches on Base and Robinhood Chain",
+    "twigBurned": "TWIG burned",
+    "twigBurnedTitle": "Sent to 0x…dEaD by TWIG-quoted launches on Base",
+    "twigBoostBurnedTitle": "Sent to 0x…dEaD on Base: {fees} from the trading fees of TWIG-quoted launches, {boosts} by boosts",
+    "usdNote": "Some launches are quoted in an asset with no USD price right now; dollar totals exclude them until it returns.",
+    "volumeTitle": "{usd} · quote volume valued at current rates",
+    "feesTitle": "{usd} · quote-asset fees valued at current rates",
+    "feesExplained": "Creators choose a 0%, 1% or 3% trading fee. It goes to their named recipients or is burned. The platform takes none: no fee address in the factory, no platform cut in the locker.",
+    "readContracts": "Read the contracts"
+  },
+  "machine": {
+    "eyebrow": "One transaction. Built to stay.",
+    "newLaunchOn": "New launch on {chain}",
+    "motionDisabled": "Animation disabled by reduced motion",
+    "play": "Play launch animation",
+    "pause": "Pause launch animation",
+    "motionOff": "Motion off",
+    "playShort": "Play",
+    "pauseShort": "Pause",
+    "explore": "Explore the launch mechanism",
+    "verify": "Verify the locker",
+    "stages": {
+      "token": {
+        "label": "Your token",
+        "title": "An idea becomes a token.",
+        "description": "Your name. Your symbol. A fixed supply, created in one transaction."
+      },
+      "pool": {
+        "label": "The pool",
+        "title": "Open from the first trade.",
+        "description": "100% of the supply enters a Uniswap v4 pool at the starting market cap you choose."
+      },
+      "lock": {
+        "label": "The lock",
+        "title": "Liquidity locked. No keys kept.",
+        "description": "The liquidity position stays in an ownerless locker forever. Tokens remain tradeable."
+      }
+    },
+    "drawing": {
+      "noKey": "NO WITHDRAWAL KEY",
+      "token": "01 / YOUR TOKEN",
+      "fixedSupply": "Fixed supply",
+      "pool": "02 / POOL",
+      "lock": "03 / LOCK",
+      "noExpiry": "No expiry."
+    }
+  },
+  "recipients": {
+    "none": "Beneficiaries: add at least one address, or choose Burn it.",
+    "tooMany": "Beneficiaries: at most {max} addresses.",
+    "invalid": "Beneficiary {n}: enter a valid address.",
+    "zero": "Beneficiary {n}: the zero address cannot receive fees. Use 0x…dEaD to burn a share.",
+    "duplicate": "Beneficiary {n}: same address as beneficiary {first}. Give it one row with the combined share.",
+    "badShare": "Beneficiary {n}: share must be a percentage between 0.01 and 100, with at most two decimals.",
+    "zeroShare": "Beneficiary {n}: share must be at least 0.01%.",
+    "under": "Beneficiaries: shares add up to {total}%. {left}% left to assign.",
+    "over": "Beneficiaries: shares add up to {total}%. Remove {over}%.",
+    "shareTo": "{pct}% to {address}",
+    "shareBurned": "{pct}% burned",
+    "separator": ", "
+  }
+}

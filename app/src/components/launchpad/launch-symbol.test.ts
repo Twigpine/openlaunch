@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { validateMeta } from "../../lib/launchpad/metaShared.ts";
 import { uppercaseInPlace } from "../../lib/launchpad/symbol-input.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 const source = readFileSync(new URL("./LaunchForm.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("LaunchForm.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -132,8 +133,10 @@ test("Enter confirms composition without implicitly submitting the launch form",
 
 test("Symbol guidance is associated with the field and the existing launch rules stay intact", () => {
   assert.equal(attribute("aria-describedby")?.initializer?.getText(ast), '"symbol-help"');
-  assert.match(source, /id="symbol-help"/);
-  assert.match(source, /A.Z.*0.9/);
+  assert.match(source, /<p id="symbol-help" className=\{helper\}>\s*\{t\("token\.symbolHelp"\)\}\s*<\/p>/);
+  // the rule reads the same in either language: A–Z and 0–9, while the name can use any language
+  assert.match(en.launch.form.token.symbolHelp, /A.Z.*0.9/);
+  assert.match(messagesFor("zh-CN").launch.form.token.symbolHelp, /A.Z.*0.9/);
   assert.match(source, /const symbolClean = symbol\.trim\(\)\.toUpperCase\(\)/);
   assert.match(source, /symbol: symbolClean/);
   // the preview draws the board card and a mini token page from the form; both truncate the ticker, and a blank one reads TICKER
@@ -142,7 +145,10 @@ test("Symbol guidance is associated with the field and the existing launch rules
   assert.match(preview, /<span className="[^"]*truncate[^"]*">\{row\.symbol\}<\/span>/, "Overlong input must not overflow the token page preview");
   assert.match(card, /<span className="truncate"><span className="font-mono text-body">\{l\.symbol\}<\/span>/, "Overlong input must not overflow the card preview");
   assert.match(readFileSync(new URL("../../lib/launchpad/launch-preview.ts", import.meta.url), "utf8"), /const symbol = p\.symbol \|\| "TICKER";/);
-  assert.match(source, /className="break-all">\{symbolClean \|\| "tokens"\}/, "The buy estimate must wrap overlong input too");
+  assert.match(source, /sym: \(chunks\) => <span className="break-all">\{chunks\}<\/span>/, "The buy estimate must wrap overlong input too");
+  assert.match(source, /symbol: symbolClean \|\| t\("buy\.tokens"\)/);
+  assert.equal(en.launch.form.buy.tokens, "tokens");
+  assert.match(en.launch.form.buy.estimate, /<sym>\{symbol\}<\/sym>/);
   const base = { chain: "base" as const, launcher: "0x00000000000000000000000000000000000c0ffe", salt: `0x${"a".repeat(64)}`, name: "中文" };
   for (const [symbol, valid] of [[" sky9 ", true], ["ABCDEFGHIJ", true], ["ABCDEFGHIJK", false], ["中文", false], ["தமிழ்", false], ["SK Y", false], ["", false]] as const) {
     const result = validateMeta({ ...base, symbol });

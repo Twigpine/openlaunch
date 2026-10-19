@@ -2,16 +2,14 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { Pause, Play, ArrowUpRight, LockKeyhole } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_SHORT, explorerAddress } from "@/lib/chainPublic";
 import { shouldAnimateLaunch } from "@/lib/launchpad/hero-animation";
 import styles from "./LaunchMachine.module.css";
 
-const stages = [
-  { label: "Your token", title: "An idea becomes a token.", description: "Your name. Your symbol. A fixed supply, created in one transaction." },
-  { label: "The pool", title: "Open from the first trade.", description: "100% of the supply enters a Uniswap v4 pool at the starting market cap you choose." },
-  { label: "The lock", title: "Liquidity locked. No keys kept.", description: "The liquidity position stays in an ownerless locker forever. Tokens remain tradeable." },
-] as const;
+/** The three steps, in order; each one's label, title and description are messages (launch.machine.stages.<step>). */
+const STAGES = ["token", "pool", "lock"] as const;
 const MOTION_QUERY = "(prefers-reduced-motion: no-preference)";
 const TILT_QUERY = "(min-width: 1024px) and (hover: hover) and (prefers-reduced-motion: no-preference)";
 function subscribeMotion(listener: () => void) {
@@ -32,6 +30,8 @@ const serverSnapshot = () => false;
  * A host may put a picture on the coin's face (`coin`, an already vetted URL) and change the caption (`eyebrow`); with neither it is the drawing /rules shows.
  */
 export default function LaunchMachine({ coin = null, eyebrow }: { coin?: { key: string; src: string } | null; eyebrow?: string }) {
+  const t = useTranslations("launch.machine");
+  const stages = STAGES.map((key) => ({ key, label: t(`stages.${key}.label`), title: t(`stages.${key}.title`), description: t(`stages.${key}.description`) }));
   const clip = `coin-clip-${useId().replace(/:/g, "")}`;
   const root = useRef<HTMLDivElement>(null);
   const scene = useRef<HTMLDivElement>(null);
@@ -78,9 +78,9 @@ export default function LaunchMachine({ coin = null, eyebrow }: { coin?: { key: 
 
   return <div ref={root} className={styles.machine} data-stage={stage} data-loop={looping} data-playing={playing}>
     <div className={styles.heading}>
-      <span className={styles.eyebrow}><span className={styles.crosshair} aria-hidden /> {eyebrow ?? "One transaction. Built to stay."}</span>
-      <button type="button" onClick={togglePlayback} className={styles.playback} disabled={!motionAllowed} aria-label={!motionAllowed ? "Animation disabled by reduced motion" : paused || inspecting ? "Play launch animation" : "Pause launch animation"}>
-        {!motionAllowed ? <span>Motion off</span> : <>{paused || inspecting ? <Play size={12} aria-hidden /> : <Pause size={12} aria-hidden />}<span>{paused || inspecting ? "Play" : "Pause"}</span></>}
+      <span className={styles.eyebrow}><span className={styles.crosshair} aria-hidden /> {eyebrow ?? t("eyebrow")}</span>
+      <button type="button" onClick={togglePlayback} className={styles.playback} disabled={!motionAllowed} aria-label={!motionAllowed ? t("motionDisabled") : paused || inspecting ? t("play") : t("pause")}>
+        {!motionAllowed ? <span>{t("motionOff")}</span> : <>{paused || inspecting ? <Play size={12} aria-hidden /> : <Pause size={12} aria-hidden />}<span>{paused || inspecting ? t("playShort") : t("pauseShort")}</span></>}
       </button>
     </div>
     <div className={styles.viewport} onPointerMove={tilt} onPointerLeave={() => scene.current?.style.removeProperty("transform")}>
@@ -104,7 +104,7 @@ export default function LaunchMachine({ coin = null, eyebrow }: { coin?: { key: 
             <g className={styles.clampLeft}><Plate y={294} size={13} depth={13} x={123} /><path d="M113 283 123 278 133 283" className={styles.inkLine} /></g>
             <g className={styles.clampRight}><Plate y={294} size={13} depth={13} x={437} /><path d="M427 283 437 278 447 283" className={styles.inkLine} /></g>
             <path d="M280 374V391M276 391H284" className={styles.axis} />
-            <g transform="matrix(.86 -.38 0 1 317 350)"><text className={styles.etched}>NO WITHDRAWAL KEY</text></g>
+            <g transform="matrix(.86 -.38 0 1 317 350)"><text className={styles.etched}>{t("drawing.noKey")}</text></g>
           </g>
           <g className={styles.guides}><path d="M139 211V283M421 211V283M280 261V285M280 131V176" /><circle cx="139" cy="253" r="2" /><circle cx="421" cy="253" r="2" /></g>
           <g className={styles.pool}>
@@ -142,20 +142,20 @@ export default function LaunchMachine({ coin = null, eyebrow }: { coin?: { key: 
           </g>
           <g className={styles.callouts}>
             <path d="M226 91H184L163 73H60" /><circle cx="226" cy="91" r="2" />
-            <text x="60" y="61" className={styles.calloutLabel}>01 / YOUR TOKEN</text>
-            <text x="60" y="90" className={styles.calloutSub}>Fixed supply</text>
+            <text x="60" y="61" className={styles.calloutLabel}>{t("drawing.token")}</text>
+            <text x="60" y="90" className={styles.calloutSub}>{t("drawing.fixedSupply")}</text>
             <path d="M395 183 431 160H511" /><circle cx="395" cy="183" r="2" />
-            <text x="432" y="148" className={styles.calloutLabel}>02 / POOL</text>
+            <text x="432" y="148" className={styles.calloutLabel}>{t("drawing.pool")}</text>
             <path d="M154 327 126 344H50" /><circle cx="154" cy="327" r="2" />
-            <text x="50" y="332" className={styles.calloutLabel}>03 / LOCK</text>
-            <text x="50" y="361" className={styles.calloutSub}>No expiry.</text>
+            <text x="50" y="332" className={styles.calloutLabel}>{t("drawing.lock")}</text>
+            <text x="50" y="361" className={styles.calloutSub}>{t("drawing.noExpiry")}</text>
           </g>
           <g className={styles.axis}><path d="M493 326v29l24 -11M493 355l-24 -11" /><circle cx="493" cy="355" r="2" /></g>
         </svg>
       </div>
     </div>
-    <div className={styles.controls} role="group" aria-label="Explore the launch mechanism">
-      {stages.map((item, index) => <button key={item.label} type="button" aria-pressed={stage === index} aria-controls="launch-stage-detail" onClick={() => { setInspecting(true); setPaused(true); setStage(index); scene.current?.style.removeProperty("transform"); }} className={styles.stageButton}>
+    <div className={styles.controls} role="group" aria-label={t("explore")}>
+      {stages.map((item, index) => <button key={item.key} type="button" aria-pressed={stage === index} aria-controls="launch-stage-detail" onClick={() => { setInspecting(true); setPaused(true); setStage(index); scene.current?.style.removeProperty("transform"); }} className={styles.stageButton}>
         <span className={styles.stageNumber}>0{index + 1}</span><span>{item.label}</span><span className={styles.stageDot} aria-hidden />
         {/* CSS phase boundaries drive React only when a step changes, never per frame. */}
         <span className={styles.stageProgress} data-phase={index} aria-hidden="true"
@@ -165,13 +165,13 @@ export default function LaunchMachine({ coin = null, eyebrow }: { coin?: { key: 
     </div>
     <div id="launch-stage-detail" className={styles.detail} aria-live="off">
       {/* Stack all copy to reserve the tallest stage, even at narrow widths or text zoom. */}
-      {stages.map((item, index) => <div key={item.label} className={styles.detailContent} aria-hidden={stage !== index}>
+      {stages.map((item, index) => <div key={item.key} className={styles.detailContent} aria-hidden={stage !== index}>
         <p className={styles.detailTitle}>{item.title}</p>
         <p className={styles.detailCopy}>{item.description}</p>
       </div>)}
     </div>
     <div className={styles.proof}>
-      <span><LockKeyhole size={12} aria-hidden /> Verify the locker</span>
+      <span><LockKeyhole size={12} aria-hidden /> {t("verify")}</span>
       <span>{lockers.map(({ chain, locker }) => <a key={chain} href={explorerAddress(chain, locker)} target="_blank" rel="noreferrer">{CHAIN_SHORT[chain]} <ArrowUpRight size={11} aria-hidden /></a>)}</span>
     </div>
   </div>;

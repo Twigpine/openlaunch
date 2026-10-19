@@ -5,6 +5,7 @@
 import { Children, cloneElement, isValidElement, useEffect, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Menu, X } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { cn } from "@/lib/utils";
 
 type SlotProps = { children: ReactNode; className?: string };
@@ -104,10 +105,11 @@ export function MobileNavMenu({ children, className, isOpen, onClose }: SlotProp
   );
 }
 
-// Optional composition helpers, kept compatible with the shell's public API.
+// Optional composition helpers, kept compatible with the shell's public API. Their labels are the header's own.
 export function NavItems({ items, className, onItemClick }: { items: { name: string; link: string }[]; className?: string; onItemClick?: () => void }) {
+  const t = useTranslations("header");
   return (
-    <nav aria-label="Primary" className={cn("flex items-center gap-1", className)}>
+    <nav aria-label={t("primary")} className={cn("flex items-center gap-1", className)}>
       {items.map(({ name, link }) => (
         <a key={link} href={link} onClick={onItemClick} className="rounded-full px-3 py-2 text-sm font-medium text-body transition-colors hover:bg-line hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none">
           {name}
@@ -118,8 +120,9 @@ export function NavItems({ items, className, onItemClick }: { items: { name: str
 }
 
 export function MobileNavToggle({ isOpen, onClick }: { isOpen: boolean; onClick: () => void }) {
+  const t = useTranslations("header");
   return (
-    <button type="button" onClick={onClick} aria-expanded={isOpen} aria-label={isOpen ? "Close menu" : "Open menu"} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-line text-ink hover:bg-line">
+    <button type="button" onClick={onClick} aria-expanded={isOpen} aria-label={isOpen ? t("closeMenu") : t("openMenu")} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-line text-ink hover:bg-line">
       {isOpen ? <X size={18} aria-hidden /> : <Menu size={18} aria-hidden />}
     </button>
   );

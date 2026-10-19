@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { useTranslations } from "use-intl";
 
 /** The chip's own look. A `className` replaces it entirely, so a toolbar can draw the button as one of its segments. */
 const CHIP = "inline-flex h-7 items-center gap-1.5 rounded-full border border-line bg-card px-2.5 font-code text-[11px] text-body hover:border-line-strong hover:text-ink";
 
 export default function CopyChip({ value, label, className = CHIP }: { value: string; label?: string; className?: string }) {
   const [done, setDone] = useState(false);
+  const t = useTranslations("token.copyChip");
   const shown = label ?? `${value.slice(0, 6)}…${value.slice(-4)}`;
   return (
     <>
@@ -24,13 +26,13 @@ export default function CopyChip({ value, label, className = CHIP }: { value: st
         }}
         className={className}
         title={value}
-        aria-label={`Copy ${shown}`}
+        aria-label={t("copy", { value: shown })}
       >
         {shown}
         {done ? <Check size={13} aria-hidden="true" className="shrink-0 text-up" /> : <Copy size={13} aria-hidden="true" className="shrink-0 text-faint" />}
       </button>
       {/* outside the button: a button's children are presentational, so a live region inside it may never be read */}
-      <span role="status" className="sr-only">{done ? "Copied" : ""}</span>
+      <span role="status" className="sr-only">{done ? t("copied") : ""}</span>
     </>
   );
 }

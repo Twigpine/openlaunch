@@ -4,6 +4,7 @@ import hero from "@/components/launchpad/LaunchHero.module.css";
 import machine from "@/components/launchpad/LaunchMachine.module.css";
 import totals from "@/components/launchpad/LaunchMechanism.module.css";
 import trend from "@/components/launchpad/TrendingStrip.module.css";
+import { getTranslations } from "@/i18n/server";
 
 /**
  * Home skeleton, in the page's own order: hero (text, the locker in its stage and the totals, in the real grid), the live
@@ -22,9 +23,10 @@ function SkBoardCard() {
   );
 }
 
-export default function Loading() {
+export default async function Loading() {
+  const t = await getTranslations("info");
   return (
-    <main className="bb-mid bb-page relative space-y-6 pb-16 sm:space-y-8" aria-busy="true" aria-label="loading">
+    <main className="bb-mid bb-page relative space-y-6 pb-16 sm:space-y-8" aria-busy="true" aria-label={t("loading.home")}>
       <section className={`${HERO.section} ${hero.hero}`}>
         <div className={hero.layout}>
           <div className={hero.copyArea}>

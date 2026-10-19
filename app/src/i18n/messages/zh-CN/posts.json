@@ -1,0 +1,85 @@
+{
+  "tags": {
+    "creator": "创建者",
+    "whale": "巨鲸",
+    "holder": "持有人"
+  },
+  "comments": {
+    "title": "评论",
+    "turnOn": "开启评论",
+    "turnOff": "关闭评论",
+    "off": "创建者已关闭此代币的评论。",
+    "connectPrompt": "连接钱包即可评论。免费签名，无需交易。持有人、交易者和创建者都可以评论。",
+    "connect": "连接",
+    "replyingTo": "正在回复 #{id}",
+    "cancel": "取消",
+    "placeholder": "说说你对 {symbol} 的看法…",
+    "signing": "请在钱包中签名…",
+    "reply": "回复",
+    "post": "发布",
+    "empty": "还没有评论。",
+    "hidden": "该评论已因举报被隐藏",
+    "reported": "已收到举报",
+    "thanks": "感谢你帮助保持讨论区整洁。",
+    "reportFailed": "举报失败",
+    "commentsOff": "已关闭 {symbol} 的评论",
+    "commentsOn": "已开启 {symbol} 的评论",
+    "commentsFailed": "无法更改评论设置"
+  },
+  "item": {
+    "reply": "回复",
+    "report": "举报",
+    "reasons": {
+      "scam": "诈骗",
+      "spam": "垃圾信息",
+      "harassment": "骚扰",
+      "other": "其他"
+    }
+  },
+  "errors": {
+    "empty": "内容不能为空",
+    "tooLong": "最多 {max} 个字符",
+    "noHtml": "不支持 HTML",
+    "slowDown": "操作太频繁，请稍后再试",
+    "commentsOff": "该代币的评论已关闭",
+    "wait": "发布太频繁，请 {seconds} 秒后再试",
+    "dailyLimit": "已达到每日发布上限",
+    "parentNotFound": "要回复的评论不存在",
+    "replyDepth": "回复只支持一层",
+    "notEligible": "持有该代币，或先在 openlaunch 上交易或发行，才能发布",
+    "badSignature": "签名不匹配",
+    "nonceUsed": "Nonce 已被使用",
+    "staleSignature": "签名已过期",
+    "staleNonce": "签名已过期或 Nonce 无效",
+    "unknownToken": "未知代币",
+    "postNotFound": "找不到该评论",
+    "ownPost": "不能举报自己的评论",
+    "reportNotEligible": "先交易、发行或发布评论，才能举报",
+    "notCreator": "你不是创建者",
+    "unavailable": "数据库未配置",
+    "postRejected": "发布被拒绝",
+    "reportRejected": "举报被拒绝",
+    "failed": "操作失败"
+  },
+  "feed": {
+    "title": "帖子",
+    "showing": "显示最近 {total} 条帖子中的最新 {shown} 条",
+    "viewAll": "查看全部",
+    "show": "展开帖子",
+    "hide": "收起帖子",
+    "subtitle": "大家在聊什么",
+    "emptyTitle": "讨论从代币页面开始。",
+    "emptyBody": "还没有帖子。持有人、交易者和创建者可以用钱包签名加入讨论。",
+    "on": "关于 <token>{symbol}</token>"
+  },
+  "page": {
+    "meta": {
+      "title": "帖子",
+      "description": "大家如何评价在 openlaunch.lol 上发行的代币。"
+    },
+    "eyebrow": "社区帖子",
+    "title": "每个代币背后的声音。",
+    "description": "听听持有人、交易者和创建者怎么说。关注 Base、Robinhood Chain 和 Arc 上的讨论。",
+    "explore": "探索代币"
+  }
+}

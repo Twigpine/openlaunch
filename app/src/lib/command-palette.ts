@@ -9,7 +9,7 @@ export type PaletteToken = { chain: string; token: string; name: string; symbol:
 export type PaletteItem =
   | { kind: "token"; id: string; label: string; token: PaletteToken }
   | { kind: "page"; id: string; label: string; href: string; keywords: string }
-  | { kind: "action"; id: string; label: string; action: "bridge" | "theme"; keywords: string };
+  | { kind: "action"; id: string; label: string; action: "bridge" | "theme"; keywords: string; theme?: "light" | "dark" };
 
 export type PaletteGroup = { value: string; items: PaletteItem[] };
 
@@ -25,6 +25,16 @@ export const PALETTE_PAGES: ReadonlyArray<{ id: string; label: string; href: str
   { id: "page:robinhood", label: "Launches on Robinhood Chain", href: "/robinhood", keywords: "robinhood chain network stocks" },
   { id: "page:arc", label: "Launches on Arc", href: "/arc", keywords: "arc chain network usdc" },
 ];
+
+/**
+ * The palette's words in the reader's language (the search area of the messages). Without it everything reads in
+ * English. A translated page or action still matches its English label and keywords, so either language finds it.
+ */
+export type PaletteText = {
+  groups: { tokens: string; trending: string; pages: string; actions: string };
+  pages: Record<string, { label: string; keywords: string }>;
+  actions: Record<"bridge" | "light" | "dark", { label: string; keywords: string }>;
+};
 
 /** Token search starts at two characters; one letter matches half the market. */
 export function isSearchableQuery(query: string): boolean {
@@ -65,20 +75,32 @@ export const BOOST_PAGE = { id: "page:boosted", label: "Boosted tokens", href: "
  * Results in reading order: tokens first (search hits, or what is trending before anything is
  * typed), then pages, then actions. Empty groups are dropped.
  */
-export function buildPaletteGroups({ query, tokens, trending, theme, earn = false, boost = false }: { query: string; tokens: PaletteToken[]; trending: PaletteToken[]; theme: "light" | "dark"; earn?: boolean; boost?: boolean }): PaletteGroup[] {
+export function buildPaletteGroups({ query, tokens, trending, theme, text, earn = false, boost = false }: { query: string; tokens: PaletteToken[]; trending: PaletteToken[]; theme: "light" | "dark"; text?: PaletteText; earn?: boolean; boost?: boolean }): PaletteGroup[] {
   const q = query.trim();
   const tokenList = q ? (isSearchableQuery(q) ? tokens : []) : trending;
   const tokenItems: PaletteItem[] = tokenList.map((t) => ({ kind: "token", id: `token:${t.chain}:${t.token}`, label: t.name, token: t }));
-  const pages: PaletteItem[] = [...PALETTE_PAGES, ...(earn ? [EARN_PAGE] : []), ...(boost ? [BOOST_PAGE] : [])].filter((p) => !q || matchesQuery(q, `${p.label} ${p.keywords}`)).map((p) => ({ kind: "page", ...p }));
-  const next = theme === "dark" ? "light" : "dark";
-  const actions: PaletteItem[] = [
-    { kind: "action" as const, id: "action:bridge", label: "Bridge funds between chains", action: "bridge" as const, keywords: "bridge relay move deposit base robinhood arc" },
-    { kind: "action" as const, id: "action:theme", label: `Switch to the ${next} theme`, action: "theme" as const, keywords: `theme ${next} mode appearance colors` },
-  ].filter((a) => !q || matchesQuery(q, `${a.label} ${a.keywords}`));
+  const pages: PaletteItem[] = [...PALETTE_PAGES, ...(earn ? [EARN_PAGE] : []), ...(boost ? [BOOST_PAGE] : [])].map((p) => {
+    const words = text?.pages[p.id.replace(/^page:/, "")];
+    return { kind: "page" as const, ...p, label: words?.label ?? p.label, keywords: words ? `${p.label} ${p.keywords} ${words.keywords}` : p.keywords };
+  }).filter((p) => !q || matchesQuery(q, `${p.label} ${p.keywords}`));
+  const next: "light" | "dark" = theme === "dark" ? "light" : "dark";
+  const english = {
+    bridge: { label: "Bridge funds between chains", keywords: "bridge relay move deposit base robinhood arc" },
+    theme: { label: `Switch to the ${next} theme`, keywords: `theme ${next} mode appearance colors` },
+  };
+  const action = (words: { label: string; keywords: string } | undefined, base: { label: string; keywords: string }) => ({
+    label: words?.label ?? base.label,
+    keywords: words ? `${base.label} ${base.keywords} ${words.keywords}` : base.keywords,
+  });
+  const everyAction: Extract<PaletteItem, { kind: "action" }>[] = [
+    { kind: "action", id: "action:bridge", action: "bridge", ...action(text?.actions.bridge, english.bridge) },
+    { kind: "action", id: "action:theme", action: "theme", theme: next, ...action(text?.actions[next], english.theme) },
+  ];
+  const actions = everyAction.filter((a) => !q || matchesQuery(q, `${a.label} ${a.keywords}`));
   return [
-    { value: q ? "Tokens" : "Trending now", items: tokenItems },
-    { value: "Pages", items: pages },
-    { value: "Actions", items: actions },
+    { value: q ? (text?.groups.tokens ?? "Tokens") : (text?.groups.trending ?? "Trending now"), items: tokenItems },
+    { value: text?.groups.pages ?? "Pages", items: pages },
+    { value: text?.groups.actions ?? "Actions", items: actions },
   ].filter((g) => g.items.length > 0);
 }
 

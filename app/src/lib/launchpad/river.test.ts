@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createTranslator } from "use-intl/core";
 import type { FeedItem } from "./queries";
 import { COMPACT_SCALE, LABEL_MAX, LOGO_MIN_R, RIVER_HEIGHT, RIVER_WINDOW_MS, feedKey, inRiverWindow, initialRiver, layoutRiver, mergeRiver, pruneRiver, riverCoverage, riverFlow, riverSummary, riverUsd, type RiverEntry } from "./river.ts";
+import { messagesFor } from "../../i18n/messages/index.ts";
+
+/** The summary's words as each reader gets them: use-intl over the site's own messages. */
+const words = (locale: "en" | "zh-CN") => createTranslator({ locale, messages: messagesFor(locale), namespace: "activity.river.summary", timeZone: "UTC" });
+const en = words("en");
 
 const NOW = Date.parse("2026-10-04T16:48:00Z");
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
@@ -97,11 +103,18 @@ test("dollar labels stay short", () => {
 });
 
 test("the summary counts trades and launches in plain words", () => {
-  assert.equal(riverSummary([]), "Nothing in the last 30 minutes");
-  assert.equal(riverSummary(entries([swap({ ago: 1 })])), "1 trade in the last 30 minutes");
-  assert.equal(riverSummary(entries([launch({ ago: 1 })])), "1 launch in the last 30 minutes");
-  assert.equal(riverSummary(entries([swap({ ago: 1 }), swap({ ago: 2 }), launch({ ago: 3 })])), "2 trades and 1 launch in the last 30 minutes");
-  assert.equal(riverSummary(entries([swap({ ago: 1 }), launch({ ago: 2 }), launch({ ago: 3 })])), "1 trade and 2 launches in the last 30 minutes");
+  assert.equal(riverSummary([], true, en), "Nothing in the last 30 minutes");
+  assert.equal(riverSummary(entries([swap({ ago: 1 })]), true, en), "1 trade in the last 30 minutes");
+  assert.equal(riverSummary(entries([launch({ ago: 1 })]), true, en), "1 launch in the last 30 minutes");
+  assert.equal(riverSummary(entries([swap({ ago: 1 }), swap({ ago: 2 }), launch({ ago: 3 })]), true, en), "2 trades and 1 launch in the last 30 minutes");
+  assert.equal(riverSummary(entries([swap({ ago: 1 }), launch({ ago: 2 }), launch({ ago: 3 })]), true, en), "1 trade and 2 launches in the last 30 minutes");
+});
+
+test("in Chinese the summary keeps the same counts in Chinese word order", () => {
+  const zh = words("zh-CN");
+  assert.equal(riverSummary([], true, zh), "最近 30 分钟暂无动态");
+  assert.equal(riverSummary(entries([swap({ ago: 1 }), swap({ ago: 2 }), launch({ ago: 3 })]), true, zh), "最近 30 分钟内有 2 笔交易和 1 次发行");
+  assert.equal(riverSummary(entries([swap({ ago: 1 })]), false, zh), "最新 1 笔交易");
 });
 
 test("a full seed whose oldest event is inside the window says latest, never a window total", () => {
@@ -111,8 +124,8 @@ test("a full seed whose oldest event is inside the window says latest, never a w
   assert.equal(riverCoverage(busy, 5, NOW), cutAt, "full, and the oldest is 4 minutes old: older events may be missing");
   assert.equal(riverCoverage([...busy.slice(0, 4), swap({ ago: RIVER_WINDOW_MS + 60_000 })], 5, NOW), null, "the seed reaches past the window");
   const seen = entries(busy);
-  assert.equal(riverSummary(seen, false), "Latest 5 trades");
-  assert.equal(riverSummary(seen, true), "5 trades in the last 30 minutes");
+  assert.equal(riverSummary(seen, false, en), "Latest 5 trades");
+  assert.equal(riverSummary(seen, true, en), "5 trades in the last 30 minutes");
 });
 
 test("buys rise above the line, sells sit below it, launches land on it, and size follows dollars", () => {

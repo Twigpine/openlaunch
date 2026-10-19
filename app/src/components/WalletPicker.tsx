@@ -2,8 +2,9 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { useConnect } from "wagmi";
+import { useTranslations } from "use-intl";
 import { Wallet } from "lucide-react";
-import { NO_WALLET_NOTE, connectErrorMessage, walletChoices, type WalletChoice } from "@/lib/wallet-connectors";
+import { connectErrorMessage, walletChoices, type WalletChoice } from "@/lib/wallet-connectors";
 import Sheet from "./Sheet";
 
 const INJECTED_PROVIDER_EVENTS = ["ethereum#initialized", "eip6963:announceProvider"] as const;
@@ -23,6 +24,7 @@ function subscribeToInjectedProvider(onChange: () => void): () => void {
  */
 export default function WalletPicker({ onClose }: { onClose: () => void }) {
   const { connect, connectors, isPending, reset } = useConnect({ mutation: { onSuccess: onClose } });
+  const t = useTranslations("account.walletPicker");
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   // window.ethereum can appear after the sheet opens (a wallet that injects late fires the EIP-1193
@@ -44,8 +46,8 @@ export default function WalletPicker({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Sheet title="Connect a wallet" onClose={onClose}>
-      <ul className="flex flex-col gap-2" aria-label="Wallets">
+    <Sheet title={t("title")} onClose={onClose}>
+      <ul className="flex flex-col gap-2" aria-label={t("list")}>
         {choices.map((choice) => {
           const busy = isPending && pendingId === choice.id;
           return (
@@ -68,17 +70,17 @@ export default function WalletPicker({ onClose }: { onClose: () => void }) {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-ink truncate">{choice.name}</span>
-                  <span className="block text-xs text-muted truncate">{busy ? "Waiting for the wallet…" : choice.hint}</span>
+                  <span className="block text-xs text-muted truncate">{busy ? t("waiting") : choice.hint}</span>
                 </span>
               </button>
             </li>
           );
         })}
       </ul>
-      {!hasInjectedProvider && choices.every((c) => c.kind === "coinbase") ? <p className="mt-3 text-xs text-muted leading-relaxed">{NO_WALLET_NOTE}</p> : null}
-      {choices.length === 0 ? <p className="text-sm text-muted">No wallet option is available right now. Reload the page and try again.</p> : null}
+      {!hasInjectedProvider && choices.every((c) => c.kind === "coinbase") ? <p className="mt-3 text-xs text-muted leading-relaxed">{t("noWallet")}</p> : null}
+      {choices.length === 0 ? <p className="text-sm text-muted">{t("none")}</p> : null}
       <p role="alert" aria-live="assertive" className={`mt-3 text-[13px] leading-relaxed text-down-ink ${error ? "" : "sr-only"}`}>{error ?? ""}</p>
-      <p className="mt-4 text-[11px] text-muted leading-relaxed">Connecting lets this site read your address. Transactions and edits always need your signature.</p>
+      <p className="mt-4 text-[11px] text-muted leading-relaxed">{t("footnote")}</p>
     </Sheet>
   );
 }

@@ -1,11 +1,13 @@
 import { Sk, SkRow, SkStat } from "@/components/Skeleton";
 import shell from "@/components/sections/SectionShell.module.css";
+import { getTranslations } from "@/i18n/server";
 
 /* The dashboard page's own frame (its SectionIntro header), then the wallet card, the figures and the rows, so nothing
    shifts when the dashboard arrives. */
-export default function Loading() {
+export default async function Loading() {
+  const t = await getTranslations("account");
   return (
-    <main className={shell.page} aria-busy="true" aria-label="loading dashboard">
+    <main className={shell.page} aria-busy="true" aria-label={t("me.loading")}>
       <header className={shell.intro}>
         <Sk className="h-7 w-36 rounded-full" />
         <div className={shell.introRow}>

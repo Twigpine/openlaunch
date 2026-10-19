@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Star } from "lucide-react";
-import { watchlistKey, type WatchlistIdentity } from "@/lib/launchpad/watchlist";
+import { useTranslations } from "use-intl";
+import { WATCHLIST_LIMIT, watchlistKey, type WatchlistIdentity } from "@/lib/launchpad/watchlist";
 import { useWatchlist } from "./useWatchlist";
 
 /**
@@ -12,10 +13,11 @@ import { useWatchlist } from "./useWatchlist";
  */
 export default function WatchButton({ token, labelled = false, overlay = false, onRemoved }: { token: WatchlistIdentity; labelled?: boolean; overlay?: boolean; onRemoved?: (button: HTMLButtonElement) => void }) {
   const { savedKeys, ready, toggle, storageError } = useWatchlist();
+  const t = useTranslations("market.watch");
   const reduced = useReducedMotion();
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<"full" | "invalid" | null>(null);
   const saved = savedKeys.includes(watchlistKey(token));
-  const label = `${saved ? "Remove" : "Save"} ${token.name} ${saved ? "from" : "to"} watchlist`;
+  const label = t(saved ? "remove" : "save", { name: token.name });
   const star = (
     // the press feedback is the button's own :active state, in CSS. A tap gesture in Motion makes the element focusable
     // (tabindex="0"), and under reduced motion the server and the client then disagree about that attribute
@@ -28,7 +30,7 @@ export default function WatchButton({ token, labelled = false, overlay = false, 
       <button type="button" disabled={!ready} aria-label={label} aria-pressed={saved} title={label}
         onClick={(event) => {
           const result = toggle(token);
-          setMessage(result === "limit" ? "Your watchlist is full. Remove a token to save another (50 maximum)." : result === "invalid" ? "This token could not be saved." : "");
+          setMessage(result === "limit" ? "full" : result === "invalid" ? "invalid" : null);
           if (result === "removed") onRemoved?.(event.currentTarget);
         }}
         className={overlay
@@ -39,13 +41,13 @@ export default function WatchButton({ token, labelled = false, overlay = false, 
         {/* the wider word sizes the button, so the bar beside it never shifts; the star and word stay centred together */}
         {labelled ? (
           <span className="grid justify-items-center">
-            <span className="col-start-1 row-start-1 inline-flex items-center gap-1.5">{star}{saved ? "Watching" : "Watch"}</span>
-            <span aria-hidden="true" className="invisible col-start-1 row-start-1 inline-flex items-center gap-1.5"><span className="size-[15px]" />Watching</span>
+            <span className="col-start-1 row-start-1 inline-flex items-center gap-1.5">{star}{saved ? t("watching") : t("watch")}</span>
+            <span aria-hidden="true" className="invisible col-start-1 row-start-1 inline-flex items-center gap-1.5"><span className="size-[15px]" />{t("watching")}</span>
           </span>
         ) : star}
       </button>
-      {message ? <span role="alert" className="absolute left-0 top-full z-20 w-52 rounded-xl border border-line-strong bg-paper p-3 text-xs text-warm-ink">{message}</span> : null}
-      {storageError && labelled ? <span role="status" className="sr-only">Browser storage unavailable. Saved for this session only.</span> : null}
+      {message ? <span role="alert" className="absolute left-0 top-full z-20 w-52 rounded-xl border border-line-strong bg-paper p-3 text-xs text-warm-ink">{message === "full" ? t("full", { max: WATCHLIST_LIMIT }) : t("invalid")}</span> : null}
+      {storageError && labelled ? <span role="status" className="sr-only">{t("sessionOnly")}</span> : null}
     </span>
   );
 }

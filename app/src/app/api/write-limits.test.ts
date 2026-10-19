@@ -11,7 +11,7 @@ import test from "node:test";
  * is not supported).
  */
 function source(path: string): string {
-  return readFileSync(new URL(path, import.meta.url), "utf8");
+  return readFileSync(new URL(path, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 }
 
 for (

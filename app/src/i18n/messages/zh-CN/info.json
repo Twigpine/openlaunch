@@ -1,0 +1,405 @@
+{
+  "rules": {
+    "meta": {
+      "title": "运作方式",
+      "description": "一次发行在链上会做什么、要花多少（Gas），以及你的流动性永远不会遭遇什么。"
+    },
+    "eyebrow": "协议详解",
+    "title": "运作方式",
+    "description": "在 Base、Robinhood Chain 或 Arc 上只需一笔交易：你的代币、一个市场，以及一个永久锁定的流动性仓位。你只需支付 Gas。",
+    "verify": "验证合约",
+    "onThisPage": "本页目录",
+    "inThisGuide": "本指南内容",
+    "readSource": "查看源代码",
+    "contents": {
+      "launchpad": "发行",
+      "fees": "手续费与流向",
+      "immutable": "不可更改的部分",
+      "points": "赛季积分",
+      "know": "开始之前",
+      "contracts": "合约"
+    },
+    "launch": {
+      "headingTop": "一次签名。",
+      "headingBottom": "四件事随之发生。",
+      "sameTransaction": "全部在同一笔交易中完成。",
+      "noSetup": "无需单独设置。没有平台费。",
+      "steps": {
+        "token": {
+          "title": "你的代币完成部署",
+          "description": "一个支持 EIP-2612 permit 的普通 ERC-20。供应量固定，默认 10 亿枚。不能增发，不能暂停，没有黑名单，没有转账税，没有所有者。",
+          "label": "默认供应量"
+        },
+        "market": {
+          "title": "市场开启",
+          "description": "一个 Uniswap v4 资金池把你的代币与以下资产之一配对：ETH、Base 上的 TWIG、Robinhood Chain 上的 GITLAWB 或 USDG、一种代币化股票（Base 上的 Coinbase 股票，Robinhood Chain 上的 Robinhood Stock Tokens），或 Arc 上的 USDC。不使用 Hook。资金池从你选定的市值起步。",
+          "label": "Uniswap 资金池"
+        },
+        "lock": {
+          "title": "流动性仓位被锁定",
+          "description": "发行时，100% 的供应量进入同一个单边仓位。该仓位的 NFT 被铸造给一个无所有者的锁仓合约，这个合约没有任何可以提取、转移或缩减仓位的函数。永远没有。",
+          "label": "发行时存入"
+        },
+        "fees": {
+          "title": "手续费流向写入合约",
+          "description": "你选择的交易手续费（0%、1% 或 3%）100% 归你指定的受益人；如果你没有指定任何受益人，则被销毁。发行时确定，不可更改。",
+          "label": "你的交易手续费"
+        }
+      },
+      "note": "仓位保持锁定。代币仍可交易。",
+      "inspect": "查看锁仓合约"
+    },
+    "fees": {
+      "heading": "清楚费用的去向。",
+      "platformFee": "平台费",
+      "takeNothing": "我们分文不取。",
+      "gasToNetwork": "Gas 支付给网络。",
+      "checkCode": "查看代码",
+      "creatorChooses": "交易手续费由创建者选择",
+      "zero": "资金池不收交易手续费。网络 Gas 照常需要支付。任何人都不会从成交量中赚取手续费，包括创建者。",
+      "oneOrThree": "1% 或 3%",
+      "oneOrThreeBody": "Uniswap 对每笔交易收取该手续费，手续费累积到锁定的仓位中。平台不抽取任何份额。",
+      "fixed": "受益人及其份额在发行时设定，永远无法更改。像“一半手续费归这个地址”这样的承诺，由合约来执行，而不是由我们。",
+      "collectHeading": "任何人都可以发起领取。流向设置决定谁收款。",
+      "collect": "在代币页面点击<em>领取</em>。累积的手续费会离开资金池，并在同一笔交易中直接支付给受益人；如果该发行没有受益人，则销毁到 <mono>{dead}</mono>。",
+      "credited": "如果某个受益人无法接收付款，其份额会记入其名下，可以随时认领。这部分份额永远不会丢失，也永远不会阻碍其他受益人收款。"
+    },
+    "fixed": {
+      "heading": "是代码，而不是承诺。",
+      "readContracts": "查看合约源码",
+      "noFee": {
+        "title": "没有平台费",
+        "description": "工厂合约和锁仓合约中都没有任何手续费地址、手续费变量或金库。以后也没有可以开启的开关。不可变的代码无法再加入这些。"
+      },
+      "noWithdrawal": {
+        "title": "无法撤出流动性",
+        "description": "任何人都无法移除流动性：创建者不能，我们也不能。领取手续费不会移除任何流动性。"
+      },
+      "noPremine": {
+        "title": "没有预挖",
+        "description": "每个代币一开始都在资金池中。没有为创建者预留的份额。"
+      },
+      "noAdmin": {
+        "title": "没有管理员",
+        "description": "没有所有者，不能暂停，不能升级，没有白名单。合约对所有人都一样，永远如此。"
+      },
+      "anyPair": {
+        "title": "任何代币都可作为交易对",
+        "description": "合约接受任何 ERC-20 作为交易对。网站在公开检查后收录社区交易对（/pairs）；未收录的交易对仍可交易，但显示为未收录交易对，不显示美元价格。"
+      }
+    },
+    "points": {
+      "headingTop": "积分奖励真实买家。",
+      "headingBottom": "噪音一分不得。",
+      "leaderboard": "查看排行榜",
+      "intro": "积分衡量的是在 openlaunch 上的声誉。积分没有现金价值，不是代币，也不是对代币的承诺，不能转让或出售，规则也可能在赛季之间变化。钻系统空子的钱包会失去积分。一切都每小时根据链上数据计算一次；以下规则就是全部内容。",
+      "realBuyer": {
+        "question": "什么算真实买家？",
+        "who": "某个钱包对某个代币的首次买入不低于 ${minTradeUsd}，并且发生在发行区块、随后的 {sniperBlocks} 个区块和最初的 {sniperSeconds} 秒之后。这笔买入的代币必须由该钱包自己接收（只负责转交代币的中继器或路由器不算买家）。发行者、手续费接收方、通过转账从二者获得该代币的钱包，以及被排除在积分之外的钱包，永远不算。真实持有人是指：钱包里仍留有那次首次买入中价值至少 ${holderMinUsd}（资料符合条件的为 ${verifiedHolderMinUsd}，见下文）代币的真实买家。",
+        "holding": "持有按每笔买入分别判断：每当代币离开钱包（卖出，或转到任何其他钱包），最近收到的代币先离开。因此，卖出较晚的一笔买入不会影响较早的一笔；从其他钱包转入的代币永远不能顶替一笔买入；把仓位转出与卖出同等对待。只有计价资产能被我们定价的代币才计入。"
+      },
+      "creators": {
+        "question": "创建者如何赚取积分？",
+        "holders": "在你发行的任何代币上，只有赛季期间发生的事情才计入。每位在本赛季首次买入、一天后仍然持有的真实持有人，如果其资料符合条件（见下文），可为你带来 {verifiedHolder} 积分，否则为 {holder} 积分；一周后再得一半。每位持有人只为你计算一次，计在你的代币中其价值最高的那一个上。",
+        "fees": "资料符合条件的交易者买入时支付的手续费：每笔仍至少持有一半的买入，每 $1 手续费可得 {creatorFeePointsPerUsd} 积分（买入后立即卖回的不得分），来自同一交易者的积分每天最多 {creatorFeeCapPerTraderDay}。你在同一天发行的代币中，只有得分最高的 {bestTokensPerDay} 个计入。如果你在赛季期间卖出或转出了代币（转到任何钱包，包括你自己的钱包；销毁不算），并且你自己买入的该代币剩余不到一半，则该代币不得分。"
+      },
+      "traders": {
+        "question": "交易者如何赚取积分？",
+        "early": "成为某个代币最早的 {earlyFirstBuyers} 位真实买家之一，该代币现在已有 {earlyHoldersTarget} 位真实持有人，且你的首次买入发生在本赛季：可得 {early} 积分；只要你仍持有那次首次买入的一半，再得 {earlyStillHolding} 积分。",
+        "hold": "本赛季你首次买入的每个代币，只要首次买入是真实买入，且一天后仍持有一半（指那笔买入本身，而不是之后的买入；赛季开始前已持有的代币不算）：可得 {hold} 积分，每天最多 {holdTokensPerDay} 个代币。你买入他人代币时支付的手续费，若该代币有 {scoutFeeMinHolders}+ 位真实持有人（其中 {scoutFeeMinEligibleHolders}+ 位资料符合条件），每笔仍至少持有一半的买入：每 $1 可得 {scoutFeePointsPerUsd} 积分，每天最多 {scoutFeeCapPerDay} 积分。低于 ${minTradeUsd} 的交易不得分。"
+      },
+      "board": {
+        "question": "谁会出现在排行榜上？",
+        "answer": "通过 X 上的一条帖子完成验证的资料，且该 X 账号注册至少 {eligibleMinAgeDays} 天、拥有不少于 {eligibleMinFollowers} 位关注者。其他人可以在自己的面板上看到待解锁的积分；赛季进行期间，资料符合条件后，下一次积分更新会解锁本赛季至今的全部积分（积分大约每小时更新一次）。那条帖子本身不得分。"
+      }
+    },
+    "know": {
+      "headingTop": "流动性已锁定。",
+      "headingBottom": "不等于价值有保证。",
+      "intro": "这里发行的代币由各自的发行者创建，而不是 openlaunch。请自行研究；锁定的资金池并不会让代币变得有价值。一切均不可退款。",
+      "price": {
+        "question": "价格如何变动？",
+        "curve": "价格遵循单边 Uniswap v4 曲线：最早的买家用每单位计价资产买到的代币最多，每一笔买入都会推高价格。卖出会压低价格。",
+        "snipers": "没有防狙击机制。机器人可以像其他人一样在第一个区块买入。",
+        "firstBuy": "发行表单会建议一笔小额首次买入（约 $25），让你的代币一开盘就有持有人和价格；清空它，发行依然免费。"
+      },
+      "quiet": {
+        "question": "为什么我的代币在“冷清的发行”里？",
+        "ranking": "首页按事实排序，而不是按发行顺序。只要发行者以外的钱包在过去 24 小时内交易过某个代币，它就算<strong>活跃</strong>；发行区块及随后三个区块内的交易（狙击机器人）不计入，发行者自己的交易也不计入。活跃代币先按过去一小时内的外部钱包数排序，再按今天的外部钱包数，最后按最近一次外部交易排序。一个钱包最新发行的代币，无论如何都会在榜单上停留第一个小时；之后它会进入冷清的发行，每个钱包一行，直到有人交易它。",
+        "hidden": "没有任何内容被隐藏：每个发行都会保留在“最新”标签、搜索和 API 中。唯一的上升方式是来自外部钱包的交易。"
+      },
+      "change": {
+        "question": "发行后可以更改什么？",
+        "answer": "发行后，链上的任何内容都无法编辑：名称不能，手续费不能，受益人也不能。元数据（图片、简介、链接）由本站存储，可以更改；代币本身不能。"
+      },
+      "twig": {
+        "question": "什么是以 TWIG 或 GITLAWB 计价的资金池？",
+        "twig": "TWIG 是 Twigpine 在 Base 上的代币：GITLAWB 的 1:1 包装代币。任何人都可以随时免费把 GITLAWB 包装成 TWIG，或解包换回；每个 TWIG 都由其合约中持有的一个 GITLAWB 支持，该合约没有所有者，也没有转账限制。它是 Base 发行表单提供的计价资产：选择它，买家就用 TWIG 支付；任何交易手续费在领取时以 TWIG 按份额支付给发行时指定的受益人；没有指定受益人的发行，其 TWIG 手续费在领取时被销毁。",
+        "gitlawb": "GITLAWB 是 Twigpine 在 Base 上的代币，通过 LayerZero 1:1 跨链到 Robinhood Chain（同一份供应量，两条链）：一个普通的 ERC-20，没有转账限制，也没有发行方开关。Robinhood Chain 的发行表单提供它；在 Base 上，已经与 GITLAWB 配对的资金池会保留其徽章和价格。手续费规则相同：领取时以 GITLAWB 支付；没有指定受益人的发行，其 GITLAWB 手续费在领取时被销毁。",
+        "prices": "两者的美元数字都来自 Base 上 Uniswap v4 WETH/GITLAWB 资金池的价格（并与 30 分钟链上均价交叉核对）以及 ETH/USD；一个 TWIG 按一个 GITLAWB 计算，因为它可以解包为一个 GITLAWB。这些数字仅用于展示和排序；链上没有任何东西依赖它们。"
+      },
+      "stocks": {
+        "question": "关于以股票计价的资金池，我需要了解什么？",
+        "quotes": "以股票计价的资金池使用代币化股票作为计价资产：Base 上的 Coinbase 代币化股票（B20），本站只依据 Coinbase 的官方列表识别，并在 Chainlink 提供链上喂价时以美元定价（其他的不显示美元价格）；Robinhood Chain 上的 Robinhood Stock Tokens，只依据 Robinhood 自己的登记表识别。",
+        "securities": "两者都是第三方依据 Regulation S 发行的证券，不向美国人士发售。Coinbase 的代币化股票还排除英国、加拿大、澳大利亚、新加坡和瑞士。其发行方可以在受限司法管辖区暂停转账或冻结钱包。持有或交易它们受发行方的条款约束，而不是我们的条款。"
+      }
+    },
+    "contracts": {
+      "eyebrow": "事实来源",
+      "heading": "别只听我们说。",
+      "intro": "合约、地址和源码验证。每条链上都是相同的合约设计，搭配各链自己的 Uniswap 部署。",
+      "chainId": "链 ID",
+      "factory": "工厂合约",
+      "locker": "锁仓合约",
+      "factoryAddress": "{chain} 工厂合约：{address}",
+      "lockerAddress": "{chain} 锁仓合约：{address}",
+      "notDeployed": "尚未部署",
+      "sourceVerified": "源码已验证",
+      "factorySource": "{verifier} 上的 {chain} 工厂合约源码",
+      "lockerSource": "{verifier} 上的 {chain} 锁仓合约源码",
+      "note": "Uniswap v4 的 PoolManager、PositionManager、Permit2 和 Universal Router 都是 Uniswap 的官方部署。MIT 许可的源代码在 <github>GitHub ↗</github> 上；各链的验证记录见上方链接。"
+    },
+    "closing": {
+      "eyebrow": "下一步",
+      "heading": "创造属于你自己的东西。"
+    }
+  },
+  "about": {
+    "meta": {
+      "title": "关于 {brand}",
+      "description": "{brand} 是 Base、Robinhood Chain 和 Arc 上免费、开源的代币发射台。了解它做什么、由谁开发，以及哪些渠道是官方渠道。"
+    },
+    "eyebrow": "关于",
+    "title": "{brand} 是什么",
+    "description": "{brand} 是一个免费、开源的代币发射台。一笔交易即可部署一个固定供应量的 ERC-20，以你选择的市值开设一个 Uniswap v4 资金池，并将 100% 的供应量作为流动性永久锁定。它运行在 Base、Robinhood Chain 和 Arc 上。",
+    "howItWorks": "运作方式",
+    "different": {
+      "heading": "{brand} 有何不同",
+      "noFee": {
+        "title": "没有平台费",
+        "body": "工厂合约和锁仓合约都没有手续费地址、手续费变量或金库。以后也没有可以开启的开关。"
+      },
+      "locked": {
+        "title": "流动性永久锁定",
+        "body": "发行时，100% 的供应量进入一个 Uniswap v4 仓位。它的 NFT 由一个无所有者的锁仓合约持有，没有任何提取途径：创建者不能，openlaunch 不能，任何人都不能。"
+      },
+      "noAdmin": {
+        "title": "没有预挖，没有管理员",
+        "body": "每个代币一开始都在资金池中。合约没有所有者，不能暂停，不能升级，也没有白名单。对所有人都一样。"
+      },
+      "openSource": {
+        "title": "开源",
+        "body": "合约和网站都以 MIT 许可证在 GitHub 上开源，每个已部署的合约都在所在链的区块浏览器上完成了源码验证。"
+      },
+      "creatorFee": {
+        "title": "由创建者设定的交易手续费",
+        "body": "0%、1% 或 3%，在发行时选定，全额支付给创建者指定的受益人，或被销毁。永久固定。"
+      },
+      "agents": {
+        "title": "向智能体开放",
+        "body": "任何钱包发起一次合约调用即可发行。发行列表、交易和元数据也都是普通 JSON，无需 API 密钥。"
+      }
+    },
+    "chains": {
+      "heading": "运行在哪里",
+      "body": "每条链上部署的都是相同的合约设计，并分别搭配该链的官方 Uniswap v4 合约。地址和验证记录列在“运作方式”页面的<link>合约部分</link>。",
+      "chainId": "链 ID {id}"
+    },
+    "who": {
+      "heading": "由谁开发",
+      "body": "{brand} 由 Twigpine 构建，并公开开发。合约、索引器和本网站都在同一个 MIT 许可的代码仓库中；贡献通过该仓库的 Pull Request 提交。",
+      "launchers": "这里发行的代币由各自的发行者创建，而不是 {brand}。锁定的资金池并不会让代币变得有价值；请阅读<link>开始之前</link>。"
+    },
+    "official": {
+      "heading": "官方渠道",
+      "body": "{brand} 只通过以下渠道发声。名称相似的账号、域名和代码仓库均与 {brand} 无关，{brand} 也与其他同名产品没有关系。",
+      "website": "网站",
+      "formerly": "原域名为 {legacy}；旧域名会跳转到这里。",
+      "updates": "发布说明和最新动态。",
+      "source": "源代码",
+      "original": "MIT 许可。GitHub 上的分叉都是副本；这里是原始仓库。"
+    },
+    "fromAgent": "用智能体发行"
+  },
+  "agents": {
+    "meta": {
+      "title": "智能体",
+      "description": "用智能体发行和交易代币：一次合约调用，外加用于发行列表、交易和元数据的 JSON API。"
+    },
+    "eyebrow": "开发者参考",
+    "title": "智能体",
+    "description": "无需 API 密钥，无需注册，没有平台费。任何钱包只要有少量 ETH 支付 Gas，一次合约调用即可发行。网站上显示的所有内容也都有 JSON 版本。",
+    "readLlms": "阅读 llms.txt",
+    "exploreSource": "浏览源代码",
+    "entryTop": "界面是可选的。",
+    "entryBottom": "同一套协议，你也可以拿来构建。",
+    "start": "从发行开始",
+    "sectionsLabel": "智能体文档章节",
+    "onThisPage": "本页内容",
+    "sections": {
+      "launch": "发行代币",
+      "read": "读取 API",
+      "trade": "交易与领取"
+    },
+    "readHint": "用 JSON API 读取。",
+    "writeHint": "用你的钱包在链上写入。",
+    "reference": "参考",
+    "httpReference": "HTTP 参考",
+    "launch": {
+      "subtitle": "一次调用，从你自己的钱包发起。",
+      "chain": "链 ID",
+      "factory": "工厂合约",
+      "locker": "锁仓合约",
+      "factoryAddress": "{chain} 工厂合约：{address}，在区块浏览器中查看",
+      "lockerAddress": "{chain} 锁仓合约：{address}，在区块浏览器中查看",
+      "notDeployed": "尚未部署",
+      "call": "在对应链的工厂合约上调用 <code>launch(params)</code>。下面的示例在 Base 上以 ETH 计价发行。",
+      "exampleTitle": "在 Base 上发行",
+      "exampleNote": "仅为示例。发送交易前，请替换钱包占位符并检查参数。切勿泄露你的私钥。",
+      "parameters": "参数说明，不必猜测",
+      "quote": "ETH 使用零地址。Base 上的 TWIG（那里的表单提供的计价资产）使用 <code>{twig}</code>。GITLAWB 在 Base 上使用 <code>{gitlawbBase}</code>（仍会被识别、显示徽章并定价），在 Robinhood Chain 上使用 <code>{gitlawbRobinhood}</code>；Robinhood Chain 上的 USDG 使用 <code>{usdg}</code>。任何 ERC-20 计价资产都要先调用 <code>findSalt(...)</code>，让代币地址排在计价资产之上。",
+      "supply": "<code>0</code> 表示使用默认的 <code>1B</code> 供应量。",
+      "startTick": "设置开盘市值。取值为 <code>200</code> 的倍数；对于 <code>1B</code> 供应量，<code>184200 ≈ 10 ETH</code> FDV。",
+      "lpFee": "单位为 pips：<code>0</code>、<code>10000 = 1%</code> 或 <code>30000 = 3%</code>。",
+      "recipients": "为空表示手续费被销毁。否则，份额以 bps 为单位，总和为 <code>10000</code>。",
+      "metadataHeading": "先添加元数据",
+      "optional": "可选",
+      "metadata": "如需图片、简介或链接，请先发送元数据。响应中包含要作为 <code>metadataURI</code> 传入的 <code>uri</code>，以及预测的代币地址。",
+      "firstBuy": "发行确认后立即少量买入（在新资金池上通过 Universal Router 兑换；本站表单建议约 $25）。没有持有人、价格也没有变动的代币，在行情网站上看起来就像死币，并会留在首页的冷清的发行中，直到有外部钱包交易它。",
+      "metadataTitle": "元数据请求格式"
+    },
+    "read": {
+      "subtitle": "JSON 端点，外加一份纯文本的智能体参考。",
+      "publicEndpoints": "公开端点",
+      "noKey": "无需 API 密钥",
+      "list": "浏览和排序发行",
+      "feed": "最新发行 + 交易",
+      "meta": "图片、简介和链接",
+      "llms": "机器可读的参考",
+      "exampleTitle": "读取端点",
+      "amounts": "原始的代币数量和计价资产数量都是十进制整数字符串。计价资产数量请使用 <code>quote_decimals</code>，不要一律按 <code>18</code> 位小数处理。<code>price_quote</code> 和 <code>fdv_quote</code> 是以该代币的计价资产表示的数字；明确标注的 <code>price_usd</code>、<code>fdv_usd</code> 和 <code>volume_usd</code> 字段是美元数值，无法定价时可能为 <code>null</code>。",
+      "polling": "请适度轮询，出错时退避重试。由于索引和服务器端缓存，响应并不保证反映最新的链上状态，即使 HTTP 响应使用了 <code>no-store</code>。"
+    },
+    "trade": {
+      "subtitle": "标准资金池。直接调用合约。",
+      "swapLabel": "兑换",
+      "swapHeading": "使用 Uniswap v4",
+      "swap": "资金池是普通的 Uniswap v4 资金池，tick 间距为 <code>200</code>，不使用 Hook。计价资产可以是 ETH、TWIG（Base）、GITLAWB（Base 和 Robinhood Chain）、USDG（Robinhood Chain）、USDC（Arc），或受支持的发行方登记股票代币。在工厂合约上通过 <code>poolKeyOf(token)</code> 获取实际的 pool key。通过 Universal Router 使用 <code>V4_SWAP</code> 命令兑换，或使用任何支持 v4 的路由器。",
+      "collectLabel": "领取",
+      "collectHeading": "支付累积的手续费",
+      "collect": "任何人都可以在对应链的锁仓合约上调用 <code>collect(tokenId)</code> 来支付累积的手续费。Base 锁仓合约：<code>{locker}</code>。其他链请使用上方对应的地址。",
+      "stocks": "代币化股票是依据 Regulation S 发售的第三方证券，不向美国人士发售。本站依据发行方登记表识别它们，而不是依据链上名称。",
+      "syncHeading": "同步你的交易",
+      "sync": "发送交易后，可以用这个端点请求立即索引。后台轮询通常大约每 <code>15s</code> 运行一次；回执可用性和 RPC 错误可能会延迟索引。",
+      "syncTitle": "交易同步端点"
+    },
+    "code": {
+      "copyLabel": "复制“{title}”",
+      "copy": "复制",
+      "copied": "已复制",
+      "region": "{title}，可滚动的代码",
+      "copiedNotice": "“{title}”已复制到剪贴板。",
+      "copyFailed": "无法复制。请选中代码后手动复制。"
+    }
+  },
+  "community": {
+    "roles": {
+      "creator": "创建者",
+      "whale": "巨鲸",
+      "holder": "持有人"
+    },
+    "label": "最近的社区帖子",
+    "title": "社区帖子",
+    "newest": "最新优先",
+    "refresh": "刷新帖子",
+    "filterByChain": "按链筛选帖子",
+    "allChains": "全部链",
+    "search": "搜索最近的帖子",
+    "clearSearch": "清除帖子搜索",
+    "refreshing": "正在刷新帖子…",
+    "unavailable": "帖子暂不可用",
+    "matching": "<num>{count}</num> 条匹配的帖子",
+    "recent": "<num>{count}</num> 条最近的帖子",
+    "conversations": "代币页面上的讨论",
+    "loadErrorTitle": "帖子加载失败。",
+    "loadErrorBody": "可能是你的网络连接或索引器暂时不可用。无需连接钱包即可重试。",
+    "tryAgain": "重试",
+    "filteredEyebrow": "当前视图中没有内容",
+    "emptyEyebrow": "等你说第一句",
+    "filteredTitle": "没有匹配的讨论。",
+    "emptyTitle": "下一段讨论，从你开始。",
+    "filteredBody": "换一条链或换个搜索词试试。搜索只覆盖这里已加载的最近帖子。",
+    "emptyBody": "打开一个代币，进入“讨论”，分享你的看法。持有人、交易者和创建者可以用免费的钱包签名发帖。",
+    "clearFilters": "清除筛选",
+    "findToken": "查找代币",
+    "list": "帖子，最新优先",
+    "postBy": "发布者：",
+    "on": "关于 <strong>{token}</strong>",
+    "openConversation": "打开讨论",
+    "foot": "最多显示最近 100 条帖子。完整讨论请到对应的代币页面查看。",
+    "aside": "关于社区",
+    "joinHeading": "从代币页面加入。",
+    "joinBody": "每条帖子都属于一个代币。完整讨论、市场和合约都在一起。",
+    "findStep": "找到你的代币",
+    "findStepBody": "浏览任意链上的发行。",
+    "openStep": "打开“讨论”",
+    "openStepBody": "阅读讨论，或回复某条帖子。",
+    "signStep": "签名发言",
+    "signStepBody": "只是钱包签名，不是交易。",
+    "explore": "浏览发行",
+    "walletHeading": "每条帖子背后都有一个钱包。",
+    "walletBody": "创建者、代币持有人，以及在这里交易或发行过的钱包都可以发帖。无需创建账户。发帖不需要 Gas。",
+    "caution": "帖子是社区成员的观点，不代表背书。请自行核查代币及其合约。"
+  },
+  "chain": {
+    "base": {
+      "title": "Base 上的免费代币发射台",
+      "description": "一笔交易即可在 Base 上发行代币。零平台费，开源，100% 的供应量作为 Uniswap v4 流动性永久锁定。你只需支付 Gas。",
+      "heading": "在 Base 上发行代币",
+      "intro": "Base 是 Coinbase 的以太坊二层网络。在这里发行，会在一笔交易中部署一个固定供应量的 ERC-20，在 Base 上开设一个 Uniswap v4 资金池，并把全部供应量锁定在其中。"
+    },
+    "robinhood": {
+      "title": "Robinhood Chain 上的免费代币发射台",
+      "description": "一笔交易即可在 Robinhood Chain 上发行代币。零平台费，开源，100% 的供应量作为 Uniswap v4 流动性永久锁定。",
+      "heading": "在 Robinhood Chain 上发行代币",
+      "intro": "Robinhood Chain 是 Robinhood 的以太坊二层网络。在这里发行，会在一笔交易中部署一个固定供应量的 ERC-20，在 Robinhood Chain 上开设一个 Uniswap v4 资金池，并把全部供应量锁定在其中。"
+    },
+    "arc": {
+      "title": "Arc 上的免费代币发射台（USDC）",
+      "description": "一笔交易即可在 Circle 的区块链 Arc 上发行代币。以 USDC 计价，零平台费，100% 的供应量作为 Uniswap v4 流动性永久锁定。",
+      "heading": "在 Arc 上发行代币",
+      "intro": "Arc 是 Circle 的一层网络，以 USDC 作为 Gas 代币。在这里发行，会在一笔交易中部署一个固定供应量的 ERC-20，在 Arc 上开设一个以 USDC 计价的 Uniswap v4 资金池，并把全部供应量锁定在其中。"
+    },
+    "launchOn": "在 {chain} 上发行",
+    "howItWorks": "运作方式",
+    "glance": "{chain} 概览",
+    "platformFee": "平台费",
+    "gas": "你用 {gas} 支付 {chain} 的 Gas，没有其他费用。",
+    "quotes": "计价资产",
+    "quotesNote": "资金池的交易对资产，在发行时选定。",
+    "launches": "发行数",
+    "launchesNote": "迄今在 {chain} 上发行的代币。",
+    "chainId": "链 ID",
+    "liquidity": "流动性：{chain} 上的 Uniswap v4。",
+    "factory": "工厂合约：<link>{address}</link>（{explorer}）",
+    "tokens": "{chain} 上的代币",
+    "others": "其他链",
+    "alsoOn": "另见：",
+    "brandOn": "{chain} 上的 {brand}"
+  },
+  "errors": {
+    "pageError": "页面错误",
+    "pageNotFound": "页面不存在",
+    "notFound": "这里什么都没有。你访问的页面不存在。",
+    "route": "此页面出了问题。你的资金在链上，出问题的只是网站。",
+    "global": "出了点问题。你的资金在链上，出问题的只是网站。",
+    "errorId": "错误 ID：{digest}",
+    "tryAgain": "重试",
+    "backHome": "返回发射台"
+  },
+  "loading": {
+    "home": "加载中",
+    "posts": "正在加载帖子",
+    "recentPosts": "正在加载最近的社区帖子"
+  }
+}
