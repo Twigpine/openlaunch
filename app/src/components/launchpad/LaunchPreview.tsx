@@ -6,7 +6,7 @@ import LaunchCard from "./LaunchCard";
 import TokenAvatar from "./TokenAvatar";
 import { ChainLogo } from "./ChainLogo";
 import { XMark } from "./BrandMarks";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import { safeSocials } from "@/lib/launchpad/socials";
@@ -73,7 +73,7 @@ function PagePreview({ row }: { row: LaunchRow }) {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <p className="min-w-0 truncate font-display text-[15px] font-bold tracking-tight text-ink">{row.name}</p>
-            <QuoteBrandBadge quoteKey={row.quote_key} />
+            <QuoteBrandBadge quoteKey={row.quote_key} symbol={row.quote_symbol} logo={row.quote_logo} />
           </div>
           <p className="flex min-w-0 items-center gap-1 text-[11px] text-muted">
             <span className="max-w-28 truncate font-mono text-body">{row.symbol}</span> on <ChainLogo chain={row.chain} size={12} /><span className="truncate">{CHAIN_LABELS[row.chain]}</span>

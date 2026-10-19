@@ -20,6 +20,8 @@ import { GITLAWB_POOL_ID, GITLAWB_V3_POOL, TWAP_WINDOW_S, gitlawbUsdFromSqrtPric
  * in USD sorts) until a read succeeds. Never throws.
  */
 let usdNow: number | null = null;
+/** The two readings behind usdNow (USD per GITLAWB): the v4 spot and the v3 30-minute average, for prices that want the lower one. */
+let partsNow: { spot: number | null; twap: number | null } = { spot: null, twap: null };
 let goodAt = 0; // when usdNow was last read successfully
 let refreshedAt = 0; // when the last refresh attempt finished
 let inflight: Promise<void> | null = null;
@@ -46,6 +48,7 @@ async function read(): Promise<number | null> {
   const spot = slot0 === null ? null : gitlawbUsdFromSqrtPrice(slot0, eth);
   const twap = observed === null || observed.length < 2 ? null : gitlawbUsdFromTick(twapTick(observed[0], observed[1], TWAP_WINDOW_S), eth);
   const { usd, source, deviation } = reconcileGitlawbUsd(spot, twap);
+  if (usd !== null) partsNow = { spot, twap };
   if (source === "twap" && spot !== null) console.warn(`[gitlawb] v4 spot $${spot} is ${Math.round((deviation ?? 0) * 100)}% off the 30m v3 TWAP $${twap}; publishing the TWAP`);
   else if (source === "spot" && twap === null) console.warn("[gitlawb] v3 TWAP unavailable; publishing the unguarded v4 spot");
   return usd;
@@ -64,6 +67,15 @@ function refresh(): Promise<void> {
       refreshedAt = Date.now();
       inflight = null;
     }));
+}
+
+/**
+ * GITLAWB's spot and 30-minute average separately (USD), from the same reads as gitlawbUsd. For a fee that must not shrink
+ * when the price is pushed for a moment, the caller takes the lower one. Both null when nothing fresh was read.
+ */
+export async function gitlawbUsdParts(): Promise<{ spot: number | null; twap: number | null }> {
+  const usd = await gitlawbUsd();
+  return usd === null ? { spot: null, twap: null } : partsNow;
 }
 
 export async function gitlawbUsd(): Promise<number | null> {

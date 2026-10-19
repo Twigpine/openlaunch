@@ -42,12 +42,18 @@ export function capChipLabel(v: number, entry: CapEntry, quote: Pick<Quote, "sym
   return entry.unit === "usd" ? `$${fmtCompact(v, 0)}` : `${fmtQuoteUnits(v, quote.decimals)} ${quote.symbol}`;
 }
 
-/** A quote-denominated cap as quote text: "9.87 ETH", "25,000 USDG", "0.112 NVDA". */
+/** A quote-denominated cap as quote text: "9.87 ETH", "25,000 USDG", "0.112 NVDA", "25,000 AMCc", "1.2M AMCc". */
 export function capQuoteLabel(fdvQuote: number, quote: Pick<Quote, "key" | "symbol" | "decimals">): string {
   if (typeof fdvQuote !== "number" || !Number.isFinite(fdvQuote) || fdvQuote < 0) return "—";
   if (fdvQuote >= 1e15) return `${fdvQuote.toExponential(1)} ${quote.symbol}`;
   if (quote.decimals <= 6) return `${fdvQuote.toLocaleString("en-US", { maximumFractionDigits: Math.abs(fdvQuote) < 100 ? 2 : 0 })} ${quote.symbol}`; // a 0.5 USDG cap is "0.5 USDG", not "1 USDG"
-  if (quote.key === "stock") return `${fdvQuote.toFixed(3)} ${quote.symbol}`;
+  // a stock cap is a fraction of a share when the stock is dear ("0.112 NVDA") and thousands of shares when it is cheap or has
+  // no USD price, where this figure is the headline: three decimals under 100, grouped whole shares above, compact from 100K
+  if (quote.key === "stock") {
+    const abs = Math.abs(fdvQuote);
+    const text = abs < 100 ? fdvQuote.toFixed(3) : Math.round(abs) >= 100_000 ? fmtQuoteUnits(fdvQuote, quote.decimals) : fdvQuote.toLocaleString("en-US", { maximumFractionDigits: 0 });
+    return `${text} ${quote.symbol}`;
+  }
   return `${fmtQuoteUnits(fdvQuote, quote.decimals)} ${quote.symbol}`;
 }
 

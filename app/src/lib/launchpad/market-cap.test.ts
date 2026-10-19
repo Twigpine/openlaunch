@@ -6,6 +6,7 @@ import { fdvForStartTick, startTickForFdv } from "./math.ts";
 const eth = { key: "eth" as const, symbol: "ETH", decimals: 18 };
 const usdg = { key: "usdg" as const, symbol: "USDG", decimals: 6 };
 const nvda = { key: "stock" as const, symbol: "NVDA", decimals: 18 };
+const amc = { key: "stock" as const, symbol: "AMCc", decimals: 8 }; // a Coinbase stock: 8 decimals
 const gitlawb = { key: "gitlawb" as const, symbol: "GITLAWB", decimals: 18 };
 
 test("capEntry: dollars whenever the quote has a positive price, quote units otherwise", () => {
@@ -56,6 +57,12 @@ test("labels: chips in dollars or quote units; quote text per quote kind", () =>
   assert.equal(capQuoteLabel(99.99, usdg), "99.99 USDG");
   assert.equal(capQuoteLabel(100.4, usdg), "100 USDG", "from 100 units up, whole units");
   assert.equal(capQuoteLabel(0.11208, nvda), "0.112 NVDA");
+  // a cheap stock, or one with no USD price where this figure is the headline: whole shares with separators, compact from 100K
+  assert.equal(capQuoteLabel(99.9994, nvda), "99.999 NVDA", "under 100, three decimals as before");
+  assert.equal(capQuoteLabel(150.5, amc), "151 AMCc");
+  assert.equal(capQuoteLabel(25_000, amc), "25,000 AMCc", "not 25000.000 AMCc");
+  assert.equal(capQuoteLabel(99_999.4, amc), "99,999 AMCc");
+  assert.equal(capQuoteLabel(1_200_000, amc), "1.2M AMCc", "not 1200000.000 AMCc");
   assert.equal(capQuoteLabel(1_250_000, gitlawb), "1.25M GITLAWB");
 });
 

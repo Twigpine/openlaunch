@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
 const url = process.env.MCAP_TEST_DATABASE_URL;
 if (!url || new URL(url).hostname !== "127.0.0.1") throw new Error("Set MCAP_TEST_DATABASE_URL to an empty disposable database on 127.0.0.1");
 process.env.DATABASE_URL = url;
+process.env.BOOST = "off";
 const stock = "0x000000000000000000000000000000000000a001";
 const unlisted = "0x000000000000000000000000000000000000a002";
 const savedFetch = globalThis.fetch;
@@ -17,10 +18,15 @@ globalThis.fetch = async (input) => {
   if (u.includes("/rhj/prices/")) return Response.json({ quotes: [{ tokenSymbol: "TEST", bid: "200", ask: "200" }] });
   throw new Error(`Unexpected fetch in market-cap test: ${u}`);
 };
-const [{ db }, { publicClient }, { listLaunchesPage, getLaunch }, { startTickForFdv }, { classifyMcap, MCAP_POLICY_VERSION }, { clearMemo }, { mcapPageQuery }] = await Promise.all([
-  import("../src/lib/db"), import("../src/lib/chain"), import("../src/lib/launchpad/queries"), import("../src/lib/launchpad/math"), import("../src/lib/launchpad/mcap-policy"), import("../src/lib/launchpad/memo"), import("../src/lib/launchpad/mcap-query"),
+const [{ db }, { publicClient }, { listLaunchesPage, getLaunch }, { startTickForFdv }, { classifyMcap, MCAP_POLICY_VERSION }, { clearMemo }, { mcapPageQuery }, { coreQuotes, quotesWithKey }, { PAIR_TWAP_WINDOW_S }] = await Promise.all([
+  import("../src/lib/db"), import("../src/lib/chain"), import("../src/lib/launchpad/queries"), import("../src/lib/launchpad/math"), import("../src/lib/launchpad/mcap-policy"), import("../src/lib/launchpad/memo"), import("../src/lib/launchpad/mcap-query"), import("../src/lib/launchpad/config"), import("../src/lib/launchpad/pairs"),
 ]);
-publicClient("base").readContract = (async () => { throw new Error("No on-chain price feed in this test"); }) as ReturnType<typeof publicClient>["readContract"];
+// One six-decimal community pair has a deterministic $2 spot and oracle history; every other RPC read is refused.
+publicClient("base").readContract = (async (args: { address: string; functionName: string }) => {
+  if (args.address === wallet(50_000) && args.functionName === "slot0") return [BigInt(Math.floor(Math.sqrt(2) * 2 ** 96)), 6931];
+  if (args.address === wallet(50_000) && args.functionName === "observe") return [[0n, 6931n * BigInt(PAIR_TWAP_WINDOW_S)], []];
+  throw new Error("No on-chain price feed in this test");
+}) as ReturnType<typeof publicClient>["readContract"];
 const sql = db();
 const creator = `0x${"c".repeat(40)}`;
 /** Derive a deterministic address so fixtures can reuse a wallet or deliberately use distinct wallets. */
@@ -81,6 +87,17 @@ try {
   await launch("Newer lower sqrt", { current: 20_000.0001, time: "2026-01-02T00:00:00Z" });
   await launch("Tie A", { current: 12_000 }); await launch("Tie B", { current: 12_000 });
   await launch("No swaps fallback", { start: 8000, sqrt: false });
+  const baseUsdc = coreQuotes("base").find((q) => q.key === "usdc")!;
+  const weth = quotesWithKey("eth").find((q) => q.chain === "base" && q.address !== wallet(0))!;
+  await launch("Wrapped ETH", { chain: 8453, quote: weth.address, decimals: 18, quoteUsd: 2500, start: 34_567 });
+  for (const [id, symbol, status] of [[40_000, "PAIRTEST", "listed"], [40_001, "PAIRNULL", "listed"], [40_002, "PAIRHALT", "suspended"]] as const) {
+    await sql`INSERT INTO bb_pairs (chain_id,address,symbol,name,decimals,status,price_kind,price_pool,price_quote)
+      VALUES (8453,${wallet(id)},${symbol},${symbol},6,${status},'univ3',${wallet(id + 10_000)},${baseUsdc.address})`;
+  }
+  await launch("Pair six decimals", { chain: 8453, quote: wallet(40_000), decimals: 6, quoteUsd: 2, start: 15_000 });
+  await launch("Pair no price", { chain: 8453, quote: wallet(40_001), start: 15_000 });
+  await launch("Suspended pair", { chain: 8453, quote: wallet(40_002), start: 15_000 });
+  await launch("Pair wrong chain", { quote: wallet(40_000), start: 15_000 });
 
   const all = await page({ mcap: "all" });
   const filtered = await page();
@@ -97,11 +114,17 @@ try {
   assert.ok(names(all).indexOf("Older higher sqrt") < names(all).indexOf("Newer lower sqrt"), "sqrt price beats a same-tick age tie");
   assert.ok(names(all).indexOf("Tie A") < names(all).indexOf("Tie B"), "token breaks exact ties");
   const unknown = all.items.filter((r) => r.fdv_usd === null);
-  assert.deepEqual(new Set(unknown.map((r) => r.name)), new Set(["Stock wrong chain", "Unlisted six decimals"]));
+  assert.deepEqual(new Set(unknown.map((r) => r.name)), new Set(["Stock wrong chain", "Unlisted six decimals", "Pair no price", "Suspended pair", "Pair wrong chain"]));
   assert.deepEqual(all.items.slice(-unknown.length), unknown, "unknown USD valuations sort last");
   assert.equal(all.items.find((r) => r.name === "Unlisted six decimals")!.quote_decimals, 6);
   assert.ok(Math.abs(all.items.find((r) => r.name === "Stock six decimals")!.fdv_usd! - 12_345) < 1e-7);
   assert.ok(Math.abs(all.items.find((r) => r.name === "Arc native")!.fdv_usd! - 10_000) < 1e-7);
+  assert.ok(Math.abs(all.items.find((r) => r.name === "Wrapped ETH")!.fdv_usd! - 34_567) < 1e-7, "wrapped ETH keeps its USD price");
+  const pairRow = all.items.find((r) => r.name === "Pair six decimals")!;
+  assert.equal(pairRow.quote_key, "pair"); assert.equal(pairRow.quote_decimals, 6);
+  assert.ok(Math.abs(pairRow.fdv_usd! - 15_000) < 1e-7, "community pair USD ordering and display use the same units");
+  assert.equal(all.items.find((r) => r.name === "Pair no price")!.quote_key, "pair");
+  for (const name of ["Suspended pair", "Pair wrong chain"]) assert.equal(all.items.find((r) => r.name === name)!.quote_key, "other");
   assert.ok(all.items.find((r) => r.name === "No swaps fallback")!.fdv_usd! > 8000);
   const paged = [];
   for (let offset=0;offset<filtered.items.length;offset+=2) {
@@ -120,6 +143,9 @@ try {
   assert.equal(missing.items.find((r)=>r.name==="DOTTIE")!.fdv_usd,null, "no ETH=$1 fallback");
 
   const { GET } = await import("../src/app/api/launch/list/route");
+  const launcherResponse = await GET(new Request(`http://localhost/api/launch/list?sort=mcap&launcher=${wallet(999_999)}`));
+  assert.equal(launcherResponse.status, 200);
+  assert.deepEqual((await launcherResponse.json()).launches, [], "market-cap mode preserves launcher scoping");
   const defaultResponse = await GET(new Request("http://localhost/api/launch/list?sort=mcap&limit=200"));
   assert.equal(defaultResponse.status, 200);
   const defaultData = await defaultResponse.json();
@@ -134,9 +160,10 @@ try {
   clearMemo();
   const { GET: live } = await import("../src/app/api/launch/live/route");
   for (const mode of ["all","filtered"] as const) {
-    const response=await live(new Request(`http://localhost/api/launch/live?sort=mcap&mcap=${mode}&limit=200`));
+    const response=await live(new Request(`http://localhost/api/launch/live?sort=mcap&mcap=${mode}&limit=200&boost=1`));
     assert.equal(response.status,200); const data=await response.json();
     assert.equal(data.mcap,mode);
+    assert.equal(data.boost_on, false, "Boost metadata survives alongside market-cap mode");
     assert.deepEqual(data.launches.map((r:{name:string})=>r.name),names(mode==="all"?all:filtered),"live cache keys isolate modes");
   }
   const before=performance.now(); await page();

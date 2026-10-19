@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { earnedRaw, earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, isBurnOnly } from "./creator.ts";
+import { earnedRaw, earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, holdingsValue, isBurnOnly } from "./creator.ts";
 import { buildEditMessage, isNonce, validateEdit } from "./editAuth.ts";
 import { ageLabel, clampSocial, feeLabel, shapeCard } from "./ogcard.ts";
 
@@ -134,4 +134,29 @@ test("validateEdit: the banner follows the image rules", () => {
   assert.equal(validateEdit({ banner_url: "http://x.y/b.webp" }).ok, false);
   assert.equal(validateEdit({ banner_url: "https://localhost/b.webp" }).ok, false);
   assert.equal(validateEdit({ banner_url: "https://10.0.0.5/b.webp" }).ok, false);
+});
+
+test("holdingsValue: a token with no price source is left out of the total, not allowed to blank it", () => {
+  const E = 10n ** 18n;
+  const eth = { balance: 2n * E, priceQuote: 0.5, quoteUsd: 2000, priced: true }; // $2,000
+  const twig = { balance: 10n * E, priceQuote: 2, quoteUsd: 0.5, priced: true }; // $10
+  const feedless = { balance: 5n * E, priceQuote: 0.01, quoteUsd: null, priced: false }; // paired with a stock nothing prices
+  const unlisted = { balance: 1n * E, priceQuote: 3, quoteUsd: null, priced: false }; // an unlisted pair
+
+  assert.deepEqual(holdingsValue([eth, twig]), { usd: 2010, reading: false, unknown: false, unpriced: 0 });
+  // the case the review found: one NFLXc-paired token used to turn the whole wallet's value into "—"
+  assert.deepEqual(holdingsValue([eth, feedless, twig, unlisted]), { usd: 2010, reading: false, unknown: false, unpriced: 2 });
+  assert.deepEqual(holdingsValue([feedless]), { usd: 0, reading: false, unknown: false, unpriced: 1 }, "nothing priced: $0 with a note, never a dash");
+
+  // a quote that normally has a price and has none right now is still an honest unknown...
+  const outage = { balance: 3n * E, priceQuote: 1, quoteUsd: null, priced: true };
+  assert.deepEqual(holdingsValue([eth, outage]), { usd: 2000, reading: false, unknown: true, unpriced: 0 });
+  // ...but only for a token the wallet still holds: an empty balance is worth nothing whatever its price
+  assert.deepEqual(holdingsValue([eth, { ...outage, balance: 0n }, { ...feedless, balance: 0n }]), { usd: 2000, reading: false, unknown: false, unpriced: 0 });
+
+  // balances still being read, or that failed to read, stay distinct from zero
+  assert.deepEqual(holdingsValue([eth, { ...twig, balance: undefined }]), { usd: 2000, reading: true, unknown: false, unpriced: 0 });
+  assert.deepEqual(holdingsValue([eth, { ...twig, balance: null }]), { usd: 2000, reading: false, unknown: true, unpriced: 0 });
+  assert.deepEqual(holdingsValue([{ ...feedless, balance: null }]), { usd: 0, reading: false, unknown: true, unpriced: 0 }, "a failed read is unknown even for an unpriced pair");
+  assert.deepEqual(holdingsValue([]), { usd: 0, reading: false, unknown: false, unpriced: 0 });
 });

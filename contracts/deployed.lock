@@ -1,0 +1,22 @@
+# Deployed contract sources, and everything that decides their bytecode. These files stay byte-identical to what is live.
+#
+# contracts/src and the pinned libraries were compared with the exact-match verified source on Sourcify for Base (8453),
+# Robinhood Chain (4663) and Arc (5042) on 2026-10-11: every source file identical, solc 0.8.26, optimizer 200 runs, via-IR,
+# cancun.
+#
+# A change for another chain is a new copied file, never an edit (src/LaunchFactoryArc.sol is the pattern). A contract that
+# goes live is added here with:  contracts/script/check-deployed-sources.sh --update <path>
+# CI runs the same script without arguments, and the pull request guard refuses any change to a path listed here.
+sha256 1b9e3dc7a32975db40bbdfe9ce3dd0be679ce187a5a4037597d583be1a615215  contracts/src/LaunchFactory.sol
+sha256 ed49094964c189ac8b42aa34f2c2cce5b0c0430f2c7278c16b2785ae25c49789  contracts/src/LaunchFactoryArc.sol
+sha256 e394dcba3d27cf1ecff39f4ee0da5ef36346795163bc938aa0ad045a4db68fb9  contracts/src/LaunchLocker.sol
+sha256 d5a6481e74e890232d99d9079f1df9cbdedeee4f4b6d9b0fe434586092258765  contracts/src/LaunchToken.sol
+sha256 cae205b3fe08f484af012412ae4db540b3ca60118f32eed6bb15d228f8f0655f  contracts/docs/LaunchFactoryArc.diff
+sha256 341d960dac7e913296719d5a87bd9cd7f1a1217cfb7c3aeb36226bc6c0e8cbff  contracts/foundry.toml
+sha256 34d5dcb81a28ea5643b761a188b3a30323bcf9068cdcf139bd06b3a9753e3bec  contracts/remappings.txt
+sha256 ead32adedb4800c3dbb07e312d558696780d55a4f11751a32fe0001f8269c0d0  contracts/deployments/launchpad-arc.json
+sha256 771d778fc16d42362623e65048dcc4b93f2b72a6c45b13a15df3db13b02675ed  contracts/deployments/launchpad-base.json
+sha256 924b0a14b5c1d42a240c99a99106e1ebc460027f5541fa7ca1648ed953812bdd  contracts/deployments/launchpad-robinhood.json
+sha256 749fcc571c1a79f57ad7ea1e45c287abdeb021b6d0fa014ecb7005265a8742e3  .gitmodules
+gitlink 886b4f8b63409ef474542de6394d25a9b5908ed3  contracts/lib/forge-std
+gitlink 07336f2144f522874e2c3c85e04d1d3f8d5fa471  contracts/lib/v4-periphery

@@ -20,6 +20,22 @@ export function b20RpcUrl(): string {
   return "http://mock";
 }
 
+// The B20-capable node: its multicall answers totalSupply() from the mock state (b20Supply) and counts the reads; with no state it throws, like a node that is down.
+export function b20Client(): any {
+  return {
+    multicall: async ({ contracts }: { contracts: { address: string }[] }) => {
+      const m = getMock();
+      m.b20SupplyReads++;
+      const supply = m.b20Supply;
+      if (!supply) throw new Error("mock RPC error");
+      return contracts.map((c) => {
+        const v = supply[c.address];
+        return v === undefined || v === "fail" ? { status: "failure", error: new Error("mock call failed") } : { status: "success", result: v };
+      });
+    },
+  };
+}
+
 // A port nothing listens on: connection refused is instant and deterministic,
 // so the outage test stays fast with no real network dependency.
 const DEAD_RPC = "http://127.0.0.1:1";

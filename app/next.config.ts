@@ -26,6 +26,11 @@ const nextConfig: NextConfig = {
         headers: [{ key: "cache-control", value: "public, max-age=31536000, immutable" }],
       },
       {
+        // the admin page carries admin data once signed in: never stored by a browser cache or a proxy
+        source: "/admin",
+        headers: [{ key: "cache-control", value: "private, no-store" }],
+      },
+      {
         source: "/llms.txt",
         headers: [{ key: "cache-control", value: "public, max-age=300" }],
       },

@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Flame, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
 import { useConfig } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner, ChainLogoStack } from "./ChainLogo";
-import { QuoteBrandBadge } from "./MuseworldBadge";
+import { QuoteBrandBadge } from "./QuoteBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import EditTokenSheet from "./EditTokenSheet";
@@ -17,7 +17,7 @@ import { toast } from "./TxToasts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/vendor/tabs";
 import { LAUNCH_LOCKER_ABI, ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { VISIBLE_CHAINS, launchpad } from "@/lib/launchpad/config";
-import { earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, isBurnOnly, type FeeSides } from "@/lib/launchpad/creator";
+import { earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, holdingsValue, isBurnOnly, type FeeSides } from "@/lib/launchpad/creator";
 import { fmtCompact, fmtQuote, fmtTokens, fmtUsd } from "@/lib/launchpad/math";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
@@ -29,6 +29,9 @@ import { SkRow, SkStat } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
 import ProfileIdentity from "@/components/profile/ProfileIdentity";
 import SeasonCard from "@/components/points/SeasonCard";
+import EarnCard from "@/components/earn/EarnCard";
+import { useBoostOn } from "./useBoostOn";
+import { BOOST_CHAIN } from "@/lib/launchpad/boost";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -52,6 +55,7 @@ export default function MeDashboard() {
 /** The dashboard for one connected wallet: its profile card, figures, launches, holdings and trades. */
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
   const config = useConfig();
+  const boostOn = useBoostOn();
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>({});
@@ -188,9 +192,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
 
   const collectable = me ? me.launches.filter((l) => hasFees(pending[key(l)])) : [];
   const earnedUsd = me ? me.launches.reduce((a, l) => a + (feeSidesUsd(earnedSides(l, feeShareBps(l.recipients, address)), l.quote_decimals, l.price_quote, l.quote_usd) ?? 0), 0) : 0;
-  const holdingsUsd = me ? me.tokens.reduce((a, t) => a + (holdingUsd(balances[key(t)] ?? 0n, t.price_quote, t.quote_usd) ?? 0), 0) : 0;
-  const holdingsReading = me?.tokens.some((t) => balances[key(t)] === undefined) ?? false;
-  const holdingsUnknown = me?.tokens.some((t) => balances[key(t)] === null || (balances[key(t)] !== undefined && holdingUsd(balances[key(t)]!, t.price_quote, t.quote_usd) === null)) ?? false;
+  // a token paired with a quote nothing prices (an unlisted pair, a stock without a feed) is left out of the total, not allowed to blank it
+  const holdings = holdingsValue((me?.tokens ?? []).map((t) => ({ balance: balances[key(t)], priceQuote: t.price_quote, quoteUsd: t.quote_usd, priced: t.quote_priced })));
   const feesReading = me?.launches.some((l) => pending[key(l)] === undefined) ?? false;
   const feesUnknown = me?.launches.some((l) => pending[key(l)] === null) ?? false;
 
@@ -206,6 +209,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       <div className={styles.dashboard}>
         {walletBar}
         <SeasonCard address={address} />
+        <EarnCard address={address} />
         {err ? <div className={styles.error} role="alert"><h2>We couldn’t load your dashboard.</h2><p>{err}. Your wallet and tokens are unchanged.</p><button type="button" className={styles.outlineButton} onClick={() => void load()} disabled={refreshing}>Try again<RefreshCw size={14} aria-hidden="true" /></button></div> : <div className={styles.loading} aria-busy="true" aria-label="Loading your dashboard"><dl className={styles.loadingStats}>{Array.from({ length: 4 }, (_, k) => <SkStat key={k} />)}</dl><ul className={styles.loadingRows}>{Array.from({ length: 3 }, (_, k) => <SkRow key={k} i={k} />)}</ul></div>}
       </div>
     );
@@ -214,12 +218,13 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
     <div className={styles.dashboard}>
       {walletBar}
       <SeasonCard address={address} />
+      <EarnCard address={address} />
       {err ? <p className={styles.error} role="alert">Refresh failed: {err}. Showing the last loaded data. Try Refresh again.</p> : null}
       <dl className={styles.stats}>
         <Stat k="Your launches" icon={<Layers3 size={14} />} v={String(me.launches.length)} hint="Across all chains" />
         <Stat k="Fees earned" icon={<Coins size={14} />} v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
         <Stat k="Uncollected" icon={<Hourglass size={14} />} v={feesReading ? "Reading…" : feesUnknown ? "—" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
-        <Stat k="Holdings value" icon={<Wallet size={14} />} v={holdingsReading ? "Reading…" : holdingsUnknown ? "—" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
+        <Stat k="Holdings value" icon={<Wallet size={14} />} v={holdings.reading ? "Reading…" : holdings.unknown ? "—" : fmtUsd(holdings.usd, { compact: true })} hint={holdings.unknown ? "A balance or price is unavailable" : holdings.unpriced ? `Excludes ${holdings.unpriced} with no USD price` : "Current estimated USD value"} />
       </dl>
 
       <Tabs defaultValue="launches" className={styles.ledger}>
@@ -256,7 +261,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       <div className={styles.tokenName}>
                         <span className="font-semibold text-[15px] text-ink truncate">{l.name}</span>
                         <span className="font-mono text-xs text-muted">{l.symbol}</span>
-                        <QuoteBrandBadge quoteKey={l.quote_key} />
+                        <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} />
                         {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} /> : null}
                       </div>
                       <div className={styles.tokenMeta}>
@@ -285,6 +290,12 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <button type="button" onClick={() => setEditing(l)} className={styles.quietButton} aria-label={`Edit ${l.symbol} details`}>
                       <PencilLine size={14} aria-hidden="true" />Edit
                     </button>
+                    {/* Boost opens the dialog on the token's page (Base only, while the switch is on) */}
+                    {boostOn && l.chain === BOOST_CHAIN ? (
+                      <Link href={`/t/${l.chain}/${l.token}?boost=1#boost`} className={styles.quietButton} aria-label={`Boost ${l.symbol} with TWIG`}>
+                        <Flame size={14} aria-hidden="true" />Boost
+                      </Link>
+                    ) : null}
                   </div>
               </li>
             );
@@ -309,7 +320,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <div className={styles.tokenName}>
                       <span className="font-semibold text-ink truncate">{t.name}</span>
                       <span className="font-mono text-xs text-muted">{t.symbol}</span>
-                      <QuoteBrandBadge quoteKey={t.quote_key} />
+                      <QuoteBrandBadge quoteKey={t.quote_key} symbol={t.quote_symbol} logo={t.quote_logo} />
                       {t.quote_key === "other" ? <UnlistedPairBadge symbol={t.quote_symbol} /> : null}
                     </div>
                     <div className={styles.tokenMeta}>

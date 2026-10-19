@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PALETTE_PAGES, buildPaletteGroups, isSearchableQuery, isTypingTarget, matchesQuery, paletteTokenFrom, type PaletteToken } from "./command-palette.ts";
+import { EARN_PAGE, PALETTE_PAGES, buildPaletteGroups, isSearchableQuery, isTypingTarget, matchesQuery, paletteTokenFrom, type PaletteToken } from "./command-palette.ts";
+
+test("the Earn entry is listed only while the feature is on, and lands on the /me card", () => {
+  const off = buildPaletteGroups({ query: "", tokens: [], trending: [], theme: "dark" });
+  assert.ok(!off.flatMap((g) => g.items).some((i) => i.id === EARN_PAGE.id));
+  const on = buildPaletteGroups({ query: "", tokens: [], trending: [], theme: "dark", earn: true });
+  assert.ok(on.flatMap((g) => g.items).some((i) => i.id === EARN_PAGE.id));
+  assert.equal(EARN_PAGE.href, "/me#earn");
+  const found = buildPaletteGroups({ query: "lend usdc", tokens: [], trending: [], theme: "dark", earn: true });
+  assert.deepEqual(found.map((g) => g.items.map((i) => i.label)), [["Earn on idle USDC"]]);
+  const hidden = buildPaletteGroups({ query: "lend usdc", tokens: [], trending: [], theme: "dark" });
+  assert.deepEqual(hidden, []);
+});
 
 const waifu: PaletteToken = { chain: "base", token: "0xf3018d16d3c75f86df76bdeed12027c813f4e4a0", name: "WAIFU", symbol: "WAIFU", image: null, capUsd: 53471, change: 18.7, holders: 196 };
 const dottie: PaletteToken = { chain: "robinhood", token: "0x5b3c2cd87083ea5c4436525dca6213740405b69e", name: "DottieLand", symbol: "DOTTIE", image: null, capUsd: 53205, change: 9.54, holders: 285 };

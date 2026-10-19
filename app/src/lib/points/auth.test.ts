@@ -21,7 +21,7 @@ test("the length is normalized the same way on both sides (1 to 90 whole days, 2
 });
 
 test("other actions carry no length line", () => {
-  for (const action of ["preview", "publish", "unpublish", "end", "recompute"] as const) {
+  for (const action of ["publish", "unpublish", "end", "recompute"] as const) {
     assert.doesNotMatch(buildPointsAdminMessage({ ...base, action, days: 5 }), /Season length/, action);
   }
 });
@@ -32,7 +32,7 @@ test("publish, hide and end sign the season they act on: a replay cannot be poin
     assert.match(m, /Season: 2/, action);
     assert.notEqual(buildPointsAdminMessage({ ...base, action, seasonId: 1 }), m, `${action}: season 1 is another message`);
   }
-  for (const action of ["preview", "start", "recompute"] as const) assert.doesNotMatch(buildPointsAdminMessage({ ...base, action, seasonId: 2 }), /Season: /, action);
+  for (const action of ["start", "recompute"] as const) assert.doesNotMatch(buildPointsAdminMessage({ ...base, action, seasonId: 2 }), /Season: /, action);
   assert.equal(normalizeSeasonId("3"), 3);
   assert.equal(normalizeSeasonId(2.7), 2);
   for (const bad of [undefined, null, "x", -1, 0, Number.NaN]) assert.equal(normalizeSeasonId(bad), 0, String(bad));

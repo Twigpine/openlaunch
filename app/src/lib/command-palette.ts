@@ -55,15 +55,21 @@ export function paletteTokenFrom(l: LaunchLike): PaletteToken {
   };
 }
 
+/** Listed only while the Earn switch is on (GET /api/earn); it lands on the /me card. */
+export const EARN_PAGE = { id: "page:earn", label: "Earn on idle USDC", href: "/me#earn", keywords: "earn lend deposit usdc vault morpho interest savings withdraw" } as const;
+
+/** Listed only while the Boost switch is on (the live poll says so); it lands on the home page's Boosted lane. */
+export const BOOST_PAGE = { id: "page:boosted", label: "Boosted tokens", href: "/#boosted", keywords: "boost boosted twig burn lane dead" } as const;
+
 /**
  * Results in reading order: tokens first (search hits, or what is trending before anything is
  * typed), then pages, then actions. Empty groups are dropped.
  */
-export function buildPaletteGroups({ query, tokens, trending, theme }: { query: string; tokens: PaletteToken[]; trending: PaletteToken[]; theme: "light" | "dark" }): PaletteGroup[] {
+export function buildPaletteGroups({ query, tokens, trending, theme, earn = false, boost = false }: { query: string; tokens: PaletteToken[]; trending: PaletteToken[]; theme: "light" | "dark"; earn?: boolean; boost?: boolean }): PaletteGroup[] {
   const q = query.trim();
   const tokenList = q ? (isSearchableQuery(q) ? tokens : []) : trending;
   const tokenItems: PaletteItem[] = tokenList.map((t) => ({ kind: "token", id: `token:${t.chain}:${t.token}`, label: t.name, token: t }));
-  const pages: PaletteItem[] = PALETTE_PAGES.filter((p) => !q || matchesQuery(q, `${p.label} ${p.keywords}`)).map((p) => ({ kind: "page", ...p }));
+  const pages: PaletteItem[] = [...PALETTE_PAGES, ...(earn ? [EARN_PAGE] : []), ...(boost ? [BOOST_PAGE] : [])].filter((p) => !q || matchesQuery(q, `${p.label} ${p.keywords}`)).map((p) => ({ kind: "page", ...p }));
   const next = theme === "dark" ? "light" : "dark";
   const actions: PaletteItem[] = [
     { kind: "action" as const, id: "action:bridge", label: "Bridge funds between chains", action: "bridge" as const, keywords: "bridge relay move deposit base robinhood arc" },
