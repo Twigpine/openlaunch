@@ -17,3 +17,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_token_transfers_to_idx ON bb_token_tr
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_token_transfers_from_idx ON bb_token_transfers (chain_id, token, from_addr, block_number);
 -- boosts (2026-10-15): a boost names its launch by position id; the lane joins on it
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launches_chain_token_id_idx ON bb_launches (chain_id, token_id);
+-- trader healing (2026-10-20): the rows whose transaction could not be read at index time; healSwapTraders pages this
+-- set oldest-first by (block, log), and the partial index stays empty once the backlog is drained
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_trader_null_idx ON bb_launch_swaps (chain_id, block_number, log_index) WHERE trader IS NULL;
