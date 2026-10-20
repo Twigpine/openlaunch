@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { isChainKey } from "@/lib/chainPublic";
+import { clientIp, readJson } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { createPost, listFeed, listTokenPosts } from "@/lib/launchpad/postsServer";
 import { memo } from "@/lib/launchpad/memo";
@@ -34,14 +35,10 @@ export async function GET(req: Request) {
 
 /** POST {chain, token, wallet, parentId?, body, nonce, ts, signature} → new post. */
 export async function POST(req: Request) {
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`post:ip:${ip}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  let b: Record<string, unknown>;
-  try {
-    b = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "bad json" }, { status: 400 });
-  }
+  const b = await readJson(req, 4_096);
+  if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
   if (!isChainKey(b.chain) || typeof b.token !== "string" || typeof b.wallet !== "string") return NextResponse.json({ error: "bad params" }, { status: 400 });
   const r = await createPost({ chain: b.chain, token: b.token, wallet: b.wallet, parentId: b.parentId, body: b.body, nonce: b.nonce, ts: b.ts, signature: b.signature });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });

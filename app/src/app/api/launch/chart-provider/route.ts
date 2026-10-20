@@ -1,6 +1,7 @@
 import { isChartPool } from "@/lib/launchpad/chart-pool";
 import { lookupGeckoPool } from "@/lib/launchpad/geckoterminal";
 import { createGeckoCache } from "@/lib/launchpad/gecko-cache";
+import { clientIp } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ const lookup = createGeckoCache(lookupGeckoPool, () => Date.now());
 
 export async function GET(request: Request) {
   const headers = { "cache-control": "no-store" };
-  const ip = (request.headers.get("fly-client-ip") || request.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(request);
   if (rateLimited(`chart:ip:${ip}`, 60)) return Response.json({ error: "Too many chart requests. Try again shortly." }, { status: 429, headers: { ...headers, "retry-after": "60" } });
   const query = new URL(request.url).searchParams;
   const pool = { chain: query.get("chain"), token: query.get("token"), poolId: query.get("pool"), quote: query.get("quote") };
