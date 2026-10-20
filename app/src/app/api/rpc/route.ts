@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { b20RpcUrl, rpcUrl } from "@/lib/chain";
+import { clientIp, readJsonValue, readTextLimited } from "@/lib/http";
 import { responseHasB20Error } from "@/lib/launchpad/baseStocks";
 import { CHAINS, DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
+import { takeToken } from "@/lib/rateLimit";
 import { upstreamStatus } from "@/lib/rpc-proxy";
 
 export const runtime = "nodejs";
@@ -34,22 +36,10 @@ const ALLOWED = new Set([
 ]);
 const BUCKET_CAP = 120; // requests
 const BUCKET_REFILL_PER_S = 4;
-const buckets = new Map<string, { tokens: number; at: number }>();
-
-function take(ip: string): boolean {
-  const now = Date.now();
-  const b = buckets.get(ip) ?? { tokens: BUCKET_CAP, at: now };
-  b.tokens = Math.min(BUCKET_CAP, b.tokens + ((now - b.at) / 1000) * BUCKET_REFILL_PER_S);
-  b.at = now;
-  if (b.tokens < 1) {
-    buckets.set(ip, b);
-    return false;
-  }
-  b.tokens -= 1;
-  buckets.set(ip, b);
-  if (buckets.size > 10_000) buckets.clear();
-  return true;
-}
+// a 20-call batch of ordinary calldata fits; a huge body is refused before it is buffered
+const MAX_BODY_BYTES = 256 * 1024;
+// eth_getLogs can answer with megabytes; the proxy must not buffer an unbounded one
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 type Req = { id?: unknown; jsonrpc?: string; method?: string; params?: unknown };
 
@@ -68,14 +58,12 @@ export async function POST(req: Request) {
   if (!isChainKey(c)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const upstream = rpcUrl(c) ?? CHAINS[c].rpcUrls.default.http[0];
   if (!upstream) return NextResponse.json({ error: "rpc unconfigured" }, { status: 503 });
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
-  if (!take(ip)) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": "2" } });
-  let body: Req | Req[];
-  try {
-    body = (await req.json()) as Req | Req[];
-  } catch {
-    return NextResponse.json({ error: "bad json" }, { status: 400 });
-  }
+  const ip = clientIp(req);
+  if (!takeToken(ip, BUCKET_CAP, BUCKET_REFILL_PER_S)) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": "2" } });
+  // A JSON-RPC batch is an array, so this one uses the value reader instead of readJson's object-only contract.
+  const parsed = await readJsonValue(req, MAX_BODY_BYTES);
+  if (parsed === undefined) return NextResponse.json({ error: "bad json" }, { status: 400 });
+  const body = parsed as Req | Req[];
   const batch = Array.isArray(body);
   const list: Req[] = Array.isArray(body) ? body : [body];
   if (list.length === 0) return NextResponse.json({ error: "empty batch" }, { status: 400 });
@@ -94,15 +82,25 @@ export async function POST(req: Request) {
   try {
     const payload = JSON.stringify(batch ? forward : forward[0]);
     const res = await fetch(upstream, { method: "POST", headers: { "content-type": "application/json" }, body: payload, signal: AbortSignal.timeout(15_000) });
-    let text = await res.text();
+    const read = await readTextLimited(res, MAX_RESPONSE_BYTES);
+    if (!read.ok) {
+      return NextResponse.json(
+        { error: read.tooLarge ? "The network RPC returned too much data. Try again." : "The network RPC is temporarily unavailable. Try again." },
+        { status: 502, headers: { "cache-control": "no-store" } },
+      );
+    }
+    let text = read.text;
     let status = res.status;
     // Base-native B20 tokens (Coinbase stocks) are precompiles the primary provider may not execute
     // ("EVM error OpcodeNotFound"): replay the batch on a node that can, transparently to the wallet.
     if (c === "base" && status === 200 && text.includes("Opcode") && responseHasB20Error(safeJson(text))) {
       const alt = await fetch(b20RpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: payload, signal: AbortSignal.timeout(15_000) });
       if (alt.ok) {
-        text = await alt.text();
-        status = alt.status;
+        const altRead = await readTextLimited(alt, MAX_RESPONSE_BYTES);
+        if (altRead.ok) {
+          text = altRead.text;
+          status = alt.status;
+        }
       }
     }
     // Rate limiting and malformed bodies become 429/502 so viem retries with backoff
