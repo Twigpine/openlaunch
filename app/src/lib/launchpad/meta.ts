@@ -6,7 +6,8 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { LAUNCH_FACTORY_ABI } from "./abi";
-import { DEFAULT_SUPPLY, launchpad } from "./config";
+import { DEFAULT_SUPPLY } from "./config";
+import { suiteFor } from "./suites";
 
 /**
  * Off-chain launch metadata. The form stores it BEFORE sending the launch tx,
@@ -19,7 +20,8 @@ import { metaUriFor as uriFor, metaWriteDecision, type MetaInput as Input, type 
 
 /** Predict the token address for these params (metadataURI is part of the CREATE2 init hash, so it must be the final URI). */
 export async function predictToken(m: Input, uri: string): Promise<Address> {
-  const factory = launchpad(m.chain).factory;
+  const suite = suiteFor(m.chain, m.suite_id ?? "lp-v1");
+  const factory = suite?.launchEnabled ? suite.factory : null;
   if (!factory) throw new Error(`launchpad unconfigured on ${m.chain}`);
   return publicClient(m.chain).readContract({
     address: factory,

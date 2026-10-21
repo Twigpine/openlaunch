@@ -115,10 +115,10 @@ test("a failed lane read never breaks a page or blanks open tabs", () => {
   assert.ok(home.indexOf("<TrendingStrip") < home.indexOf("<BoostedLane"));
 });
 
-test("the indexer reads TWIG transfers to 0x…dEaD on Base only and skips the locker's fee burns", () => {
+test("the indexer reads TWIG transfers to 0x…dEaD on Base only and skips every suite's fee burns", () => {
   assert.match(indexer, /const twig = TWIG_ADDRESSES\[chain\];\n\s*if \(twig\) \{\n\s*const burnLogs = await fetchLogsSplit\(\(f, t\) => client\.getLogs\(\{ address: twig as Address, event: ERC20_TRANSFER_EVENT, args: \{ to: DEAD \}, fromBlock: f, toBlock: t \}\), from, to\);/);
-  assert.match(indexer, /applyBoost\(db, chain, l as Log & \{ args: TransferArgs \}, locker\.toLowerCase\(\)\)/);
-  assert.match(indexer, /applyBoost\(db, chain, l as unknown as Log & \{ args: TransferArgs \}, locker\)/);
+  assert.match(indexer, /applyBoost\(db, chain, l as Log & \{ args: TransferArgs \}\)/);
+  assert.match(indexer, /applyBoost\(db, chain, l as unknown as Log & \{ args: TransferArgs \}\)/);
   assert.match(indexer, /INSERT INTO bb_boosts \(chain_id, tx_hash, log_index, booster, amount, tag, block_number, block_time\)[\s\S]*?ON CONFLICT DO NOTHING/);
 });
 

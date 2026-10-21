@@ -37,6 +37,23 @@ function build(buyers: ReturnType<typeof buyer>[], over: Partial<ScoreInput> = {
 }
 
 // ── the rules ────────────────────────────────────────────────────────────────
+test("quote-only creator and scout points use the recorded quote fee, including zero, while legacy fees use the rate", () => {
+  const holders = Array.from({ length: 20 }, (_, i) => buyer(w(100 + i), START + DAY, 0.003));
+  const eligible = new Set(holders.slice(0, 5).map((h) => h.first.wallet));
+  const run = (fee: bigint | undefined) => scoreSeason(build(holders, {
+    eligible,
+    swaps: holders.map((h) => ({ ...h.swap, quoteFeeRaw: fee })),
+  }));
+  const legacy = run(undefined);
+  const exact = run(eth(0.0001)); // $0.20 per buy, instead of the legacy rate's $0.06
+  const zero = run(0n);
+  assert.equal(legacy.wallets.get(CREATOR)!.creatorWhy.feesUsd, 0.30);
+  assert.equal(exact.wallets.get(CREATOR)!.creatorWhy.feesUsd, 1);
+  assert.equal(exact.wallets.get(w(100))!.scoutWhy.feesUsd, 0.20);
+  assert.equal(zero.wallets.get(CREATOR)!.creatorWhy.feesUsd, 0);
+  assert.equal(zero.wallets.get(w(100))!.scoutWhy.feesUsd, 0);
+});
+
 test("a real holder who bought this season and held a day earns the creator 30 if eligible, 5 if not; half again after a week", () => {
   const b1 = buyer(w(1), START + DAY, 0.0025); // $5
   const b2 = buyer(w(2), NOW - 2 * DAY, 0.0025);

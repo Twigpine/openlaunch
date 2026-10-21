@@ -68,7 +68,7 @@ export function pairApplicationOf(value: bigint): number | null {
 export type PairBurnRow = { tx_hash: string; log_index: number; sender: string; application_id: number; whole: string; block_number: string };
 /**
  * A TWIG Transfer log → a pair-application burn, or null: not TWIG, not to 0x…dEaD, from an address in `skip` (the
- * locker's fee burns), a tag that is not kind 3, or less than one whole TWIG.
+ * launch lockers' and fee vaults' own burns), a tag that is not kind 3, or less than one whole TWIG.
  */
 export function pairBurnFromTransfer(t: BoostTransfer, twig: string, dead: string, skip: readonly string[] = []): PairBurnRow | null {
   if (t.address.toLowerCase() !== twig.toLowerCase() || t.to.toLowerCase() !== dead.toLowerCase()) return null;

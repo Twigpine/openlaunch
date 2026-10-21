@@ -112,7 +112,7 @@ export type BoostRow = { tx_hash: string; log_index: number; booster: string; am
 
 /**
  * A Transfer log → a boost row, or null when it is not one: not TWIG, not to 0x…dEaD, sent by an address in `skip`
- * (the launch locker's own fee burns), a tag that names no launch, or less than the floor.
+ * (launch lockers' and fee vaults' own burns), a tag that names no launch, or less than the floor.
  */
 export function boostFromTransfer(t: BoostTransfer, skip: readonly string[] = []): BoostRow | null {
   if (t.address.toLowerCase() !== BOOST_TOKEN) return null;
