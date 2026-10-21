@@ -38,9 +38,16 @@ client.readContract=(async (p: {functionName: string})=> p.functionName==="name"
 client.getBlockNumber=async()=>4n;
 client.getLogs=(async (p: {address: string | string[];fromBlock: bigint;toBlock: bigint})=>parseEventLogs({abi:[...QUOTE_FACTORY_ABI,...QUOTE_HOOK_ABI,...QUOTE_VAULT_ABI,...POOL_MANAGER_ABI,...LAUNCH_FACTORY_ABI,...LAUNCH_LOCKER_ABI,ERC20_TRANSFER_EVENT],logs:logs.filter((l)=>(Array.isArray(p.address)?p.address:[p.address]).some((a)=>l.address.toLowerCase()===a.toLowerCase()) && l.blockNumber!>=p.fromBlock && l.blockNumber!<=p.toBlock)})) as typeof client.getLogs;
 try {
+  // Require a fresh database, even when existing tables are empty. Catalogs cover every user schema,
+  // including relations this connection cannot SELECT; never run migrations to discover existing data.
+  const existing=await sql`
+    SELECT 1 FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+       AND c.relkind IN ('r','p','v','m','S','f') LIMIT 1`;
+  assert.equal(existing.length,0,"use an empty test database with no existing user tables, views or sequences");
   const schema=await readFile(new URL("../db/schema.sql",import.meta.url),"utf8");
   await sql.begin((tx)=>tx.unsafe(schema)); await sql.begin((tx)=>tx.unsafe(schema));
-  assert.equal((await sql`SELECT count(*) AS n FROM bb_launches`)[0].n,0n,"use an empty test database");
   const first=await applyLaunchTx("base",hash); assert.deepEqual([first.launches,first.swaps,first.fees],[1,1,2]);
   const retry=await applyLaunchTx("base",hash); assert.deepEqual([retry.launches,retry.swaps,retry.fees],[0,0,0]);
   const [launch]=await sql`SELECT * FROM bb_launches WHERE token=${token}`;

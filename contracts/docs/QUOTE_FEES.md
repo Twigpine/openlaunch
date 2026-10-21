@@ -82,7 +82,14 @@ QUOTE_TEST_DATABASE_URL=postgres://postgres:<test-password>@127.0.0.1:55432/<emp
   node --conditions=react-server --import tsx scripts/quote-indexer-check.mts
 ```
 
-It applies the real schema twice, uses the real DB and indexer with deterministic RPC receipts, and verifies deduplication, core/trader amounts, fee attribution across suites sharing an NFT ID, credit/claim earnings, legacy identities and late-suite backfill. CI runs this check against a disposable PostgreSQL service.
+Before any schema or fixture writes, it checks PostgreSQL's catalogs for existing tables, views and sequences in every user schema. Existing relations cause rejection even when empty; use a fresh database. It then applies the real schema twice, uses the real DB and indexer with deterministic RPC receipts, and verifies deduplication, core/trader amounts, fee attribution across suites sharing an NFT ID, credit/claim earnings, legacy identities and late-suite backfill. CI runs this check against a disposable PostgreSQL service.
+
+The safety regressions run the actual integration script in separate temporary databases. Use a disposable local PostgreSQL server whose test role can create databases; the tests remove only the databases they create:
+
+```sh
+QUOTE_TEST_DATABASE_URL=postgres://postgres:<test-password>@127.0.0.1:55432/<test-db> \
+  node --conditions=react-server --import tsx --test scripts/quote-indexer-check.test.mts
+```
 
 ### Implementation verification — 3 October 2026
 
@@ -147,6 +154,13 @@ After review the vault no longer keeps a per-quote `pendingClaims` total or emit
 - Receipt and range indexing retain pair-application payments alongside Boost. Both paths exclude burns from every configured locker and fee vault. PostgreSQL regressions cover application-payment attribution, replay across overlapping suite ranges, and separation from Boost tags.
 - App lint, type checking and the production build passed; **1,391 tests passed**, with eleven optional live checks skipped. The build passed on retry after a Google Fonts download failure. PostgreSQL 16 integration, the deployed-source lock and Arc source-comparison checks passed.
 - Contract sources and CI configuration are unchanged by this merge. Contract and guard/workflow tests were not re-run. The existing `ci-config` admin exception and Arc/B20 native-runtime deployment gate remain outstanding.
+
+### Database precheck review follow-up — 21 October 2026
+
+- The integration script now rejects existing user relations before applying the schema or writing fixtures. The catalog query covers other schemas and relations that the connection cannot read directly; it does not rely on launch counts or table contents.
+- All **seven PostgreSQL 16 safety regressions passed**: a fresh database completes the full integration check, while existing launch data, unrelated public data, data in another schema, an empty table, a view and a sequence are rejected. Rejected runs preserve relation identities, column definitions and sentinel data.
+- App lint and type checking passed, as did a separate strict type check of the new test script. Product and contract code are unchanged; the full app suite and production build were not re-run for this script-only fix. Their latest results are recorded under 19 October above.
+- Upstream CI approval, the `ci-config` admin exception and final review remain maintainer actions. Arc/B20 native-runtime validation remains a deployment gate.
 
 ## Reference and attribution
 
