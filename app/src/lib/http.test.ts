@@ -23,19 +23,19 @@ test("clientIp prefers the Fly header, then the proxy-appended last XFF hop", ()
   assert.equal(clientIp(new Request("http://x/", { headers: { "x-forwarded-for": "9".repeat(200) } })).length, 128, "an absurd header never becomes an absurd map key");
 });
 
-test("clientIp counts trusted hops in from the right, and never falls back to a client-controlled entry", () => {
+test("clientIp counts trusted hops in from the right, past the entry Fly appends itself", () => {
   const before = process.env.TRUSTED_PROXY_HOPS;
   const ip = (xff: string, fly?: string) =>
     clientIp(new Request("http://x/", { headers: { "x-forwarded-for": xff, ...(fly ? { "fly-client-ip": fly } : {}) } }));
   try {
-    process.env.TRUSTED_PROXY_HOPS = "2"; // a CDN appending its own hop in front of Fly's proxy
-    assert.equal(ip("1.1.1.1, 2.2.2.2"), "1.1.1.1", "the address the outermost trusted proxy saw, not the proxy's own");
-    assert.equal(ip("1.1.1.1, 2.2.2.2", "2.2.2.2"), "1.1.1.1", "with a CDN in front, fly-client-ip is that CDN, so the client comes from the chain");
-    assert.equal(ip("1.1.1.1, 9.9.9.9", "2.2.2.2"), "2.2.2.2", "a chain that does not end at the address Fly saw is trusted no further than that address");
+    // client 5.5.5.5 → CDN 2.2.2.2 → Fly, which appends the address assigned to the app (3.3.3.3) as the last entry
+    process.env.TRUSTED_PROXY_HOPS = "2";
+    assert.equal(ip("5.5.5.5, 3.3.3.3", "2.2.2.2"), "5.5.5.5", "the client, not the CDN in fly-client-ip and not the app's own address");
+    assert.equal(ip("1.1.1.1, 2.2.2.2"), "1.1.1.1", "no Fly header: the last entry is the peer a plain proxy appended, so step one in");
     assert.equal(ip("1.1.1.1"), "0.0.0.0", "fewer entries than trusted hops: one shared bucket, never a client entry");
     process.env.TRUSTED_PROXY_HOPS = "0";
     assert.equal(ip("1.1.1.1, 2.2.2.2"), "2.2.2.2", "zero means the single proxy every deployment has");
-    assert.equal(ip("1.1.1.1, 2.2.2.2", "2.2.2.2"), "2.2.2.2", "and Fly's own address is then the answer");
+    assert.equal(ip("1.1.1.1, 2.2.2.2", "3.3.3.3"), "3.3.3.3", "and Fly's peer is then the answer, whatever the chain holds");
     process.env.TRUSTED_PROXY_HOPS = "junk";
     assert.equal(ip("1.1.1.1, 2.2.2.2"), "2.2.2.2", "a junk value falls back to that same single hop");
   } finally {
