@@ -20,6 +20,24 @@ test("clientIp prefers the Fly header, then the proxy-appended last XFF hop", ()
     "3.3.3.3",
     "the edge header wins over both client-controlled hops",
   );
+  assert.equal(clientIp(new Request("http://x/", { headers: { "x-forwarded-for": "9".repeat(200) } })).length, 128, "an absurd header never becomes an absurd map key");
+});
+
+test("clientIp counts trusted hops in from the right, and never falls back to a client-controlled entry", () => {
+  const before = process.env.TRUSTED_PROXY_HOPS;
+  const ip = (xff: string) => clientIp(new Request("http://x/", { headers: { "x-forwarded-for": xff } }));
+  try {
+    process.env.TRUSTED_PROXY_HOPS = "2"; // a CDN appending its own hop in front of Fly's proxy
+    assert.equal(ip("1.1.1.1, 2.2.2.2"), "1.1.1.1", "the address the outermost trusted proxy saw, not the proxy's own");
+    assert.equal(ip("1.1.1.1"), "0.0.0.0", "fewer entries than trusted hops: one shared bucket, never a client entry");
+    process.env.TRUSTED_PROXY_HOPS = "0";
+    assert.equal(ip("1.1.1.1, 2.2.2.2"), "2.2.2.2", "zero means the single proxy every deployment has");
+    process.env.TRUSTED_PROXY_HOPS = "junk";
+    assert.equal(ip("1.1.1.1, 2.2.2.2"), "2.2.2.2", "a junk value falls back to that same single hop");
+  } finally {
+    if (before === undefined) delete process.env.TRUSTED_PROXY_HOPS;
+    else process.env.TRUSTED_PROXY_HOPS = before;
+  }
 });
 
 test("readJson caps declared and streamed bodies before parsing", async () => {

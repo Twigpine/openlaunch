@@ -2,30 +2,39 @@
  * Request helpers shared by API routes. No `server-only` import: the pure parts are unit-tested with node --test.
  */
 
+/** How many proxies of our own append to x-forwarded-for when Fly is not the edge (TRUSTED_PROXY_HOPS). */
+function trustedProxyHops(): number {
+  const n = Math.trunc(Number(process.env.TRUSTED_PROXY_HOPS ?? ""));
+  // blank, zero, negative or junk means the single proxy every deployment has
+  return n > 1 ? n : 1;
+}
+
 /**
  * Client IP for rate-limit keys. Fly's proxy sets fly-client-ip. The first x-forwarded-for entry is whatever the
- * client sent, so the fallback is the last one (the hop the nearest proxy appended): a spoofed left-hand entry never
- * buys a fresh bucket. The cap keeps an absurd header from becoming an absurd map key.
+ * client sent, so the fallback counts in from the right: the hop our nearest proxy appended. A spoofed left-hand
+ * entry never buys a fresh bucket, and TRUSTED_PROXY_HOPS keeps the key off a proxy address (one shared bucket for
+ * everyone) when a CDN appends an extra hop. A count deeper than the header falls back to 0.0.0.0 rather than to a
+ * client-controlled entry. The cap keeps an absurd header from becoming an absurd map key.
  */
 export function clientIp(req: Request): string {
   const fly = req.headers.get("fly-client-ip")?.trim();
   if (fly) return fly.slice(0, 128);
-  const last = (req.headers.get("x-forwarded-for") ?? "").split(",").at(-1)?.trim();
-  return (last || "0.0.0.0").slice(0, 128);
+  const hops = trustedProxyHops();
+  const entries = (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim());
+  const picked = entries.length >= hops ? entries[entries.length - hops] : "";
+  return (picked || "0.0.0.0").slice(0, 128);
 }
 
 type BytesResult = { ok: true; bytes: Uint8Array } | { ok: false; tooLarge: boolean };
 
 /**
- * Read a request body in bytes, refusing anything over `maxBytes`. The size cap holds before anything is buffered: a
- * declared length over the cap is refused outright, and the stream is read in bytes and cancelled the moment it passes
- * the cap (route handlers have no body limit of their own, and these routes are unauthenticated).
+ * Read a stream in bytes, refusing anything over `maxBytes`. The size cap holds before anything is buffered: the
+ * stream is read chunk by chunk and cancelled the moment it passes the cap (route handlers have no body limit of
+ * their own, and these routes are unauthenticated). `tooLarge` separates the cap from a read failure, so each caller
+ * answers with its own message. Shared by request bodies and upstream responses so one fix covers both.
  */
-async function readBytes(req: Request, maxBytes: number): Promise<BytesResult> {
-  const declared = Number(req.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > maxBytes) return { ok: false, tooLarge: true };
-  if (!req.body) return { ok: false, tooLarge: false };
-  const reader = req.body.getReader();
+async function readStreamLimited(body: ReadableStream<Uint8Array>, maxBytes: number): Promise<BytesResult> {
+  const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -49,6 +58,14 @@ async function readBytes(req: Request, maxBytes: number): Promise<BytesResult> {
   } catch {
     return { ok: false, tooLarge: false };
   }
+}
+
+/** A request body in bytes. A declared length over the cap is refused before the stream is touched. */
+async function readBytes(req: Request, maxBytes: number): Promise<BytesResult> {
+  const declared = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) return { ok: false, tooLarge: true };
+  if (!req.body) return { ok: false, tooLarge: false };
+  return readStreamLimited(req.body, maxBytes);
 }
 
 /** A JSON value (object, array or primitive), or undefined when the body is over the cap or not JSON. */
@@ -103,28 +120,6 @@ export async function readTextLimited(res: Response, maxBytes: number): Promise<
     return { ok: false, tooLarge: true };
   }
   if (!res.body) return { ok: true, text: "" };
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel().catch(() => {});
-        return { ok: false, tooLarge: true };
-      }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const c of chunks) {
-      bytes.set(c, at);
-      at += c.byteLength;
-    }
-    return { ok: true, text: new TextDecoder().decode(bytes) };
-  } catch {
-    return { ok: false, tooLarge: false };
-  }
+  const r = await readStreamLimited(res.body, maxBytes);
+  return r.ok ? { ok: true, text: new TextDecoder().decode(r.bytes) } : r;
 }
