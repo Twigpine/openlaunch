@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
+import { clientIp } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { applyLaunchTx, pollAll } from "@/lib/launchpad/indexer";
 import { forgetBoostLane } from "@/lib/launchpad/boostServer";
+import { redactUrls } from "@/lib/launchpad/redact";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,7 @@ export async function POST(req: Request) {
   // Unauthenticated and the most expensive route in the app (a tx-less call
   // fans out over every configured chain: log ranges, heals and backfills),
   // so it gets the same per-IP bucket as the other write endpoints.
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`sync:ip:${ip}`, 10)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const u = new URL(req.url);
   const tx = u.searchParams.get("tx");
@@ -25,12 +27,25 @@ export async function POST(req: Request) {
       if (r.boosts) forgetBoostLane();
       return NextResponse.json(r);
     } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+      const message = redactUrls(err instanceof Error ? err.message : "sync failed");
+      console.warn("[launch-sync] receipt apply failed:", message);
+      return NextResponse.json({ error: "sync failed" }, { status: 502 });
     }
   }
   try {
-    return NextResponse.json(await pollAll());
+    const all = await pollAll();
+    // pollAll's per-chain reasons are viem messages too; redact before they reach an unauthenticated caller.
+    // Copy instead of mutating: a shared single-flight poll result can be read by the loop and other requests.
+    const safe = Object.fromEntries(
+      Object.entries(all).map(([chainKey, result]) => [
+        chainKey,
+        result.reason ? { ...result, reason: redactUrls(result.reason) } : result,
+      ]),
+    );
+    return NextResponse.json(safe);
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+    const message = redactUrls(err instanceof Error ? err.message : "sync failed");
+    console.warn("[launch-sync] poll failed:", message);
+    return NextResponse.json({ error: "sync failed" }, { status: 502 });
   }
 }
