@@ -21,3 +21,13 @@ test("publicError keeps the first line alone, without URLs, bounded, with a fall
   assert.equal(publicError(new Error("")), "failed");
   assert.equal(publicError({ secret: "abc123SECRET" }, "sync failed"), "sync failed");
 });
+
+test("redactUrls takes the path after an IPv6 literal host with it", () => {
+  assert.equal(
+    redactUrls("URL: https://[2001:db8::1]/v2/abc123SECRET\nDetails: fetch failed"),
+    "URL: <url>\nDetails: fetch failed",
+    "the closing bracket must not leave the keyed path behind",
+  );
+  assert.equal(redactUrls("ws://[::1]:8545/rpc?key=k"), "<url>");
+  assert.equal(redactUrls("see https://a.b/c (docs)"), "see <url> (docs)", "a trailing paren still ends the URL");
+});

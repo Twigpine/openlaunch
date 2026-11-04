@@ -5,6 +5,7 @@ import {
   MAX_TOKEN_BUCKETS,
   pruneRateBuckets,
   pruneTokenBuckets,
+  rateLimitedKeysForTests,
   rateLimitSizesForTests,
   rateLimited,
   resetRateLimitsForTests,
@@ -36,6 +37,23 @@ test("the fixed map stays bounded under a burst of one-shot keys", () => {
   resetRateLimitsForTests();
   for (let i = 0; i < MAX_RATE_BUCKETS + 50; i++) rateLimited(`burst-${i}`, 1);
   assert.equal(rateLimitSizesForTests().fixed, MAX_RATE_BUCKETS);
+});
+
+test("a reset bucket keeps its entry and moves to the back of the eviction order", () => {
+  resetRateLimitsForTests();
+  for (let i = 0; i < MAX_RATE_BUCKETS; i++) rateLimited(`full-${i}`, 1);
+  // a different window resets the bucket instead of counting it, and the reinsert does not grow the map
+  rateLimited("full-1", 1, 30_000);
+  const keys = rateLimitedKeysForTests();
+  assert.equal(keys.length, MAX_RATE_BUCKETS, "no live bucket may be dropped to make room that was never needed");
+  assert.equal(keys[0], "full-0", "the untouched oldest bucket holds its place");
+  assert.equal(keys.at(-1), "full-1", "the reset bucket is the newest, not the oldest");
+  // so a burst of one-shot keys evicts the bucket that really is stale, not the one that just reset
+  rateLimited("extra", 1);
+  const after = rateLimitedKeysForTests();
+  assert.equal(after.length, MAX_RATE_BUCKETS, "the map stays at its cap");
+  assert.equal(after.includes("full-1"), true, "the just-reset bucket outlives the burst");
+  assert.equal(after.includes("full-0"), false, "the oldest live bucket is the one that goes");
 });
 
 test("token bucket refills at the configured rate", () => {

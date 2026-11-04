@@ -31,7 +31,10 @@ export function rateLimited(key: string, max = 10, windowMs = 60_000): boolean {
   const now = Date.now();
   const b = buckets.get(key);
   if (!b || now - b.at > windowMs || b.windowMs !== windowMs) {
-    if (buckets.size >= MAX_RATE_BUCKETS) pruneRateBuckets(buckets, now, MAX_RATE_BUCKETS - 1);
+    // A reset bucket must not keep its old insertion position, or the next prune evicts it as the oldest live entry.
+    // Only a brand-new key grows the map, so only it can need room made.
+    if (b) buckets.delete(key);
+    else if (buckets.size >= MAX_RATE_BUCKETS) pruneRateBuckets(buckets, now, MAX_RATE_BUCKETS - 1);
     buckets.set(key, { n: 1, at: now, windowMs });
     return false;
   }
@@ -80,4 +83,9 @@ export function resetRateLimitsForTests(): void {
 /** Test-only: current bucket counts. */
 export function rateLimitSizesForTests(): { fixed: number; tokens: number } {
   return { fixed: buckets.size, tokens: tokenBuckets.size };
+}
+
+/** Test-only: fixed-window keys in eviction order (oldest first). */
+export function rateLimitedKeysForTests(): string[] {
+  return [...buckets.keys()];
 }
