@@ -46,6 +46,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "use-sync-external-store": "^1.4.0"
+    "use-sync-external-store": "^1.4.0",
+    "zod": "^4.6.7"
   }
 }
