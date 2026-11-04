@@ -2,7 +2,7 @@
  * Request helpers shared by API routes. No `server-only` import: the pure parts are unit-tested with node --test.
  */
 
-/** How many proxies of our own append to x-forwarded-for when Fly is not the edge (TRUSTED_PROXY_HOPS). */
+/** How many proxies of our own a request passes before it reaches the app (TRUSTED_PROXY_HOPS). */
 function trustedProxyHops(): number {
   const n = Math.trunc(Number(process.env.TRUSTED_PROXY_HOPS ?? ""));
   // blank, zero, negative or junk means the single proxy every deployment has
@@ -10,19 +10,24 @@ function trustedProxyHops(): number {
 }
 
 /**
- * Client IP for rate-limit keys. Fly's proxy sets fly-client-ip. The first x-forwarded-for entry is whatever the
- * client sent, so the fallback counts in from the right: the hop our nearest proxy appended. A spoofed left-hand
- * entry never buys a fresh bucket, and TRUSTED_PROXY_HOPS keeps the key off a proxy address (one shared bucket for
- * everyone) when a CDN appends an extra hop. A count deeper than the header falls back to 0.0.0.0 rather than to a
- * client-controlled entry. The cap keeps an absurd header from becoming an absurd map key.
+ * Client IP for rate-limit keys. Two sources:
+ *   - fly-client-ip: the address that reached Fly. That is the client while Fly's proxy is the outermost one, and the
+ *     CDN in front of it once TRUSTED_PROXY_HOPS counts a hop above Fly;
+ *   - x-forwarded-for: counted in from the right, since the first entry is whatever the client wrote.
+ * Only the last entry of that chain is checkable against the address Fly recorded, so a chain that does not end there
+ * was not written by our proxies and nothing past the nearest address is trusted. A hop count deeper than the header
+ * falls back to that nearest address, or to 0.0.0.0 (one shared bucket), never to a client-controlled entry. Trusting
+ * hops above Fly still assumes the CDN is the only way in: a client that can reach the app around it seeds the chain
+ * itself, which is a firewall's job, not this header's. The cap keeps an absurd header from becoming an absurd map key.
  */
 export function clientIp(req: Request): string {
   const fly = req.headers.get("fly-client-ip")?.trim();
-  if (fly) return fly.slice(0, 128);
   const hops = trustedProxyHops();
+  if (fly && hops === 1) return fly.slice(0, 128);
   const entries = (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim());
-  const picked = entries.length >= hops ? entries[entries.length - hops] : "";
-  return (picked || "0.0.0.0").slice(0, 128);
+  const chained = !fly || entries.at(-1) === fly;
+  const picked = chained && entries.length >= hops ? entries[entries.length - hops] : "";
+  return (picked || fly || "0.0.0.0").slice(0, 128);
 }
 
 type BytesResult = { ok: true; bytes: Uint8Array } | { ok: false; tooLarge: boolean };
