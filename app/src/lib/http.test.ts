@@ -25,13 +25,17 @@ test("clientIp prefers the Fly header, then the proxy-appended last XFF hop", ()
 
 test("clientIp counts trusted hops in from the right, and never falls back to a client-controlled entry", () => {
   const before = process.env.TRUSTED_PROXY_HOPS;
-  const ip = (xff: string) => clientIp(new Request("http://x/", { headers: { "x-forwarded-for": xff } }));
+  const ip = (xff: string, fly?: string) =>
+    clientIp(new Request("http://x/", { headers: { "x-forwarded-for": xff, ...(fly ? { "fly-client-ip": fly } : {}) } }));
   try {
     process.env.TRUSTED_PROXY_HOPS = "2"; // a CDN appending its own hop in front of Fly's proxy
     assert.equal(ip("1.1.1.1, 2.2.2.2"), "1.1.1.1", "the address the outermost trusted proxy saw, not the proxy's own");
+    assert.equal(ip("1.1.1.1, 2.2.2.2", "2.2.2.2"), "1.1.1.1", "with a CDN in front, fly-client-ip is that CDN, so the client comes from the chain");
+    assert.equal(ip("1.1.1.1, 9.9.9.9", "2.2.2.2"), "2.2.2.2", "a chain that does not end at the address Fly saw is trusted no further than that address");
     assert.equal(ip("1.1.1.1"), "0.0.0.0", "fewer entries than trusted hops: one shared bucket, never a client entry");
     process.env.TRUSTED_PROXY_HOPS = "0";
     assert.equal(ip("1.1.1.1, 2.2.2.2"), "2.2.2.2", "zero means the single proxy every deployment has");
+    assert.equal(ip("1.1.1.1, 2.2.2.2", "2.2.2.2"), "2.2.2.2", "and Fly's own address is then the answer");
     process.env.TRUSTED_PROXY_HOPS = "junk";
     assert.equal(ip("1.1.1.1, 2.2.2.2"), "2.2.2.2", "a junk value falls back to that same single hop");
   } finally {
