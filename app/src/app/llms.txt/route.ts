@@ -68,7 +68,7 @@ ${verificationLine("Arc (5042)", a, [
 
 ## What a launch does
 1. deploys a fixed-supply ERC-20 (1,000,000,000; no mint/pause/blacklist/tax/owner)
-2. initializes a Uniswap v4 pool quote/token (quote = ETH, GITLAWB or USDG on Robinhood Chain, USDC on Arc, or a registry stock token, all in the form; also TWIG, GITLAWB, USDC or WETH on Base, priced but not in the form; tick spacing 200, no hook) at the chosen start tick
+2. initializes a Uniswap v4 pool quote/token (quote = ETH, USDG on Robinhood Chain, USDC on Arc, or a registry stock token, all in the form; also TWIG, GITLAWB, USDC or WETH on Base and GITLAWB on Robinhood Chain, priced but not in the form; tick spacing 200, no hook) at the chosen start tick
 3. mints one single-sided position holding 100% of supply to an ownerless locker (no withdraw path exists)
 4. registers fee routing: lpFee 0 | 10000 (1%) | 30000 (3%) pips; recipients [] = fees burned,
    else {payout,bps}[] summing to 10000. Fixed forever.
@@ -87,7 +87,7 @@ USDC (Base, 6 dec):      0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 (Circle's; p
 WETH (Base, 18 dec):     0x4200000000000000000000000000000000000006 (priced at ETH; buyers pay WETH, not ETH)
 TWIG (Base, 18 dec):     0x6aC18bcf4eDE02591d4917452700ea5eaAea13c1 (Twigpine's token: 1:1 wrapper of GITLAWB, wrap/unwrap any time, no fee; no longer offered in the Base form, launches already paired with it keep trading; priced = GITLAWB; fees paid in TWIG, burned when recipients = [])
 GITLAWB (Base, 18 dec):  0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3 (Twigpine's token; still recognised and priced on Base; fees paid in GITLAWB, burned when recipients = [])
-GITLAWB (Robinhood, 18 dec): 0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D (LayerZero OFT of the Base token, 1:1)
+GITLAWB (Robinhood, 18 dec): 0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D (LayerZero OFT of the Base token, 1:1; no longer offered in the Robinhood Chain form, launches already paired with it keep trading)
 
 ## Launch (contract call)
 factory.launch((name, symbol, metadataURI, quote, supply=0, startTick, lpFee, salt, recipients))

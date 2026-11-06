@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { isChainKey, type ChainKey } from "../chainPublic.ts";
 import { BASE_STOCKS, BASE_STOCK_SEARCH_LIMIT, pricedBaseStocks, searchBaseStocks, stockTileSvg, type BaseStock } from "./baseStocks.ts";
-import { STOCK_SOURCE, launchpad } from "./config.ts";
+import { STOCK_SOURCE, launchpad, officialQuotes } from "./config.ts";
 import { searchStocks } from "./stocks.ts";
 import { gitlawbLinkedUsd } from "./twig.ts";
 
@@ -27,7 +27,7 @@ function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseSto
   const imports: Record<string, unknown> = {
     "next/server": { NextResponse: { json: (body: unknown, options?: ResponseInit) => Response.json(body, options) } },
     "@/lib/chainPublic": { isChainKey },
-    "@/lib/launchpad/config": { launchpad },
+    "@/lib/launchpad/config": { launchpad, officialQuotes },
     "@/lib/launchpad/stocksServer": {
       STOCK_SOURCE,
       ensureRegistry: async () => { calls.registry++; return robinhood ? { list: robinhood } : null; },
@@ -61,7 +61,7 @@ function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseSto
   }, exported);
   const get = async (query: string) => {
     const response = await exported.GET(new Request(`https://example.test/api/quotes?${query}`));
-    return { response, body: (await response.json()) as { fixed: { key: string; usd: number | null }[]; stocks: Hit[]; stocksTotal: number; stocksMatched: number; error?: string } };
+    return { response, body: (await response.json()) as { fixed: { key: string; usd: number | null; offered: boolean }[]; stocks: Hit[]; stocksTotal: number; stocksMatched: number; error?: string } };
   };
   return { get, calls };
 }
@@ -186,11 +186,19 @@ test("an unknown chain is refused", async () => {
   assert.equal(body.error, "bad chain");
 });
 
-test("the fixed quotes follow the form: Base has no TWIG; Robinhood Chain's GITLAWB carries GITLAWB's live price", async () => {
+test("fixed: the form's quotes (offered) then the official ones it no longer offers, all priced, so outside callers keep their prices", async () => {
   const { get } = isolatedRoute();
-  const base = (await get("chain=base")).body.fixed;
-  assert.deepEqual(base.map((q) => q.key), ["eth"], "TWIG left the Base form, so the form's quote list never offers it");
-  const rh = (await get("chain=robinhood")).body.fixed;
-  assert.deepEqual(rh.map((q) => q.key), ["usdg", "eth", "gitlawb"]);
-  assert.equal(rh.find((q) => q.key === "gitlawb")?.usd, 0.002);
+  const rows = async (chain: string) => (await get(`chain=${chain}`)).body.fixed.map((q) => [q.key, q.offered, q.usd]);
+  assert.deepEqual(await rows("base"), [["eth", true, null], ["twig", false, 0.002], ["gitlawb", false, 0.002]], "TWIG and GITLAWB left the Base form but keep GITLAWB's live price");
+  assert.deepEqual(await rows("robinhood"), [["usdg", true, 1], ["eth", true, null], ["gitlawb", false, 0.002]], "GITLAWB left the Robinhood Chain form but keeps its price");
+  assert.deepEqual(await rows("arc"), [["usdc", true, 1]]);
+  // Playground's read (playground src/lib/openlaunch/client.ts quoteUsd): fixed.find(key).usd, a positive number
+  for (const [chain, key] of [["base", "twig"], ["base", "gitlawb"], ["robinhood", "gitlawb"]] as const) {
+    const v = (await get(`chain=${chain}`)).body.fixed.find((q) => q.key === key)?.usd;
+    assert.ok(typeof v === "number" && v > 0, `${chain} ${key}`);
+  }
+  // the offered flag is exactly the form's own list
+  for (const chain of ["base", "robinhood", "arc"] as const) {
+    assert.deepEqual((await get(`chain=${chain}`)).body.fixed.filter((q) => q.offered).map((q) => q.key), launchpad(chain).quotes.map((q) => q.key), chain);
+  }
 });
