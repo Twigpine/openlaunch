@@ -46,6 +46,9 @@
     "typescript": "^5"
   },
   "overrides": {
-    "use-sync-external-store": "^1.4.0"
+    "use-sync-external-store": "^1.4.0",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
+    }
   }
 }
