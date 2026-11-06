@@ -59,6 +59,18 @@ test("unavailable figures use — without turning them into zero", () => {
   assert.equal(fmtUsd(0), "$0");
 });
 
+test("fmtCompact promotes the suffix when rounding reaches 1000 of a unit", () => {
+  assert.equal(fmtCompact(1_234), "1.23K");
+  assert.equal(fmtCompact(999_000), "999.00K");
+  assert.equal(fmtCompact(999_999), "1.00M", "no 1000.00K");
+  assert.equal(fmtCompact(-999_999), "-1.00M");
+  assert.equal(fmtCompact(999_996_000), "1.00B", "no 1000.00M");
+  assert.equal(fmtCompact(999_960, 1), "1.0M", "no 1000.0K");
+  assert.equal(fmtCompact(1_500_000_000_000), "1.50T");
+  assert.equal(fmtUsd(999_960, { compact: true }), "$1.0M");
+  assert.equal(fmtCompact(42.5), "42.50");
+});
+
 test("fmtEth trims noise", () => {
   assert.equal(fmtEth(10n ** 18n), "1");
   assert.equal(fmtEth(5n * 10n ** 16n), "0.05");
