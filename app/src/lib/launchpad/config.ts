@@ -19,7 +19,7 @@ export const BPS = 10_000;
 export const MAX_RECIPIENTS = 7;
 
 /**
- * key "twig" = TWIG, the GITLAWB wrapper (twig.ts): an official quote on Base, no longer offered in the form; "pair" = a community pair from the database list (pairs.ts; the server resolves it, this static config never does); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
+ * key "twig" = TWIG, the GITLAWB wrapper (twig.ts): an official quote on Base, no longer offered in the form (nor is GITLAWB, on any chain); "pair" = a community pair from the database list (pairs.ts; the server resolves it, this static config never does); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
  * is false only for an unlisted quote whose decimals have not been read yet: its 18 is a placeholder and it must not trade.
  * `unpriced` is true only for a registry stock nothing prices (a Coinbase stock without a Chainlink feed): its null `usd` is the normal state, not an outage.
  */
@@ -77,18 +77,25 @@ const V4_BY_CHAIN: Record<ChainKey, V4> = {
   },
 };
 /**
- * Quote assets offered per chain, first = default. The Base form offers ETH only (plus stocks): TWIG left it for the
- * GITLAWB/TWIG token migration, as GITLAWB had left it for TWIG before. Both stay official quotes below.
+ * Quote assets offered per chain, first = default (stocks come from the registry). No chain offers GITLAWB or TWIG:
+ * TWIG left the Base form and GITLAWB the Robinhood Chain form for the planned GITLAWB/TWIG token migration (GITLAWB
+ * had left the Base form for TWIG before). All three stay official quotes below.
  */
-const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH], robinhood: [USDG, ETH, GITLAWB_RH], arc: [USDC_ARC] };
+const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH], robinhood: [USDG, ETH], arc: [USDC_ARC] };
 /**
  * Official quotes: known, badged and priced wherever a launch paired with them is listed, but NEVER offered in the
- * launch form. Kept out of QUOTES_BY_CHAIN on purpose. GITLAWB and TWIG (its 1:1 wrapper) on Base: the form offers
- * neither (the token migration), while launches already paired with them, and any an agent still makes against the
- * factory, keep their badge and price. Community tokens are not here: they are community pairs, a database list with
- * public checks (pairs.ts).
+ * launch form. Kept out of QUOTES_BY_CHAIN on purpose. GITLAWB and TWIG (its 1:1 wrapper) on Base, and GITLAWB on
+ * Robinhood Chain (the LayerZero OFT): no form offers them (the token migration), while launches already paired with
+ * them, and any an agent still makes against the factory, keep their badge and price. Community tokens are not here:
+ * they are community pairs, a database list with public checks (pairs.ts).
+ * Order matters: allQuotes keeps the order each chain had when its form offered these (Base: ETH, TWIG, GITLAWB;
+ * Robinhood Chain: USDG, ETH, GITLAWB), so every list built from it reads as before.
  */
-const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [TWIG, GITLAWB], robinhood: [], arc: [] }; // TWIG first: allQuotes keeps the order it had when the form offered it
+const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [TWIG, GITLAWB], robinhood: [GITLAWB_RH], arc: [] };
+/** A chain's official quotes (GITLAWB, TWIG): never offered in the form, still listed with their live price by /api/quotes for outside callers (Playground prices its launches from it). */
+export function officialQuotes(chain: ChainKey): Quote[] {
+  return OFFICIAL_QUOTES[chain];
+}
 /** Known quotes: priced and named, with no badge, and never offered in the launch form (the mainstream tokens above). */
 const KNOWN_QUOTES: Record<ChainKey, Quote[]> = { base: [USDC_BASE, WETH_BASE], robinhood: [], arc: [] };
 

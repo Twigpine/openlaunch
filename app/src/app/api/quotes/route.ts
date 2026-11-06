@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isChainKey } from "@/lib/chainPublic";
-import { launchpad } from "@/lib/launchpad/config";
+import { launchpad, officialQuotes, type Quote } from "@/lib/launchpad/config";
 import { STOCK_SOURCE, baseStockList, ensureRegistry, refreshBaseRegistry, stockIssued, stockList, stockPrices } from "@/lib/launchpad/stocksServer";
 import { searchStocks } from "@/lib/launchpad/stocks";
 import { BASE_STOCK_SEARCH_LIMIT, searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
@@ -13,8 +13,11 @@ export const dynamic = "force-dynamic";
 type StockHit = { key: "stock"; address: string; symbol: string; name: string; decimals: number; usd: number | null; logo: string | null; issued: boolean | null };
 
 /**
- * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → quote assets the launch form may offer on that chain:
- * the fixed ones (ETH, USDG, USDC, GITLAWB on Robinhood Chain with GITLAWB's live USD; never TWIG, which left the Base form) plus tokenized stocks from that chain's registry (with live USD where the stock has a price):
+ * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → the chain's quote assets with live USD:
+ * `fixed` = the form's own quotes (ETH, USDG, USDC: `offered: true`) then the official ones the form no longer offers
+ * (TWIG and GITLAWB on Base, GITLAWB on Robinhood Chain: `offered: false`, priced at GITLAWB's live price). Outside
+ * callers read prices from it by key (Playground prices its tokenize launches here), so the official ones stay listed;
+ * the launch form itself reads only `stocks`. Plus tokenized stocks from that chain's registry (with live USD where the stock has a price):
  * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc.
  * `stocks` is one page of matches; `stocksMatched` is how many match the search in all and `stocksTotal` how many the chain's registry holds, so the form can say there are more.
  * Each stock's `issued` says whether any of it is in circulation: false = none yet (nobody can buy with it), null = not known (Robinhood, or no good read yet).
@@ -26,10 +29,11 @@ export async function GET(req: Request) {
   if (!isChainKey(chain)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const q = (u.searchParams.get("q") ?? "").slice(0, 12);
   const gl = await gitlawbUsd(); // one price for both chains: the Robinhood token is the Base token bridged 1:1
-  const fixed = launchpad(chain).quotes.map((x) => {
+  const priced = (x: Quote, offered: boolean) => {
     const linked = gitlawbLinkedUsd(x.key, gl); // GITLAWB, and TWIG (unwraps 1:1 to GITLAWB), take GITLAWB's live price
-    return { ...x, usd: linked === undefined ? x.usd : linked };
-  });
+    return { ...x, usd: linked === undefined ? x.usd : linked, offered };
+  };
+  const fixed = [...launchpad(chain).quotes.map((x) => priced(x, true)), ...officialQuotes(chain).map((x) => priced(x, false))];
   const { stocks, stocksTotal, stocksMatched } = await memo(`quotes:stocks:${chain}:${q.toUpperCase()}`, 30_000, async (): Promise<{ stocks: StockHit[]; stocksTotal: number; stocksMatched: number }> => {
     let hits: { address: string; symbol: string; name: string; decimals: number; logo: string | null }[];
     let matched: number;
