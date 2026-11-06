@@ -185,7 +185,12 @@ export function linkedTimeoutSignal(parent: AbortSignal | undefined, timeoutMs: 
   const timer = setTimeout(() => controller.abort(new DOMException("The request timed out.", "TimeoutError")), timeoutMs);
   controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
   if (parent?.aborted) controller.abort(parent.reason);
-  else parent?.addEventListener("abort", () => controller.abort(parent.reason), { once: true });
+  else if (parent) {
+    // Detach once this signal is done (a timeout included), so a long-lived parent does not collect a listener per request.
+    const onParentAbort = () => controller.abort(parent.reason);
+    parent.addEventListener("abort", onParentAbort, { once: true });
+    controller.signal.addEventListener("abort", () => parent.removeEventListener("abort", onParentAbort), { once: true });
+  }
   return controller.signal;
 }
 
