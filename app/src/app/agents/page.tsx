@@ -20,7 +20,7 @@ const sections = [
 ] as const;
 
 const endpoints = [
-  { path: "/api/launch/list", description: "Browse and sort launches", query: "?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50" },
+  { path: "/api/launch/list", description: "Browse and sort launches (add mcap=all to include all valuations)", query: "?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50" },
   { path: "/api/launch/feed", description: "Latest launches + trades" },
   { path: "/api/launch/meta/<token>", description: "Image, description and links" },
   { path: "/llms.txt", description: "Machine-readable reference" },
