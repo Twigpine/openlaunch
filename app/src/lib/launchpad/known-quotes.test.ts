@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { CHAIN_KEYS } from "../chainKeys.ts";
-import { fixedUsdQuotes, hasPriceSource, launchpad, listedQuoteAddresses, quoteInfo, quoteUsdOf } from "./config.ts";
+import { NATIVE, fixedUsdQuotes, hasPriceSource, launchpad, listedQuoteAddresses, quoteInfo, quoteUsdOf } from "./config.ts";
 import { FILTERS, filterOnChain, matchesFilter } from "./search.ts";
 
 /**
@@ -53,7 +53,8 @@ test("never offered in the launch form", () => {
   const offered = launchpad("base").quotes.map((q) => q.address.toLowerCase());
   assert.ok(!offered.includes(USDC_BASE.toLowerCase()));
   assert.ok(!offered.includes(WETH_BASE.toLowerCase()));
-  assert.deepEqual(launchpad("base").quotes.map((q) => q.key), ["eth", "twig"], "the form's eth is native ETH, never WETH");
+  assert.deepEqual(launchpad("base").quotes.map((q) => q.key), ["eth"], "the form's eth is native ETH, never WETH");
+  assert.equal(launchpad("base").quotes[0].address, NATIVE);
 });
 
 test("WETH trades as an ERC-20: the trade panel decides native by address, not by key", () => {

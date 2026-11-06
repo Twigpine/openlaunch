@@ -28,7 +28,7 @@ interface ITwig is IERC20Meta {
     function withdrawTo(address account, uint256 value) external returns (bool);
 }
 
-/// Can a launch be quoted in TWIG (the quote the Base form offers in GITLAWB's place)? Against the LIVE Base factory
+/// Can a launch be quoted in TWIG (the Base form's quote from Oct to 6 Nov 2026; launches paired with it still trade)? Against the LIVE Base factory
 /// and the LIVE TWIG contract: GITLAWB is borrowed from the Uniswap v4 PoolManager via prank and wrapped 1:1 into
 /// TWIG with the real depositFor. Then a token is launched priced in TWIG, bought with TWIG, sold back, and its fees
 /// collected: burned as TWIG with no beneficiary, paid in TWIG to a named one (who can unwrap them to GITLAWB 1:1).

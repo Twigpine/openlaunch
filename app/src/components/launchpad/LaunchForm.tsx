@@ -14,7 +14,6 @@ import FeeChip, { feeModeOf } from "./FeeChip";
 import LaunchFeeSettings, { type FeeBeneficiary } from "./LaunchFeeSettings";
 import { QuoteBrandBadge } from "./QuoteBadge";
 import { GitlawbMark } from "./GitlawbBadge";
-import { TwigMark } from "./TwigBadge";
 import { ChainLogo } from "./ChainLogo";
 import { XMark } from "./BrandMarks";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
@@ -31,7 +30,7 @@ import { BUY_PRESETS, defaultFirstBuy, gasReserveInQuote, suggestFirstBuy } from
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
-import { TWIG_WRAP_URL, gitlawbLinkedUsd } from "@/lib/launchpad/twig";
+import { gitlawbLinkedUsd } from "@/lib/launchpad/twig";
 import { parseXHandle } from "@/lib/launchpad/xHandle";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, DEFAULT_CHAIN, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
@@ -75,8 +74,8 @@ const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the qu
 /** Per-chain copy in the form. A chain's quotes and stock registry differ, so its sentences do too; `stock` is null where no registry exists. */
 const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock: { pays: string; badge: string; empty: string; issuer: string } | null }> = {
   base: {
-    blurb: "Priced in ETH, TWIG or a Coinbase tokenized stock. Gas ≈ cents.",
-    gitlawbOrigin: "", // the Base form offers TWIG, not GITLAWB, so this copy is never shown there
+    blurb: "Priced in ETH or a Coinbase tokenized stock. Gas ≈ cents.",
+    gitlawbOrigin: "", // the Base form offers neither GITLAWB nor TWIG, so this copy is never shown there
     stock: {
       pays: "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
       badge: "Coinbase stock",
@@ -184,14 +183,15 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const [stockTotal, setStockTotal] = useState(0); // how many stocks the chain's registry holds; the list below shows one page of them
   const [stockMatched, setStockMatched] = useState(0); // how many match the search in all
   const [stockAnswered, setStockAnswered] = useState<string | null>(null); // the search text the page shown answers
-  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price (gitlawbLinkedUsd).
+  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null (gitlawbLinkedUsd).
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
   const linkedUsd = gitlawbLinkedUsd(staticQuote.key, gitlawbUsd);
   const quote: Quote = linkedUsd === undefined ? staticQuote : { ...staticQuote, usd: linkedUsd };
-  // the branded quote this chain's form offers, if any: TWIG on Base, GITLAWB on Robinhood Chain
-  const brandQuote = cfg.quotes.find((q) => q.key === "twig") ?? cfg.quotes.find((q) => q.key === "gitlawb") ?? null;
-  // TWIG and GITLAWB: badged, priced at GITLAWB's live price, millions of units per dollar
-  const isBrandQuote = quote.key === "twig" || quote.key === "gitlawb";
+  // the branded quote this chain's form offers, if any: GITLAWB on Robinhood Chain. Never TWIG: it left the Base form
+  // for the token migration, and launches already paired with it keep their badge everywhere else on the site.
+  const brandQuote = cfg.quotes.find((q) => q.key === "gitlawb") ?? null;
+  // GITLAWB: badged, priced at its live price, millions of units per dollar
+  const isBrandQuote = quote.key === "gitlawb";
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;
   const gasReserve = GAS_RESERVE_WEI[chain];
@@ -292,7 +292,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
-  // "1,000,000 TWIG", not "1000000 TWIG": every digit of what the buy will send, grouped (never rounded, it is what the creator confirms)
+  // "1,000,000 GITLAWB", not "1000000 GITLAWB": every digit of what the buy will send, grouped (never rounded, it is what the creator confirms)
   const initialBuyLabel = initialBuyRaw ? `${fmtUnitsExact(initialBuyRaw, quote.decimals)} ${quote.symbol}` : "";
   const errors: string[] = [];
   // the token step's checks, named once: the validation list and the step rail both read them
@@ -553,7 +553,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   );
                 })}
               </div>
-              {/* every chain offers at least one fixed quote plus tokenized stocks; Base also offers TWIG, Robinhood Chain GITLAWB */}
+              {/* every chain offers at least one fixed quote; Base and Robinhood Chain add tokenized stocks, Robinhood Chain GITLAWB */}
               {cfg.quotes.length > 0 ? (
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -591,12 +591,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   </span>
                   <p className={helper}>
                     Your token carries the <QuoteBrandBadge quoteKey={quote.key} /> badge on the launch list, trending, the activity feed, its page and its share card.{" "}
-                    {quote.key === "twig" ? (
-                      <>TWIG is Twigpine&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and the fees are burned as TWIG when collected. Priced at GITLAWB&apos;s price, from the Uniswap v4 WETH/GITLAWB pool on Base.</>
-                    ) : (
-                      <>GITLAWB is Twigpine&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base.</>
-                    )}{" "}
-                    <a href={quote.key === "twig" ? TWIG_WRAP_URL : GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{quote.key === "twig" ? "wrap.twigpine.com" : "twigpine.com"} ↗</a>
+                    GITLAWB is Twigpine&apos;s token{CHAIN_COPY[chain].gitlawbOrigin}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base.{" "}
+                    <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">twigpine.com ↗</a>
                   </p>
                 </div>
               ) : null}
@@ -1058,7 +1054,6 @@ function Step({ n, done, last = false, icon, children }: { n: number; done: bool
 
 /** A quote's mark in the picker: the bundled logo where there is one, a plain glyph for the rest. */
 function QuoteMark({ k }: { k: Quote["key"] }) {
-  if (k === "twig") return <TwigMark size={14} className="rounded-[3px]" />;
   if (k === "gitlawb") return <GitlawbMark size={14} className="rounded-[3px]" />;
   if (k === "stock") return <ChartCandlestick size={14} aria-hidden="true" className="shrink-0" />;
   if (k === "eth" || k === "usdc") {
