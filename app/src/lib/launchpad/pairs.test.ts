@@ -226,12 +226,12 @@ test("MUSEWORLD: the first pair, seeded by the schema, with no special case left
   assert.equal(existsSync(path.join(import.meta.dirname, "museworld.ts")), false);
 });
 
-test("never in the launch form: the form offers ETH, TWIG and stocks; pairs are listed, priced and badged only", () => {
+test("never in the launch form: the form offers no community token; pairs are listed, priced and badged only", () => {
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.doesNotMatch(form, /PairPublic|isPairChain|"pair"|Community/, "the form has no community pair option");
   assert.doesNotMatch(src("../../app/launch/page.tsx"), /loadPairs|quote\?:/, "the launch page neither loads pairs nor takes ?quote=");
   for (const f of ["../../app/pairs/page.tsx", "../../app/pair/[chain]/[address]/page.tsx"]) assert.doesNotMatch(src(f), /\/launch\?[^"`]*quote=/, f);
-  assert.match(src("pairs.ts"), /noForm: "The launch form offers ETH, TWIG and stocks only\./);
+  assert.match(src("pairs.ts"), /noForm: "The launch form does not offer community tokens\./);
   assert.doesNotMatch(src("../../../db/schema.sql"), /in_form/);
 });
 

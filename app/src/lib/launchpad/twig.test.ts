@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { CHAIN_KEYS } from "../chainKeys.ts";
-import { BUY_PRESETS as TRADE_BUY_PRESETS, MCAP_PRESETS, launchpad, listedQuoteAddresses, quoteInfo, quoteUsdOf } from "./config.ts";
+import { BUY_PRESETS as TRADE_BUY_PRESETS, MCAP_PRESETS, coreQuotes, launchpad, listedQuoteAddresses, quoteInfo, quoteUsdOf, quotesWithKey } from "./config.ts";
 import { BUY_PRESETS as FIRST_BUY_PRESETS, defaultFirstBuy } from "./first-buy.ts";
 import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD } from "./gitlawb.ts";
 import { MCAP_USD_TARGETS, capEntry, capPresets } from "./market-cap.ts";
@@ -13,9 +13,10 @@ import { TWIG_ADDRESS, TWIG_ADDRESSES, TWIG_LOGO_PATH, gitlawbLinkedUsd, twigUsd
 import { cleanQuoteSymbol } from "./unlisted-quote.ts";
 
 /**
- * TWIG (twig.ts) is the quote the Base launch form offers in GITLAWB's place: badged, priced at GITLAWB's USD price
- * (one TWIG unwraps to one GITLAWB), filterable. GITLAWB stays a known quote on Base, so its launches keep their
- * badge and price, and the Robinhood Chain form keeps offering it.
+ * TWIG (twig.ts) is an official quote on Base: badged, priced at GITLAWB's USD price (one TWIG unwraps to one GITLAWB),
+ * filterable. The Base launch form no longer offers it (the planned GITLAWB/TWIG token migration), as it stopped
+ * offering GITLAWB before; launches already paired with either keep their badge and price. The Robinhood Chain form
+ * keeps offering GITLAWB.
  */
 const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
 
@@ -34,8 +35,12 @@ test("TWIG resolves on Base by address, with its logo; nowhere else", () => {
   assert.ok(listedQuoteAddresses("base").includes(TWIG_ADDRESS), "known, so the indexer does not treat it as unlisted");
 });
 
-test("the Base form offers ETH then TWIG; GITLAWB leaves the Base form but stays a known, priced quote", () => {
-  assert.deepEqual(launchpad("base").quotes.map((q) => q.key), ["eth", "twig"], "ETH stays the default");
+test("the Base form offers ETH only; TWIG and GITLAWB leave the Base form but stay known, priced quotes", () => {
+  assert.deepEqual(launchpad("base").quotes.map((q) => q.key), ["eth"], "ETH is the default and the only fixed quote (stocks come from the registry)");
+  const tw = quoteInfo("base", TWIG_ADDRESS);
+  assert.equal(tw.key, "twig", "existing TWIG-paired launches keep their key, badge and price");
+  assert.ok(quotesWithKey("twig").some((q) => q.chain === "base" && q.address === TWIG_ADDRESS.toLowerCase()), "the TWIG filter chip still finds them");
+  assert.ok(coreQuotes("base").some((q) => q.key === "twig"), "a community pair priced against TWIG still prices");
   const gl = quoteInfo("base", GITLAWB_ADDRESS);
   assert.equal(gl.key, "gitlawb", "existing GITLAWB-paired launches keep their key, badge and price");
   assert.equal(gl.symbol, "GITLAWB");
@@ -104,7 +109,7 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   for (const f of ["LaunchRow.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{/, f);
   assert.match(src("../../components/launchpad/TrendingStrip.tsx"), /hasQuoteBrandBadge\(row\.quote_key\)/, "TWIG rows show the badge, not the bare symbol");
   const form = src("../../components/launchpad/LaunchForm.tsx");
-  assert.match(form, /const brandQuote = cfg\.quotes\.find\(\(q\) => q\.key === "twig"\) \?\? cfg\.quotes\.find\(\(q\) => q\.key === "gitlawb"\) \?\? null;/, "TWIG is the nudge wherever the form offers it");
+  assert.match(form, /const brandQuote = cfg\.quotes\.find\(\(q\) => q\.key === "gitlawb"\) \?\? null;/, "GITLAWB is the nudge where the form offers it (Robinhood Chain)");
   assert.match(form, /Pair with \{brandQuote\.symbol\}, get the <QuoteBrandBadge quoteKey=\{brandQuote\.key\} \/> badge/);
   assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} size="md" \/>/);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label="Paired with TWIG" \/>/);
@@ -119,4 +124,25 @@ test("the published TWIG address is the one in config, everywhere agents read it
     assert.ok(found.length >= 1, f);
     for (const a of found) assert.equal(a.toLowerCase(), TWIG_ADDRESS, f);
   }
+});
+
+test("the launch form never offers TWIG: no option, no nudge, no TWIG-only copy; the rules say why", () => {
+  for (const k of CHAIN_KEYS) assert.ok(!launchpad(k).quotes.some((q) => q.key === "twig" || q.address.toLowerCase() === TWIG_ADDRESS.toLowerCase()), k);
+  const form = src("../../components/launchpad/LaunchForm.tsx");
+  assert.doesNotMatch(form, /"twig"|TwigMark|TWIG_WRAP_URL|wrap\.twigpine\.com/, "nothing in the form can pick, mark or explain TWIG");
+  assert.doesNotMatch(form, /Priced in ETH, TWIG/, "the Base chain card no longer lists TWIG");
+  assert.match(form, /blurb: "Priced in ETH or a Coinbase tokenized stock\. Gas ≈ cents\."/);
+  const rules = src("../../app/rules/page.tsx");
+  assert.doesNotMatch(rules, /It is the quote the Base form offers/);
+  assert.doesNotMatch(rules, /pairs your token with ETH, TWIG on Base/);
+  assert.match(rules, /The Base form no longer offers it, ahead of the planned GITLAWB and TWIG token migration \(<a href=\{TWIG_MIGRATE_URL\}/);
+  assert.match(rules, /Launches already paired with TWIG keep their badge, price and trading/);
+  // every page and doc a person or an agent reads: none may say, in any wording, that the form offers TWIG
+  const said = /quote the (Base )?form offers there|form'?s quote|ETH, TWIG and stocks|besides ETH and TWIG|quote = ETH, TWIG on Base|form offers(?! neither)[^.;]*\bTWIG\b|\bTWIG\b[^.;]*\bthe (Base )?form offers(?! neither)/;
+  const docs = ["../../../../README.md", "../../../../docs/pairs.md", "../../../../docs/boost.md"];
+  for (const f of ["../../app/agents/page.tsx", "../../app/llms.txt/route.ts", "../../app/rules/page.tsx", "../../app/pairs/page.tsx", "pairs.ts", "pairApply.ts", "../../app/api/quotes/route.ts", ...docs]) {
+    assert.doesNotMatch(src(f), said, f);
+  }
+  // the Base landing page lists stocks beside ETH, as the form does, rather than reading as an ETH-only chain
+  assert.match(src("../../components/launchpad/ChainLanding.tsx"), /\.\.\.\(STOCK_SOURCE\[chain\] \? \["Stocks"\] : \[\]\)/);
 });

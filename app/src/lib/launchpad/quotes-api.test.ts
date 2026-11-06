@@ -185,3 +185,12 @@ test("an unknown chain is refused", async () => {
   assert.equal(response.status, 400);
   assert.equal(body.error, "bad chain");
 });
+
+test("the fixed quotes follow the form: Base has no TWIG; Robinhood Chain's GITLAWB carries GITLAWB's live price", async () => {
+  const { get } = isolatedRoute();
+  const base = (await get("chain=base")).body.fixed;
+  assert.deepEqual(base.map((q) => q.key), ["eth"], "TWIG left the Base form, so the form's quote list never offers it");
+  const rh = (await get("chain=robinhood")).body.fixed;
+  assert.deepEqual(rh.map((q) => q.key), ["usdg", "eth", "gitlawb"]);
+  assert.equal(rh.find((q) => q.key === "gitlawb")?.usd, 0.002);
+});

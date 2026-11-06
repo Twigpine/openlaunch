@@ -14,7 +14,7 @@ import { pairListingUsd } from "@/lib/launchpad/pairApply";
 export const metadata = pageMetadata({
   path: "/pairs",
   title: "Community pairs",
-  description: "Tokens a launch on openlaunch can be paired with besides ETH and TWIG. Each is listed after public checks, priced from one named pool and watched every hour.",
+  description: "Community tokens a launch on openlaunch can be paired with. Each is listed after public checks, priced from one named pool and watched every hour.",
 });
 export const dynamic = "force-dynamic";
 

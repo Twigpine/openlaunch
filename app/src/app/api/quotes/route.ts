@@ -14,7 +14,7 @@ type StockHit = { key: "stock"; address: string; symbol: string; name: string; d
 
 /**
  * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → quote assets the launch form may offer on that chain:
- * the fixed ones (ETH, USDG, USDC, TWIG, GITLAWB — TWIG and GITLAWB with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD where the stock has a price):
+ * the fixed ones (ETH, USDG, USDC, GITLAWB on Robinhood Chain with GITLAWB's live USD; never TWIG, which left the Base form) plus tokenized stocks from that chain's registry (with live USD where the stock has a price):
  * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc.
  * `stocks` is one page of matches; `stocksMatched` is how many match the search in all and `stocksTotal` how many the chain's registry holds, so the form can say there are more.
  * Each stock's `issued` says whether any of it is in circulation: false = none yet (nobody can buy with it), null = not known (Robinhood, or no good read yet).
