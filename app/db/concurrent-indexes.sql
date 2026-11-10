@@ -20,3 +20,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launches_chain_token_id_idx ON bb_lau
 -- trade-time USD (2026-11-10): the trades still without a USD value (every one until the first backfill, then only
 -- those whose hour had no price yet), so a repeat backfill and the "partial" check never scan every swap
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_usd_missing_idx ON bb_launch_swaps (chain_id, block_time) WHERE usd IS NULL;
+-- trade-time USD review (2026-11-11): the lists' per-launch probe of trades with no USD value (queries.SELECT's LATERAL u), and
+-- the site totals' read of quote-side fees with no USD value (getLaunchTotals): neither scans its whole table on a page view
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_usd_missing_token_idx ON bb_launch_swaps (chain_id, token) WHERE usd IS NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_fee_events_usd_missing_idx ON bb_launch_fee_events (chain_id, token) WHERE usd IS NULL AND kind IN ('collected', 'burned');

@@ -15,7 +15,7 @@ import { TWIG_ADDRESSES } from "./twig";
 import { boostFromTransfer } from "./boost";
 import { pairBurnFromTransfer } from "./pairApply";
 import { recordPairBurn } from "./pairApplyServer";
-import { captureLiveUsd } from "./usdLedger";
+import { captureLiveUsd, healUnpricedUsd } from "./usdLedger";
 import { hourIso } from "./usd-history";
 
 /**
@@ -859,6 +859,8 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
       from = to + 1n;
       chunks++;
     }
+    // trades and fees whose hour has a price by now but had none when they were written (usdLedger.ts; throttled, never throws)
+    await healUnpricedUsd(db, chain);
     return { status: "synced", from: from.toString(), to: to.toString(), head: head.toString(), ...totals, caught_up: from > confirmed };
   } catch (err) {
     const msg = errMessage(err);
@@ -901,7 +903,8 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
     tokens.push(l.args.token.toLowerCase());
   }
   const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
-  await captureLiveUsd(db, chain, tokenQuote.values()); // as in applyRange: this hour's live USD before the trades are priced
+  // no price capture here: this path runs while the user waits, and a capture can wait on price sources. Its trades take
+  // the hour's price the poller already captured, or are priced by the poller's heal pass a few minutes later.
   const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
   for (const l of swapLogs) {
     if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
