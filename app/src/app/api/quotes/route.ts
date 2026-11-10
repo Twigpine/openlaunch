@@ -6,6 +6,7 @@ import { searchStocks } from "@/lib/launchpad/stocks";
 import { BASE_STOCK_SEARCH_LIMIT, searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
 import { memo } from "@/lib/launchpad/memo";
 import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
+import { hypeUsd } from "@/lib/launchpad/hypePrice";
 import { gitlawbLinkedUsd } from "@/lib/launchpad/twig";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 type StockHit = { key: "stock"; address: string; symbol: string; name: string; decimals: number; usd: number | null; logo: string | null; issued: boolean | null };
 
 /**
- * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → the chain's quote assets with live USD:
+ * GET /api/quotes?chain=<base|robinhood|arc|elysium>[&q=AAPL] → the chain's quote assets with live USD:
  * `fixed` = the form's own quotes (ETH, USDG, USDC: `offered: true`) then the official ones the form no longer offers
  * (TWIG and GITLAWB on Base, GITLAWB on Robinhood Chain: `offered: false`, priced at GITLAWB's live price). Outside
  * callers read prices from it by key (Playground prices its tokenize launches here), so the official ones stay listed;
@@ -29,8 +30,11 @@ export async function GET(req: Request) {
   if (!isChainKey(chain)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const q = (u.searchParams.get("q") ?? "").slice(0, 12);
   const gl = await gitlawbUsd(); // one price for both chains: the Robinhood token is the Base token bridged 1:1
+  // HYPE (Elysium's native asset, and WHYPE) takes HYPE's live price: unlike ETH, outside callers have no price of their own for the key
+  const hype = launchpad(chain).quotes.some((x) => x.key === "hype") ? await hypeUsd() : null;
   const priced = (x: Quote, offered: boolean) => {
     const linked = gitlawbLinkedUsd(x.key, gl); // GITLAWB, and TWIG (unwraps 1:1 to GITLAWB), take GITLAWB's live price
+    if (x.key === "hype") return { ...x, usd: hype, offered };
     return { ...x, usd: linked === undefined ? x.usd : linked, offered };
   };
   const fixed = [...launchpad(chain).quotes.map((x) => priced(x, true)), ...officialQuotes(chain).map((x) => priced(x, false))];

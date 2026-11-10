@@ -1,4 +1,4 @@
-import { SITE_URL } from "@/lib/chainPublic";
+import { SITE_URL, explorerAddress } from "@/lib/chainPublic";
 import { launchpad } from "@/lib/launchpad/config";
 import { BRAND_DOMAIN, BRAND_GITHUB } from "@/lib/brand";
 import { boostEnabled } from "@/lib/launchpad/boostServer";
@@ -67,7 +67,7 @@ ${verificationLine("Arc (5042)", a, [
   ["Sourcify", (x) => `https://repo.sourcify.dev/5042/${x}`],
 ])}
 ${verificationLine("Elysium (99901)", e, [
-  ["Elysium Explorer", (x) => `https://elysium.kinetiq.xyz/explorer/address/${x}`],
+  ["Elysium Explorer", (x) => explorerAddress("elysium", x)],
 ])}
 
 ## What a launch does
