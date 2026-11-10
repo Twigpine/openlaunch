@@ -52,6 +52,10 @@ const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr:
     { name: "Arc Explorer", url: (a) => `https://explorer.arc.io/address/${a}?tab=contract` },
     { name: "Sourcify", url: (a) => `https://repo.sourcify.dev/5042/${a}` },
   ],
+  // Sourcify lists only Elysium's testnet (99801) so far: add repo.sourcify.dev/99901 once it verifies mainnet
+  elysium: [
+    { name: "Elysium Explorer", url: (a) => `https://elysium.kinetiq.xyz/explorer/address/${a}` },
+  ],
 };
 
 /** The rules: launching, fees, posting, and how Season points are earned (no cash value, not a token). */

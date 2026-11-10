@@ -17,6 +17,7 @@ const NETWORK_LOGOS: Record<ChainKey, { light: string; dark?: string; width: num
   base: { light: "/brand/base.svg", width: 22, height: 22 },
   robinhood: { light: "/brand/robinhood-black.svg", dark: "/brand/robinhood-white.svg", width: 16, height: 21 },
   arc: { light: "/brand/arc.svg", width: 21, height: 22 },
+  elysium: { light: "/brand/elysium.png", width: 22, height: 22 }, // white tile with the black mark: reads on both themes
 };
 
 function NetworkLogo({ chain }: { chain: ChainKey }) {

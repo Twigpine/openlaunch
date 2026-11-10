@@ -61,7 +61,8 @@ export function fdvForStartTick(tick: number, quoteDecimals = 18, supplyWei: big
 /** Whole-unit amount from a raw amount with `decimals`. */
 /**
  * USD per quote unit: `usd` when the quote carries one (stables, a native stable such as USDC on Arc, live-priced
- * stocks and GITLAWB), the live ETH price for the ETH quote, and unknown → null for anything else. The quote must come
+ * stocks, GITLAWB, and HYPE once the server or the page has filled its live price), the live ETH price for the ETH
+ * quote, and unknown → null for anything else. The quote must come
  * from quoteInfo(chain, …) / the chain's config: address(0) alone says nothing about what a chain's native asset is.
  */
 export function quoteUsdOf(q: { key: string; usd: number | null }, ethUsd: number | null): number | null {
