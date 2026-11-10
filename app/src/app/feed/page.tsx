@@ -14,7 +14,7 @@ export default async function FeedPage() {
   const result = await listFeed(100).then((posts) => ({ posts, failed: false })).catch(() => ({ posts: [], failed: true }));
   return (
     <main className={styles.page}>
-      <SectionIntro eyebrow="Community posts" icon={<MessagesSquare />} title="Behind every token." description="Holders, traders and creators, in their own words. Follow the conversation across Base, Robinhood Chain and Arc.">
+      <SectionIntro eyebrow="Community posts" icon={<MessagesSquare />} title="Behind every token." description="Holders, traders and creators, in their own words. Follow the conversation across Base, Robinhood Chain, Arc and Elysium.">
         <Link href="/#launches" className={styles.action}>Explore tokens <ArrowUpRight size={16} aria-hidden="true" /></Link>
       </SectionIntro>
       <CommunityFeed initial={result.posts} loadError={result.failed} />

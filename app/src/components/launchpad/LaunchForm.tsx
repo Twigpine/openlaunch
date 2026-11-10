@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChartCandlestick, Check, CircleDollarSign, Globe, Rocket } from "lucide-react";
+import { ChartCandlestick, Check, CircleDollarSign, Coins, Globe, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -18,7 +18,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
-import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, GAS_RESERVE_WEI, MAX_RECIPIENTS, STOCK_SOURCE, TICK_SPACING, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
+import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, GAS_RESERVE_WEI, MAX_RECIPIENTS, STOCK_SOURCE, TICK_SPACING, isNativeQuote, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { bpsToPct, buildRecipients, describeShares, emptyRow, isBurnAddress, type Recipient, type RecipientRow } from "@/lib/launchpad/recipients";
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { uppercaseInPlace } from "@/lib/launchpad/symbol-input";
@@ -91,6 +91,10 @@ const CHAIN_COPY: Record<ChainKey, { blurb: string; stock: { pays: string; badge
     blurb: "Priced in USDC (dollars). Gas is paid in USDC too: cents per trade, well under a dollar to launch.",
     stock: null,
   },
+  elysium: {
+    blurb: "Priced in HYPE or USDC (dollars). Gas is paid in HYPE ≈ cents.",
+    stock: null,
+  },
 };
 
 type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
@@ -124,7 +128,7 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
       await new Promise((r) => setTimeout(r, 1500));
     }
   }
-  if (quote.key !== "eth") {
+  if (!isNativeQuote(quote)) {
     const payToken = quote.address;
     const erc20Allowance = await pub.readContract({ address: payToken, abi: ERC20_MIN_ABI, functionName: "allowance", args: [address, V4.permit2] });
     if (erc20Allowance < amountIn) {
@@ -147,7 +151,7 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
     abi: UNIVERSAL_ROUTER_ABI,
     functionName: "execute",
     args: [commands, inputs, deadline],
-    value: quote.key === "eth" ? amountIn : 0n,
+    value: isNativeQuote(quote) ? amountIn : 0n,
     account: address,
     dataSuffix: BUILDER_DATA_SUFFIX,
   });
@@ -163,7 +167,8 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
   return received > 0n ? { hash: h, out: received, exact: true } : { hash: h, out, exact: false };
 }
 
-export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { ethUsd: number | null; initialChain?: ChainKey }) {
+/** `hypeUsd`: HYPE's live price (server, hypePrice.ts), filled into the static HYPE quote the way the server fills GITLAWB's. */
+export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFAULT_CHAIN }: { ethUsd: number | null; hypeUsd?: number | null; initialChain?: ChainKey }) {
   const router = useRouter();
   const [chain, setChain] = useState<ChainKey>(initialChain);
   const cfg = launchpad(chain);
@@ -178,13 +183,14 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
   const [stockAnswered, setStockAnswered] = useState<string | null>(null); // the search text the page shown answers
   // The form offers no branded quote: GITLAWB and TWIG left it for the planned token migration (config.ts OFFICIAL_QUOTES),
   // and launches already paired with them keep their badge, price and trading everywhere else on the site.
-  const quote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
+  const picked: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
+  const quote: Quote = picked.key === "hype" && picked.usd === null ? { ...picked, usd: hypeUsd } : picked;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;
   const gasReserve = GAS_RESERVE_WEI[chain];
   // On Arc the USDC quote IS the gas token (one balance, two faces): the reserve then comes out of the quote balance as well.
   const sharedGas = sharesGasBalance(chain, quote);
-  const reserveInQuote = quote.key === "eth" || sharedGas ? gasReserveInQuote(gasReserve, quote.decimals) : 0n;
+  const reserveInQuote = isNativeQuote(quote) || sharedGas ? gasReserveInQuote(gasReserve, quote.decimals) : 0n;
   // stock search (per-chain registry via our server; only registry addresses are ever offered)
   useEffect(() => {
     if (quoteKey !== "stock") return;
@@ -269,13 +275,13 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
   // Balances, read as soon as a wallet is connected so the suggestion can be decided: the native balance always (it pays
   // the buy's gas, and the approvals an ERC-20 quote needs first), plus the quote token's balance for an ERC-20 quote.
   const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
-  const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key !== "eth", refetchInterval: 15_000 } });
+  const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && !isNativeQuote(quote), refetchInterval: 15_000 } });
   const nativeBalance: bigint | undefined = ethBal.data?.value;
-  const buyBalance: bigint | undefined = quote.key === "eth" ? nativeBalance : (quoteBal.data as bigint | undefined);
-  const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
+  const buyBalance: bigint | undefined = isNativeQuote(quote) ? nativeBalance : (quoteBal.data as bigint | undefined);
+  const buyBalanceFailed = isNativeQuote(quote) ? ethBal.isError : quoteBal.isError;
   // The suggested buy is selected from the start; a connected wallet's balances can only take it away (or a failed read),
   // so it can never block the launch below. A typed amount keeps the strict checks.
-  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed || ethBal.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
+  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed || ethBal.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined || Boolean(typedBuy), native: isNativeQuote(quote), parse: parseUnits });
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
@@ -307,8 +313,8 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
   if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + reserveInQuote > buyBalance)
     errors.push(reserveInQuote > 0n ? `First buy: not enough ${quote.symbol} (leave a little for gas).` : `First buy: not enough ${quote.symbol} in this wallet.`);
   // an ERC-20 first buy still pays gas (and its approvals) in the native asset: the token balance alone is not enough
-  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && address && nativeBalance === undefined) errors.push(ethBal.isError ? `First buy: could not read your ${NATIVE_SYMBOL} balance for gas. Retry, or clear the amount.` : `First buy: checking your ${NATIVE_SYMBOL} balance for gas…`);
-  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve) errors.push(`First buy: not enough ${NATIVE_SYMBOL} for gas (the launch, the approval and the buy each need a little ${NATIVE_SYMBOL}).`);
+  if (initialBuyRaw && !isNativeQuote(quote) && !sharedGas && address && nativeBalance === undefined) errors.push(ethBal.isError ? `First buy: could not read your ${NATIVE_SYMBOL} balance for gas. Retry, or clear the amount.` : `First buy: checking your ${NATIVE_SYMBOL} balance for gas…`);
+  if (initialBuyRaw && !isNativeQuote(quote) && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve) errors.push(`First buy: not enough ${NATIVE_SYMBOL} for gas (the launch, the approval and the buy each need a little ${NATIVE_SYMBOL}).`);
   const valid = errors.length === 0;
   // the rail beside the steps: a check once a step is complete (the first buy is optional, so it is complete unless its amount fails a check)
   const done = {
@@ -372,7 +378,7 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
 
       setPhase({ k: "simulating" });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
-      if (quote.key !== "eth") {
+      if (!isNativeQuote(quote)) {
         // ERC20 quote: the token must sort above the quote address — let the factory pick a salt that does.
         const [found] = await pub.readContract({
           address: FACTORY_ADDRESS,
@@ -503,7 +509,7 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
                 <h2 className="text-sm font-semibold text-ink">Chain</h2>
                 <span className="text-xs text-muted">same launch, same rules, on every chain</span>
               </div>
-              <div className="grid sm:grid-cols-3 gap-2">
+              <div className="grid sm:grid-cols-2 gap-2">
                 {CHAIN_KEYS.map((k) => {
                   const active = chain === k;
                   const ok = launchpad(k).configured;
@@ -555,7 +561,7 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
                   </div>
                   <p className="text-xs text-muted">
                     {/* the picked quote key, not the resolved quote: with Stock chosen and no stock yet, the quote still falls back to the first one */}
-                    {quoteKey === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : "Buyers pay with ETH."}
+                    {quoteKey === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : `Buyers pay with ${quote.symbol}.`}
                   </p>
                 </div>
               ) : null}
@@ -949,7 +955,7 @@ export default function LaunchForm({ ethUsd, initialChain = DEFAULT_CHAIN }: { e
               <p className="text-xs text-muted leading-relaxed">
                 One transaction on {CHAIN_LABEL}: deploys the token, creates the Uniswap v4 pool ({quote.symbol} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents.
                 Nothing is refundable and nothing can be edited afterwards.
-                {initialBuyRaw ? ` Then a second transaction buys ${initialBuyLabel} of your token${quote.key !== "eth" ? " (with a one-time approval the first time)" : ""}; if you reject it, the launch still stands.` : ""}
+                {initialBuyRaw ? ` Then a second transaction buys ${initialBuyLabel} of your token${!isNativeQuote(quote) ? " (with a one-time approval the first time)" : ""}; if you reject it, the launch still stands.` : ""}
               </p>
             </section>
           </Step>
@@ -1017,6 +1023,7 @@ function Step({ n, done, last = false, icon, children }: { n: number; done: bool
 /** A quote's mark in the picker: the bundled logo where there is one, a plain glyph for the rest. */
 function QuoteMark({ k }: { k: Quote["key"] }) {
   if (k === "stock") return <ChartCandlestick size={14} aria-hidden="true" className="shrink-0" />;
+  if (k === "hype") return <Coins size={14} aria-hidden="true" className="shrink-0" />; // no bundled HYPE mark yet
   if (k === "eth" || k === "usdc") {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={k === "eth" ? "/brand/ethereum.svg" : "/brand/usdc.svg"} alt="" width={14} height={14} className="shrink-0" />;

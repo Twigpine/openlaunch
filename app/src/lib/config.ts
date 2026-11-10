@@ -17,10 +17,10 @@ export function syncOverlapBlocks(): bigint {
 }
 /**
  * /api/health reports an alert when head − cursor exceeds this many blocks. Block times differ ~20x across chains, so the
- * default is per chain and means about the same wall-clock lag (≈ 400s): Base 2s blocks, Robinhood ~0.1s, Arc ~0.5s.
+ * default is per chain and means about the same wall-clock lag (≈ 400s): Base 2s blocks, Robinhood ~0.1s, Arc ~0.5s, Elysium 0.1s.
  * SYNC_LAG_ALERT_BLOCKS (every chain) or SYNC_LAG_ALERT_BLOCKS_<CHAIN> overrides.
  */
-const DEFAULT_LAG_ALERT_BLOCKS: Record<ChainKey, number> = { base: 200, robinhood: 4000, arc: 800 };
+const DEFAULT_LAG_ALERT_BLOCKS: Record<ChainKey, number> = { base: 200, robinhood: 4000, arc: 800, elysium: 4000 };
 export function syncLagAlertBlocks(chain: ChainKey): number {
   return intEnv(`SYNC_LAG_ALERT_BLOCKS_${chain.toUpperCase()}`, intEnv("SYNC_LAG_ALERT_BLOCKS", DEFAULT_LAG_ALERT_BLOCKS[chain]));
 }

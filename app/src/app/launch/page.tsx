@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import LaunchForm from "@/components/launchpad/LaunchForm";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
+import { hypeUsd } from "@/lib/launchpad/hypePrice";
 import { DEFAULT_CHAIN, chainKeyOr, type ChainKey } from "@/lib/chainPublic";
 import { CONFIGURED_CHAINS, launchpad } from "@/lib/launchpad/config";
 
 export const metadata: Metadata = pageMetadata({
   path: "/launch",
   title: "Launch a token for free",
-  description: "Deploy a token on Base, Robinhood Chain or Arc with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
+  description: "Deploy a token on Base, Robinhood Chain, Arc or Elysium with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
 });
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ function initialChainFor(param: string | undefined): ChainKey {
 
 export default async function LaunchPage({ searchParams }: { searchParams: Promise<{ chain?: string }> }) {
   const sp = await searchParams;
-  const usd = await ethUsd();
+  const [usd, hype] = await Promise.all([ethUsd(), hypeUsd()]);
   return (
     <>
       <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-10 pb-16 space-y-5 sm:space-y-6">
@@ -29,7 +30,7 @@ export default async function LaunchPage({ searchParams }: { searchParams: Promi
           <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">Launch a token</h1>
           <p className="mt-2 text-base text-body">Pick a chain, fill this in, sign once, done. No platform fee. You only pay gas.</p>
         </header>
-        <LaunchForm ethUsd={usd} initialChain={initialChainFor(sp.chain)} />
+        <LaunchForm ethUsd={usd} hypeUsd={hype} initialChain={initialChainFor(sp.chain)} />
       </main>
     </>
   );
