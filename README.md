@@ -57,10 +57,11 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 | Base (8453) | [`0x8155…de72`](https://basescan.org/address/0x815542E8b392389A1389E22E588E4B62A67Ade72#code) | [`0xcd16…842a`](https://basescan.org/address/0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a#code) |
 | Robinhood Chain (4663) | [`0x8155…de72`](https://robinhoodchain.blockscout.com/address/0x815542E8b392389A1389E22E588E4B62A67Ade72) | [`0xcd16…842a`](https://robinhoodchain.blockscout.com/address/0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a) |
 | Arc (5042) | [`0x8155…de72`](https://explorer.arc.io/address/0x815542E8b392389A1389E22E588E4B62A67Ade72) | [`0xcd16…842a`](https://explorer.arc.io/address/0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a) |
+| Elysium (99901) | [`0x8155…de72`](https://elysium.kinetiq.xyz/explorer/address/0x815542E8b392389A1389E22E588E4B62A67Ade72) | [`0xcd16…842a`](https://elysium.kinetiq.xyz/explorer/address/0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a) |
 
 Full addresses: factory `0x815542E8b392389A1389E22E588E4B62A67Ade72`, locker `0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a`
-— identical on all three chains (same deployer, first transaction each; on Arc the factory is `LaunchFactoryArc`, the same contract plus the native-quote guard). Source verified on Basescan, Blockscout (Base and
-Robinhood Chain) and Sourcify (exact match on all three chains). Every launched token is verified too. No owner, no admin, no upgrade path.
+— identical on all four chains (same deployer, first transaction each; on Arc the factory is `LaunchFactoryArc`, the same contract plus the native-quote guard). Source verified on Basescan, Blockscout (Base and
+Robinhood Chain), Sourcify (exact match on Base, Robinhood Chain and Arc) and the Elysium explorer. The site does not offer Elysium yet. Every launched token is verified too. No owner, no admin, no upgrade path.
 
 ## How it works
 

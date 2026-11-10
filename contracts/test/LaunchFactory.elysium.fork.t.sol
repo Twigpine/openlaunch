@@ -50,7 +50,7 @@ interface IPosmWiring {
 /// Before the deploy, setUp deploys the factory from the real deployer at its nonce 0 (it lands at the Base / Robinhood /
 /// Arc addresses); once the factory is live, the same suite runs against the live deployment instead.
 ///   FORK_TESTS=true ELYSIUM_RPC_URL=… forge test --match-contract LaunchFactoryElysiumFork -vv
-/// Verified 2026-11-10 against the public RPC (pre-deploy), all green.
+/// Verified 2026-11-10 against the public RPC before the deploy and again against the live deployment (block 3986599), all green.
 contract LaunchFactoryElysiumFork is Test {
     address constant PM = 0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1;
     address constant POSM = 0x1d1C51b9d07fD27d36412A2b66CC23D19Eb3E518;
