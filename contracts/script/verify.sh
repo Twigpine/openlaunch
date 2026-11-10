@@ -3,7 +3,8 @@
 #   Basescan (Base):            needs an Etherscan API key (one key works for every chain on Etherscan V2):
 #                               export ETHERSCAN_API_KEY=... (or put ETHERSCAN_API_KEY= in contracts/.env)
 #   Blockscout (Robinhood/Base/Arc): keyless.
-# Usage: script/verify.sh [base|robinhood|arc|all]   (default: all)
+#   Elysium explorer (Etherscan-compatible API under /explorer/api): keyless.
+# Usage: script/verify.sh [base|robinhood|arc|elysium|all]   (default: all)
 set -euo pipefail
 failed=0
 cd "$(dirname "$0")/.."
@@ -22,6 +23,8 @@ RH_PM=0x8366a39CC670B4001A1121B8F6A443A643e40951
 RH_POSM=0x58daec3116aae6d93017baaea7749052e8a04fa7
 ARC_PM=0x8366a39CC670B4001A1121B8F6A443A643e40951
 ARC_POSM=0x6049c9a0e26405c0985f9e3685c87d0ae917f82b
+ELY_PM=0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1
+ELY_POSM=0x1d1C51b9d07fD27d36412A2b66CC23D19Eb3E518
 
 common=(--watch --compiler-version 0.8.26 --evm-version cancun --num-of-optimizations 200 --via-ir)
 
@@ -53,6 +56,11 @@ fi
 if [[ $target == arc || $target == all ]]; then
   echo "== Arc Blockscout (keyless)"
   VERIFY_FACTORY=${ARC_FACTORY:-} VERIFY_LOCKER=${ARC_LOCKER:-} FACTORY_SRC=src/LaunchFactoryArc.sol:LaunchFactoryArc verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
+fi
+if [[ $target == elysium || $target == all ]]; then
+  # the explorer's pages sit behind a bot checkpoint, but its Etherscan-compatible API answers scripts
+  echo "== Elysium explorer (keyless)"
+  verify_pair 99901 "$ELY_PM" "$ELY_POSM" --verifier blockscout --verifier-url https://elysium.kinetiq.xyz/explorer/api/
 fi
 if [ "$failed" -gt 0 ]; then echo "$failed verification(s) failed"; exit 1; fi
 echo "all verifications submitted"

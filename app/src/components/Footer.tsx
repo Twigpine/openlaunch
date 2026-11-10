@@ -34,7 +34,7 @@ export default function Footer() {
               Open to your next idea
             </div>
             <h2 className={styles.heading}>Make it yours.<br /><span>Keep it open.</span></h2>
-            <p className={styles.description}>Launch on Base, Robinhood Chain or Arc.<br />No platform cut. You only pay gas.</p>
+            <p className={styles.description}>Launch on Base, Robinhood Chain, Arc or Elysium.<br />No platform cut. You only pay gas.</p>
             <Link href="/launch" className={styles.launch}>
               Launch a token <ArrowRight size={17} aria-hidden="true" />
             </Link>
