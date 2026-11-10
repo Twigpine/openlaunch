@@ -243,6 +243,10 @@ test("bridge, then buy stays two steps: the trade panel card opens and follows t
   const trade = read("../launchpad/TradePanel.tsx");
   assert.doesNotMatch(card, /useBridge\b|client-storage|sendTransaction|writeContract|useWriteContract|\.record\(|\.forget\(/);
   assert.ok(card.includes("useOpenBridge()") && card.includes("useWakeBridge()"));
+  // nothing is shown or looked for until the clock and this wallet's ledger are known
+  assert.ok(card.includes("const ready = now !== 0 && snapshot.entries[wallet] !== undefined;"));
+  assert.ok(card.includes("const row = ready ? followedBridge(rows, destination, asset, now, dismissed) : null;"));
+  assert.ok(card.includes("const scanKey = ready && short && step === \"short\"") && card.includes("if (!wallet || !ready || (step === \"short\" && !short)) return null;"));
   assert.ok(card.includes("bridgeLedger.read(address)"));
   assert.ok(trade.includes("<BridgeToBuy "));
   assert.match(trade, /side === "buy" && isConnected && tradable \? \(\s*<BridgeToBuy /);
@@ -309,6 +313,10 @@ test("a Circle transfer is named as Circle's, reads allowance for Circle's spend
   assert.match(hook, /args: \[quote\.address, quote\.approval\.spender\]/);
   assert.match(hook, /const statusUrl = observed \? bridgeStatusUrl\(observed\)/);
   assert.match(hook, /findCctpBurn\(pub, current\)/);
+  // while polling, a failed search for the burn counts as nothing found, so Circle's status is still applied
+  assert.ok(hook.includes("await findCctpBurn(pub, current).catch(() => null)"));
+  // before discarding, the same search must answer: a failed read never passes as proof that nothing was sent
+  assert.ok(hook.includes('current.provider === "cctp" ? findCctpBurn(pub, current) : Promise.resolve(null),'));
   assert.match(panel, /const circle = \(bridge\.tracked\?\.provider \?\? bridge\.quote\?\.provider\) === "cctp";/);
   assert.match(panel, /const provider = circle \? "Circle CCTP" : "Relay"/);
   assert.match(panel, /href=\{circle \? "https:\/\/developers\.circle\.com\/cctp" : "https:\/\/relay\.link"\}/);

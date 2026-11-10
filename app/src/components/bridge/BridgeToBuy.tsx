@@ -75,7 +75,10 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
     return () => window.removeEventListener("storage", onStorage);
   }, [address]);
 
-  const row = now ? followedBridge(rows, destination, asset, now, dismissed) : null;
+  // Until the clock is set and this wallet's ledger has been read, a transfer already on its way cannot be told from a
+  // shortfall. Nothing is shown or looked for before then. The ledger read always answers, with no rows when it fails.
+  const ready = now !== 0 && snapshot.entries[wallet] !== undefined;
+  const row = ready ? followedBridge(rows, destination, asset, now, dismissed) : null;
   const step = fundStep(row);
   const rowId = row?.requestId ?? "";
   const rowStatus = row?.status ?? null;
@@ -91,7 +94,7 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
 
   // Look for funds elsewhere only while the buyer is short and no bridge is being followed. One look per wallet and
   // network: an amount edited back and forth across the balance reuses the look already made, or the one still out.
-  const scanKey = wallet && short && step === "short" ? `${wallet}:${destination}` : "";
+  const scanKey = ready && short && step === "short" ? `${wallet}:${destination}` : "";
   // A followed bridge moves funds, so what was seen before it is stale: the next shortfall looks again.
   useEffect(() => { if (step !== "short") scans.current.clear(); }, [step]);
   useEffect(() => {
@@ -115,7 +118,7 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
     return () => { stopped = true; };
   }, [scanKey, address, config, destination]);
 
-  if (!wallet || (step === "short" && !short)) return null;
+  if (!wallet || !ready || (step === "short" && !short)) return null;
   const holdings = scan?.key === scanKey ? scan.holdings : null;
   const suggestion = holdings ? pickBridgeSource(holdings, { chainId: destination, asset }, ethUsd) : null;
   const fallbackOrigin: BridgeChainId = destination === 8453 ? 1 : 8453;

@@ -238,8 +238,10 @@ export function useBridge(open: boolean) {
             const status = provider.value;
             // The candidate must still be this wallet's exact deposit for this order. Circle never reports another hash, so a
             // Circle burn the wallet did not return (or replaced) is looked for in the messenger's own events instead.
+            // That search is a fallback: when its reads fail (a rate limit, a refused log range) it counts as nothing found
+            // this time, so Circle's own answer is still applied and the next poll searches again.
             const walletHashUnmined = receipt.status === "fulfilled" && receipt.value === null;
-            const found = pub && current.provider === "cctp" && status.status === "waiting" && (!current.sourceHash || walletHashUnmined) ? await findCctpBurn(pub, current) : null;
+            const found = pub && current.provider === "cctp" && status.status === "waiting" && (!current.sourceHash || walletHashUnmined) ? await findCctpBurn(pub, current).catch(() => null) : null;
             const candidate = !pub ? null : current.provider === "cctp" ? (found && found !== current.sourceHash?.toLowerCase() ? found : null) : replacementSourceHash(current, status, walletHashUnmined);
             if (candidate && pub) {
               const [chainId, transaction] = await Promise.all([pub.getChainId(), pub.getTransaction({ hash: candidate })]);
