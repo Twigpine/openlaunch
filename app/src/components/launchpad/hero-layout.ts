@@ -6,7 +6,7 @@
 export const HERO = {
   /** tighter from lg: the totals now sit in the hero's left column, and all of it has to stay on a laptop's first screen */
   section: "relative pt-6 sm:pt-8 lg:pt-4",
-  /** the chain chip above the headline: from 640px only, because on a phone the copy right below names the same three chains */
+  /** the chain chip above the headline: from 640px only, because on a phone the copy right below names the same chains */
   chip: "group hidden max-w-full items-center gap-2 rounded-full border border-line bg-card/70 py-1 pr-3 pl-1.5 text-xs backdrop-blur hover:border-line-strong sm:inline-flex",
   /** stepped so "We take nothing." never wraps: the headline is two lines at every width from 320 to 1920. Sized for Geist
       (the page's display face): "We take nothing." is about 7.6em wide, so each step keeps it inside its column. */

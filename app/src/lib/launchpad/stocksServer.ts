@@ -24,7 +24,7 @@ let registry: Cache | null = null;
 let registryInflight: Promise<Cache | null> | null = null;
 const REGISTRY_TTL = 10 * 60_000;
 const prices = new Map<string, { at: number; usd: number | null }>(); // key: `${chain}:${address}`
-const PRICE_TTL: Record<ChainKey, number> = { robinhood: 30_000, base: 60_000, arc: 60_000 /* no stocks there; never consulted */ };
+const PRICE_TTL: Record<ChainKey, number> = { robinhood: 30_000, base: 60_000, arc: 60_000, elysium: 60_000 /* no stocks on Arc or Elysium; never consulted */ };
 
 async function fetchRegistry(): Promise<Cache | null> {
   try {
