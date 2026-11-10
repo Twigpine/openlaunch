@@ -1,6 +1,6 @@
 import { BaseError, decodeEventLog, decodeFunctionData, encodeFunctionData, InsufficientFundsError, isAddress, parseUnits, type Address, type Hex } from "viem";
 import { friendlyError } from "../errors";
-import { bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_ASSETS, bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 export type BridgePhase = "idle" | "quoting" | "review" | "switching" | "confirming" | "pending" | "success" | "refund" | "failure" | "uncertain";
 export type TrackedBridgeTransfer = BridgeQuoteRequest & {
@@ -80,8 +80,12 @@ export function changeBridgeRoute(current: BridgeRouteInputs, change: BridgeRout
       destinationChainId = change.chainId;
     }
   }
-  if (!isBridgeAssetSupported(originChainId, originAsset)) originAsset = defaultBridgeAsset(originChainId);
-  if (!isBridgeAssetSupported(destinationChainId, destinationAsset)) destinationAsset = defaultBridgeAsset(destinationChainId);
+  // An asset the new chain lacks falls back to that chain's default, except that a dollar stays a dollar: USDC on
+  // Base or Arc becomes USDG on Robinhood Chain, and back.
+  const kept = (chainId: BridgeChainId, asset: BridgeAsset): BridgeAsset => isBridgeAssetSupported(chainId, asset) ? asset
+    : (isDollarAsset(asset) ? BRIDGE_ASSETS[chainId].find(isDollarAsset) : undefined) ?? defaultBridgeAsset(chainId);
+  originAsset = kept(originChainId, originAsset);
+  destinationAsset = kept(destinationChainId, destinationAsset);
   const amount = previousOriginAsset === originAsset ? current.amount : "";
   return { originChainId, destinationChainId, amount, ...(explicitAssets ? { originAsset, destinationAsset } : {}) };
 }
@@ -150,9 +154,9 @@ export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest,
   }
   const tx = quote.transaction;
   const erc20 = !/^0x0{40}$/.test(inputCurrency.address);
-  if (erc20 && BigInt(request.amount) === MAX_UINT) throw new Error("Unlimited USDC approvals are not supported. Enter an exact transfer amount.");
+  if (erc20 && BigInt(request.amount) === MAX_UINT) throw new Error("Unlimited token approvals are not supported. Enter an exact transfer amount.");
   if (erc20 ? !quote.approval || quote.approval.token?.toLowerCase() !== inputCurrency.address.toLowerCase() || quote.approval.spender?.toLowerCase() !== RELAY_DEPOSITORY || quote.approval.amount !== request.amount : quote.approval !== undefined) {
-    throw new Error("The approval did not match the exact USDC deposit on this network.");
+    throw new Error("The approval did not match the exact token deposit on this network.");
   }
   if (!tx || tx.chainId !== request.originChainId || typeof tx.to !== "string" || tx.to.toLowerCase() !== RELAY_DEPOSITORY || tx.value !== (erc20 ? "0" : request.amount) || typeof tx.data !== "string" || !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(tx.data)) {
     throw new Error("The bridge transaction did not pass the deposit safety check.");
@@ -406,7 +410,7 @@ export function parseStoredTransfer(raw: string, address: Address): TrackedBridg
       const order = decodeFunctionData({ abi: ERC20_DEPOSIT_ABI, data: entry.depositData! }).args[3];
       const canonical = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [entry.address, bridgeCurrency(entry.originChainId, entry.originAsset, "input").address, BigInt(entry.amount), order] });
       if (/^0x0+$/.test(order) || canonical.toLowerCase() !== entry.depositData!.toLowerCase()) throw new Error("binding");
-    } catch { throw new Error("Saved USDC deposit details could not be verified. Check Relay before trying again."); }
+    } catch { throw new Error("Saved token deposit details could not be verified. Check Relay before trying again."); }
   } else if (entry.depositData) {
     try {
       const order = decodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, data: entry.depositData }).args[1];

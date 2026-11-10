@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, type Address, type Hex } from "viem";
 import { APPROVAL_DISCARD_AFTER_MS, APPROVAL_STORAGE_PREFIX, ARC_APPROVAL_CHAIN_ID, ARC_USDC, EXACT_APPROVAL_ABI, RELAY_APPROVAL_SPENDER, USDC_APPROVAL_EVENT, approvalBlocksSubmission, approvalCanDiscard, approvalRequestKey, approvalStorageKey, createApprovalStore, exactApprovalTransaction, hasMatchingApprovalEvent, isMatchingApprovalTransaction, parseStoredApproval, reconcileApproval, serializeApproval, submitExactApproval, validateApprovalMetadata, type ApprovalDependencies, type ApprovalRequest, type TrackedApproval } from "./approval";
-import { BASE_USDC } from "./types";
+import { BASE_USDC, ROBINHOOD_USDG } from "./types";
 import { canApplyApprovalPoll, recoverApprovalFromEvidence } from "./approval";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
@@ -84,7 +84,10 @@ test("Base approvals pin Base USDC and retain independent chain identity", () =>
   assert.notEqual(approvalRequestKey(request), approvalRequestKey(REQUEST));
   assert.throws(() => validateApprovalMetadata({ token: ARC_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
   assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 5042));
-  assert.throws(() => exactApprovalTransaction({ ...request, chainId: 4663 }));
+  // Robinhood Chain approves its own token, USDG, never Base's or Arc's
+  assert.equal(exactApprovalTransaction({ ...request, chainId: 4663 }).to, ROBINHOOD_USDG);
+  assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 4663));
+  assert.throws(() => validateApprovalMetadata({ token: ROBINHOOD_USDG, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
   const unlimited = ((1n << 256n) - 1n).toString();
   assert.throws(() => exactApprovalTransaction({ ...request, amount: unlimited }));
   assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: unlimited }, ADDRESS, 8453));
@@ -356,7 +359,7 @@ test("a confirmed exact replacement recovers a pending hash without resubmitting
   assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, blockTimestamp: evidence.blockTimestamp + 31n }), /clock/);
   assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, hash: HASH } }), /network/);
   for (const changes of [{ to: ADDRESS, input: "0x" as Hex }, { from: OTHER }, { input: exactApprovalTransaction({ ...REQUEST, amount: "1" }).data }, { value: 1n }]) {
-    assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, ...changes } }), /exact USDC approval/);
+    assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, ...changes } }), /exact token approval/);
   }
   assert.throws(() => recoverApprovalFromEvidence({ ...approval, status: "confirmed" }, evidence), /already resolved/);
 });

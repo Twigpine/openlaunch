@@ -118,8 +118,29 @@ test("asset selectors clear reinterpreted amounts and preserve supported tokens 
   assert.deepEqual(usdc, { ...route, originAsset: "USDC", amount: "" });
   const funded = { ...usdc, amount: "25" };
   assert.deepEqual(changeBridgeRoute(funded, { side: "reverse" }), { ...funded, originChainId: 5042, destinationChainId: 8453 });
-  assert.deepEqual(changeBridgeRoute(funded, { side: "origin", chainId: 4663 }), { ...funded, originChainId: 4663, originAsset: "ETH", amount: "" });
+  // a dollar stays a dollar across chains: Base USDC becomes Robinhood USDG, and the amount is still cleared
+  assert.deepEqual(changeBridgeRoute(funded, { side: "origin", chainId: 4663 }), { ...funded, originChainId: 4663, originAsset: "USDG", amount: "" });
+  assert.deepEqual(changeBridgeRoute(funded, { side: "destination", chainId: 4663 }), { ...funded, destinationChainId: 4663, destinationAsset: "USDG" });
+  const fromRobinhood = { originChainId: 4663, destinationChainId: 8453, originAsset: "USDG", destinationAsset: "ETH", amount: "25" } as const;
+  assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "origin", chainId: 5042 }), { ...fromRobinhood, originChainId: 5042, originAsset: "USDC", amount: "" });
+  assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "reverse" }), { originChainId: 8453, destinationChainId: 4663, originAsset: "ETH", destinationAsset: "USDG", amount: "" });
+  // Ether has no dollar to map to on Arc, so it falls back to the chain's own asset as before
+  assert.deepEqual(changeBridgeRoute({ ...fromRobinhood, originAsset: "ETH" }, { side: "origin", chainId: 5042 }), { ...fromRobinhood, originChainId: 5042, originAsset: "USDC", amount: "" });
   assert.deepEqual(changeBridgeRoute(route, { side: "destination-asset", asset: "ETH" }), route);
+  assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "origin-asset", asset: "USDC" }), fromRobinhood, "USDC is still not offered on Robinhood Chain");
+});
+
+test("Robinhood USDG is a six-decimal token of its own, never USDC and never Ether", () => {
+  const usdg = bridgeRequest(ADDRESS, 4663, "25.000001", 8453, "USDG", "USDC");
+  assert.equal(usdg?.amount, "25000001");
+  assert.equal(usdg?.originAsset, "USDG");
+  assert.equal(bridgeRequest(ADDRESS, 4663, "1.0000001", 8453, "USDG", "USDC"), null, "a seventh decimal place is refused, not rounded");
+  assert.equal(bridgeRequest(ADDRESS, 8453, "1", 4663, "ETH", "USDG")?.amount, "1000000000000000000");
+  assert.equal(bridgeRequest(ADDRESS, 8453, "1", 5042, "USDG", "USDC"), null, "USDG exists on Robinhood Chain only");
+  assert.equal(bridgeRequest(ADDRESS, 8453, "1", 5042, "USDC", "USDG"), null);
+  // a USDG source has a separate ETH gas balance, like Base USDC and unlike Arc
+  assert.equal(nativeSourceAmount(usdg!), 0n);
+  assert.notEqual(bridgeRequestKey(usdg), bridgeRequestKey({ ...usdg!, originAsset: "ETH" }));
 });
 
 test("Base USDC uses exact pinned ERC20 deposits while reserving separate ETH gas", () => {
@@ -138,7 +159,7 @@ test("Base USDC uses exact pinned ERC20 deposits while reserving separate ETH ga
   ]) assert.throws(() => validateBridgeQuote(changed, q, NOW));
   const unlimited = ((1n << 256n) - 1n).toString();
   const unlimitedQuote: BridgeQuote = { ...q, amount: unlimited, approval: { ...q.approval!, amount: unlimited }, transaction: { ...q.transaction, data: encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [ADDRESS, BASE_USDC, BigInt(unlimited), ORDER] }) } };
-  assert.throws(() => validateBridgeQuote(unlimitedQuote, unlimitedQuote, NOW), /Unlimited USDC approvals/);
+  assert.throws(() => validateBridgeQuote(unlimitedQuote, unlimitedQuote, NOW), /Unlimited token approvals/);
 });
 
 test("asset changes across awaited preflight cancel a reviewed deposit", async () => {

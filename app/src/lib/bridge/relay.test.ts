@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { encodeFunctionData, parseAbi, zeroAddress } from "viem";
 import { APPROVAL_ABI, BridgeApiError, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY, parseBridgeRequest, validateRelayChains, validateRelayQuote } from "./validation.ts";
 import { getOrderId, type Order } from "./relay-order.ts";
-import { ARC_USDC, BASE_USDC, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
+import { ARC_USDC, BASE_USDC, BRIDGE_INPUT_CURRENCIES, ROBINHOOD_USDG, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
 import { BRIDGE_PRIVATE_HEADERS, bridgeErrorResponse, getBridgeQuote, getBridgeStatus, readBridgeJson } from "./relay.ts";
 import { ARC_FIXTURE_NOW, ARC_FIXTURE_ORDER_ID, ARC_OUTBOUND_FIXTURE_NOW, ARC_OUTBOUND_ORDER_ID, BASE_USDC_FIXTURE_NOW, BASE_USDC_ORDER_ID, FIXTURE_INPUT, FIXTURE_NOW, FIXTURE_REQUEST_ID, addApprovalFixture, relayArcOutboundFixture, relayArcQuoteFixture, relayBaseUsdcFixture, relayChainsFixture, relayQuoteFixture, relayRouteFixture } from "./relay.fixture.ts";
 import { parseBridgeQuoteRejection } from "./client.ts";
@@ -415,6 +415,88 @@ test("Base USDC approval cannot borrow Arc's token, use unlimited amount or redi
     if (variant === "unlimited") tx.data = encodeFunctionData({ abi: APPROVAL_ABI, functionName: "approve", args: [RELAY_DEPOSITORY, (1n << 256n) - 1n] });
     if (variant === "wrong spender") tx.data = encodeFunctionData({ abi: APPROVAL_ABI, functionName: "approve", args: [input.address, BigInt(input.amount)] });
     assert.throws(() => validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), BASE_USDC_FIXTURE_NOW), BridgeApiError, variant);
+  }
+});
+
+const USDG_ROUTES: [BridgeChainId, BridgeChainId, BridgeAsset, BridgeAsset][] = [
+  [8453, 4663, "USDC", "USDG"], [8453, 4663, "ETH", "USDG"], [5042, 4663, "USDC", "USDG"],
+  [4663, 8453, "USDG", "USDC"], [4663, 8453, "USDG", "ETH"], [4663, 5042, "USDG", "USDC"],
+];
+
+test("Robinhood USDG routes verify in both directions with an exact approval of the right token", () => {
+  for (const [origin, destination, originAsset, destinationAsset] of USDG_ROUTES) {
+    const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    const validated = validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW);
+    assert.equal(validated.transaction.to, RELAY_DEPOSITORY, route);
+    const sent = bridgeCurrency(origin, originAsset, "input");
+    if (sent.address === zeroAddress) {
+      assert.equal(validated.approval, undefined, route);
+      assert.equal(validated.transaction.value, input.amount, route);
+    } else {
+      // a token source approves exactly the amount, of its own chain's token, to the pinned depository
+      assert.deepEqual(validated.approval, { token: sent.address, spender: RELAY_DEPOSITORY, amount: input.amount }, route);
+      assert.equal(validated.transaction.value, "0", route);
+    }
+    if (originAsset === "USDG") assert.equal(validated.approval?.token, ROBINHOOD_USDG, route);
+  }
+});
+
+test("USDG cannot be swapped for another token, another chain's dollar or other decimals, even when rehashed", () => {
+  const rebound = (origin: BridgeChainId, destination: BridgeChainId, originAsset: BridgeAsset, destinationAsset: BridgeAsset, mutate: (quote: ReturnType<typeof relayQuoteFixture>) => void) => {
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    mutate(quote);
+    const metadata = validateRelayChains(relayChainsFixture(), input);
+    const orderId = getOrderId(quote.protocol.v2.orderData as Order, metadata.vmTypes);
+    quote.protocol.v2.orderId = orderId;
+    const sent = bridgeCurrency(origin, originAsset, "input");
+    if (sent.address !== zeroAddress) quote.steps[0].items[0].data.data = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, sent.address, BigInt(input.amount), orderId] });
+    return () => validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+  };
+  // receiving USDG: the output and the destination refund must be the pinned USDG contract
+  for (const mutate of [
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.output.payments[0].currency = BASE_USDC; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.output.payments[0].currency = zeroAddress; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.inputs[0].refunds[1].currency = zeroAddress; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.details.currencyOut.currency.symbol = "USDC"; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.details.currencyOut.currency.decimals = 18; },
+  ]) assert.throws(rebound(8453, 4663, "USDC", "USDG", mutate), BridgeApiError);
+  // sending USDG: the payment, the source refund and the fee stay in USDG
+  for (const mutate of [
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.inputs[0].payment.currency = BASE_USDC; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.inputs[0].refunds[0].currency = zeroAddress; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.relayer.currency.symbol = "USDC"; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.gas.currency.address = ROBINHOOD_USDG; quote.fees.gas.currency.symbol = "USDG"; quote.fees.gas.currency.decimals = 6; },
+  ]) assert.throws(rebound(4663, 8453, "USDG", "USDC", mutate), BridgeApiError);
+  assert.doesNotThrow(rebound(8453, 4663, "USDC", "USDG", () => {}));
+  assert.doesNotThrow(rebound(4663, 8453, "USDG", "USDC", () => {}));
+});
+
+test("a dollar is counted against a dollar: USDC and USDG routes never guarantee under 95% or claim over 105%", () => {
+  // the provider's own impact estimate stays a mild -0.12% throughout, so only the unit comparison can refuse these
+  const delivering = (origin: BridgeChainId, destination: BridgeChainId, originAsset: BridgeAsset, destinationAsset: BridgeAsset, percent: bigint) => {
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    const received = bridgeCurrency(destination, destinationAsset, "output");
+    const expected = BigInt(input.amount) * 10n ** BigInt(received.decimals - 6) * percent / 100n;
+    const minimum = expected * 9950n / 10000n;
+    const payment = quote.protocol.v2.orderData.output.payments[0];
+    payment.expectedAmount = expected.toString();
+    payment.minimumAmount = minimum.toString();
+    quote.details.currencyOut.amount = expected.toString();
+    quote.details.currencyOut.minimumAmount = minimum.toString();
+    quote.details.totalImpact.percent = "-0.12";
+    const metadata = validateRelayChains(relayChainsFixture(), input);
+    const orderId = getOrderId(quote.protocol.v2.orderData as Order, metadata.vmTypes);
+    quote.protocol.v2.orderId = orderId;
+    quote.steps[0].items[0].data.data = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, bridgeCurrency(origin, originAsset, "input").address, BigInt(input.amount), orderId] });
+    return () => validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+  };
+  // six decimals on both sides, and six against Arc's eighteen
+  for (const [origin, destination, originAsset, destinationAsset] of [[8453, 4663, "USDC", "USDG"], [4663, 8453, "USDG", "USDC"], [4663, 5042, "USDG", "USDC"], [5042, 4663, "USDC", "USDG"]] as [BridgeChainId, BridgeChainId, BridgeAsset, BridgeAsset][]) {
+    const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+    for (const percent of [96n, 100n, 104n]) assert.doesNotThrow(delivering(origin, destination, originAsset, destinationAsset, percent), `${route} at ${percent}%`);
+    // 95% expected leaves a guaranteed minimum under 95%
+    for (const percent of [50n, 90n, 95n, 106n, 1000n]) assert.throws(delivering(origin, destination, originAsset, destinationAsset, percent), BridgeApiError, `${route} at ${percent}%`);
   }
 });
 

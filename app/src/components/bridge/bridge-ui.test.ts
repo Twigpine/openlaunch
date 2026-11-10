@@ -95,7 +95,11 @@ test("synthetic bridge review is development-only and cannot execute a transacti
 });
 
 test("USDC approval is visibly separate from the bridge and has chain-aware recovery", () => {
-  assert.match(panel, /Approve \$\{nativeAmount\(b.amount\)\} USDC/);
+  // the approval names the token being approved: USDC on Base and Arc, USDG on Robinhood Chain
+  assert.match(panel, /Approve \$\{nativeAmount\(b.amount\)\} \$\{inputCurrency\.symbol\}/);
+  assert.match(panel, /const approvalSymbol = bridgeTokenAsset\(approval\.chainId\) \?\? "token";/);
+  assert.match(panel, /<span>\{approvalSymbol\} approval on \{approvalChain\.name\}<\/span>/);
+  assert.doesNotMatch(panel, /USDC approval|exact USDC amount|\} USDC[<`"]/, "no approval copy assumes the token is USDC");
   assert.match(panel, /Approval alone does not move your funds/);
   assert.match(panel, /No bridge deposit has been requested/);
   assert.match(panel, /Review a fresh quote before bridging/);
@@ -117,7 +121,10 @@ test("USDC selectors separate selected token units from native gas and disallow 
   assert.match(panel, /formatUnits\(b.balance, inputCurrency.decimals\)/);
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
   assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
-  assert.match(panel, /USDC on Robinhood is unavailable/);
+  assert.match(panel, /USDC on Robinhood is unavailable: its routes do not pass our current safety checks\. ETH and USDG are available\./);
+  // each asset is named in full, and says which token pays its chain's gas
+  assert.match(panel, /\{BRIDGE_ASSET_NAMES\[value\]\} · \{value === BRIDGE_CHAINS\[chain\]\.symbol \? "Gas token" : `Gas in \$\{BRIDGE_CHAINS\[chain\]\.symbol\}`\}/);
+  assert.match(panel, /if \(asset === "USDG"\) return <CircleDollarSign/, "USDG has no bundled logo, so it never borrows USDC's or Ether's");
   assert.match(panel, /uses additional \{origin.symbol\} for gas/);
   assert.match(panel, /const inputCurrency = bridgeTransferInputCurrency\(transfer\)/);
 });

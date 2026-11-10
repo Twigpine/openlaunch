@@ -1,6 +1,6 @@
 import { encodeFunctionData, zeroAddress } from "viem";
 import { getOrderId, type Order } from "./relay-order";
-import { BRIDGE_CHAINS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
+import { BRIDGE_CHAINS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
 import { APPROVAL_ABI, DEPOSIT_ABI, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY } from "./validation";
 
 // Compact, read-only mainnet quote captured with Relay's public example account.
@@ -59,11 +59,14 @@ export function relayRouteFixture(originChainId: BridgeChainId, destinationChain
   const inputCurrency = bridgeCurrency(originChainId, originAsset, "input");
   const outputCurrency = bridgeCurrency(destinationChainId, destinationAsset, "output");
   const erc20 = inputCurrency.address !== zeroAddress;
-  const amount = inputCurrency.symbol === "USDC" ? "25000000" : FIXTURE_INPUT.amount;
-  const feeAmount = inputCurrency.symbol === "USDC" ? "60000" : outputCurrency.symbol === "USDC" ? "24736726855049" : "12330451724044";
-  const amountOut = inputCurrency.symbol === outputCurrency.symbol
+  // USDC and USDG are both dollars: a dollar route delivers the input less its fee, in the output's own decimals
+  const dollarIn = isDollarAsset(inputCurrency.symbol);
+  const dollarOut = isDollarAsset(outputCurrency.symbol);
+  const amount = dollarIn ? "25000000" : FIXTURE_INPUT.amount;
+  const feeAmount = dollarIn ? "60000" : dollarOut ? "24736726855049" : "12330451724044";
+  const amountOut = inputCurrency.symbol === outputCurrency.symbol || (dollarIn && dollarOut)
     ? ((BigInt(amount) - BigInt(feeAmount)) * 10n ** BigInt(outputCurrency.decimals) / 10n ** BigInt(inputCurrency.decimals)).toString()
-    : outputCurrency.symbol === "USDC" ? (238n * 10n ** BigInt(outputCurrency.decimals) / 10n).toString() : "10400000000000000";
+    : dollarOut ? (238n * 10n ** BigInt(outputCurrency.decimals) / 10n).toString() : "10400000000000000";
   const minimumAmount = (BigInt(amountOut) * 9950n / 10000n).toString();
   const input: BridgeQuoteRequest = { address: FIXTURE_ADDRESS, originChainId, destinationChainId, amount, ...(originAsset === undefined ? {} : { originAsset }), ...(destinationAsset === undefined ? {} : { destinationAsset }) };
   const quote = relayQuoteFixture();

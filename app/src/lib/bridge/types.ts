@@ -12,15 +12,35 @@ export const BRIDGE_CHAIN_IDS = [8453, 4663, 5042] as const;
 // transfer semantics and SIX decimals. Never alias it to native zero-address USDC.
 export const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 export const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
-export type BridgeAsset = "ETH" | "USDC";
+// Global Dollar (USDG) on Robinhood Chain: issued by Paxos, six decimals, the chain's main stablecoin and the launch
+// form's default quote there (lib/launchpad/config.ts names the same contract). Robinhood USDC is still not offered.
+// https://docs.paxos.com/guides/stablecoin/usdg/mainnet
+export const ROBINHOOD_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" as const;
+export type BridgeAsset = "ETH" | "USDC" | "USDG";
 export type BridgeCurrency = { address: Address; symbol: BridgeAsset; decimals: 6 | 18 };
 const NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-// Only assets whose identity has been independently verified belong here.
-export const BRIDGE_ASSETS: Record<BridgeChainId, readonly BridgeAsset[]> = {
-  8453: ["ETH", "USDC"],
-  4663: ["ETH"],
-  5042: ["USDC"],
+const native = (symbol: BridgeAsset): BridgeCurrency => ({ address: NATIVE_ADDRESS, symbol, decimals: 18 });
+const token = (address: Address, symbol: BridgeAsset): BridgeCurrency => ({ address, symbol, decimals: 6 });
+const bothWays = (currency: BridgeCurrency) => ({ input: currency, output: currency });
+/**
+ * Every asset the bridge moves, per chain, as the wallet sends it (input) and as it arrives (output). Only assets
+ * whose identity has been independently verified belong here; a chain's first entry is listed first in its picker.
+ * The two sides differ on Arc alone, where USDC is sent through its ERC-20 interface and arrives as the native balance.
+ * A chain has at most one ERC-20 here: approvals are journaled per chain (approval.ts), so a second one needs that
+ * journal to carry the token first.
+ */
+const CURRENCIES: Record<BridgeChainId, Partial<Record<BridgeAsset, { input: BridgeCurrency; output: BridgeCurrency }>>> = {
+  8453: { ETH: bothWays(native("ETH")), USDC: bothWays(token(BASE_USDC, "USDC")) },
+  4663: { ETH: bothWays(native("ETH")), USDG: bothWays(token(ROBINHOOD_USDG, "USDG")) },
+  5042: { USDC: { input: token(ARC_USDC, "USDC"), output: native("USDC") } },
 };
+export const BRIDGE_ASSETS: Record<BridgeChainId, readonly BridgeAsset[]> = {
+  8453: Object.keys(CURRENCIES[8453]) as BridgeAsset[],
+  4663: Object.keys(CURRENCIES[4663]) as BridgeAsset[],
+  5042: Object.keys(CURRENCIES[5042]) as BridgeAsset[],
+};
+/** What each asset is called in full, for pickers and screen readers. */
+export const BRIDGE_ASSET_NAMES: Record<BridgeAsset, string> = { ETH: "Ether", USDC: "USD Coin", USDG: "Global Dollar" };
 export function defaultBridgeAsset(chainId: BridgeChainId): BridgeAsset {
   return BRIDGE_CHAINS[chainId].symbol;
 }
@@ -29,11 +49,17 @@ export function isBridgeAssetSupported(chainId: BridgeChainId, asset: unknown): 
 }
 export function bridgeCurrency(chainId: BridgeChainId, asset: BridgeAsset | undefined, side: "input" | "output"): BridgeCurrency {
   const symbol = asset ?? defaultBridgeAsset(chainId);
-  if (!isBridgeAssetSupported(chainId, symbol)) throw new Error("This token is not supported on this bridge network.");
-  if (symbol === "ETH") return { address: NATIVE_ADDRESS, symbol, decimals: 18 };
-  if (chainId === 8453) return { address: BASE_USDC, symbol, decimals: 6 };
-  if (chainId === 5042) return { address: side === "input" ? ARC_USDC : NATIVE_ADDRESS, symbol, decimals: side === "input" ? 6 : 18 };
-  throw new Error("USDC is not verified for this bridge network.");
+  const entry = isBridgeAssetSupported(chainId, symbol) ? CURRENCIES[chainId][symbol] : undefined;
+  if (!entry) throw new Error("This token is not supported on this bridge network.");
+  return { ...entry[side] };
+}
+/** The ERC-20 a chain's bridge can send (it needs an exact approval first), or null where every asset is native. */
+export function bridgeTokenAsset(chainId: BridgeChainId): BridgeAsset | null {
+  return BRIDGE_ASSETS[chainId].find((asset) => CURRENCIES[chainId][asset]!.input.address !== NATIVE_ADDRESS) ?? null;
+}
+/** USDC and USDG are both dollars: one unit of either is compared with one unit of the other. */
+export function isDollarAsset(asset: BridgeAsset): boolean {
+  return asset === "USDC" || asset === "USDG";
 }
 
 /** The original Arc journal recorded native (18-decimal) deposits, not ERC-20 units. */

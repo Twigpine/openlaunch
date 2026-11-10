@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatUnits, zeroAddress } from "viem";
-import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, bridgeCurrency, bridgeFeePercent, bridgeTransferInputCurrency, isBridgeAssetSupported } from "./types";
+import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAIN_IDS, BRIDGE_CHAINS, ROBINHOOD_USDG, bridgeCurrency, bridgeFeePercent, bridgeTokenAsset, bridgeTransferInputCurrency, defaultBridgeAsset, isBridgeAssetSupported, isDollarAsset } from "./types";
+import { launchpad } from "../launchpad/config";
 
 test("bridge assets are chain-scoped and never inferred from a symbol alone", () => {
   assert.deepEqual(BRIDGE_ASSETS[8453], ["ETH", "USDC"]);
-  assert.deepEqual(BRIDGE_ASSETS[4663], ["ETH"]);
+  assert.deepEqual(BRIDGE_ASSETS[4663], ["ETH", "USDG"]);
   assert.deepEqual(BRIDGE_ASSETS[5042], ["USDC"]);
   assert.equal(isBridgeAssetSupported(4663, "USDC"), false);
   assert.equal(isBridgeAssetSupported(8453, BASE_USDC), false);
@@ -13,6 +14,42 @@ test("bridge assets are chain-scoped and never inferred from a symbol alone", ()
   assert.throws(() => bridgeCurrency(4663, "USDC", "input"));
   assert.throws(() => bridgeCurrency(4663, "USDC", "output"));
   assert.throws(() => bridgeCurrency(5042, "ETH", "input"));
+  // USDG is Robinhood Chain's alone, and USDC is still not offered there
+  for (const chain of [8453, 5042] as const) {
+    assert.equal(isBridgeAssetSupported(chain, "USDG"), false);
+    assert.throws(() => bridgeCurrency(chain, "USDG", "output"));
+  }
+  assert.equal(isBridgeAssetSupported(4663, "usdg"), false);
+  assert.equal(isBridgeAssetSupported(4663, ROBINHOOD_USDG), false);
+});
+
+test("Robinhood USDG is the launch form's own six-decimal contract in both directions", () => {
+  for (const side of ["input", "output"] as const) {
+    assert.deepEqual(bridgeCurrency(4663, "USDG", side), { address: ROBINHOOD_USDG, symbol: "USDG", decimals: 6 });
+  }
+  assert.equal(ROBINHOOD_USDG, "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168");
+  // one contract, named once more in the launch config: the bridge must deliver the token the form prices in
+  const usdg = launchpad("robinhood").quotes.find((quote) => quote.key === "usdg");
+  assert.equal(usdg?.address.toLowerCase(), ROBINHOOD_USDG.toLowerCase());
+  assert.equal(usdg?.decimals, 6);
+  // a returned currency is a copy: nothing a caller does to it changes the table
+  const copy = bridgeCurrency(4663, "USDG", "input");
+  copy.decimals = 18;
+  assert.equal(bridgeCurrency(4663, "USDG", "input").decimals, 6);
+});
+
+test("every chain keeps its gas token as the default and has at most one ERC-20", () => {
+  assert.deepEqual(BRIDGE_CHAIN_IDS.map(bridgeTokenAsset), ["USDC", "USDG", "USDC"]);
+  for (const chain of BRIDGE_CHAIN_IDS) {
+    assert.equal(defaultBridgeAsset(chain), BRIDGE_CHAINS[chain].symbol);
+    assert.ok(isBridgeAssetSupported(chain, defaultBridgeAsset(chain)), String(chain));
+    // approvals are journaled per chain (approval.ts), so a second ERC-20 on one chain would be ambiguous there
+    const tokens = BRIDGE_ASSETS[chain].filter((asset) => bridgeCurrency(chain, asset, "input").address !== zeroAddress);
+    assert.ok(tokens.length <= 1, `${chain}: ${tokens.join(", ")}`);
+    for (const asset of BRIDGE_ASSETS[chain]) assert.ok(BRIDGE_ASSET_NAMES[asset].length > 0, asset);
+  }
+  assert.deepEqual(["ETH", "USDC", "USDG"].map((asset) => isDollarAsset(asset as "ETH")), [false, true, true]);
+  assert.equal(BRIDGE_ASSET_NAMES.USDG, "Global Dollar");
 });
 
 test("Base USDC uses the same six-decimal contract in both directions", () => {

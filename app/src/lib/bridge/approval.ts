@@ -1,5 +1,5 @@
 import { decodeEventLog, encodeFunctionData, isAddress, type Address, type Hex } from "viem";
-import { bridgeCurrency, isBridgeChainId, type BridgeChainId } from "./types";
+import { bridgeCurrency, bridgeTokenAsset, isBridgeChainId, type BridgeChainId } from "./types";
 
 // Independently pinned: provider calldata never chooses the token or spender.
 // https://docs.arc.io/arc/references/contract-addresses
@@ -16,7 +16,7 @@ const MAX_APPROVAL_AMOUNT = MAX_UINT / 10n ** 12n;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const STATUSES = ["uncertain", "pending", "confirmed", "reverted", "insufficient"] as const;
 
-export type ApprovalRequest = { address: Address; amount: string; chainId?: BridgeChainId }; // Omitted chain is legacy Arc; amounts are USDC units, 6 decimals.
+export type ApprovalRequest = { address: Address; amount: string; chainId?: BridgeChainId }; // Omitted chain is legacy Arc; amounts are token units, 6 decimals.
 export type ApprovalStatus = typeof STATUSES[number];
 export type TrackedApproval = ApprovalRequest & {
   version: 1;
@@ -39,13 +39,15 @@ function validAmount(value: unknown): value is string {
 }
 
 export function approvalToken(chainId: BridgeChainId = ARC_APPROVAL_CHAIN_ID): Address {
-  if (!isBridgeChainId(chainId) || (chainId !== 8453 && chainId !== 5042)) throw new Error("USDC approvals are not supported on this network.");
-  return bridgeCurrency(chainId, "USDC", "input").address;
+  // the chain's one ERC-20 (types.ts): USDC on Base and Arc, USDG on Robinhood Chain
+  const asset = isBridgeChainId(chainId) ? bridgeTokenAsset(chainId) : null;
+  if (!asset) throw new Error("Token approvals are not supported on this network.");
+  return bridgeCurrency(chainId, asset, "input").address;
 }
 
 function validateRequest(value: ApprovalRequest): ApprovalRequest {
   if (!value || typeof value.address !== "string" || !isAddress(value.address, { strict: false }) || /^0x0{40}$/i.test(value.address) || !validAmount(value.amount)) {
-    throw new Error("The USDC approval does not match a valid wallet and exact amount.");
+    throw new Error("The token approval does not match a valid wallet and exact amount.");
   }
   const chainId = value.chainId ?? ARC_APPROVAL_CHAIN_ID;
   approvalToken(chainId);
@@ -108,7 +110,7 @@ export function isMatchingApprovalTransaction(approval: TrackedApproval, transac
   } catch { return false; }
 }
 
-/** Smart-wallet recovery uses the canonical USDC event, never a router's log. */
+/** Smart-wallet recovery uses the token's own Approval event, never a router's log. */
 export function hasMatchingApprovalEvent(approval: TrackedApproval, receipt: { status: "success" | "reverted"; logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[] }): boolean {
   if (receipt.status !== "success") return false;
   try {
@@ -129,7 +131,7 @@ export function parseStoredApproval(raw: string, address: Address): TrackedAppro
     const request = validateRequest(entry);
     if (entry.version !== 1 || request.address.toLowerCase() !== address.toLowerCase() || !isBridgeChainId(entry.chainId) || typeof entry.token !== "string" || entry.token.toLowerCase() !== approvalToken(entry.chainId).toLowerCase() || entry.spender !== RELAY_APPROVAL_SPENDER || !Number.isSafeInteger(entry.createdAt) || entry.createdAt <= 0 || !STATUSES.includes(entry.status) || (entry.approvalHash !== undefined && !validHash(entry.approvalHash)) || (entry.status !== "uncertain" && !entry.approvalHash)) throw new Error("invalid record");
     return { ...request, version: 1, chainId: entry.chainId, token: approvalToken(entry.chainId), spender: RELAY_APPROVAL_SPENDER, createdAt: entry.createdAt, status: entry.status, ...(entry.approvalHash ? { approvalHash: entry.approvalHash } : {}) };
-  } catch { throw new Error("Saved USDC approval recovery data could not be read. Check the approval before trying again."); }
+  } catch { throw new Error("Saved token approval recovery data could not be read. Check the approval before trying again."); }
 }
 
 export function serializeApproval(approval: TrackedApproval): string {
@@ -172,7 +174,7 @@ export function recoverApprovalFromEvidence(approval: TrackedApproval, evidence:
   const blockTime = Number(evidence.blockTimestamp) * 1000;
   // Approvals have no order ID. Never adopt an old approval from before this attempt.
   if (!Number.isSafeInteger(blockTime) || !Number.isSafeInteger(evidence.now) || blockTime < current.createdAt - 30_000 || blockTime > evidence.now + 30_000) throw new Error("This transaction predates the saved approval or your clock differs from the network. Check the hash and device clock.");
-  if (!isMatchingApprovalTransaction(current, evidence.transaction) && !hasMatchingApprovalEvent(current, evidence.receipt)) throw new Error("That transaction does not match this wallet's exact USDC approval.");
+  if (!isMatchingApprovalTransaction(current, evidence.transaction) && !hasMatchingApprovalEvent(current, evidence.receipt)) throw new Error("That transaction does not match this wallet's exact token approval.");
   return reconcileApproval({ ...current, approvalHash: hash }, evidence);
 }
 
@@ -206,7 +208,7 @@ export function createApprovalStore(storage: () => StorageAdapter) {
         update(address, approval, null);
         return approval;
       } catch {
-        const message = "USDC approval recovery storage is unavailable or unreadable. Enable site storage and reload before approving.";
+        const message = "Token approval recovery storage is unavailable or unreadable. Enable site storage and reload before approving.";
         update(address, snapshot.approvals[address.toLowerCase()] ?? null, message);
         throw new Error(message);
       }
@@ -220,7 +222,7 @@ export function createApprovalStore(storage: () => StorageAdapter) {
         if (adapter.getItem(approvalStorageKey(approval.address)) !== raw) throw new Error("Storage did not retain approval");
         update(approval.address, approval, null);
       } catch {
-        const message = "Could not save USDC approval recovery details. Keep this page open and check the approval before trying again.";
+        const message = "Could not save token approval recovery details. Keep this page open and check the approval before trying again.";
         update(approval.address, approval, message);
         throw new Error(message);
       }
@@ -228,7 +230,7 @@ export function createApprovalStore(storage: () => StorageAdapter) {
     remove(address: Address) {
       try { storage().removeItem(approvalStorageKey(address)); update(address, null, null); }
       catch {
-        const message = "Could not clear the saved USDC approval. Enable site storage and reload before trying again.";
+        const message = "Could not clear the saved token approval. Enable site storage and reload before trying again.";
         update(address, snapshot.approvals[address.toLowerCase()] ?? null, message);
         throw new Error(message);
       }
@@ -265,7 +267,7 @@ function walletRejected(error: unknown): boolean {
 
 /**
  * Caller must hold the same per-wallet Web Lock as deposit submission/recovery.
- * This only approves USDC. After confirmation, request and review a NEW quote;
+ * This only approves the source chain's one bridge token. After confirmation, request and review a NEW quote;
  * never automatically deposit, and never put this hash in the deposit journal.
  */
 export async function submitExactApproval(input: ApprovalRequest, deps: ApprovalDependencies): Promise<ApprovalResult> {

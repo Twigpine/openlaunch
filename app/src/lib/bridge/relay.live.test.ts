@@ -11,7 +11,8 @@ for (const originChainId of chains) for (const destinationChainId of chains) {
   if (originChainId === destinationChainId) continue;
   for (const originAsset of BRIDGE_ASSETS[originChainId]) for (const destinationAsset of BRIDGE_ASSETS[destinationChainId]) {
   test(`read-only live Relay ${originChainId}:${originAsset}→${destinationChainId}:${destinationAsset}`, { skip: process.env.RUN_BRIDGE_LIVE_TESTS !== "1" }, async (t) => {
-    const amount = originAsset === "USDC" ? "25000000" : "10000000000000000";
+    // 25 units of a six-decimal token (USDC, USDG), or 0.01 ETH
+    const amount = bridgeCurrency(originChainId, originAsset, "input").decimals === 6 ? "25000000" : "10000000000000000";
     const quote = await getBridgeQuote({ address: "0x1111111111111111111111111111111111111111", originChainId, destinationChainId, originAsset, destinationAsset, amount });
     assert.ok(BigInt(quote.amountOut) > 0n);
     assert.equal(quote.transaction.chainId, originChainId);

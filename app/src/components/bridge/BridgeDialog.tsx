@@ -4,9 +4,9 @@ import { useRef, useState } from "react";
 import Image from "next/image";
 import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
-import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
-import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
+import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
 import { formatFeeWarningPercent } from "@/lib/bridge/fee-display";
 import { shortAddr } from "@/lib/chainPublic";
@@ -36,6 +36,8 @@ function NetworkMark({ chain }: { chain: BridgeChainId }) {
 }
 
 function AssetMark({ asset, size = 24 }: { asset: BridgeAsset; size?: number }) {
+  // USDG has no bundled logo: it takes the plain dollar glyph the launch form gives it
+  if (asset === "USDG") return <CircleDollarSign size={size} strokeWidth={1.75} aria-hidden />;
   return <Image src={asset === "USDC" ? "/brand/usdc.svg" : "/brand/ethereum.svg"} alt="" width={size} height={size} draggable={false} aria-hidden />;
 }
 
@@ -56,7 +58,7 @@ function AssetSelect({ label, chain, asset, disabled, onChange }: { label: "Send
           <Select.List className={styles.networkList}>
             {choices.map((value) => <Select.Item key={value} value={value} label={value} className={styles.networkOption}>
               <AssetMark asset={value} size={30} />
-              <span className={styles.networkCopy}><Select.ItemText className={styles.networkName}>{value}</Select.ItemText><span className={styles.gasCurrency}>{value === "ETH" ? "Ether · Gas token" : "USD Coin · Gas in ETH"}</span></span>
+              <span className={styles.networkCopy}><Select.ItemText className={styles.networkName}>{value}</Select.ItemText><span className={styles.gasCurrency}>{BRIDGE_ASSET_NAMES[value]} · {value === BRIDGE_CHAINS[chain].symbol ? "Gas token" : `Gas in ${BRIDGE_CHAINS[chain].symbol}`}</span></span>
               <Select.ItemIndicator className={styles.networkCheck}><Check size={17} strokeWidth={2.5} aria-hidden /></Select.ItemIndicator>
             </Select.Item>)}
           </Select.List>
@@ -190,11 +192,11 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
   const erc20Input = inputCurrency.address !== zeroAddress;
   const convertsAsset = inputCurrency.symbol !== outputCurrency.symbol;
   const outputAmount = (value: string) => nativeAmount(formatUnits(BigInt(value), outputCurrency.decimals));
-  const label = b.approvalBusy ? "Confirm USDC approval…" : b.allowanceLoading ? "Checking USDC permission…" : b.quoteLoading ? "Getting your quote…"
+  const label = b.approvalBusy ? `Confirm ${inputCurrency.symbol} approval…` : b.allowanceLoading ? `Checking ${inputCurrency.symbol} permission…` : b.quoteLoading ? "Getting your quote…"
     : b.phase === "switching" ? "Confirm network switch…"
     : b.phase === "confirming" ? "Confirm in your wallet…"
     : needsRefresh ? "Refresh quote"
-    : reviewing && b.approvalRequired ? `Approve ${nativeAmount(b.amount)} USDC`
+    : reviewing && b.approvalRequired ? `Approve ${nativeAmount(b.amount)} ${inputCurrency.symbol}`
     : reviewing ? `Bridge to ${destination.name}` : b.quoteError ? "Retry quote" : !b.canQuote ? "Enter an amount" : "Get quote";
   const error = (!b.quoteRejection && b.quoteError) || b.error || b.storageError || b.approvalError;
 
@@ -211,8 +213,8 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
         <NetworkSelect label="To" chain={b.destinationChainId} disabled={locked} onChange={b.setDestinationChainId} />
       </div>
       {convertsAsset ? <p className={styles.conversionNote}>{inputCurrency.symbol} <ArrowRight size={12} aria-hidden /> {outputCurrency.symbol}<span>Converted by Relay</span></p> : null}
-      {b.originChainId === 4663 || b.destinationChainId === 4663 ? <p className={styles.routeNotice}>USDC on Robinhood is unavailable: its routes do not pass our current safety checks. ETH remains available.</p> : null}
-      {erc20Input && b.approval?.chainId === b.originChainId && b.approval.status === "confirmed" && !b.quote ? <p className={styles.approvalNotice} role="status">USDC approval confirmed. Review a fresh quote before bridging. No funds have been bridged yet.</p> : null}
+      {b.originChainId === 4663 || b.destinationChainId === 4663 ? <p className={styles.routeNotice}>USDC on Robinhood is unavailable: its routes do not pass our current safety checks. ETH and USDG are available.</p> : null}
+      {erc20Input && b.approval?.chainId === b.originChainId && b.approval.status === "confirmed" && !b.quote ? <p className={styles.approvalNotice} role="status">{inputCurrency.symbol} approval confirmed. Review a fresh quote before bridging. No funds have been bridged yet.</p> : null}
 
       <div className={styles.amountSection}>
         <label htmlFor="bridge-amount" className={styles.smallLabel}>You send</label>
@@ -238,7 +240,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
             <div><dt>Estimated arrival</dt><dd><Clock3 size={12} aria-hidden />{Math.max(1, Math.ceil(b.quote.timeEstimate))} seconds</dd></div>
           </dl>
           <p className={styles.quoteNotice}>{needsRefresh ? "This quote expired. Refresh and review the new amounts." : "0.5% slippage limit. Arrival time and gas can change."}</p>
-          {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} USDC for Relay’s deposit contract. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
+          {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} {inputCurrency.symbol} for Relay’s deposit contract. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
         </div>
       ) : b.quoteRejection ? <FeeLimitNotice rejection={b.quoteRejection} inputSymbol={inputCurrency.symbol} gasSymbol={origin.symbol} /> : <div className={styles.previewNote} role="status" aria-live="polite">
         {b.quoteLoading ? <LoaderCircle size={16} className={styles.spinner} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
@@ -253,7 +255,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
         {b.address ? label : "Connect wallet"}
         {!loading && b.address ? <ArrowRight size={17} aria-hidden /> : null}
       </button>
-      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses Relay, a third-party protocol, and carries risk. Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? "An unspent USDC approval remains until used or revoked." : "No token approvals required."}</p>
+      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses Relay, a third-party protocol, and carries risk. Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? `An unspent ${inputCurrency.symbol} approval remains until used or revoked.` : "No token approvals required."}</p>
     </form>
   );
 }
@@ -261,19 +263,21 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
 function ApprovalProgress({ bridge: b }: { bridge: Bridge }) {
   const approval = b.approval!;
   const approvalChain = BRIDGE_CHAINS[approval.chainId];
+  // the chain's one ERC-20: USDC on Base and Arc, USDG on Robinhood Chain
+  const approvalSymbol = bridgeTokenAsset(approval.chainId) ?? "token";
   const uncertain = approval.status === "uncertain";
   const health = b.approvalHealth;
   const needsAttention = uncertain || (!!health && health.kind !== "waiting");
   const [hash, setHash] = useState("");
   const [verifying, setVerifying] = useState(false);
   return <div className={styles.transfer}>
-    <div className={styles.transferRoute}><NetworkMark chain={approval.chainId} /><span>USDC approval on {approvalChain.name}</span></div>
+    <div className={styles.transferRoute}><NetworkMark chain={approval.chainId} /><span>{approvalSymbol} approval on {approvalChain.name}</span></div>
     <div className={styles.statusHeading} role="status">
       <span className={styles.statusIcon}>{needsAttention ? <CircleAlert size={26} aria-hidden /> : <LoaderCircle size={26} className={styles.spinner} aria-hidden />}</span>
       <h3>{verifying ? "Verifying transaction" : b.approvalBusy ? "Check your wallet" : uncertain ? "Check your approval" : health?.title ?? "Approval submitted"}</h3>
-      <p>{verifying ? `Checking the transaction on ${approvalChain.name}. No wallet request will be made.` : b.approvalBusy ? "Approve the exact USDC amount in your wallet. This is not the bridge deposit." : uncertain ? "The wallet response was interrupted. Check your wallet’s activity and verify the transaction hash below. Do not approve again." : health?.detail ?? `Waiting for ${approvalChain.name} to confirm. You’ll review a fresh bridge quote next.`}</p>
+      <p>{verifying ? `Checking the transaction on ${approvalChain.name}. No wallet request will be made.` : b.approvalBusy ? `Approve the exact ${approvalSymbol} amount in your wallet. This is not the bridge deposit.` : uncertain ? "The wallet response was interrupted. Check your wallet’s activity and verify the transaction hash below. Do not approve again." : health?.detail ?? `Waiting for ${approvalChain.name} to confirm. You’ll review a fresh bridge quote next.`}</p>
     </div>
-    <dl className={styles.transferDetails}><div><dt>Approval limit</dt><dd>{nativeAmount(formatUnits(BigInt(approval.amount), 6))} USDC</dd></div></dl>
+    <dl className={styles.transferDetails}><div><dt>Approval limit</dt><dd>{nativeAmount(formatUnits(BigInt(approval.amount), 6))} {approvalSymbol}</dd></div></dl>
     {b.address ? <Recipient address={b.address} /> : null}
     <p className={styles.approvalNotice}>No bridge deposit has been requested. An approval permits Relay’s deposit contract to use up to this amount; it does not bridge it.</p>
     {b.approvalError || b.storageError ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{b.approvalError || b.storageError}</span></p> : null}

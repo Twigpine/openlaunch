@@ -124,7 +124,7 @@ test("USDC approval preflight blocks both source networks before journaling or o
 function quote(originChainId: BridgeChainId, destinationChainId: BridgeChainId, originAsset: BridgeAsset, destinationAsset: BridgeAsset): BridgeQuote {
   const currency = bridgeCurrency(originChainId, originAsset, "input");
   const amount = (10n ** BigInt(currency.decimals)).toString();
-  const erc20 = originAsset === "USDC";
+  const erc20 = !/^0x0{40}$/.test(currency.address);
   return {
     address: ADDRESS, originChainId, destinationChainId, originAsset, destinationAsset, amount,
     requestId: HASH, amountOut: "990000", minimumAmountOut: "980000",
@@ -159,7 +159,7 @@ function depositScenario(q: BridgeQuote, pending: number, latest: number) {
   return { deps, events };
 }
 
-test("all ten supported deposit routes block queued nonces before journaling or sending", async () => {
+test("all sixteen supported deposit routes block queued nonces before journaling or sending", async () => {
   let routes = 0;
   for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_CHAIN_IDS) {
     if (origin === destination) continue;
@@ -171,7 +171,7 @@ test("all ten supported deposit routes block queued nonces before journaling or 
       routes++;
     }
   }
-  assert.equal(routes, 10);
+  assert.equal(routes, 16);
 });
 
 test("clear queues preserve explicit approval and deposit submission order", async () => {

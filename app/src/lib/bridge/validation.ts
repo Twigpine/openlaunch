@@ -1,7 +1,7 @@
 import "server-only";
 import { getOrderId, type Order } from "./relay-order";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, zeroAddress, type Hex } from "viem";
-import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
@@ -22,7 +22,6 @@ export const QUOTE_TTL_MS = 45_000;
 const DEADLINE_MARGIN_MS = 15_000;
 const UINT256_MAX = (1n << 256n) - 1n;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
-const NATIVE_SYMBOLS = { 8453: "ETH", 4663: "ETH", 5042: "USDC" } as const;
 const MAX_TOTAL_LOSS_PERCENT = 5;
 type ObjectValue = Record<string, unknown>;
 
@@ -89,7 +88,7 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
     const contracts = object(chain.contracts);
     ensure(chain.vmType === "evm" && chain.disabled === false && chain.depositEnabled === true && chain.blockProductionLagging !== true);
     ensure(v2.chainId === BRIDGE_CHAINS[id].key && sameAddress(v2.depository, RELAY_DEPOSITORY));
-    ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === NATIVE_SYMBOLS[id] && currency.supportsBridging === true);
+    ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === BRIDGE_CHAINS[id].symbol && currency.supportsBridging === true);
     ensure(isRelayRouter(contracts.erc20Router));
     return chain;
   });
@@ -98,7 +97,7 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
   return { vmTypes: Object.fromEntries(required.map((id) => [BRIDGE_CHAINS[id].key, "ethereum-vm" as const])), solverAddresses: solvers as string[] };
 }
 
-/** Implements Relay's protocol.v2 input validation for allowlisted ETH / USDC. */
+/** Implements Relay's protocol.v2 input validation for the allowlisted assets (types.ts): ETH, USDC and USDG. */
 export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, chains: RelayChainMetadata, now = Date.now()): BridgeQuote {
   const quote = object(value);
   const protocol = object(object(quote.protocol).v2);
@@ -184,7 +183,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   const relayerAmount = uint(object(fees.relayer).amount);
   const gasAmount = uint(object(fees.gas).amount);
   checkCurrency(fees.relayer, input.originChainId, relayerAmount, inputCurrency);
-  checkCurrency(fees.gas, input.originChainId, gasAmount, { address: zeroAddress, decimals: 18, symbol: NATIVE_SYMBOLS[input.originChainId] });
+  checkCurrency(fees.gas, input.originChainId, gasAmount, { address: zeroAddress, decimals: 18, symbol: BRIDGE_CHAINS[input.originChainId].symbol });
   ensure(BigInt(relayerAmount) < BigInt(input.amount));
   // Same-symbol USDC still has 6/18-decimal interfaces. Cross multiplication
   // preserves exact fee equality without truncating either amount. ETH↔USDC
@@ -211,6 +210,12 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
     throw new BridgeApiError(reason === "relay-fee"
       ? "This quote charges more than 5% in bridge fees. Try a different amount or wait for a better quote."
       : "This quote loses more than 5% in fees and price impact. Try a different amount or wait for a better quote.", 422, quoteRejection);
+  }
+  // USDC and USDG are both dollars, so their units are compared directly, without the provider's own price estimate:
+  // a dollar-to-dollar route never guarantees less than 95% of what is sent, nor claims to deliver more than 105%.
+  if (!sameAsset && isDollarAsset(inputCurrency.symbol) && isDollarAsset(outputCurrency.symbol)) {
+    const sent = BigInt(input.amount) * outputScale;
+    ensure(BigInt(minimumAmountOut) * inputScale * 100n >= sent * 95n && BigInt(amountOut) * inputScale * 100n <= sent * 105n);
   }
   return {
     ...input, requestId: step.requestId, amountOut, minimumAmountOut,

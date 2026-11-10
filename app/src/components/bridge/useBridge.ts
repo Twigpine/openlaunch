@@ -123,7 +123,7 @@ export function useBridge(open: boolean) {
       if (chainId !== quote.originChainId) throw new Error("The approval RPC reported a different network.");
       if (!stopped) setAllowanceResult({ key: quote.requestId, value, error: null });
     }).catch((error) => {
-      if (!stopped) setAllowanceResult({ key: quote.requestId, value: null, error: messageOf(error, "Could not read USDC allowance. Request a new quote.") });
+      if (!stopped) setAllowanceResult({ key: quote.requestId, value: null, error: messageOf(error, "Could not read the token allowance. Request a new quote.") });
     });
     return () => { stopped = true; };
   }, [quote, config]);
@@ -406,11 +406,12 @@ export function useBridge(open: boolean) {
               reviewed.originChainId === 8453 ? estimateTotalFee(pub, call) : Promise.resolve(0n),
             ]);
             if (chainId !== reviewed.originChainId) throw new Error("The source RPC reported a different network.");
-            if (selectedBalance < BigInt(owner.amount)) throw new Error("Not enough USDC for this approval amount. Reduce the amount and request a new quote.");
-            if (allowance >= BigInt(owner.amount)) throw new Error("USDC allowance is already sufficient. Request a new quote to review the deposit.");
+            const tokenSymbol = bridgeCurrency(reviewed.originChainId, reviewed.originAsset, "input").symbol;
+            if (selectedBalance < BigInt(owner.amount)) throw new Error(`Not enough ${tokenSymbol} for this approval amount. Reduce the amount and request a new quote.`);
+            if (allowance >= BigInt(owner.amount)) throw new Error(`${tokenSymbol} allowance is already sufficient. Request a new quote to review the deposit.`);
             if (fees.maxFeePerGas === undefined || fees.maxPriorityFeePerGas === undefined) throw new Error("Could not estimate approval fees. Request a new quote.");
-            // Arc's token shares its gas balance; Base USDC has a separate ETH
-            // gas balance. Reserve approval and quoted deposit costs in native units.
+            // Arc's token shares its gas balance; Base USDC and Robinhood USDG have a
+            // separate ETH gas balance. Reserve approval and quoted deposit costs in native units.
             const budget = bridgeGasBudget(nativeSourceAmount(reviewed), balance, estimate, fees.maxFeePerGas, parseEther(reviewed.sourceGas) + additional, BRIDGE_CHAINS[reviewed.originChainId].symbol);
             return { gas: budget.gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
           },
@@ -428,7 +429,7 @@ export function useBridge(open: boolean) {
         if (result.kind === "uncertain") setApprovalIssue({ key: reviewed.address.toLowerCase(), message: "The wallet did not return an approval hash. Check this approval before trying again; no bridge deposit was requested." });
       });
     } catch (error) {
-      setApprovalIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare USDC approval. Request a new quote.", BRIDGE_CHAINS[reviewed.originChainId].symbol) });
+      setApprovalIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare the approval. Request a new quote.", BRIDGE_CHAINS[reviewed.originChainId].symbol) });
     } finally {
       actionLock.current = false;
       setApprovalSending(false);
@@ -517,8 +518,8 @@ export function useBridge(open: boolean) {
               q.approval ? pub.readContract({ address: q.approval.token, abi: erc20Abi, functionName: "balanceOf", args: [q.address] }) : Promise.resolve(null),
             ]);
             if (rpcChain !== q.originChainId) throw new Error("The source RPC reported a different network. Try again later.");
-            if (q.approval && (allowance === null || allowance < BigInt(q.amount))) throw new Error("USDC allowance is no longer sufficient. Request a new quote and approve the exact amount.");
-            if (q.approval && (selectedBalance === null || selectedBalance < BigInt(q.amount))) throw new Error("Not enough USDC for this deposit. Reduce the amount and request a new quote.");
+            if (q.approval && (allowance === null || allowance < BigInt(q.amount))) throw new Error(`${bridgeCurrency(q.originChainId, q.originAsset, "input").symbol} allowance is no longer sufficient. Request a new quote and approve the exact amount.`);
+            if (q.approval && (selectedBalance === null || selectedBalance < BigInt(q.amount))) throw new Error(`Not enough ${bridgeCurrency(q.originChainId, q.originAsset, "input").symbol} for this deposit. Reduce the amount and request a new quote.`);
             if (fees.maxFeePerGas === undefined || fees.maxPriorityFeePerGas === undefined) throw new Error("Could not estimate network fees. Try again.");
             const budget = bridgeGasBudget(nativeSourceAmount(q), balance, estimate, fees.maxFeePerGas, additional, BRIDGE_CHAINS[q.originChainId].symbol);
             return { gas: budget.gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
