@@ -829,6 +829,20 @@ export async function getTrending(ethUsd: number | null = null): Promise<Trendin
 }
 
 /**
+ * The lists' own live quote pricing as a function, with no points rules (quotePricer below drops community pairs priced from
+ * an outside pool; the lists show them): decimals and USD per whole quote unit, null = unpriced. For the indexer's hourly
+ * live capture (usdLedger.ts), which is what prices each trade at its own hour.
+ */
+export async function quoteUsdNow(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { decimals: number; decimalsKnown: boolean; usd: number | null }> {
+  await withStocks();
+  const snap = priceState();
+  return (chain, quote) => {
+    const q = quoteInfo(chain, quote, snap);
+    return { decimals: q.decimals, decimalsKnown: q.decimalsKnown !== false, usd: quoteUsd(q, ethUsd) };
+  };
+}
+
+/**
  * The quote pricing the lists use, as a function, for code that prices many launches at once (season points):
  * decimals and USD per whole quote unit (null = unpriced) for a launch's quote on its chain. `priced` is false for a
  * quote nothing prices (an unlisted ERC-20, a stock without a feed): its null USD will not come back, so do not wait for it.

@@ -15,6 +15,8 @@ import { TWIG_ADDRESSES } from "./twig";
 import { boostFromTransfer } from "./boost";
 import { pairBurnFromTransfer } from "./pairApply";
 import { recordPairBurn } from "./pairApplyServer";
+import { captureLiveUsd } from "./usdLedger";
+import { hourIso } from "./usd-history";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -174,7 +176,7 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
 type Swap = { id: Hex; sender: Address; amount0: bigint; amount1: bigint; sqrtPriceX96: bigint; liquidity: bigint; tick: number; fee: number };
 
 /** Record one PoolManager swap of a launched token (credited to its trader via traderOf) and roll the launch's totals forward, atomically. */
-async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>): Promise<boolean> {
+async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>, tokenQuote: Map<string, string>): Promise<boolean> {
   const a = log.args;
   const poolId = a.id.toLowerCase();
   const token = poolToToken.get(poolId);
@@ -185,20 +187,26 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const [time, who] = await Promise.all([timeOf(chain, log.blockNumber!), traderOf(chain, log.transactionHash!, log.logIndex!, token)]);
   const bn = log.blockNumber!;
   const li = log.logIndex!;
+  // the trade's USD value at its own hour (bb_quote_usd_hourly; usd-history.ts), fixed once written; no price for that hour = NULL
+  const quote = tokenQuote.get(token) ?? "";
   // One transaction: the swap row and the launch totals commit together or not at all (a failure between
   // the two used to leave a recorded trade whose totals were never applied — and the dedupe then skips it).
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
     const inserted = await t`
-    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
+    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time, usd)
     VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${a.amount0.toString()}, ${a.amount1.toString()},
-            ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time})
+            ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time},
+            (SELECT ${absQuote.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+              WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
     ON CONFLICT DO NOTHING
-    RETURNING tx_hash`;
+    RETURNING tx_hash, usd`;
     if (inserted.length === 0) return false;
+    const usd = (inserted[0] as { usd: number | null }).usd ?? 0;
     await t`
     UPDATE bb_launches SET
       volume_quote = volume_quote + ${absQuote.toString()}::numeric,
+      volume_usd = volume_usd + ${usd}::float8,
       buys = buys + ${isBuy ? 1 : 0},
       sells = sells + ${isBuy ? 0 : 1},
       last_trade_at = GREATEST(COALESCE(last_trade_at, ${time}::timestamptz), ${time}::timestamptz),
@@ -264,13 +272,19 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   const bn = log.blockNumber!;
   if (log.eventName === "Collected") {
     const t = log.args.token.toLowerCase();
+    const quote = tokenIdToToken.get(log.args.tokenId.toString())?.quote ?? "";
+    // the quote side's USD value at the collect's own hour (usd-history.ts), as for trades
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, quote_amount, token_amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time})
-      ON CONFLICT DO NOTHING RETURNING tx_hash`;
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, quote_amount, token_amount, block_number, block_time, usd)
+      VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time},
+              (SELECT ${log.args.quoteAmount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
+      ON CONFLICT DO NOTHING RETURNING tx_hash, usd`;
     if (r.length === 0) return false;
+    const usd = (r[0] as { usd: number | null }).usd ?? 0;
     await db`UPDATE bb_launches SET fees_quote_collected = fees_quote_collected + ${log.args.quoteAmount.toString()}::numeric,
-                                    fees_token_collected = fees_token_collected + ${log.args.tokenAmount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${t}`;
+                                    fees_token_collected = fees_token_collected + ${log.args.tokenAmount.toString()}::numeric,
+                                    fees_collected_usd = fees_collected_usd + ${usd}::float8 WHERE chain_id = ${cid} AND token = ${t}`;
     return true;
   }
   if (log.eventName === "Burned") {
@@ -280,12 +294,18 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
     // the rebuild script joins on token), so leave it for the poller, which indexes the launch first.
     if (!info) return false;
     const cur = log.args.currency.toLowerCase();
+    // a burn in the launch's quote gets its USD value at its own hour; a burn of the launched token stays NULL (quote side only)
+    const priceIn = cur === info.quote ? cur : "";
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time})
-      ON CONFLICT DO NOTHING RETURNING tx_hash`;
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time, usd)
+      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time},
+              (SELECT ${log.args.amount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                WHERE p.chain_id = ${cid} AND p.quote = ${priceIn} AND p.hour = ${hourIso(time)}::timestamptz))
+      ON CONFLICT DO NOTHING RETURNING tx_hash, usd`;
     if (r.length === 0) return false;
-    if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
+    const usd = (r[0] as { usd: number | null }).usd ?? 0;
+    if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric,
+                                                            fees_burned_usd = fees_burned_usd + ${usd}::float8 WHERE chain_id = ${cid} AND token = ${info.token}`;
     else await db`UPDATE bb_launches SET fees_token_burned = fees_token_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
     return true;
   }
@@ -305,15 +325,17 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   return r.length > 0;
 }
 
-async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<string, string>; tokenIdToToken: Map<string, { token: string; quote: string }> }> {
+async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<string, string>; tokenIdToToken: Map<string, { token: string; quote: string }>; tokenQuote: Map<string, string> }> {
   const rows = await db<{ token: string; pool_id: string; token_id: bigint; quote: string }[]>`SELECT token, pool_id, token_id, quote FROM bb_launches WHERE chain_id = ${chainIdOf(chain)}`;
   const poolToToken = new Map<string, string>();
   const tokenIdToToken = new Map<string, { token: string; quote: string }>();
+  const tokenQuote = new Map<string, string>();
   for (const r of rows) {
     poolToToken.set(r.pool_id, r.token);
     tokenIdToToken.set(r.token_id.toString(), { token: r.token, quote: r.quote });
+    tokenQuote.set(r.token, r.quote);
   }
-  return { poolToToken, tokenIdToToken };
+  return { poolToToken, tokenIdToToken, tokenQuote };
 }
 
 /**
@@ -337,7 +359,9 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   const launchedLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: factory, event: LAUNCHED_EVENT, fromBlock: f, toBlock: t }), from, to);
   for (const l of launchedLogs) if (await applyLaunched(db, chain, l as Log & { args: Launched })) launches++;
 
-  const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
+  const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
+  // this hour's live USD for every quote in use, before the range's trades are priced at their hours (never throws)
+  await captureLiveUsd(db, chain, tokenQuote.values());
   if (poolToToken.size > 0) {
     const ids = [...poolToToken.keys()] as Hex[];
     // every pool id is one topic selector: past the node's cap the id list goes out in slices (the 1001st Robinhood launch stopped the indexer)
@@ -345,7 +369,7 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
     const swapLogs = byChainOrder(
       (await fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t }), from, to))) as Log[],
     );
-    for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken)) swaps++;
+    for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken, tokenQuote)) swaps++;
   }
   const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: f, toBlock: t }), from, to);
   for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
@@ -876,10 +900,11 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
     if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
     tokens.push(l.args.token.toLowerCase());
   }
-  const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
+  const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
+  await captureLiveUsd(db, chain, tokenQuote.values()); // as in applyRange: this hour's live USD before the trades are priced
   const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
   for (const l of swapLogs) {
-    if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken)) {
+    if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
       swaps++;
       const t = poolToToken.get(l.args.id.toLowerCase());
       if (t && !tokens.includes(t)) tokens.push(t);

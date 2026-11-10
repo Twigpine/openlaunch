@@ -17,3 +17,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_token_transfers_to_idx ON bb_token_tr
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_token_transfers_from_idx ON bb_token_transfers (chain_id, token, from_addr, block_number);
 -- boosts (2026-10-15): a boost names its launch by position id; the lane joins on it
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launches_chain_token_id_idx ON bb_launches (chain_id, token_id);
+-- trade-time USD (2026-11-10): the trades still without a USD value (every one until the first backfill, then only
+-- those whose hour had no price yet), so a repeat backfill and the "partial" check never scan every swap
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_usd_missing_idx ON bb_launch_swaps (chain_id, block_time) WHERE usd IS NULL;
