@@ -153,6 +153,28 @@ test("asset selectors clear reinterpreted amounts and preserve supported tokens 
   assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "origin-asset", asset: "USDC" }), fromRobinhood, "USDC is still not offered on Robinhood Chain");
 });
 
+test("HYPE can be picked to receive on Elysium, and never carried into a send or another chain", () => {
+  const toElysium = { originChainId: 8453, destinationChainId: 99901, originAsset: "USDC", destinationAsset: "USDC", amount: "25" } as const;
+  const hype = changeBridgeRoute(toElysium, { side: "destination-asset", asset: "HYPE" });
+  assert.deepEqual(hype, { ...toElysium, destinationAsset: "HYPE" }, "the amount stays: the source asset did not change");
+  // reversing would send HYPE, so Elysium sends its USDC instead: still USDC, so the amount stands
+  assert.deepEqual(changeBridgeRoute(hype, { side: "reverse" }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amount: "25" });
+  assert.deepEqual(changeBridgeRoute(hype, { side: "destination", chainId: 8453 }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amount: "25" });
+  // from Ether, the source becomes USDC, so the amount clears
+  const fromEther = { ...hype, originAsset: "ETH", amount: "0.01" } as const;
+  assert.deepEqual(changeBridgeRoute(fromEther, { side: "reverse" }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "ETH", amount: "" });
+  // another destination has no HYPE: it takes that chain's default
+  assert.deepEqual(changeBridgeRoute(hype, { side: "destination", chainId: 4663 }), { ...hype, destinationChainId: 4663, destinationAsset: "ETH" });
+  assert.deepEqual(changeBridgeRoute(hype, { side: "origin", chainId: 42161 }), { ...hype, originChainId: 42161 });
+  const fromElysium = { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "ETH", amount: "25" } as const;
+  assert.deepEqual(changeBridgeRoute(fromElysium, { side: "origin-asset", asset: "HYPE" }), fromElysium, "HYPE is never sent");
+  assert.deepEqual(changeBridgeRoute(toElysium, { side: "destination-asset", asset: "ETH" }), toElysium);
+  assert.deepEqual(changeBridgeRoute({ ...toElysium, destinationChainId: 4663, destinationAsset: "ETH" }, { side: "destination-asset", asset: "HYPE" }), { ...toElysium, destinationChainId: 4663, destinationAsset: "ETH" });
+  assert.equal(bridgeRequest(ADDRESS, 8453, "25", 99901, "USDC", "HYPE").destinationAsset, "HYPE");
+  assert.equal(bridgeRequest(ADDRESS, 99901, "25", 8453, "HYPE", "ETH"), null);
+  assert.equal(bridgeRequest(ADDRESS, 8453, "25", 4663, "USDC", "HYPE"), null);
+});
+
 test("Robinhood USDG is a six-decimal token of its own, never USDC and never Ether", () => {
   const usdg = bridgeRequest(ADDRESS, 4663, "25.000001", 8453, "USDG", "USDC");
   assert.equal(usdg?.amount, "25000001");

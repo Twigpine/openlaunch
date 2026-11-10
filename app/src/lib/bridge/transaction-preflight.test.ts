@@ -4,7 +4,7 @@ import { encodeFunctionData, type Address, type Hex } from "viem";
 import { submitExactApproval, type ApprovalDependencies, type ApprovalRequest } from "./approval";
 import { ERC20_DEPOSIT_ABI, NATIVE_DEPOSIT_ABI, RELAY_DEPOSITORY, submitBridgeDeposit, type DepositDependencies } from "./client";
 import { assertBridgeWalletQueueClear } from "./transaction-preflight";
-import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "./types";
+import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, BRIDGE_RECEIVE_ASSETS, BRIDGE_SEND_ASSETS, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const HASH = `0x${"a".repeat(64)}` as Hex;
@@ -159,12 +159,13 @@ function depositScenario(q: BridgeQuote, pending: number, latest: number) {
   return { deps, events };
 }
 
-test("all sixty-two supported deposit routes block queued nonces before journaling or sending", async () => {
+test("all seventy-three supported deposit routes block queued nonces before journaling or sending", async () => {
   let routes = 0;
-  // twenty-six between the launch chains, thirty-six from the funding networks (two assets each to six launch-chain assets)
+  // thirty-one between the launch chains, forty-two from the funding networks (two assets each to seven launch-chain
+  // assets): HYPE is received on Elysium, never sent
   for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
     if (origin === destination) continue;
-    for (const originAsset of BRIDGE_ASSETS[origin]) for (const destinationAsset of BRIDGE_ASSETS[destination]) {
+    for (const originAsset of BRIDGE_SEND_ASSETS[origin]) for (const destinationAsset of BRIDGE_RECEIVE_ASSETS[destination]) {
       const q = quote(origin, destination, originAsset, destinationAsset);
       const scenario = depositScenario(q, 3, 0);
       await assert.rejects(submitBridgeDeposit(q, scenario.deps), /pending transaction/);
@@ -172,7 +173,7 @@ test("all sixty-two supported deposit routes block queued nonces before journali
       routes++;
     }
   }
-  assert.equal(routes, 62);
+  assert.equal(routes, 73);
 });
 
 test("clear queues preserve explicit approval and deposit submission order", async () => {

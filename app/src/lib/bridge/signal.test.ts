@@ -134,7 +134,10 @@ test("a bridge link preselects a valid route and is ignored whole when anything 
   assert.deepEqual(parseBridgeLink({ to: "base" }), { originChainId: 1, destinationChainId: 8453 });
   assert.deepEqual(parseBridgeLink({ from: "elysium", to: "base", asset: "USDC", toAsset: "ETH" }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "ETH" });
   assert.deepEqual(parseBridgeLink({ to: "elysium" }), { originChainId: 8453, destinationChainId: 99901 });
-  for (const query of [{ to: "elysium", toAsset: "HYPE" }, { from: "elysium", to: "base", asset: "HYPE" }, { from: "elysium", to: "ethereum" }]) assert.equal(parseBridgeLink(query), null, JSON.stringify(query));
+  // HYPE can be linked as what arrives on Elysium, never as what is sent, and nowhere else
+  assert.deepEqual(parseBridgeLink({ to: "elysium", toAsset: "HYPE" }), { originChainId: 8453, destinationChainId: 99901, destinationAsset: "HYPE" });
+  assert.deepEqual(parseBridgeLink({ from: "arbitrum", to: "elysium", asset: "USDC", toAsset: "HYPE" }), { originChainId: 42161, destinationChainId: 99901, originAsset: "USDC", destinationAsset: "HYPE" });
+  for (const query of [{ from: "elysium", to: "base", asset: "HYPE" }, { to: "base", toAsset: "HYPE" }, { from: "base", to: "elysium", asset: "HYPE" }, { from: "elysium", to: "ethereum" }]) assert.equal(parseBridgeLink(query), null, JSON.stringify(query));
   for (const query of [
     {}, { from: "base" }, { to: "ethereum" }, { from: "base", to: "arbitrum" }, { from: "base", to: "base" }, { from: "polygon", to: "base" },
     { from: "base", to: "robinhood", toAsset: "USDC" }, { from: "arc", to: "base", asset: "ETH" }, { from: "base", to: "arc", asset: "usdc" },

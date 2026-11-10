@@ -7,6 +7,7 @@
 .networks div { display: grid; grid-template-columns: minmax(96px, 132px) minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--color-line); font-size: 14px; line-height: 1.5; }
 .networks div:last-child { border-bottom: 1px solid var(--color-line); }
 .networks dt { color: var(--color-ink); font-weight: 600; }
+.networks dd + dd { grid-column: 2; }
 .networks dd { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin: 0; color: var(--color-body); }
 .networks dd span { color: var(--color-muted); font-size: 13px; }
 

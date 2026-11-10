@@ -110,7 +110,7 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
   const fallbackOrigin: BridgeChainId = destination === 8453 ? 1 : 8453;
   const link: BridgeLink = suggestion
     ? { originChainId: suggestion.chainId, destinationChainId: destination, originAsset: suggestion.asset, destinationAsset: asset }
-    : { originChainId: fallbackOrigin, destinationChainId: destination, ...(isBridgeAssetSupported(fallbackOrigin, asset) ? { originAsset: asset } : {}), destinationAsset: asset };
+    : { originChainId: fallbackOrigin, destinationChainId: destination, ...(isBridgeAssetSupported(fallbackOrigin, asset, "input") ? { originAsset: asset } : {}), destinationAsset: asset };
   const dismiss = () => {
     if (!row) return;
     const next = [...dismissed, row.requestId].slice(-20);

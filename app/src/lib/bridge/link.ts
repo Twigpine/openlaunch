@@ -24,8 +24,8 @@ export function parseBridgeLink(query: Record<string, string | string[] | undefi
   if (destinationChainId === null || !isBridgeDestination(destinationChainId)) return null;
   const originChainId = from === undefined ? (destinationChainId === 8453 ? 1 : 8453) : chainByKey(from);
   if (originChainId === null || originChainId === destinationChainId) return null;
-  if (asset !== undefined && !isBridgeAssetSupported(originChainId, asset)) return null;
-  if (toAsset !== undefined && !isBridgeAssetSupported(destinationChainId, toAsset)) return null;
+  if (asset !== undefined && !isBridgeAssetSupported(originChainId, asset, "input")) return null;
+  if (toAsset !== undefined && !isBridgeAssetSupported(destinationChainId, toAsset, "output")) return null;
   return { originChainId, destinationChainId, ...(asset === undefined ? {} : { originAsset: asset }), ...(toAsset === undefined ? {} : { destinationAsset: toAsset }) };
 }
 

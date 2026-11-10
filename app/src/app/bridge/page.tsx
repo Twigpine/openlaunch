@@ -6,7 +6,7 @@ import shell from "@/components/sections/SectionShell.module.css";
 import BridgePageSlot from "@/components/bridge/BridgePageSlot";
 import BridgeHistory from "@/components/bridge/BridgeHistory";
 import { parseBridgeLink } from "@/lib/bridge/link";
-import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS } from "@/lib/bridge/types";
+import { BRIDGE_CHAINS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, BRIDGE_RECEIVE_ASSETS, BRIDGE_SEND_ASSETS, type BridgeChainId } from "@/lib/bridge/types";
 import styles from "./bridge.module.css";
 
 /**
@@ -19,6 +19,16 @@ export const metadata: Metadata = pageMetadata({
   title: "Bridge",
   description: "Move ETH and dollars between Base, Robinhood Chain, Arc and Elysium, or fund them from Ethereum, Arbitrum and Optimism. Same wallet, no openlaunch fee.",
 });
+
+/** A launch chain's assets: what it sends and receives, then what it only receives (HYPE on Elysium). */
+function launchAssets(id: BridgeChainId) {
+  const both = BRIDGE_SEND_ASSETS[id].filter((asset) => BRIDGE_RECEIVE_ASSETS[id].includes(asset));
+  const receiveOnly = BRIDGE_RECEIVE_ASSETS[id].filter((asset) => !BRIDGE_SEND_ASSETS[id].includes(asset));
+  return <>
+    <dd>{both.join(", ")}<span>Send and receive</span></dd>
+    {receiveOnly.length > 0 ? <dd>{receiveOnly.join(", ")}<span>Receive only</span></dd> : null}
+  </>;
+}
 
 const STEPS = [
   ["Pick a route and an amount", "A live quote appears with the fee, the gas and the least you will receive. Nothing is asked of your wallet yet."],
@@ -45,8 +55,8 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
           <section aria-labelledby="bridge-networks">
             <h2 id="bridge-networks">Networks and tokens</h2>
             <dl className={styles.networks}>
-              {BRIDGE_DESTINATION_IDS.map((id) => <div key={id}><dt>{BRIDGE_CHAINS[id].name}</dt><dd>{BRIDGE_ASSETS[id].join(", ")}<span>Send and receive</span></dd></div>)}
-              {BRIDGE_FUNDING_IDS.map((id) => <div key={id}><dt>{BRIDGE_CHAINS[id].name}</dt><dd>{BRIDGE_ASSETS[id].join(", ")}<span>Send only</span></dd></div>)}
+              {BRIDGE_DESTINATION_IDS.map((id) => <div key={id}><dt>{BRIDGE_CHAINS[id].name}</dt>{launchAssets(id)}</div>)}
+              {BRIDGE_FUNDING_IDS.map((id) => <div key={id}><dt>{BRIDGE_CHAINS[id].name}</dt><dd>{BRIDGE_SEND_ASSETS[id].join(", ")}<span>Send only</span></dd></div>)}
             </dl>
           </section>
           <section aria-labelledby="bridge-steps">
@@ -68,7 +78,7 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
           <section aria-labelledby="bridge-know">
             <h2 id="bridge-know">Good to know</h2>
             <ul className={styles.points}>
-              <li>On Elysium the bridge carries USDC only. Its gas token, HYPE, is not bridged, so keep some HYPE there to use or send what arrives.</li>
+              <li>Elysium sends USDC only. Its gas token, HYPE, can be received there but not sent, so receive a little HYPE first if you have none to pay gas on Elysium.</li>
               <li>Funds go from your wallet to Relay&apos;s deposit contract, or to Circle&apos;s transfer contract on a Circle route. They never pass through an openlaunch wallet or contract.</li>
               <li>Relay and Circle are third parties. openlaunch operates neither and cannot reverse a transfer.</li>
               <li>A transfer is saved in this browser while it is in progress. Reopen the bridge with the same wallet to pick it up.</li>

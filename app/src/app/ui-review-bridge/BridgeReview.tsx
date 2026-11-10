@@ -35,6 +35,7 @@ const HISTORY_ROWS: BridgeHistoryEntry[] = [
   { requestId: hash(41), originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amountIn: "60000000", inDecimals: 6, amountOut: "59940000000000000000", outDecimals: 18, outKind: "quoted", status: "delayed", reverted: false, createdAt: minutesAgo(60 * 9), sourceHash: hash(42), destinationHashes: [], recipient: null },
   { requestId: hash(51), originChainId: 1, destinationChainId: 5042, originAsset: "ETH", destinationAsset: "USDC", amountIn: "50000000000000000", inDecimals: 18, amountOut: "155300000000000000000", outDecimals: 18, outKind: "quoted", status: "refund", reverted: false, createdAt: minutesAgo(60 * 26), sourceHash: hash(52), destinationHashes: [], recipient: null },
   { requestId: hash(91), originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amountIn: "25000000", inDecimals: 6, amountOut: "24664192", outDecimals: 6, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 30), sourceHash: hash(92), destinationHashes: [hash(93)], recipient: null },
+  { requestId: hash(95), originChainId: 8453, destinationChainId: 99901, originAsset: "USDC", destinationAsset: "HYPE", amountIn: "25000000", inDecimals: 6, amountOut: "343478554577755790", outDecimals: 18, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 40), sourceHash: hash(96), destinationHashes: [hash(97)], recipient: null },
   { requestId: hash(61), originChainId: 10, destinationChainId: 8453, originAsset: "ETH", destinationAsset: "ETH", amountIn: "8000000000000000", inDecimals: 18, amountOut: null, outDecimals: 18, outKind: null, status: "failure", reverted: true, createdAt: minutesAgo(60 * 50), sourceHash: hash(62), destinationHashes: [], recipient: null },
   { requestId: hash(71), originChainId: 4663, destinationChainId: 8453, originAsset: "ETH", destinationAsset: "ETH", amountIn: "4000000000000000", inDecimals: 18, amountOut: "3991000000000000", outDecimals: 18, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 80), sourceHash: hash(72), destinationHashes: [hash(73)], recipient: "0x9f3a2bE0c1D4e5F6a7b8C9d0E1f2A3b4C5d6E7F8" },
   { provider: "cctp", requestId: hash(81), originChainId: 42161, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amountIn: "40000000", inDecimals: 6, amountOut: "39983361000000000000", outDecimals: 18, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 96), sourceHash: hash(82), destinationHashes: [hash(83)], recipient: null },
@@ -53,6 +54,8 @@ const FUND_SCENES: FundScene[] = [
   { name: "arrived", step: "arrived", destination: 8453, asset: "USDC", symbol: "BASED", row: HISTORY_ROWS[1], shortBy: null, suggestion: null, searching: false },
   { name: "refunded", step: "attention", destination: 5042, asset: "USDC", symbol: "ARCO", row: HISTORY_ROWS[4], shortBy: null, suggestion: null, searching: false },
   { name: "Elysium, source found", step: "short", destination: 99901, asset: "USDC", symbol: "KINO", row: null, shortBy: "18.5 USDC", suggestion: { chainId: 42161, asset: "USDC", amount: 64_200_000n, decimals: 6 }, searching: false },
+  { name: "Elysium HYPE, source found", step: "short", destination: 99901, asset: "HYPE", symbol: "KINO", row: null, shortBy: "0.25 HYPE", suggestion: { chainId: 8453, asset: "ETH", amount: 40_000_000_000_000_000n, decimals: 18 }, searching: false },
+  { name: "Elysium HYPE, arrived", step: "arrived", destination: 99901, asset: "HYPE", symbol: "KINO", row: HISTORY_ROWS[6], shortBy: null, suggestion: null, searching: false },
 ];
 
 export default function BridgeReview() {
@@ -82,7 +85,9 @@ export default function BridgeReview() {
   }, [open, scene, inputAmount, amount, origin, destination, originAsset, destinationAsset]);
   const normalizedInput = inputAmount * 10n ** BigInt(18 - inputCurrency.decimals);
   const netAmount = normalizedInput * 9975n / 10000n;
-  const converted = originAsset === destinationAsset ? netAmount : originAsset === "USDC" ? netAmount / 2400n : netAmount * 2400n;
+  // fixed synthetic dollar prices, not market data
+  const PRICE: Record<BridgeAsset, bigint> = { ETH: 2400n, USDC: 1n, USDG: 1n, HYPE: 72n };
+  const converted = originAsset === destinationAsset ? netAmount : netAmount * PRICE[originAsset] / PRICE[destinationAsset];
   // Circle: one synthetic fixed fee (the size of the live Fast plus forward fee), delivered exactly
   const circleFee = destination === 5042 ? 16_577n : 54_447n;
   const outputAmount = viaCircle ? (inputAmount > circleFee ? inputAmount - circleFee : 0n) * 10n ** BigInt(outputCurrency.decimals - 6) : converted / 10n ** BigInt(18 - outputCurrency.decimals);
@@ -122,7 +127,7 @@ export default function BridgeReview() {
     <main className="mx-auto max-w-3xl px-5 py-20">
       <h1 className="text-2xl font-semibold">Bridge visual review</h1>
       <p className="mt-3 text-sm text-body">Development-only synthetic data. No wallet requests, API calls, or funds.</p>
-      <p className="mt-2 text-sm text-muted">Base offers ETH and USDC. Arc uses USDC. Robinhood offers ETH; its USDC routes currently fail our safety checks. Elysium sends and receives USDC only. USDC sends use an exact-amount approval.</p>
+      <p className="mt-2 text-sm text-muted">Base offers ETH and USDC. Arc uses USDC. Robinhood offers ETH; its USDC routes currently fail our safety checks. Elysium sends USDC only, and receives USDC or HYPE, its gas token. USDC sends use an exact-amount approval.</p>
       <button type="button" aria-pressed={circle} className="mt-6 min-h-11 rounded-lg border border-line-strong px-4 text-sm aria-pressed:border-ink" onClick={() => { setCircle((value) => !value); if (!cctpRoute({ ...route, originAsset, destinationAsset })) setRoute({ originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" }); }}>quote from: {circle ? "Circle" : "Relay"}</button>
       <div className="my-6 flex flex-wrap gap-2">{scenes.map((value) => <button key={value} type="button" className="min-h-11 rounded-lg border border-line-strong px-4 text-sm" onClick={() => { if (value.startsWith("approval_")) { if (!erc20Input) setRoute({ originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" }); setApproved(value === "approval_confirmed"); } else if (!parseBridgeAmount(amount, inputCurrency.decimals)) setRoute((current) => ({ ...current, amount: originAsset === "USDC" ? "25" : "0.01" })); setScene(value); setOpen(true); }}>{value.replaceAll("_", " ")}</button>)}</div>
       <Dialog.Root open={open} onOpenChange={setOpen}>

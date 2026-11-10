@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { encodeFunctionData, parseAbi, zeroAddress } from "viem";
 import { APPROVAL_ABI, BridgeApiError, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY, parseBridgeRequest, validateRelayChains, validateRelayQuote } from "./validation.ts";
 import { getOrderId, type Order } from "./relay-order.ts";
-import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, BRIDGE_INPUT_CURRENCIES, ELYSIUM_USDC, ETHEREUM_USDC, OPTIMISM_USDC, ROBINHOOD_USDG, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
+import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, BRIDGE_INPUT_CURRENCIES, BRIDGE_RECEIVE_ASSETS, BRIDGE_SEND_ASSETS, ELYSIUM_USDC, ETHEREUM_USDC, OPTIMISM_USDC, ROBINHOOD_USDG, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types.ts";
 import { BRIDGE_PRIVATE_HEADERS, bridgeErrorResponse, getBridgeQuote, getBridgeStatus, readBridgeJson } from "./relay.ts";
 import { ARC_FIXTURE_NOW, ARC_FIXTURE_ORDER_ID, ARC_OUTBOUND_FIXTURE_NOW, ARC_OUTBOUND_ORDER_ID, BASE_USDC_FIXTURE_NOW, BASE_USDC_ORDER_ID, FIXTURE_INPUT, FIXTURE_NOW, FIXTURE_REQUEST_ID, addApprovalFixture, relayArcOutboundFixture, relayArcQuoteFixture, relayBaseUsdcFixture, relayChainsFixture, relayQuoteFixture, relayRouteFixture } from "./relay.fixture.ts";
 import { parseBridgeQuoteRejection } from "./client.ts";
@@ -476,7 +476,7 @@ test("funding networks verify into every launch chain, approving exactly their o
   const usdc = { 1: ETHEREUM_USDC, 42161: ARBITRUM_USDC, 10: OPTIMISM_USDC } as const;
   let routes = 0;
   for (const origin of BRIDGE_FUNDING_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
-    for (const originAsset of BRIDGE_ASSETS[origin]) for (const destinationAsset of BRIDGE_ASSETS[destination]) {
+    for (const originAsset of BRIDGE_SEND_ASSETS[origin]) for (const destinationAsset of BRIDGE_RECEIVE_ASSETS[destination]) {
       const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
       const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
       const metadata = validateRelayChains(relayChainsFixture(), input);
@@ -490,7 +490,8 @@ test("funding networks verify into every launch chain, approving exactly their o
       routes++;
     }
   }
-  assert.equal(routes, 36);
+  // two assets each into seven launch-chain assets, HYPE on Elysium among them
+  assert.equal(routes, 42);
 });
 
 test("Elysium stands on Relay's USDC listing, since Relay does not bridge its native HYPE", () => {
@@ -551,14 +552,61 @@ test("Elysium routes move its USDC both ways, approve only that USDC, and take g
       assert.throws(() => validateRelayQuote(hypeOut, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW), BridgeApiError, label);
     }
   }
-  // HYPE is never requested, on either side
+  // HYPE is never sent, and arrives only on Elysium
   for (const body of [
-    { originChainId: 8453, destinationChainId: 99901, destinationAsset: "HYPE" },
     { originChainId: 99901, destinationChainId: 8453, originAsset: "HYPE" },
+    { originChainId: 99901, destinationChainId: 8453, originAsset: "HYPE", destinationAsset: "ETH" },
+    { originChainId: 8453, destinationChainId: 4663, destinationAsset: "HYPE" },
+    { originChainId: 4663, destinationChainId: 5042, originAsset: "ETH", destinationAsset: "HYPE" },
     { originChainId: 99901, destinationChainId: 8453, originAsset: "ETH" },
     { originChainId: 99901, destinationChainId: 1 },
   ]) assert.throws(() => parseBridgeRequest({ address: FIXTURE_INPUT.address, amount: "1000000", ...body }), (error: unknown) => error instanceof BridgeApiError && error.status === 400, JSON.stringify(body));
   assert.equal(parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId: 99901, destinationChainId: 8453, amount: "1000000" }).originChainId, 99901);
+  assert.equal(parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId: 8453, destinationChainId: 99901, destinationAsset: "HYPE", amount: "1000000" }).destinationAsset, "HYPE");
+});
+
+test("HYPE arrives on Elysium as its native balance, and a failed fill refunds only in Elysium USDC", () => {
+  const verify = (quote: unknown, input: BridgeQuoteRequest) => validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW);
+  const routes: [BridgeChainId, BridgeAsset][] = [[8453, "ETH"], [8453, "USDC"], [4663, "ETH"], [4663, "USDG"], [5042, "USDC"], [1, "ETH"], [42161, "USDC"], [10, "USDC"]];
+  for (const [origin, originAsset] of routes) {
+    const label = `${origin}:${originAsset}→99901:HYPE`;
+    const { input, quote } = relayRouteFixture(origin, 99901, originAsset, "HYPE");
+    if (originAsset !== "ETH") addApprovalFixture(quote, input);
+    const order = quote.protocol.v2.orderData;
+    // paid out in native HYPE, eighteen decimals, to the wallet itself
+    assert.equal(order.output.payments[0].currency, zeroAddress, label);
+    assert.deepEqual(order.inputs[0].refunds.map((refund) => refund.currency), [bridgeCurrency(origin, originAsset, "input").address, ELYSIUM_USDC], label);
+    const validated = verify(quote, input);
+    assert.equal(validated.destinationAsset, "HYPE", label);
+    assert.equal(validated.transaction.chainId, origin, label);
+    // the Elysium refund is pinned: not native HYPE, not any other token, never the origin's currency on Elysium
+    for (const currency of [zeroAddress, BASE_USDC, bridgeCurrency(origin, originAsset, "input").address]) {
+      if (currency.toLowerCase() === ELYSIUM_USDC.toLowerCase()) continue;
+      const refunded = structuredClone(quote);
+      refunded.protocol.v2.orderData.inputs[0].refunds[1].currency = currency;
+      assert.throws(() => verify(refunded, input), BridgeApiError, `${label} refund ${currency}`);
+    }
+    // nor may the origin refund take Elysium's USDC instead of what was sent
+    const swappedRefund = structuredClone(quote);
+    swappedRefund.protocol.v2.orderData.inputs[0].refunds[0].currency = ELYSIUM_USDC;
+    assert.throws(() => verify(swappedRefund, input), BridgeApiError, label);
+    // a HYPE request paid out in USDC, or labelled as anything but eighteen-decimal HYPE, is refused
+    const usdcOut = structuredClone(quote);
+    usdcOut.protocol.v2.orderData.output.payments[0].currency = ELYSIUM_USDC;
+    assert.throws(() => verify(usdcOut, input), BridgeApiError, label);
+    for (const [key, value] of [["symbol", "USDC"], ["decimals", 6], ["address", ELYSIUM_USDC]] as const) {
+      const relabelled = structuredClone(quote);
+      (relabelled.details.currencyOut.currency as Record<string, unknown>)[key] = value;
+      assert.throws(() => verify(relabelled, input), BridgeApiError, `${label} currencyOut.${key}`);
+    }
+  }
+  // the exception is HYPE's alone: USDC into Elysium still refunds in that USDC, and refuses anything else
+  const { input, quote } = relayRouteFixture(8453, 99901, "USDC", "USDC");
+  addApprovalFixture(quote, input);
+  assert.equal(verify(quote, input).destinationAsset, "USDC");
+  const nativeRefund = structuredClone(quote);
+  nativeRefund.protocol.v2.orderData.inputs[0].refunds[1].currency = zeroAddress;
+  assert.throws(() => verify(nativeRefund, input), BridgeApiError);
 });
 
 test("a funding network is never a destination, and its USDC cannot be swapped for another network's", () => {

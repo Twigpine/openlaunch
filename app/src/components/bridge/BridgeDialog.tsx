@@ -6,9 +6,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
-import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
+import { ArrowLeftRight, Coins, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
-import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeProviderName, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
+import { BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeAssets, bridgeProviderName, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
 import { CCTP_APPROVAL_SPENDER } from "@/lib/bridge/approval";
 import { bridgeLinkKey, type BridgeLink } from "@/lib/bridge/link";
@@ -54,12 +54,15 @@ function NetworkMark({ chain }: { chain: BridgeChainId }) {
 function AssetMark({ asset, size = 24 }: { asset: BridgeAsset; size?: number }) {
   // USDG has no bundled logo: it takes the plain dollar glyph the launch form gives it
   if (asset === "USDG") return <CircleDollarSign size={size} strokeWidth={1.75} aria-hidden />;
+  // nor does HYPE: the launch form's coin glyph again
+  if (asset === "HYPE") return <Coins size={size} strokeWidth={1.75} aria-hidden />;
   return <Image src={asset === "USDC" ? "/brand/usdc.svg" : "/brand/ethereum.svg"} alt="" width={size} height={size} draggable={false} aria-hidden />;
 }
 
 function AssetSelect({ label, chain, asset, disabled, onChange }: { label: "Send" | "Receive"; chain: BridgeChainId; asset: BridgeAsset; disabled: boolean; onChange: (asset: BridgeAsset) => void }) {
   const [instant, setInstant] = useState(false);
-  const choices = BRIDGE_ASSETS[chain];
+  const side = label === "Send" ? "input" : "output";
+  const choices = bridgeAssets(chain, side);
   if (choices.length === 1) return (
     <span className={styles.fixedAsset}>
       <span className={styles.currency} aria-label={`${label} token: ${asset}`}><AssetMark asset={asset} size={28} />{asset}</span>
@@ -67,7 +70,7 @@ function AssetSelect({ label, chain, asset, disabled, onChange }: { label: "Send
     </span>
   );
   return <Select.Root value={asset} items={choices.map((value) => ({ value, label: value }))} disabled={disabled}
-    onValueChange={(value) => { if (isBridgeAssetSupported(chain, value)) onChange(value); }}
+    onValueChange={(value) => { if (isBridgeAssetSupported(chain, value, side)) onChange(value); }}
     onOpenChange={(_, details) => setInstant(details.event.type.startsWith("key"))}>
     <Select.Trigger type="button" aria-label={`${label} token`} className={styles.assetTrigger}>
       <AssetMark asset={asset} size={28} /><Select.Value /><Select.Icon className={styles.networkChevron}><ChevronDown size={14} aria-hidden /></Select.Icon>
@@ -292,6 +295,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
       {walletFunding !== null ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setOriginChainId(walletFunding)}>Your wallet is on {BRIDGE_CHAINS[walletFunding].name}. Send from {BRIDGE_CHAINS[walletFunding].name}</button> : null}
       {convertsAsset ? <p className={styles.conversionNote}>{inputCurrency.symbol} <ArrowRight size={12} aria-hidden /> {outputCurrency.symbol}<span>Converted by Relay</span></p> : null}
       {b.originChainId === 4663 || b.destinationChainId === 4663 ? <p className={styles.routeNotice}>USDC on Robinhood is unavailable: its routes do not pass our current safety checks. ETH and USDG are available.</p> : null}
+      {b.destinationChainId === 99901 && b.destinationAsset !== "HYPE" ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setDestinationAsset("HYPE")}>Gas on Elysium is paid in HYPE. With none there yet, receive HYPE instead</button> : null}
       {erc20Input && b.approval?.chainId === b.originChainId && b.approval.status === "confirmed" && !b.quote ? <p className={styles.approvalNotice} role="status">{inputCurrency.symbol} approval confirmed. Review a fresh quote before bridging. No funds have been bridged yet.</p> : null}
 
       <div className={styles.amountSection}>

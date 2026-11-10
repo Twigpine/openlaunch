@@ -1,7 +1,7 @@
 import "server-only";
 import { getOrderId, type Order } from "./relay-order";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, zeroAddress, type Hex } from "viem";
-import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, bridgeTokens, bridgesNativeCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_CHAINS, bridgeCurrency, bridgeDestinationRefund, bridgeFeePercent, bridgeTokens, bridgesNativeCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
@@ -60,8 +60,9 @@ export function parseBridgeRequest(value: unknown): BridgeQuoteRequest {
     ensure(typeof b.address === "string" && isAddress(b.address, { strict: false }) && !sameAddress(b.address, zeroAddress));
     // funding networks (Ethereum, Arbitrum, Optimism) send but never receive
     ensure(isBridgeChainId(b.originChainId) && isBridgeDestination(b.destinationChainId) && b.originChainId !== b.destinationChainId);
-    ensure(b.originAsset === undefined || isBridgeAssetSupported(b.originChainId, b.originAsset));
-    ensure(b.destinationAsset === undefined || isBridgeAssetSupported(b.destinationChainId, b.destinationAsset));
+    // HYPE arrives on Elysium but is never sent (types.ts): each side is checked against its own list
+    ensure(b.originAsset === undefined || isBridgeAssetSupported(b.originChainId, b.originAsset, "input"));
+    ensure(b.destinationAsset === undefined || isBridgeAssetSupported(b.destinationChainId, b.destinationAsset, "output"));
     const amount = uint(b.amount, true);
     // ERC20 max is an unlimited-allowance sentinel, never an exact approval.
     ensure(sameAddress(bridgeCurrency(b.originChainId, b.originAsset, "input").address, zeroAddress) || BigInt(amount) < UINT256_MAX);
@@ -104,7 +105,7 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
   return { vmTypes: Object.fromEntries(required.map((id) => [BRIDGE_CHAINS[id].key, "ethereum-vm" as const])), solverAddresses: solvers as string[] };
 }
 
-/** Implements Relay's protocol.v2 input validation for the allowlisted assets (types.ts): ETH, USDC and USDG. Gas is always the origin's native currency, which on Elysium is HYPE. */
+/** Implements Relay's protocol.v2 input validation for the allowlisted assets (types.ts): ETH, USDC, USDG and, received on Elysium only, HYPE. Gas is always the origin's native currency. */
 export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, chains: RelayChainMetadata, now = Date.now()): BridgeQuote {
   const quote = object(value);
   const protocol = object(object(quote.protocol).v2);
@@ -113,6 +114,8 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   const destination = BRIDGE_CHAINS[input.destinationChainId].key;
   const inputCurrency = bridgeCurrency(input.originChainId, input.originAsset, "input");
   const outputCurrency = bridgeCurrency(input.destinationChainId, input.destinationAsset, "output");
+  // the output itself, except HYPE on Elysium, which Relay delivers by swapping USDC there and so refunds in that USDC
+  const destinationRefund = bridgeDestinationRefund(input.destinationChainId, input.destinationAsset);
   const erc20Input = !sameAddress(inputCurrency.address, zeroAddress);
   ensure(!erc20Input || BigInt(uint(input.amount, true)) < UINT256_MAX);
   const sameAsset = inputCurrency.symbol === outputCurrency.symbol;
@@ -136,12 +139,12 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   ensure(BigInt(minimumAmountOut) <= BigInt(amountOut));
   if (sameAsset) ensure(BigInt(amountOut) * inputScale <= BigInt(input.amount) * outputScale);
   ensure(BigInt(minimumAmountOut) >= BigInt(amountOut) * 9950n / 10000n);
-  // A failed fill may refund on either chain, but can never redirect the refund.
+  // A failed fill may refund on either chain, in the registry's currency for each, but can never redirect the refund.
   const refunds = list(orderInput.refunds, 2).map(object);
   ensure(new Set(refunds.map((refund) => refund.chainId)).size === 2);
   for (const refund of refunds) {
     ensure((refund.chainId === source || refund.chainId === destination) && sameAddress(refund.recipient, input.address));
-    const refundCurrency = refund.chainId === source ? inputCurrency.address : outputCurrency.address;
+    const refundCurrency = refund.chainId === source ? inputCurrency.address : destinationRefund.address;
     ensure(sameAddress(refund.currency, refundCurrency) && uint(refund.minimumAmount) === "0" && refund.deadline === output.deadline && isRelayRouterWord(refund.extraData));
   }
   const paymentDetails = object(protocol.paymentDetails);

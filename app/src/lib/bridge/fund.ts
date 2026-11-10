@@ -1,6 +1,6 @@
 import { formatUnits, type Address } from "viem";
 import type { BridgeHistoryEntry } from "./history";
-import { BRIDGE_ASSETS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeCurrencyAsset, bridgesNativeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeDestinationId } from "./types";
+import { BRIDGE_CHAIN_IDS, BRIDGE_RECEIVE_ASSETS, BRIDGE_SEND_ASSETS, bridgeCurrency, bridgeCurrencyAsset, bridgesNativeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeDestinationId } from "./types";
 
 /**
  * Bridge, then buy: the token page's way to fund a purchase from another network. Two separate steps by design (a
@@ -9,19 +9,16 @@ import { BRIDGE_ASSETS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeCurrencyAsset, b
  * which of those to suggest, and which recent transfer the trade panel should follow.
  */
 
-/**
- * The bridge asset a buy pays with on `chainId`, or null when the bridge cannot deliver it (TWIG, GITLAWB, pairs, stocks,
- * and Elysium's HYPE).
- */
+/** The bridge asset a buy pays with on `chainId`, or null when the bridge cannot deliver it (TWIG, GITLAWB, pairs, stocks). */
 export function bridgeAssetForPay(chainId: BridgeDestinationId, pay: { address: Address; native: boolean }): BridgeAsset | null {
   // the native asset is whichever bridge asset arrives as the native balance: ETH on Base and Robinhood, USDC on Arc,
-  // and nothing on Elysium, where HYPE is not bridged
-  if (pay.native) return BRIDGE_ASSETS[chainId].find((asset) => /^0x0{40}$/.test(bridgeCurrency(chainId, asset, "output").address)) ?? null;
+  // HYPE on Elysium
+  if (pay.native) return BRIDGE_RECEIVE_ASSETS[chainId].find((asset) => /^0x0{40}$/.test(bridgeCurrency(chainId, asset, "output").address)) ?? null;
   return bridgeCurrencyAsset(chainId, pay.address)?.asset ?? null;
 }
 
 /**
- * `gas` is the chain's native balance, read only where the bridge does not carry the native currency (Elysium's HYPE),
+ * `gas` is the chain's native balance, read only where the bridge cannot send the native currency (Elysium's HYPE),
  * since a token there can be sent only with some of it. Left out when that read fails.
  */
 export type BridgeHolding = { chainId: BridgeChainId; asset: BridgeAsset; amount: bigint; decimals: 6 | 18; gas?: bigint };
@@ -39,7 +36,7 @@ export async function readBridgeHoldings(read: HoldingReader, wallet: Address, d
   for (const chainId of BRIDGE_CHAIN_IDS) {
     if (chainId === destination) continue;
     const gas = bridgesNativeCurrency(chainId) ? null : read.native(chainId, wallet).then((amount) => typeof amount === "bigint" && amount >= 0n ? amount : null, () => null);
-    for (const asset of BRIDGE_ASSETS[chainId]) {
+    for (const asset of BRIDGE_SEND_ASSETS[chainId]) {
       const currency = bridgeCurrency(chainId, asset, "input");
       const native = /^0x0{40}$/.test(currency.address);
       jobs.push(Promise.all([native ? read.native(chainId, wallet) : read.token(chainId, currency.address, wallet), gas]).then(

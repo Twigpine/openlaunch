@@ -38,60 +38,84 @@ export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as con
 export const OPTIMISM_USDC = "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" as const;
 // USDC on Elysium: the contract the launch form quotes there (lib/launchpad/config.ts), symbol and name USDC, six
 // decimals, checked on-chain, and the one ERC-20 Relay lists as bridgeable on Elysium. Elysium has no Circle CCTP domain,
-// so this USDC moves through Relay alone. HYPE, the gas currency, is not carried: Relay does not bridge it as a native
-// currency, and its HYPE routes need a different deposit flow and refund (docs/bridge.md, "Elysium").
+// so this USDC moves through Relay alone.
 export const ELYSIUM_USDC = "0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65" as const;
-export type BridgeAsset = "ETH" | "USDC" | "USDG";
+export type BridgeAsset = "ETH" | "USDC" | "USDG" | "HYPE";
+export type BridgeSide = "input" | "output";
 export type BridgeCurrency = { address: Address; symbol: BridgeAsset; decimals: 6 | 18 };
 const NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const native = (symbol: BridgeAsset): BridgeCurrency => ({ address: NATIVE_ADDRESS, symbol, decimals: 18 });
 const token = (address: Address, symbol: BridgeAsset): BridgeCurrency => ({ address, symbol, decimals: 6 });
 const bothWays = (currency: BridgeCurrency) => ({ input: currency, output: currency });
 /**
+ * How an asset is sent (`input`) and how it arrives (`output`). An asset without an input can be received but never
+ * sent. `refund` is the one currency a failed fill may refund in on the destination, when that is not the output itself.
+ */
+type BridgeEntry = { input?: BridgeCurrency; output: BridgeCurrency; refund?: BridgeCurrency };
+/**
  * Every asset the bridge moves, per chain, as the wallet sends it (input) and as it arrives (output). Only assets
  * whose identity has been independently verified belong here; a chain's first entry is listed first in its picker.
- * The two sides differ on Arc alone, where USDC is sent through its ERC-20 interface and arrives as the native balance.
- * Elysium carries USDC only, as an ERC-20 both ways; its native HYPE is gas, never a bridge asset.
- * A chain has at most one ERC-20 here: approvals are journaled per chain (approval.ts), so a second one needs that
+ * The two sides differ on Arc, where USDC is sent through its ERC-20 interface and arrives as the native balance, and on
+ * Elysium, where HYPE can only be received. Relay's solvers hold USDC there, not HYPE: they deliver HYPE by swapping
+ * from Elysium USDC, so a failed fill refunds that USDC on Elysium (pinned here, and checked on every quote). Sending HYPE
+ * goes through Relay's router with a swap call, not the depository deposit this bridge verifies, so it is never an input.
+ * A chain has at most one ERC-20 to send: approvals are journaled per chain (approval.ts), so a second one needs that
  * journal to carry the token first.
  */
-const CURRENCIES: Record<BridgeChainId, Partial<Record<BridgeAsset, { input: BridgeCurrency; output: BridgeCurrency }>>> = {
+const CURRENCIES: Record<BridgeChainId, Partial<Record<BridgeAsset, BridgeEntry>>> = {
   8453: { ETH: bothWays(native("ETH")), USDC: bothWays(token(BASE_USDC, "USDC")) },
   4663: { ETH: bothWays(native("ETH")), USDG: bothWays(token(ROBINHOOD_USDG, "USDG")) },
   5042: { USDC: { input: token(ARC_USDC, "USDC"), output: native("USDC") } },
-  99901: { USDC: bothWays(token(ELYSIUM_USDC, "USDC")) },
+  99901: { USDC: bothWays(token(ELYSIUM_USDC, "USDC")), HYPE: { output: native("HYPE"), refund: token(ELYSIUM_USDC, "USDC") } },
   // funding networks: only the input side is ever used, since nothing is sent to them
   1: { ETH: bothWays(native("ETH")), USDC: bothWays(token(ETHEREUM_USDC, "USDC")) },
   42161: { ETH: bothWays(native("ETH")), USDC: bothWays(token(ARBITRUM_USDC, "USDC")) },
   10: { ETH: bothWays(native("ETH")), USDC: bothWays(token(OPTIMISM_USDC, "USDC")) },
 };
-export const BRIDGE_ASSETS = Object.fromEntries(BRIDGE_CHAIN_IDS.map((id) => [id, Object.keys(CURRENCIES[id]) as BridgeAsset[]])) as unknown as Record<BridgeChainId, readonly BridgeAsset[]>;
+const entries = (chainId: BridgeChainId) => Object.entries(CURRENCIES[chainId]) as [BridgeAsset, BridgeEntry][];
+const assetsWith = (side: BridgeSide) => Object.fromEntries(BRIDGE_CHAIN_IDS.map((id) => [id, entries(id).filter(([, entry]) => entry[side]).map(([asset]) => asset)])) as unknown as Record<BridgeChainId, readonly BridgeAsset[]>;
+/** What a wallet can send from each chain, in picker order. */
+export const BRIDGE_SEND_ASSETS = assetsWith("input");
+/** What can arrive on each chain, in picker order. Only the launch chains ever receive. */
+export const BRIDGE_RECEIVE_ASSETS = assetsWith("output");
+export const bridgeAssets = (chainId: BridgeChainId, side: BridgeSide) => (side === "input" ? BRIDGE_SEND_ASSETS : BRIDGE_RECEIVE_ASSETS)[chainId];
 /** What each asset is called in full, for pickers and screen readers. */
-export const BRIDGE_ASSET_NAMES: Record<BridgeAsset, string> = { ETH: "Ether", USDC: "USD Coin", USDG: "Global Dollar" };
-/** A chain's first bridge asset: its native currency where the bridge carries it, otherwise its one token. */
+export const BRIDGE_ASSET_NAMES: Record<BridgeAsset, string> = { ETH: "Ether", USDC: "USD Coin", USDG: "Global Dollar", HYPE: "Hyperliquid" };
+/** A chain's first bridge asset, which it both sends and receives: its native currency where it sends it, otherwise its one token. */
 export function defaultBridgeAsset(chainId: BridgeChainId): BridgeAsset {
-  return BRIDGE_ASSETS[chainId][0];
+  return BRIDGE_SEND_ASSETS[chainId][0];
 }
-/** Whether the bridge carries this chain's native currency at all, on either side (false on Elysium). */
+/**
+ * Whether Relay must bridge this chain's native currency itself: true wherever the bridge sends or receives it directly.
+ * False on Elysium, where HYPE is only received, delivered through a swap from USDC (its refund), so Relay's listing of
+ * that USDC is what the route depends on.
+ */
 export function bridgesNativeCurrency(chainId: BridgeChainId): boolean {
-  return BRIDGE_ASSETS[chainId].some((asset) => [CURRENCIES[chainId][asset]!.input, CURRENCIES[chainId][asset]!.output].some((currency) => currency.address === NATIVE_ADDRESS));
+  return entries(chainId).some(([, entry]) => entry.input?.address === NATIVE_ADDRESS || (entry.output.address === NATIVE_ADDRESS && !entry.refund));
 }
-/** The ERC-20s the bridge carries on a chain, from either side, for checking Relay's own chain listing. */
+/** The ERC-20s a chain's routes depend on (sent, received or refunded), for checking Relay's own chain listing. */
 export function bridgeTokens(chainId: BridgeChainId): BridgeCurrency[] {
   const seen = new Map<string, BridgeCurrency>();
-  for (const asset of BRIDGE_ASSETS[chainId]) for (const currency of [CURRENCIES[chainId][asset]!.input, CURRENCIES[chainId][asset]!.output]) {
-    if (currency.address !== NATIVE_ADDRESS) seen.set(currency.address.toLowerCase(), { ...currency });
+  for (const [, entry] of entries(chainId)) for (const currency of [entry.input, entry.output, entry.refund]) {
+    if (currency && currency.address !== NATIVE_ADDRESS) seen.set(currency.address.toLowerCase(), { ...currency });
   }
   return [...seen.values()];
 }
-export function isBridgeAssetSupported(chainId: BridgeChainId, asset: unknown): asset is BridgeAsset {
-  return typeof asset === "string" && BRIDGE_ASSETS[chainId].includes(asset as BridgeAsset);
+/** Whether `asset` can be sent from (`input`) or received on (`output`) this chain. */
+export function isBridgeAssetSupported(chainId: BridgeChainId, asset: unknown, side: BridgeSide): asset is BridgeAsset {
+  return typeof asset === "string" && bridgeAssets(chainId, side).includes(asset as BridgeAsset);
 }
-export function bridgeCurrency(chainId: BridgeChainId, asset: BridgeAsset | undefined, side: "input" | "output"): BridgeCurrency {
+export function bridgeCurrency(chainId: BridgeChainId, asset: BridgeAsset | undefined, side: BridgeSide): BridgeCurrency {
   const symbol = asset ?? defaultBridgeAsset(chainId);
-  const entry = isBridgeAssetSupported(chainId, symbol) ? CURRENCIES[chainId][symbol] : undefined;
-  if (!entry) throw new Error("This token is not supported on this bridge network.");
-  return { ...entry[side] };
+  const currency = isBridgeAssetSupported(chainId, symbol, side) ? CURRENCIES[chainId][symbol]?.[side] : undefined;
+  if (!currency) throw new Error("This token is not supported on this bridge network.");
+  return { ...currency };
+}
+/** The currency a failed fill may refund in on the destination: the output itself, except where the registry pins another. */
+export function bridgeDestinationRefund(chainId: BridgeChainId, asset: BridgeAsset | undefined): BridgeCurrency {
+  const output = bridgeCurrency(chainId, asset, "output");
+  const refund = CURRENCIES[chainId][output.symbol]?.refund;
+  return refund ? { ...refund } : output;
 }
 /**
  * Which bridge asset a currency address is on `chainId`, from either side, with its decimals; null when the bridge
@@ -99,14 +123,14 @@ export function bridgeCurrency(chainId: BridgeChainId, asset: BridgeAsset | unde
  */
 export function bridgeCurrencyAsset(chainId: BridgeChainId, address: string): { asset: BridgeAsset; decimals: 6 | 18 } | null {
   const wanted = address.toLowerCase();
-  for (const asset of BRIDGE_ASSETS[chainId]) for (const currency of [CURRENCIES[chainId][asset]!.input, CURRENCIES[chainId][asset]!.output]) {
-    if (currency.address.toLowerCase() === wanted) return { asset, decimals: currency.decimals };
+  for (const [asset, entry] of entries(chainId)) for (const currency of [entry.input, entry.output]) {
+    if (currency && currency.address.toLowerCase() === wanted) return { asset, decimals: currency.decimals };
   }
   return null;
 }
 /** The ERC-20 a chain's bridge can send (it needs an exact approval first), or null where every asset is native. */
 export function bridgeTokenAsset(chainId: BridgeChainId): BridgeAsset | null {
-  return BRIDGE_ASSETS[chainId].find((asset) => CURRENCIES[chainId][asset]!.input.address !== NATIVE_ADDRESS) ?? null;
+  return BRIDGE_SEND_ASSETS[chainId].find((asset) => CURRENCIES[chainId][asset]!.input!.address !== NATIVE_ADDRESS) ?? null;
 }
 /** USDC and USDG are both dollars: one unit of either is compared with one unit of the other. */
 export function isDollarAsset(asset: BridgeAsset): boolean {

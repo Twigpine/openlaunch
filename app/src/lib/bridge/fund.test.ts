@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Address, Hex } from "viem";
 import { FUND_FOLLOW_MS, bridgeAssetForPay, followedBridge, formatFundAmount, fundStep, pickBridgeSource, readBridgeHoldings, type BridgeHolding } from "./fund.ts";
 import type { BridgeHistoryEntry } from "./history.ts";
-import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_CHAIN_IDS, ELYSIUM_USDC, ETHEREUM_USDC, OPTIMISM_USDC, ROBINHOOD_USDG, type BridgeChainId } from "./types.ts";
+import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, BRIDGE_SEND_ASSETS, ELYSIUM_USDC, ETHEREUM_USDC, OPTIMISM_USDC, ROBINHOOD_USDG, type BridgeChainId } from "./types.ts";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as Address;
 const NATIVE = "0x0000000000000000000000000000000000000000" as Address;
@@ -21,7 +21,7 @@ test("a buy can be bridged for only when it pays with something the bridge deliv
   assert.equal(bridgeAssetForPay(4663, { address: BASE_USDC, native: false }), null, "Base's USDC address means nothing on Robinhood");
   assert.equal(bridgeAssetForPay(8453, { address: "0x4200000000000000000000000000000000000006", native: false }), null, "WETH is not a bridge asset");
   assert.equal(bridgeAssetForPay(8453, { address: "0x9999999999999999999999999999999999999999", native: false }), null, "a pair token or stock is not either");
-  assert.equal(bridgeAssetForPay(99901, { address: NATIVE, native: true }), null, "Elysium's HYPE is not bridged");
+  assert.equal(bridgeAssetForPay(99901, { address: NATIVE, native: true }), "HYPE", "HYPE arrives on Elysium, so a HYPE-priced buy can be funded");
   assert.equal(bridgeAssetForPay(99901, { address: ELYSIUM_USDC, native: false }), "USDC");
   assert.equal(bridgeAssetForPay(99901, { address: BASE_USDC, native: false }), null);
 });
@@ -33,8 +33,8 @@ test("holdings are read on every other network, each read standing alone", async
     token: async (chainId, token) => { asked.push(`${chainId}:${token}`); return chainId === 1 ? (-1n as bigint) : 5n; },
   }, WALLET, 4663);
   assert.ok(!asked.some((call) => call.startsWith("4663:")), "never the destination itself");
-  // every bridge asset, plus HYPE on Elysium: the gas its USDC needs to be sent, and not a bridge asset itself
-  const expected = BRIDGE_CHAIN_IDS.filter((id) => id !== 4663).reduce((sum, id) => sum + BRIDGE_ASSETS[id].length, 0) + 1;
+  // every asset the bridge can send, plus HYPE on Elysium: the gas its USDC needs to be sent, which can arrive but never leave
+  const expected = BRIDGE_CHAIN_IDS.filter((id) => id !== 4663).reduce((sum, id) => sum + BRIDGE_SEND_ASSETS[id].length, 0) + 1;
   assert.equal(asked.length, expected);
   assert.ok(asked.includes("99901:native"));
   for (const token of [BASE_USDC, ARC_USDC, ELYSIUM_USDC, ETHEREUM_USDC, ARBITRUM_USDC, OPTIMISM_USDC]) assert.ok(asked.some((call) => call.endsWith(token)), token);

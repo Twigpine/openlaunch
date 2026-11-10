@@ -1,26 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatUnits, zeroAddress } from "viem";
-import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAIN_IDS, BRIDGE_CHAINS, BRIDGE_DESTINATION_IDS, ELYSIUM_USDC, ROBINHOOD_USDG, bridgeCurrency, bridgeCurrencyAsset, bridgeFeePercent, bridgeTokenAsset, bridgeTokens, bridgeTransferInputCurrency, bridgesNativeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeDestination, isDollarAsset } from "./types";
+import { ARC_USDC, BASE_USDC, BRIDGE_ASSET_NAMES, BRIDGE_CHAIN_IDS, BRIDGE_CHAINS, BRIDGE_DESTINATION_IDS, BRIDGE_RECEIVE_ASSETS, BRIDGE_SEND_ASSETS, ELYSIUM_USDC, ROBINHOOD_USDG, bridgeAssets, bridgeCurrency, bridgeCurrencyAsset, bridgeDestinationRefund, bridgeFeePercent, bridgeTokenAsset, bridgeTokens, bridgeTransferInputCurrency, bridgesNativeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeDestination, isDollarAsset } from "./types";
 import { launchpad } from "../launchpad/config";
 
 test("bridge assets are chain-scoped and never inferred from a symbol alone", () => {
-  assert.deepEqual(BRIDGE_ASSETS[8453], ["ETH", "USDC"]);
-  assert.deepEqual(BRIDGE_ASSETS[4663], ["ETH", "USDG"]);
-  assert.deepEqual(BRIDGE_ASSETS[5042], ["USDC"]);
-  assert.equal(isBridgeAssetSupported(4663, "USDC"), false);
-  assert.equal(isBridgeAssetSupported(8453, BASE_USDC), false);
-  assert.equal(isBridgeAssetSupported(8453, "usdc"), false);
+  // Base, Robinhood Chain and Arc send exactly what they receive
+  for (const side of ["input", "output"] as const) {
+    assert.deepEqual(bridgeAssets(8453, side), ["ETH", "USDC"]);
+    assert.deepEqual(bridgeAssets(4663, side), ["ETH", "USDG"]);
+    assert.deepEqual(bridgeAssets(5042, side), ["USDC"]);
+    assert.equal(isBridgeAssetSupported(4663, "USDC", side), false);
+    assert.equal(isBridgeAssetSupported(8453, BASE_USDC, side), false);
+    assert.equal(isBridgeAssetSupported(8453, "usdc", side), false);
+    assert.equal(isBridgeAssetSupported(4663, "usdg", side), false);
+    assert.equal(isBridgeAssetSupported(4663, ROBINHOOD_USDG, side), false);
+  }
+  assert.equal(bridgeAssets(8453, "input"), BRIDGE_SEND_ASSETS[8453]);
+  assert.equal(bridgeAssets(8453, "output"), BRIDGE_RECEIVE_ASSETS[8453]);
   assert.throws(() => bridgeCurrency(4663, "USDC", "input"));
   assert.throws(() => bridgeCurrency(4663, "USDC", "output"));
   assert.throws(() => bridgeCurrency(5042, "ETH", "input"));
   // USDG is Robinhood Chain's alone, and USDC is still not offered there
   for (const chain of [8453, 5042] as const) {
-    assert.equal(isBridgeAssetSupported(chain, "USDG"), false);
+    assert.equal(isBridgeAssetSupported(chain, "USDG", "output"), false);
     assert.throws(() => bridgeCurrency(chain, "USDG", "output"));
   }
-  assert.equal(isBridgeAssetSupported(4663, "usdg"), false);
-  assert.equal(isBridgeAssetSupported(4663, ROBINHOOD_USDG), false);
 });
 
 test("Robinhood USDG is the launch form's own six-decimal contract in both directions", () => {
@@ -40,36 +45,63 @@ test("Robinhood USDG is the launch form's own six-decimal contract in both direc
 
 test("every chain keeps its gas token as the default where the bridge carries it, and has at most one ERC-20", () => {
   assert.deepEqual(BRIDGE_CHAIN_IDS.map(bridgeTokenAsset), ["USDC", "USDG", "USDC", "USDC", "USDC", "USDC", "USDC"]);
-  // Elysium alone has a gas token the bridge does not carry
+  // Elysium alone has a gas token the bridge cannot send: HYPE only arrives there, swapped from its USDC
   assert.deepEqual(BRIDGE_CHAIN_IDS.filter((chain) => !bridgesNativeCurrency(chain)), [99901]);
   for (const chain of BRIDGE_CHAIN_IDS) {
     assert.equal(defaultBridgeAsset(chain), bridgesNativeCurrency(chain) ? BRIDGE_CHAINS[chain].symbol : bridgeTokenAsset(chain));
-    assert.ok(isBridgeAssetSupported(chain, defaultBridgeAsset(chain)), String(chain));
+    assert.ok(isBridgeAssetSupported(chain, defaultBridgeAsset(chain), "input"), String(chain));
+    if (isBridgeDestination(chain)) assert.ok(isBridgeAssetSupported(chain, defaultBridgeAsset(chain), "output"), String(chain));
     // approvals are journaled per chain (approval.ts), so a second ERC-20 on one chain would be ambiguous there
-    const tokens = BRIDGE_ASSETS[chain].filter((asset) => bridgeCurrency(chain, asset, "input").address !== zeroAddress);
+    const tokens = BRIDGE_SEND_ASSETS[chain].filter((asset) => bridgeCurrency(chain, asset, "input").address !== zeroAddress);
     assert.ok(tokens.length <= 1, `${chain}: ${tokens.join(", ")}`);
-    for (const asset of BRIDGE_ASSETS[chain]) assert.ok(BRIDGE_ASSET_NAMES[asset].length > 0, asset);
+    for (const asset of [...BRIDGE_SEND_ASSETS[chain], ...BRIDGE_RECEIVE_ASSETS[chain]]) assert.ok(BRIDGE_ASSET_NAMES[asset].length > 0, asset);
   }
-  assert.deepEqual(["ETH", "USDC", "USDG"].map((asset) => isDollarAsset(asset as "ETH")), [false, true, true]);
+  assert.deepEqual(["ETH", "USDC", "USDG", "HYPE"].map((asset) => isDollarAsset(asset as "ETH")), [false, true, true, false]);
+  assert.equal(BRIDGE_ASSET_NAMES.HYPE, "Hyperliquid");
   assert.equal(BRIDGE_ASSET_NAMES.USDG, "Global Dollar");
 });
 
-test("Elysium is a launch chain that carries its USDC both ways and never HYPE", () => {
+test("Elysium sends its USDC and receives USDC or HYPE, never sending HYPE", () => {
   assert.ok(isBridgeDestination(99901) && (BRIDGE_DESTINATION_IDS as readonly number[]).includes(99901));
-  assert.deepEqual(BRIDGE_ASSETS[99901], ["USDC"]);
+  assert.deepEqual(BRIDGE_SEND_ASSETS[99901], ["USDC"]);
+  assert.deepEqual(BRIDGE_RECEIVE_ASSETS[99901], ["USDC", "HYPE"]);
   assert.equal(defaultBridgeAsset(99901), "USDC");
   for (const side of ["input", "output"] as const) {
     assert.deepEqual(bridgeCurrency(99901, "USDC", side), { address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 });
     assert.deepEqual(bridgeCurrency(99901, undefined, side), { address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 });
   }
-  for (const asset of ["HYPE", "ETH", "USDG"]) assert.equal(isBridgeAssetSupported(99901, asset), false, asset);
+  // HYPE arrives as Elysium's native balance, and is never sent from it
+  assert.deepEqual(bridgeCurrency(99901, "HYPE", "output"), { address: zeroAddress, symbol: "HYPE", decimals: 18 });
+  assert.equal(isBridgeAssetSupported(99901, "HYPE", "output"), true);
+  assert.equal(isBridgeAssetSupported(99901, "HYPE", "input"), false);
+  assert.throws(() => bridgeCurrency(99901, "HYPE", "input"), /not supported/);
+  for (const side of ["input", "output"] as const) {
+    for (const asset of ["ETH", "USDG", "hype"]) assert.equal(isBridgeAssetSupported(99901, asset, side), false, asset);
+    // HYPE is Elysium's alone
+    for (const chain of BRIDGE_CHAIN_IDS.filter((id) => id !== 99901)) assert.equal(isBridgeAssetSupported(chain, "HYPE", side), false, String(chain));
+  }
   assert.throws(() => bridgeCurrency(99901, "ETH", "output"), /not supported/);
-  assert.equal(bridgeCurrencyAsset(99901, zeroAddress), null, "native HYPE is gas, not a bridge asset");
+  assert.deepEqual(bridgeCurrencyAsset(99901, zeroAddress), { asset: "HYPE", decimals: 18 }, "Relay's records name delivered HYPE by the native address");
   assert.deepEqual(bridgeCurrencyAsset(99901, ELYSIUM_USDC.toLowerCase()), { asset: "USDC", decimals: 6 });
   assert.equal(bridgeCurrencyAsset(8453, ELYSIUM_USDC), null);
-  assert.deepEqual(bridgeTokens(99901), [{ address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 }]);
+  assert.deepEqual(bridgeTokens(99901), [{ address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 }], "HYPE's refund is that same USDC");
   assert.deepEqual(bridgeTokens(5042), [{ address: ARC_USDC, symbol: "USDC", decimals: 6 }], "Arc's native USDC output is not a token");
   assert.equal(BRIDGE_CHAINS[99901].symbol, "HYPE");
+});
+
+test("a failed fill refunds in its own output on the destination, except HYPE, which refunds in Elysium USDC", () => {
+  for (const chain of BRIDGE_DESTINATION_IDS) for (const asset of BRIDGE_RECEIVE_ASSETS[chain]) {
+    const expected = chain === 99901 && asset === "HYPE" ? { address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 } : bridgeCurrency(chain, asset, "output");
+    assert.deepEqual(bridgeDestinationRefund(chain, asset), expected, `${chain}:${asset}`);
+  }
+  // Arc still refunds its native USDC, and an omitted asset is the chain's default
+  assert.deepEqual(bridgeDestinationRefund(5042, "USDC"), { address: zeroAddress, symbol: "USDC", decimals: 18 });
+  assert.deepEqual(bridgeDestinationRefund(99901, undefined), { address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 });
+  assert.throws(() => bridgeDestinationRefund(8453, "HYPE"), /not supported/);
+  // a copy, like every currency the table hands out
+  const copy = bridgeDestinationRefund(99901, "HYPE");
+  copy.decimals = 18;
+  assert.equal(bridgeDestinationRefund(99901, "HYPE").decimals, 6);
 });
 
 test("Base USDC uses the same six-decimal contract in both directions", () => {

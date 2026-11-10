@@ -181,13 +181,19 @@ test("USDC approval is visibly separate from the bridge and has chain-aware reco
 test("USDC selectors separate selected token units from native gas and disallow unsafe Robinhood routes", () => {
   assert.match(panel, /AssetSelect label="Send"[^>]+onChange=\{b.setOriginAsset\}/);
   assert.match(panel, /AssetSelect label="Receive"[^>]+onChange=\{b.setDestinationAsset\}/);
-  assert.match(panel, /BRIDGE_ASSETS\[chain\]/);
-  assert.match(panel, /isBridgeAssetSupported\(chain, value\)/);
+  // each picker lists its own side: Elysium's Receive offers HYPE, its Send never does
+  assert.ok(panel.includes(`const side = label === "Send" ? "input" : "output";`));
+  assert.match(panel, /bridgeAssets\(chain, side\)/);
+  assert.match(panel, /isBridgeAssetSupported\(chain, value, side\)/);
+  assert.doesNotMatch(panel, /BRIDGE_ASSETS\b/);
   assert.match(panel, /formatUnits\(b.balance, inputCurrency.decimals\)/);
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
   assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
   assert.match(panel, /USDC on Robinhood is unavailable: its routes do not pass our current safety checks\. ETH and USDG are available\./);
   assert.match(panel, /chain === 99901 \? <span className=\{styles\.assetRequirement\}>USDC only · Gas in HYPE<\/span>/);
+  // into Elysium, a one-tap switch to HYPE for a wallet with no gas there
+  assert.ok(panel.includes(`{b.destinationChainId === 99901 && b.destinationAsset !== "HYPE" ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setDestinationAsset("HYPE")}>Gas on Elysium is paid in HYPE. With none there yet, receive HYPE instead</button> : null}`));
+  assert.match(panel, /if \(asset === "HYPE"\) return <Coins/, "HYPE has no bundled mark, so it takes the launch form's coin glyph");
   assert.ok(panel.includes('if (chain === 99901) return <span className={`${styles.networkMark} ${styles.elysiumMark}`} aria-hidden><Image src="/brand/elysium.png"'));
   assert.ok(css.includes(".elysiumMark img { border-radius: 7px; }"));
   // each asset is named in full, and says which token pays its chain's gas

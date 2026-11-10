@@ -73,7 +73,7 @@ export function parseHistoryEntry(value: unknown): BridgeHistoryEntry | null {
   if (!isObject(value)) return null;
   const v = value;
   if (!isHash(v.requestId) || !isBridgeChainId(v.originChainId) || !isBridgeDestination(v.destinationChainId) || v.originChainId === v.destinationChainId) return null;
-  if (!isBridgeAssetSupported(v.originChainId, v.originAsset) || !isBridgeAssetSupported(v.destinationChainId, v.destinationAsset)) return null;
+  if (!isBridgeAssetSupported(v.originChainId, v.originAsset, "input") || !isBridgeAssetSupported(v.destinationChainId, v.destinationAsset, "output")) return null;
   // Arc's first deposits were native, 18-decimal USDC; every other source amount uses the asset's input decimals.
   const inputDecimals = bridgeCurrency(v.originChainId, v.originAsset, "input").decimals;
   if (v.inDecimals !== inputDecimals && !(v.originChainId === 5042 && v.inDecimals === 18)) return null;

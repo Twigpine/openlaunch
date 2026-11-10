@@ -1,6 +1,6 @@
 import { encodeFunctionData, zeroAddress } from "viem";
 import { getOrderId, type Order } from "./relay-order";
-import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, bridgeTokens, bridgesNativeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
+import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, bridgeDestinationRefund, bridgeTokens, bridgesNativeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
 import { APPROVAL_ABI, DEPOSIT_ABI, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY } from "./validation";
 
 // Compact, read-only mainnet quote captured with Relay's public example account.
@@ -74,7 +74,7 @@ export function relayRouteFixture(originChainId: BridgeChainId, destinationChain
   const quote = relayQuoteFixture();
   const order = quote.protocol.v2.orderData;
   order.inputs[0].payment = { chainId: source, currency: inputCurrency.address, amount, weight: "1" };
-  order.inputs[0].refunds = [source, destination].map((chainId) => ({ chainId, recipient: input.address, currency: chainId === source ? inputCurrency.address : outputCurrency.address, minimumAmount: "0", deadline: order.output.deadline, extraData }));
+  order.inputs[0].refunds = [source, destination].map((chainId) => ({ chainId, recipient: input.address, currency: chainId === source ? inputCurrency.address : bridgeDestinationRefund(destinationChainId, destinationAsset).address, minimumAmount: "0", deadline: order.output.deadline, extraData }));
   order.output.chainId = destination;
   order.output.payments[0] = { recipient: input.address, currency: outputCurrency.address, minimumAmount, expectedAmount: amountOut };
   quote.protocol.v2.paymentDetails.chainId = source;

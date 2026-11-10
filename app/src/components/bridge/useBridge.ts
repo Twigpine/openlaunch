@@ -304,11 +304,11 @@ export function useBridge(open: boolean) {
   }
 
   function setOriginAsset(asset: BridgeAsset) {
-    if (isBridgeAssetSupported(inputs.current.originChainId, asset)) updateRoute({ side: "origin-asset", asset });
+    if (isBridgeAssetSupported(inputs.current.originChainId, asset, "input")) updateRoute({ side: "origin-asset", asset });
   }
 
   function setDestinationAsset(asset: BridgeAsset) {
-    if (isBridgeAssetSupported(inputs.current.destinationChainId, asset)) updateRoute({ side: "destination-asset", asset });
+    if (isBridgeAssetSupported(inputs.current.destinationChainId, asset, "output")) updateRoute({ side: "destination-asset", asset });
   }
 
   function reverseRoute() { updateRoute({ side: "reverse" }); }
