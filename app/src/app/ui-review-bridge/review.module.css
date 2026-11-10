@@ -1,0 +1,78 @@
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin-bottom: 24px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-card);
+}
+.toolbar h2, .trade h2 { margin: 0; color: var(--color-ink); font-weight: 650; }
+.toolbar h2 { font-size: 14px; }
+.toolbarCopy p, .trade > p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
+.toolbarActions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; min-width: 0; }
+.field { display: grid; min-width: 0; gap: 4px; }
+.label { color: var(--color-muted); font-size: 12px; font-weight: 500; }
+.select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+}
+.select:hover, .select[data-popup-open] { border-color: var(--color-line-strong); }
+.select svg { flex-shrink: 0; color: var(--color-muted); }
+.positioner { z-index: 90; }
+.menu {
+  max-width: var(--available-width);
+  min-width: var(--anchor-width);
+  max-height: var(--available-height);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 12px;
+  background: var(--color-raised);
+  box-shadow: var(--shadow-card-hover);
+}
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 36px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: var(--color-body);
+  font-size: 13px;
+  cursor: pointer;
+}
+.option[data-highlighted] { background: var(--color-brand-soft); color: var(--color-ink); }
+.option svg { flex-shrink: 0; color: var(--color-brand); }
+.dialogNotice { min-height: 320px; margin: 0; color: var(--color-muted); font-size: 13px; }
+.historyPreview { display: grid; justify-items: stretch; gap: 14px; margin-top: 64px; }
+.historyPreview > .field { justify-self: end; }
+.historyPreview > section { margin-top: 0; scroll-margin-top: 180px; }
+.trade { margin-top: 56px; scroll-margin-top: 104px; }
+.trade h2 { font-size: 17px; }
+.tradeGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 24px; margin-top: 18px; }
+.tradeGrid figure { display: grid; min-width: 0; align-content: start; gap: 8px; margin: 0; }
+.tradeGrid figcaption { color: var(--color-muted); font-size: 12px; }
+@media (max-width: 600px) {
+  .toolbar { padding: 14px; }
+  .toolbarActions { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .toolbarActions > button { width: 100%; padding-inline: 10px; }
+  .toolbarActions .field:first-child { grid-column: 1 / -1; }
+}
