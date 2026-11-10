@@ -47,7 +47,7 @@ test("the /bridge page shows the same controller's panel instead of starting a s
   assert.equal((panel.match(/useBridge\(/g) ?? []).length, 1, "one hook call serves the dialog and the page");
   assert.match(panel, /const bridge = useBridge\(open \|\| onPage\);/);
   assert.match(panel, /onPage \? createPortal\(<section className=\{signal\.pagePanel\} aria-label="Bridge">\{content\}\{footer\}<\/section>, slot\) : null/);
-  assert.match(panel, /<Dialog\.Root open=\{open && !onPage\}/, "the dialog never opens over the page's own panel");
+  assert.match(panel, /<BridgeModal\s+open=\{open && !onPage\}/, "the dialog never opens over the page's own panel");
   assert.match(provider, /if \(slot\.node && open\) setOpen\(false\);/);
   assert.match(provider, /page\.querySelector<HTMLElement>\("#bridge-amount"\)\?\.focus/);
   // a link preselects through the pickers' guarded setters, once, and carries no amount
@@ -94,7 +94,7 @@ test("the signal board is decorative and sliding confirms the deposit only", () 
 });
 
 test("bridge review names minimum, separate gas, recipient, risk and expiry", () => {
-  for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0 Openlaunch fee"]) assert.ok(panel.includes(content), content);
+  for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0% Openlaunch fee"]) assert.ok(panel.includes(content), content);
   assert.match(panel, /if \(reviewing\) void \(b\.approvalRequired \? b\.approve\(\) : b\.confirm\(\)\);/);
   assert.doesNotMatch(panel, /dangerouslySetInnerHTML|setInterval|sendTransaction/);
 });
@@ -102,8 +102,9 @@ test("bridge review names minimum, separate gas, recipient, risk and expiry", ()
 test("bridge dialog has accessible focus, mobile layout and reduced motion", () => {
   assert.match(panel, /Dialog.Popup[^>]+initialFocus=\{popup\}/);
   assert.match(panel, /finalFocus=\{connecting \? false : restoreFocus\}/);
-  assert.match(panel, /Dialog.Close[^>]+aria-label="Close bridge"/);
-  assert.match(panel, /htmlFor="bridge-amount"/);
+  assert.match(panel, /Dialog.Close[^>]+aria-label=\{closeLabel\}/);
+  assert.match(panel, /closeLabel = "Close bridge"/);
+  assert.match(panel, /htmlFor=\{amountId\}/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /max-height: calc\(100dvh - 16px\)/);
   assert.match(css, /:focus-visible/);
@@ -189,7 +190,7 @@ test("USDC selectors separate selected token units from native gas and disallow 
   assert.match(panel, /formatUnits\(b.balance, inputCurrency.decimals\)/);
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
   assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
-  assert.match(panel, /USDC on Robinhood is unavailable: its routes do not pass our current safety checks\. ETH and USDG are available\./);
+  assert.match(panel, /<details className=\{styles\.routeAvailability\}>[\s\S]*Robinhood supports ETH and USDG[\s\S]*USDC routes on Robinhood are unavailable because they don’t pass our current safety checks\./);
   assert.match(panel, /chain === 99901 \? <span className=\{styles\.assetRequirement\}>USDC only · Gas in HYPE<\/span>/);
   // into Elysium, a one-tap switch to HYPE for a wallet with no gas there
   assert.ok(panel.includes(`{b.destinationChainId === 99901 && b.destinationAsset !== "HYPE" ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setDestinationAsset("HYPE")}>Gas on Elysium is paid in HYPE. With none there yet, receive HYPE instead</button> : null}`));
@@ -233,7 +234,8 @@ test("the history board only reads: no second bridge, no recovery record, and th
   assert.ok(page.includes("<BridgeHistory />"));
   assert.ok(hook.includes("try { bridgeLedger.record(tracked, quoted); } catch"));
   assert.match(hook, /transfers\.remove\(address\);\s+try \{ bridgeLedger\.forget\(address, requestId\); \} catch/);
-  assert.ok(panel.includes(`href="/bridge#transfers"`));
+  assert.match(panel, /historyHref = "\/bridge#transfers"/);
+  assert.match(panel, /href=\{historyHref\}/);
 });
 
 test("bridge, then buy stays two steps: the trade panel card opens and follows the one controller and never sends", () => {
@@ -262,7 +264,7 @@ test("quotes update without locking typing or automatically submitting wallet ac
   assert.match(hook, /next\.originChainId === inputs\.current\.originChainId[^\n]+next\.amount === inputs\.current\.amount\) return/);
   assert.match(hook, /busy: sending \|\| approvalSending \|\| approvalPending,/);
   assert.match(panel, /const loading = locked \|\| b.quoteLoading/);
-  assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
+  assert.match(panel, /input id=\{amountId\}[^\n]+disabled=\{locked\}/);
   assert.match(panel, /const actionDisabled = loading \|\| b\.allowanceLoading \|\| \(!!b\.address && !b\.canQuote\)/);
   assert.match(panel, /if \(actionDisabled\) return/);
   assert.match(panel, /Your quote updates automatically/);
@@ -308,7 +310,8 @@ test("a Circle transfer is named as Circle's, reads allowance for Circle's spend
   assert.match(hook, /const statusUrl = observed \? bridgeStatusUrl\(observed\)/);
   assert.match(hook, /findCctpBurn\(pub, current\)/);
   assert.match(panel, /const circle = \(bridge\.tracked\?\.provider \?\? bridge\.quote\?\.provider\) === "cctp";/);
-  assert.match(panel, /Powered by Circle CCTP/);
+  assert.match(panel, /const provider = circle \? "Circle CCTP" : "Relay"/);
+  assert.match(panel, /href=\{circle \? "https:\/\/developers\.circle\.com\/cctp" : "https:\/\/relay\.link"\}/);
   assert.match(panel, /\{circle \? null : <a className=\{styles\.externalAction\} href=\{\x60https:\/\/relay\.link\/transaction\//);
   assert.match(panel, /\{circle \? null : <p className=\{styles\.disclaimer\}>Transfer ID/);
   assert.match(panel, /Circle takes one fixed fee, so this is the exact amount you receive\./);
@@ -326,11 +329,13 @@ test("from an exchange: the guide only reads balances, opens the bridge on a che
   assert.ok(watch.includes("getBalance({ address: who })") && watch.includes('functionName: "balanceOf"'));
   assert.ok(watch.includes("if (!document.hidden)"), "no reads while the tab is hidden");
   // the form's link opens it; a guide left open in this tab comes back without taking focus
-  assert.ok(panel.includes('<button type="button" id="bridge-exchange-link" className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button>'));
+  assert.ok(panel.includes('<button type="button" id={exchangeLinkId} className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button>'));
   assert.ok(panel.includes('setGuide((open) => open || "resumed")') && panel.includes('focusOnMount: guide === "opened"'));
   // an arrival opens the bridge through the same guarded setters the pickers use, then ends the watch
   assert.match(panel, /b\.setOriginChainId\(next\.originChainId\);\s*b\.setOriginAsset\(next\.originAsset\);\s*if \(next\.amount\) b\.setAmount\(next\.amount\);/);
   assert.ok(panel.includes("const closeGuide = (focus") && panel.includes("clearExchangeWatch();"));
+  // each form names its own link and amount, so the fixture beside the live panel never shares an id
+  assert.ok(panel.includes("const exchangeLinkId = `${idPrefix}-exchange-link`;") && panel.includes("closeGuide(next.kind === \"bridge\" ? amountId : exchangeLinkId)"));
   assert.ok(guide.includes("exchangeNeedsGas(arrival)"), "a token with no gas beside it is called out");
   assert.ok(guide.includes("not USDC.e or another bridged version"));
   assert.ok(guide.includes("navigator.clipboard.writeText(address)") && guide.includes("selection.addRange(range)"), "copy falls back to selecting the address");

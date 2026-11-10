@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dialog } from "@base-ui/react/dialog";
-import { X } from "lucide-react";
-import { BridgeForm, ExchangeGuide, Transfer } from "@/components/bridge/BridgeDialog";
+import Link from "next/link";
+import { Select } from "@base-ui/react/select";
+import { ArrowDown, ArrowUpRight, Check, ChevronDown, PanelsTopLeft } from "lucide-react";
+import BridgePageLayout from "@/app/bridge/BridgePageLayout";
+import { BridgeFooter, BridgeForm, BridgeModal, ExchangeGuide, Transfer } from "@/components/bridge/BridgeDialog";
 import { EXCHANGE_IDLE, type ExchangeView } from "@/components/bridge/useExchangeWatch";
-import signal from "@/components/bridge/Signal.module.css";
 import type useBridge from "@/components/bridge/useBridge";
 import { formatUnits, parseEther, parseUnits, zeroAddress } from "viem";
 import { canReverseBridgeRoute, changeBridgeRoute, parseBridgeAmount, type BridgeRouteChange, type BridgeRouteInputs } from "@/lib/bridge/client";
@@ -13,19 +14,42 @@ import { bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, type BridgeQuote 
 import type { TrackedApproval } from "@/lib/bridge/approval";
 import { describePendingApproval } from "@/lib/bridge/approval-health";
 import { BRIDGE_QUOTE_DEBOUNCE_MS } from "@/lib/bridge/quote-session";
-import styles from "@/components/bridge/BridgeDialog.module.css";
+import signal from "@/components/bridge/Signal.module.css";
+import shell from "@/components/sections/SectionShell.module.css";
 import { HistoryBoard } from "@/components/bridge/BridgeHistory";
 import type { BridgeHistoryEntry } from "@/lib/bridge/history";
 import { FundCard } from "@/components/bridge/BridgeToBuy";
 import type { BridgeHolding, FundStep } from "@/lib/bridge/fund";
 import type { BridgeAsset, BridgeChainId, BridgeDestinationId } from "@/lib/bridge/types";
 import { CCTP_TOKEN_MESSENGER, cctpRoute } from "@/lib/bridge/cctp";
+import styles from "./review.module.css";
 
 const wallet = "0x03508bB71268BBA25ECaCC8F620e01866650532c" as const;
 const RELAY = "0x4cd00e387622c35bddb9b4c962c136462338bc31" as const;
 const requestId = `0x${"1".repeat(64)}` as const;
-type Scene = "idle" | "disconnected" | "quote" | "quoting" | "high_fee" | "fee_boundary" | "impact_limit" | "expired" | "error" | "pending" | "success" | "uncertain" | "refund" | "approval_pending" | "approval_uncertain" | "approval_confirmed" | "approval_queued" | "approval_missing" | "approval_fee";
-const scenes: Scene[] = ["disconnected", "quote", "quoting", "high_fee", "fee_boundary", "impact_limit", "expired", "error", "pending", "success", "uncertain", "refund", "approval_pending", "approval_uncertain", "approval_confirmed", "approval_queued", "approval_missing", "approval_fee"];
+const SCENE_LABELS = {
+  disconnected: "Wallet disconnected",
+  idle: "Enter an amount",
+  quoting: "Fetching a quote",
+  quote: "Review a quote",
+  high_fee: "High bridge fee",
+  fee_boundary: "Fee just over the limit",
+  impact_limit: "Conversion loss over the limit",
+  expired: "Quote expired",
+  error: "Quote unavailable",
+  approval_pending: "Approval submitted",
+  approval_uncertain: "Approval status unknown",
+  approval_confirmed: "Approval confirmed",
+  approval_queued: "Approval queued",
+  approval_missing: "Approval missing",
+  approval_fee: "Approval gas fee too low",
+  pending: "Transfer in progress",
+  success: "Transfer arrived",
+  uncertain: "Transfer status unknown",
+  refund: "Transfer refunded",
+} as const;
+type Scene = keyof typeof SCENE_LABELS;
+const DEFAULT_ROUTE: BridgeRouteInputs = { originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" };
 
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as const;
 const minutesAgo = (minutes: number) => Date.UTC(2026, 10, 10, 12, 0) - minutes * 60_000;
@@ -42,8 +66,9 @@ const HISTORY_ROWS: BridgeHistoryEntry[] = [
   { requestId: hash(71), originChainId: 4663, destinationChainId: 8453, originAsset: "ETH", destinationAsset: "ETH", amountIn: "4000000000000000", inDecimals: 18, amountOut: "3991000000000000", outDecimals: 18, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 80), sourceHash: hash(72), destinationHashes: [hash(73)], recipient: "0x9f3a2bE0c1D4e5F6a7b8C9d0E1f2A3b4C5d6E7F8" },
   { provider: "cctp", requestId: hash(81), originChainId: 42161, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amountIn: "40000000", inDecimals: 6, amountOut: "39983361000000000000", outDecimals: 18, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 96), sourceHash: hash(82), destinationHashes: [hash(83)], recipient: null },
 ];
-type HistoryScene = "rows" | "empty" | "loading" | "no wallet" | "unsaved";
-const HISTORY_SCENES: HistoryScene[] = ["rows", "empty", "loading", "no wallet", "unsaved"];
+const HISTORY_LABELS = { rows: "Sample transfers", empty: "No transfers yet", loading: "Loading", "no wallet": "Wallet disconnected", unsaved: "Storage unavailable" } as const;
+type HistoryScene = keyof typeof HISTORY_LABELS;
+const PROVIDER_LABELS = { relay: "Relay", circle: "Circle CCTP" } as const;
 
 // "Bridge, then buy" in the trade panel, one card per step it can show.
 type FundScene = { name: string; step: FundStep; destination: BridgeDestinationId; asset: BridgeAsset; symbol: string; row: BridgeHistoryEntry | null; shortBy: string | null; suggestion: BridgeHolding | null; searching: boolean };
@@ -74,11 +99,39 @@ const EXCHANGE_SCENES: ExchangeScene[] = [
 // the dialog's guide: 25 USDC on Arbitrum with no ETH beside it, so its button opens the bridge on that route
 const DIALOG_EXCHANGE: ExchangeView = { ...watching, arrivals: [{ chainId: 42161, asset: "USDC", amount: 25_000_000n, decimals: 6, gas: 0n }] };
 
+function ReviewSelect<Value extends string>({ label, options, value, onChange }: { label: string; options: Record<Value, string>; value: Value; onChange: (value: Value) => void }) {
+  const items = (Object.keys(options) as Value[]).map((key) => ({ value: key, label: options[key] }));
+  return (
+    <Select.Root items={items} value={value} onValueChange={(next) => { if (next !== null) onChange(next); }}>
+      <div className={styles.field}>
+        <Select.Label className={styles.label}>{label}</Select.Label>
+        <Select.Trigger type="button" className={styles.select}>
+          <Select.Value /><Select.Icon><ChevronDown size={14} aria-hidden /></Select.Icon>
+        </Select.Trigger>
+      </div>
+      <Select.Portal>
+        <Select.Positioner className={styles.positioner} sideOffset={6} collisionPadding={12} alignItemWithTrigger={false}>
+          <Select.Popup className={styles.menu}>
+            <Select.List>
+              {items.map((item) => (
+                <Select.Item key={item.value} value={item.value} label={item.label} className={styles.option}>
+                  <Select.ItemText>{item.label}</Select.ItemText>
+                  <Select.ItemIndicator><Check size={14} aria-hidden /></Select.ItemIndicator>
+                </Select.Item>
+              ))}
+            </Select.List>
+          </Select.Popup>
+        </Select.Positioner>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
 export default function BridgeReview() {
   const [historyScene, setHistoryScene] = useState<HistoryScene>("rows");
   const [open, setOpen] = useState(false);
   const [scene, setScene] = useState<Scene>("disconnected");
-  const [route, setRoute] = useState<BridgeRouteInputs>({ originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" });
+  const [route, setRoute] = useState<BridgeRouteInputs>(DEFAULT_ROUTE);
   const [approved, setApproved] = useState(false);
   // Which provider the synthetic quote comes from. Circle only carries USDC to USDC into Base or Arc.
   const [circle, setCircle] = useState(false);
@@ -95,10 +148,10 @@ export default function BridgeReview() {
   // Synthetic fixed conversion, not a market quote. This page never calls Relay.
   const inputAmount = parseBridgeAmount(amount, inputCurrency.decimals) ?? 0n;
   useEffect(() => {
-    if (!open || (scene !== "idle" && scene !== "approval_confirmed") || !inputAmount) return;
+    if ((scene !== "idle" && scene !== "approval_confirmed") || !inputAmount) return;
     const timer = setTimeout(() => setScene("quote"), BRIDGE_QUOTE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [open, scene, inputAmount, amount, origin, destination, originAsset, destinationAsset]);
+  }, [scene, inputAmount, amount, origin, destination, originAsset, destinationAsset]);
   const normalizedInput = inputAmount * 10n ** BigInt(18 - inputCurrency.decimals);
   const netAmount = normalizedInput * 9975n / 10000n;
   // fixed synthetic dollar prices, not market data
@@ -122,7 +175,7 @@ export default function BridgeReview() {
     address: scene === "disconnected" ? undefined : wallet, walletChainId: origin,
     originChainId: origin, destinationChainId: destination, setOriginChainId: (chainId) => changeRoute({ side: "origin", chainId }), setDestinationChainId: (chainId) => changeRoute({ side: "destination", chainId }), reverseRoute: () => changeRoute({ side: "reverse" }), canReverse: canReverseBridgeRoute({ originChainId: origin }), amount, setAmount,
     originAsset, destinationAsset, setOriginAsset: (asset) => changeRoute({ side: "origin-asset", asset }), setDestinationAsset: (asset) => changeRoute({ side: "destination-asset", asset }),
-    balance: parseUnits(originAsset === "USDC" ? "125" : "0.05", inputCurrency.decimals), nativeBalance: parseEther(origin === 5042 ? "125" : "0.05"), balanceLoading: false, balanceError: null,
+    balance: parseUnits(originAsset === "ETH" ? "0.05" : "125", inputCurrency.decimals), nativeBalance: parseEther(origin === 5042 ? "125" : "0.05"), balanceLoading: false, balanceError: null,
     quote: scene === "quote" || scene === "expired" ? quote : null,
     phase: tracking ? scene as "pending" | "success" | "uncertain" | "refund" : scene === "quote" || scene === "expired" ? "review" : "idle",
     error: null, quoteError: scene === "error" ? "Relay is temporarily unavailable. Try requesting a quote again." : feeWarning ? "This quote exceeds the 5% safety limit." : null,
@@ -138,37 +191,94 @@ export default function BridgeReview() {
     approvalCanBeDiscarded: scene === "approval_uncertain", discardApproval: async () => { setApproved(false); setScene("idle"); },
     canDiscard: scene === "uncertain", discard: async () => setScene("idle"), discarding: false,
   };
+
+  function selectScene(value: Scene) {
+    if (value === "idle") {
+      setRoute((current) => ({ ...current, amount: "" }));
+    } else if (value.startsWith("approval_") && (!erc20Input || (origin !== 5042 && origin !== 8453 && origin !== 99901))) {
+      setRoute(DEFAULT_ROUTE);
+    } else if (!inputAmount) {
+      setRoute((current) => ({ ...current, amount: originAsset === "ETH" ? "0.01" : "25" }));
+    }
+    setApproved(value === "approval_confirmed");
+    setScene(value);
+  }
+
+  function selectProvider(value: keyof typeof PROVIDER_LABELS) {
+    const useCircle = value === "circle";
+    if (useCircle && !cctpRoute({ ...route, originAsset, destinationAsset })) setRoute(DEFAULT_ROUTE);
+    setCircle(useCircle);
+    setApproved(false);
+  }
+
+  const content = tracking ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={() => selectScene("quote")} idPrefix="bridge-preview" exchangeView={DIALOG_EXCHANGE} />;
+  const footerUsesCircle = (bridge.tracked?.provider ?? bridge.quote?.provider) === "cctp";
   return (
     <>
-    <main className="mx-auto max-w-3xl px-5 py-20">
-      <h1 className="text-2xl font-semibold">Bridge visual review</h1>
-      <p className="mt-3 text-sm text-body">Development-only synthetic data. No wallet requests, API calls, or funds.</p>
-      <p className="mt-2 text-sm text-muted">Base offers ETH and USDC. Arc uses USDC. Robinhood offers ETH; its USDC routes currently fail our safety checks. Elysium sends USDC only, and receives USDC or HYPE, its gas token. USDC sends use an exact-amount approval.</p>
-      <button type="button" aria-pressed={circle} className="mt-6 min-h-11 rounded-lg border border-line-strong px-4 text-sm aria-pressed:border-ink" onClick={() => { setCircle((value) => !value); if (!cctpRoute({ ...route, originAsset, destinationAsset })) setRoute({ originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" }); }}>quote from: {circle ? "Circle" : "Relay"}</button>
-      <div className="my-6 flex flex-wrap gap-2">{scenes.map((value) => <button key={value} type="button" className="min-h-11 rounded-lg border border-line-strong px-4 text-sm" onClick={() => { if (value.startsWith("approval_")) { if (!erc20Input) setRoute({ originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" }); setApproved(value === "approval_confirmed"); } else if (!parseBridgeAmount(amount, inputCurrency.decimals)) setRoute((current) => ({ ...current, amount: originAsset === "USDC" ? "25" : "0.01" })); setScene(value); setOpen(true); }}>{value.replaceAll("_", " ")}</button>)}</div>
-      <Dialog.Root open={open} onOpenChange={setOpen}>
-        <Dialog.Portal><Dialog.Backdrop className={styles.backdrop} /><Dialog.Popup className={styles.panel} initialFocus={false}>
-          <div className={styles.heading}><Dialog.Title className={styles.title}>Bridge</Dialog.Title><Dialog.Close className={styles.close} aria-label="Close preview"><X size={19} /></Dialog.Close></div>
-          <Dialog.Description className={styles.description}>Preview only · {scene} · no funds move</Dialog.Description>
-          {tracking ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={() => setScene("quote")} exchangeView={DIALOG_EXCHANGE} />}
-          <div className={styles.footer}><span>{viaCircle ? "Powered by Circle CCTP" : "Powered by Relay"}</span><span>0 Openlaunch fee</span></div>
-        </Dialog.Popup></Dialog.Portal>
-      </Dialog.Root>
-      <div className="mt-16 flex flex-wrap gap-2">{HISTORY_SCENES.map((value) => <button key={value} type="button" aria-pressed={historyScene === value} className="min-h-11 rounded-lg border border-line-strong px-4 text-sm aria-pressed:border-ink" onClick={() => setHistoryScene(value)}>history: {value}</button>)}</div>
-    </main>
-    <div className="mx-auto max-w-6xl px-5 pb-24">
-      <HistoryBoard wallet={historyScene === "no wallet" ? "" : wallet.toLowerCase()} rows={historyScene === "rows" || historyScene === "unsaved" ? HISTORY_ROWS : []} loading={historyScene === "loading"} unsaved={historyScene === "unsaved"} note="Preview only. Synthetic transfers, no wallet and no Relay call." onRefresh={() => {}} />
-      <h2 className="mt-16 text-lg font-semibold">Bridge, then buy</h2>
-      <p className="mt-2 text-sm text-body">The trade panel card, at trade panel width. Buttons do nothing here.</p>
-      <div className="mt-6 grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))]">
-        {FUND_SCENES.map(({ name, ...scene }) => <figure key={name} className="m-0 grid min-w-0 content-start gap-2"><figcaption className="text-xs text-muted">{name}</figcaption><FundCard {...scene} onBridge={() => {}} onOpen={() => {}} onDismiss={() => {}} /></figure>)}
-      </div>
-      <h2 className="mt-16 text-lg font-semibold">From an exchange</h2>
-      <p className="mt-2 text-sm text-body">The bridge panel&apos;s guide, at panel width. No balances are read here and buttons do nothing.</p>
-      <div className="mt-6 grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr))]">
-        {EXCHANGE_SCENES.map(({ name, ...scene }) => <figure key={name} className="m-0 grid min-w-0 content-start gap-2"><figcaption className="text-xs text-muted">{name}</figcaption><div className={signal.pagePanel}><ExchangeGuide {...scene} onBridge={() => {}} onBack={() => {}} onConnect={() => {}} /></div></figure>)}
-      </div>
-    </div>
+      <BridgePageLayout
+        introActions={<>
+          <a href="#trade-previews" className={shell.textLink}>Trade panel <ArrowDown size={14} aria-hidden /></a>
+          <Link href="/bridge" className={shell.textLink}>Live bridge <ArrowUpRight size={14} aria-hidden /></Link>
+        </>}
+        controls={
+          <section className={styles.toolbar} aria-labelledby="bridge-preview-heading">
+            <div className={styles.toolbarCopy}>
+              <h2 id="bridge-preview-heading">Development preview</h2>
+              <p>Sample data. No wallet requests, API calls, or funds.</p>
+            </div>
+            <div className={styles.toolbarActions}>
+              <ReviewSelect label="Bridge state" options={SCENE_LABELS} value={scene} onChange={selectScene} />
+              <ReviewSelect label="Quote provider" options={PROVIDER_LABELS} value={viaCircle ? "circle" : "relay"} onChange={selectProvider} />
+              <button type="button" className={shell.action} onClick={() => setOpen(true)}><PanelsTopLeft size={15} aria-hidden />Open dialog</button>
+            </div>
+          </section>
+        }
+        panel={
+          <section className={signal.pagePanel} aria-label="Bridge">
+            {open ? <p className={styles.dialogNotice}>The bridge preview is open in a dialog.</p> : content}
+            <BridgeFooter circle={footerUsesCircle} hideHistory />
+          </section>
+        }
+        history={<>
+          <div className={styles.historyPreview}>
+            <ReviewSelect label="Transfer history state" options={HISTORY_LABELS} value={historyScene} onChange={setHistoryScene} />
+            <HistoryBoard wallet={historyScene === "no wallet" ? "" : wallet.toLowerCase()} rows={historyScene === "rows" || historyScene === "unsaved" ? HISTORY_ROWS : []} loading={historyScene === "loading"} unsaved={historyScene === "unsaved"} note="Preview only. Sample transfers for this browser session." onRefresh={() => {}} />
+          </div>
+          <section id="trade-previews" className={styles.trade} aria-labelledby="trade-preview-heading">
+            <h2 id="trade-preview-heading">Bridge, then buy</h2>
+            <p>Preview how the funding card looks inside the token trade panel.</p>
+            <div className={styles.tradeGrid}>
+              {FUND_SCENES.map(({ name, ...fixture }) => (
+                <figure key={name}>
+                  <figcaption>{name}</figcaption>
+                  <FundCard {...fixture} onBridge={() => {}} onOpen={() => {}} onDismiss={() => {}} />
+                </figure>
+              ))}
+            </div>
+          </section>
+          <section className={styles.trade} aria-labelledby="exchange-preview-heading">
+            <h2 id="exchange-preview-heading">From an exchange</h2>
+            <p>Each state of the bridge panel&apos;s exchange guide. No balances are read here and its buttons do nothing.</p>
+            <div className={`${styles.tradeGrid} ${styles.guideGrid}`}>
+              {EXCHANGE_SCENES.map(({ name, ...fixture }) => (
+                <figure key={name}>
+                  <figcaption>{name}</figcaption>
+                  <div className={signal.pagePanel}><ExchangeGuide {...fixture} onBridge={() => {}} onBack={() => {}} onConnect={() => {}} /></div>
+                </figure>
+              ))}
+            </div>
+          </section>
+        </>}
+      />
+      <BridgeModal
+        open={open}
+        onOpenChange={setOpen}
+        closeLabel="Close preview"
+        description="Development preview. No funds move."
+        footer={<BridgeFooter circle={footerUsesCircle} historyHref="#transfers" onHistory={() => setOpen(false)} />}
+      >
+        {open ? content : null}
+      </BridgeModal>
     </>
   );
 }

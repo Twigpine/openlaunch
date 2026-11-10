@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
-import { ArrowLeft, ArrowLeftRight, Coins, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, Copy, LoaderCircle, Wallet, X } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, Coins, Copy, Fuel, History, Info, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress, type Address } from "viem";
 import { BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_SEND_ASSETS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeAssets, bridgeProviderName, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
@@ -191,7 +191,6 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = 
 }) {
   const onPage = slot !== null;
   const bridge = useBridge(open || onPage);
-  const popup = useRef<HTMLDivElement>(null);
   const [connecting, setConnecting] = useState(false);
   const transferring = bridge.tracked !== null;
   const linkKey = link ? `${linkCount}:${bridgeLinkKey(link)}` : "";
@@ -214,43 +213,81 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = 
   }
 
   const circle = (bridge.tracked?.provider ?? bridge.quote?.provider) === "cctp";
-  const footer = (
-    <div className={styles.footer}>
-      {circle
-        ? <a href="https://developers.circle.com/cctp" target="_blank" rel="noreferrer">Powered by Circle CCTP <ArrowUpRight size={12} aria-hidden /></a>
-        : <a href="https://relay.link" target="_blank" rel="noreferrer">Powered by Relay <ArrowUpRight size={12} aria-hidden /></a>}
-      {onPage ? null : <Link href="/bridge#transfers" onClick={() => onOpenChange(false)}>Your transfers</Link>}
-      <span>0 Openlaunch fee</span>
-    </div>
-  );
+  const footer = <BridgeFooter circle={circle} hideHistory={onPage} onHistory={() => onOpenChange(false)} />;
   const content = transferring ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={connect} />;
 
   return (
     <>
       {onPage ? createPortal(<section className={signal.pagePanel} aria-label="Bridge">{content}{footer}</section>, slot) : null}
-      <Dialog.Root open={open && !onPage} onOpenChange={onOpenChange}>
-        <Dialog.Portal>
-          <Dialog.Backdrop className={styles.backdrop} />
-          <Dialog.Popup ref={popup} initialFocus={popup} finalFocus={connecting ? false : restoreFocus} className={styles.panel} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}>
-            <div className={styles.heading}>
-              <Dialog.Title className={styles.title}>Bridge</Dialog.Title>
-              <Dialog.Close className={styles.close} aria-label="Close bridge"><X size={19} aria-hidden /></Dialog.Close>
-            </div>
-            <Dialog.Description className={styles.description}>{transferring ? "Your transfer, from departure to arrival." : "Same wallet. A new network."}</Dialog.Description>
-            {content}
-            {footer}
-          </Dialog.Popup>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <BridgeModal
+        open={open && !onPage}
+        onOpenChange={onOpenChange}
+        description={transferring ? "Track your transfer to arrival." : "Same wallet on a new network."}
+        footer={footer}
+        finalFocus={connecting ? false : restoreFocus}
+      >
+        {content}
+      </BridgeModal>
       {connecting ? <WalletPicker onClose={() => { setConnecting(false); if (!onPage) onOpenChange(true); }} /> : null}
     </>
+  );
+}
+
+export function BridgeModal({ open, onOpenChange, description, children, footer, finalFocus, closeLabel = "Close bridge" }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  description: string;
+  children: ReactNode;
+  footer: ReactNode;
+  finalFocus?: false | (() => HTMLElement | null);
+  closeLabel?: string;
+}) {
+  const popup = useRef<HTMLDivElement>(null);
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className={styles.backdrop} />
+        <Dialog.Popup ref={popup} initialFocus={popup} finalFocus={finalFocus} className={styles.panel} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}>
+          <header className={styles.dialogHeader}>
+            <span className={styles.headerMark} aria-hidden><ArrowLeftRight size={19} /></span>
+            <div className={styles.headingCopy}>
+              <Dialog.Title className={styles.title}>Bridge</Dialog.Title>
+              <Dialog.Description className={styles.description}>{description}</Dialog.Description>
+            </div>
+            <Dialog.Close className={styles.close} aria-label={closeLabel}><X size={19} aria-hidden /></Dialog.Close>
+          </header>
+          <div className={styles.dialogBody}>{children}</div>
+          {footer}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+export function BridgeFooter({ circle, hideHistory = false, historyHref = "/bridge#transfers", onHistory }: {
+  circle: boolean;
+  hideHistory?: boolean;
+  historyHref?: string;
+  onHistory?: () => void;
+}) {
+  const provider = circle ? "Circle CCTP" : "Relay";
+  return (
+    <div className={styles.footer}>
+      <div className={styles.footerMeta}>
+        <a className={styles.providerLink} href={circle ? "https://developers.circle.com/cctp" : "https://relay.link"} target="_blank" rel="noreferrer">
+          Via {provider} <ArrowUpRight size={12} aria-hidden />
+        </a>
+        <span className={styles.feeLabel} title="0% Openlaunch fee"><strong>0%</strong> app fee</span>
+      </div>
+      {hideHistory ? null : <Link className={styles.historyLink} href={historyHref} onClick={onHistory}><History size={15} aria-hidden />Your transfers</Link>}
+    </div>
   );
 }
 
 /**
  * `exchangeView` stands in for the live balance watch in the development fixture, so its guide never reads a network.
  */
-export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridge; connect: () => void; exchangeView?: ExchangeView }) {
+export function BridgeForm({ bridge: b, connect, idPrefix = "bridge", exchangeView }: { bridge: Bridge; connect: () => void; idPrefix?: string; exchangeView?: ExchangeView }) {
   // "opened" from the form's link takes focus; "resumed" (left open in this tab: the panel closed while waiting, or a
   // wallet connected from it) does not, so reopening the panel or loading /bridge never jumps to it
   const [guide, setGuide] = useState<false | "opened" | "resumed">(false);
@@ -259,12 +296,16 @@ export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridg
     resume();
   }, []);
   if (b.approval && (b.approval.status === "pending" || b.approval.status === "uncertain")) return <ApprovalProgress bridge={b} />;
+  const amountId = `${idPrefix}-amount`;
+  const balanceId = `${idPrefix}-balance`;
+  const gasNoteId = `${idPrefix}-gas-note`;
+  const exchangeLinkId = `${idPrefix}-exchange-link`;
   const openGuide = () => {
     try { window.sessionStorage.setItem(EXCHANGE_OPEN_KEY, String(Date.now())); } catch { /* open for this view only */ }
     setGuide("opened");
   };
   // back in the form, focus lands where the guide left off: its link, or the amount it filled in
-  const closeGuide = (focus: "bridge-exchange-link" | "bridge-amount") => {
+  const closeGuide = (focus: string) => {
     clearExchangeWatch();
     setGuide(false);
     window.requestAnimationFrame(() => document.getElementById(focus)?.focus());
@@ -277,9 +318,9 @@ export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridg
         b.setOriginAsset(next.originAsset);
         if (next.amount) b.setAmount(next.amount);
       }
-      closeGuide(next.kind === "bridge" ? "bridge-amount" : "bridge-exchange-link");
+      closeGuide(next.kind === "bridge" ? amountId : exchangeLinkId);
     };
-    const props = { address: b.address, destinationChainId: b.destinationChainId, focusOnMount: guide === "opened", onBridge: bridgeFrom, onBack: () => closeGuide("bridge-exchange-link"), onConnect: connect };
+    const props = { address: b.address, destinationChainId: b.destinationChainId, focusOnMount: guide === "opened", onBridge: bridgeFrom, onBack: () => closeGuide(exchangeLinkId), onConnect: connect };
     return exchangeView ? <ExchangeGuide {...props} view={exchangeView} /> : <LiveExchangeGuide {...props} />;
   }
   const locked = b.busy || b.approvalBusy;
@@ -304,6 +345,8 @@ export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridg
     : reviewing && b.approvalRequired ? `Approve ${nativeAmount(b.amount)} ${inputCurrency.symbol}`
     : reviewing ? `Bridge to ${destination.name}` : b.quoteError ? "Retry quote" : !b.canQuote ? "Enter an amount" : "Get quote";
   const error = (!b.quoteRejection && b.quoteError) || b.error || b.storageError || b.approvalError;
+  const quoteHint = b.quoteLoading ? "Getting quote…" : b.quoteError ? "Quote unavailable"
+    : b.address ? "Enter amount for a quote" : "Connect to see a quote";
   const mode = signalMode({ phase: b.phase, tracked: false, approvalActive: b.approvalBusy, quoteLoading: b.quoteLoading, reviewing, quoteExpired: needsRefresh, blocked: !!b.quoteRejection || !!b.quoteError });
   // the deposit, and only the deposit, can also be confirmed by sliding: never an approval, a quote or a refresh
   const slideReady = !!b.address && reviewing && !b.approvalRequired && !loading && !b.allowanceLoading;
@@ -330,22 +373,39 @@ export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridg
       </div>
       {walletFunding !== null ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setOriginChainId(walletFunding)}>Your wallet is on {BRIDGE_CHAINS[walletFunding].name}. Send from {BRIDGE_CHAINS[walletFunding].name}</button> : null}
       {convertsAsset ? <p className={styles.conversionNote}>{inputCurrency.symbol} <ArrowRight size={12} aria-hidden /> {outputCurrency.symbol}<span>Converted by Relay</span></p> : null}
-      {b.originChainId === 4663 || b.destinationChainId === 4663 ? <p className={styles.routeNotice}>USDC on Robinhood is unavailable: its routes do not pass our current safety checks. ETH and USDG are available.</p> : null}
+      {b.originChainId === 4663 || b.destinationChainId === 4663 ? (
+        <details className={styles.routeAvailability}>
+          <summary><Info size={14} aria-hidden /><span>Robinhood supports ETH and USDG</span><ChevronDown size={14} aria-hidden /></summary>
+          <p>USDC routes on Robinhood are unavailable because they don’t pass our current safety checks.</p>
+        </details>
+      ) : null}
       {b.destinationChainId === 99901 && b.destinationAsset !== "HYPE" ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setDestinationAsset("HYPE")}>Gas on Elysium is paid in HYPE. With none there yet, receive HYPE instead</button> : null}
       {erc20Input && b.approval?.chainId === b.originChainId && b.approval.status === "confirmed" && !b.quote ? <p className={styles.approvalNotice} role="status">{inputCurrency.symbol} approval confirmed. Review a fresh quote before bridging. No funds have been bridged yet.</p> : null}
 
-      <div className={styles.amountSection}>
-        <label htmlFor="bridge-amount" className={styles.smallLabel}>You send</label>
-        <div className={styles.amountRow}>
-          <input id="bridge-amount" name="bridge-amount" inputMode="decimal" autoComplete="off" spellCheck={false} placeholder="0.00" maxLength={40} value={b.amount} onChange={(event) => b.setAmount(event.target.value)} disabled={locked} aria-describedby="bridge-balance bridge-gas-note" />
-          <AssetSelect label="Send" chain={b.originChainId} asset={b.originAsset} disabled={locked} onChange={b.setOriginAsset} />
+      <div className={styles.amountStack}>
+        <div className={styles.amountSection}>
+          <label htmlFor={amountId} className={styles.smallLabel}>You send</label>
+          <div className={styles.amountRow}>
+            <input id={amountId} name="bridge-amount" inputMode="decimal" autoComplete="off" spellCheck={false} placeholder="0.00" maxLength={40} value={b.amount} onChange={(event) => b.setAmount(event.target.value)} disabled={locked} aria-describedby={`${balanceId} ${gasNoteId}`} />
+            <AssetSelect label="Send" chain={b.originChainId} asset={b.originAsset} disabled={locked} onChange={b.setOriginAsset} />
+          </div>
+          <p id={balanceId} className={styles.balance}>{!b.address ? `${inputCurrency.symbol} on ${origin.name}` : b.balanceLoading ? "Checking your balance…" : b.balance !== undefined ? `Available: ${nativeAmount(formatUnits(b.balance, inputCurrency.decimals))} ${inputCurrency.symbol}` : b.balanceError ?? "Balance unavailable"}</p>
+          {b.address && erc20Input && b.originChainId !== 5042 && b.nativeBalance !== undefined ? <p className={styles.balance}>For gas: {nativeAmount(b.nativeBalance)} {origin.symbol}</p> : null}
+          {!reviewing ? <button type="button" id={exchangeLinkId} className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button> : null}
         </div>
-        <p id="bridge-balance" className={styles.balance}>{!b.address ? `${inputCurrency.symbol} on ${origin.name}` : b.balanceLoading ? "Checking your balance…" : b.balance !== undefined ? `Available: ${nativeAmount(formatUnits(b.balance, inputCurrency.decimals))} ${inputCurrency.symbol}` : b.balanceError ?? "Balance unavailable"}</p>
-        {b.address && erc20Input && b.originChainId !== 5042 && b.nativeBalance !== undefined ? <p className={styles.balance}>For gas: {nativeAmount(b.nativeBalance)} {origin.symbol}</p> : null}
-        {!reviewing ? <button type="button" id="bridge-exchange-link" className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button> : null}
+        <div className={styles.destinationAsset}>
+          <div className={styles.receiveCopy}>
+            <span className={styles.smallLabel}>Receive on {destination.name}</span>
+            <span className={styles.quoteHint} role="status">
+              {!b.quote && !b.quoteRejection ? <>
+                {b.quoteLoading ? <LoaderCircle size={12} className={styles.spinner} aria-hidden /> : null}
+                {quoteHint}
+              </> : null}
+            </span>
+          </div>
+          <AssetSelect label="Receive" chain={b.destinationChainId} asset={b.destinationAsset} disabled={locked} onChange={b.setDestinationAsset} />
+        </div>
       </div>
-
-      <div className={styles.destinationAsset}><span className={styles.smallLabel}>Receive on {destination.name}</span><AssetSelect label="Receive" chain={b.destinationChainId} asset={b.destinationAsset} disabled={locked} onChange={b.setDestinationAsset} /></div>
 
       {b.quote ? (
         <div className={styles.quote} aria-live="polite">
@@ -362,26 +422,40 @@ export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridg
           <p className={styles.quoteNotice}>{needsRefresh ? "This quote expired. Refresh and review the new amounts." : circle ? "Circle takes one fixed fee, so this is the exact amount you receive. Arrival time and gas can change." : "0.5% slippage limit. Arrival time and gas can change."}</p>
           {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} {inputCurrency.symbol} for {circle ? "Circle’s transfer contract" : "Relay’s deposit contract"}. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
         </div>
-      ) : b.quoteRejection ? <FeeLimitNotice rejection={b.quoteRejection} inputSymbol={inputCurrency.symbol} gasSymbol={origin.symbol} /> : <div className={styles.previewNote} role="status" aria-live="polite">
-        {b.quoteLoading ? <LoaderCircle size={16} className={styles.spinner} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
-        <p>{b.quoteLoading ? "Updating your quote…" : b.quoteError ? "No quote available yet." : b.address ? "Enter an amount. We’ll find your route." : "See your route before you commit."}<br />
-          <span>{b.quoteLoading ? "Keep typing. We’ll use your latest amount." : "Quotes update automatically. No wallet request until you confirm."}</span></p>
-      </div>}
+      ) : b.quoteRejection ? <FeeLimitNotice rejection={b.quoteRejection} inputSymbol={inputCurrency.symbol} gasSymbol={origin.symbol} /> : null}
 
       {b.address ? <Recipient address={b.address} /> : null}
       {error ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{error}</span></p> : null}
-      {slideReady ? <SlideConfirm key={b.quote!.requestId} label={`Slide to bridge to ${destination.name}`} front={<AssetMark asset={inputCurrency.symbol} size={26} />} back={convertsAsset ? <AssetMark asset={outputCurrency.symbol} size={26} /> : null} onConfirm={runWalletAction} /> : null}
-      <button
-        type={quoteAction ? "submit" : "button"}
-        className={slideReady ? styles.secondary : styles.primary}
-        disabled={actionDisabled}
-        onClick={quoteAction ? undefined : runWalletAction}
-      >
-        {loading ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : !b.address ? <Wallet size={17} aria-hidden /> : null}
-        {b.address ? label : "Connect wallet"}
-        {!loading && b.address ? <ArrowRight size={17} aria-hidden /> : null}
-      </button>
-      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses {provider}, a third-party protocol, and carries risk. Openlaunch does not operate {provider}, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? `An unspent ${inputCurrency.symbol} approval remains until used or revoked.` : "No token approvals required."}</p>
+      <details className={styles.safety}>
+        <summary>
+          <span className={styles.gasLabel} id={gasNoteId}><Fuel size={14} aria-hidden />Gas in {origin.symbol} on {origin.name}</span>
+          <span className={styles.safetyToggle}>Details <ChevronDown size={13} aria-hidden /></span>
+        </summary>
+        <div className={styles.safetyCopy}>
+          <p>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}{erc20Input ? `An unused ${inputCurrency.symbol} approval stays active until you use or revoke it.` : "No token approvals required."}</p>
+          <p>Bridging uses {provider}, a third-party protocol, and carries risk. Openlaunch does not operate {provider}, holds no funds in transit, and is not responsible for delays, refunds or losses.</p>
+        </div>
+      </details>
+      <div className={styles.formActions} data-pin={!b.quote && !b.quoteRejection && !error || undefined}>
+        {slideReady ? <SlideConfirm key={b.quote!.requestId} label={`Slide to bridge to ${destination.name}`} front={<AssetMark asset={inputCurrency.symbol} size={26} />} back={convertsAsset ? <AssetMark asset={outputCurrency.symbol} size={26} /> : null} onConfirm={runWalletAction} /> : null}
+        <button
+          type={quoteAction ? "submit" : "button"}
+          className={slideReady ? styles.secondary : styles.primary}
+          disabled={actionDisabled}
+          onClick={quoteAction ? undefined : runWalletAction}
+          data-connect={!b.address || undefined}
+        >
+          {b.address ? <>
+            {loading ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : null}
+            {label}
+            {!loading ? <ArrowRight size={17} aria-hidden /> : null}
+          </> : <>
+            <span className={styles.actionMark}><Wallet size={17} aria-hidden /></span>
+            <span>Connect wallet</span>
+            <ArrowRight className={styles.actionArrow} size={17} aria-hidden />
+          </>}
+        </button>
+      </div>
     </form>
   );
 }

@@ -2,14 +2,14 @@
    The board is a dark object in both themes (an LED strip is not a light-mode surface), so its plate and lights are
    literal colours; everything around it follows the site tokens. */
 
-.board { margin-bottom: 18px; padding: 10px 10px 8px; border: 1px solid #1c1f27; border-radius: 14px; background: #050608; }
+.board { margin-bottom: 14px; padding: 8px 10px 7px; border: 1px solid #232832; border-radius: 14px; background: linear-gradient(165deg, #111722, #050608 62%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .07); }
 .boardRuler { display: block; height: 0; }
 .boardCanvas { display: block; width: 100%; }
-.caption { margin: 6px 2px 0; min-height: 20px; overflow: hidden; color: #6d9dff; font-family: var(--font-dots), var(--font-mono); font-variation-settings: "ROND" 100; font-size: 13px; font-weight: 800; line-height: 20px; text-align: center; white-space: nowrap; }
+.caption { margin: 3px 2px 0; min-height: 18px; overflow: hidden; color: #6d9dff; font-family: var(--font-dots), var(--font-mono); font-variation-settings: "ROND" 100; font-size: 12px; font-weight: 800; line-height: 18px; text-align: center; white-space: nowrap; }
 .caption[data-mode="idle"], .caption[data-mode="expired"] { color: #7b8494; }
 .caption[data-mode="arrived"] { color: #3ddc97; }
 .caption[data-mode="refund"], .caption[data-mode="attention"], .caption[data-mode="blocked"] { color: #fbbf24; }
-.caption span { display: inline-block; animation: roll 360ms cubic-bezier(.16, 1, .3, 1) both; }
+.caption span { display: inline-block; animation: roll 220ms cubic-bezier(.16, 1, .3, 1) both; }
 @keyframes roll { from { opacity: 0; transform: translateY(105%); } to { opacity: 1; transform: none; } }
 
 .slide { margin-top: 4px; }
