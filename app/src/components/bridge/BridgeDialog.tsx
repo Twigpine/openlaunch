@@ -60,7 +60,12 @@ function AssetMark({ asset, size = 24 }: { asset: BridgeAsset; size?: number }) 
 function AssetSelect({ label, chain, asset, disabled, onChange }: { label: "Send" | "Receive"; chain: BridgeChainId; asset: BridgeAsset; disabled: boolean; onChange: (asset: BridgeAsset) => void }) {
   const [instant, setInstant] = useState(false);
   const choices = BRIDGE_ASSETS[chain];
-  if (choices.length === 1) return <span className={styles.currency} aria-label={`${label} token: ${asset}`}><AssetMark asset={asset} size={28} />{asset}</span>;
+  if (choices.length === 1) return (
+    <span className={styles.fixedAsset}>
+      <span className={styles.currency} aria-label={`${label} token: ${asset}`}><AssetMark asset={asset} size={28} />{asset}</span>
+      {chain === 99901 ? <span className={styles.assetRequirement}>USDC only · Gas in HYPE</span> : null}
+    </span>
+  );
   return <Select.Root value={asset} items={choices.map((value) => ({ value, label: value }))} disabled={disabled}
     onValueChange={(value) => { if (isBridgeAssetSupported(chain, value)) onChange(value); }}
     onOpenChange={(_, details) => setInstant(details.event.type.startsWith("key"))}>
@@ -264,18 +269,19 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
   // the deposit, and only the deposit, can also be confirmed by sliding: never an approval, a quote or a refresh
   const slideReady = !!b.address && reviewing && !b.approvalRequired && !loading && !b.allowanceLoading;
   const actionDisabled = loading || b.allowanceLoading || (!!b.address && !b.canQuote);
+  const quoteAction = !!b.address && !reviewing;
 
-  function runPrimaryAction() {
-    if (!b.address) { connect(); return; }
+  function runWalletAction() {
     if (actionDisabled) return;
-    void (reviewing ? b.approvalRequired ? b.approve() : b.confirm() : b.requestQuote());
+    if (!b.address) { connect(); return; }
+    if (reviewing) void (b.approvalRequired ? b.approve() : b.confirm());
   }
 
   return (
     <form className={dotFont.variable} onSubmit={(event) => {
       event.preventDefault();
       // Enter from the amount field can fetch a quote. Wallet actions use the button or slider.
-      if (b.address && !actionDisabled && !reviewing) void b.requestQuote();
+      if (quoteAction && !actionDisabled) void b.requestQuote();
     }}>
       <SignalBoard from={b.originChainId} to={b.destinationChainId} mode={mode} caption={signalCaption(mode, destination.name)} />
       <div className={styles.route}>
@@ -286,7 +292,6 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
       {walletFunding !== null ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setOriginChainId(walletFunding)}>Your wallet is on {BRIDGE_CHAINS[walletFunding].name}. Send from {BRIDGE_CHAINS[walletFunding].name}</button> : null}
       {convertsAsset ? <p className={styles.conversionNote}>{inputCurrency.symbol} <ArrowRight size={12} aria-hidden /> {outputCurrency.symbol}<span>Converted by Relay</span></p> : null}
       {b.originChainId === 4663 || b.destinationChainId === 4663 ? <p className={styles.routeNotice}>USDC on Robinhood is unavailable: its routes do not pass our current safety checks. ETH and USDG are available.</p> : null}
-      {b.originChainId === 99901 || b.destinationChainId === 99901 ? <p className={styles.routeNotice}>Only USDC moves to and from Elysium. Gas there is HYPE, which this bridge does not carry, so keep some HYPE on Elysium to use or send your USDC.</p> : null}
       {erc20Input && b.approval?.chainId === b.originChainId && b.approval.status === "confirmed" && !b.quote ? <p className={styles.approvalNotice} role="status">{inputCurrency.symbol} approval confirmed. Review a fresh quote before bridging. No funds have been bridged yet.</p> : null}
 
       <div className={styles.amountSection}>
@@ -324,8 +329,13 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
 
       {b.address ? <Recipient address={b.address} /> : null}
       {error ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{error}</span></p> : null}
-      {slideReady ? <SlideConfirm key={b.quote!.requestId} label={`Slide to bridge to ${destination.name}`} front={<AssetMark asset={inputCurrency.symbol} size={26} />} back={convertsAsset ? <AssetMark asset={outputCurrency.symbol} size={26} /> : null} onConfirm={runPrimaryAction} /> : null}
-      <button type="button" className={slideReady ? styles.secondary : styles.primary} disabled={actionDisabled} onClick={runPrimaryAction}>
+      {slideReady ? <SlideConfirm key={b.quote!.requestId} label={`Slide to bridge to ${destination.name}`} front={<AssetMark asset={inputCurrency.symbol} size={26} />} back={convertsAsset ? <AssetMark asset={outputCurrency.symbol} size={26} /> : null} onConfirm={runWalletAction} /> : null}
+      <button
+        type={quoteAction ? "submit" : "button"}
+        className={slideReady ? styles.secondary : styles.primary}
+        disabled={actionDisabled}
+        onClick={quoteAction ? undefined : runWalletAction}
+      >
         {loading ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : !b.address ? <Wallet size={17} aria-hidden /> : null}
         {b.address ? label : "Connect wallet"}
         {!loading && b.address ? <ArrowRight size={17} aria-hidden /> : null}

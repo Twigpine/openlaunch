@@ -72,7 +72,7 @@ export default function BridgeHistory() {
 /** The board itself, from plain props, so the development fixture can show every state without a wallet. */
 export function HistoryBoard({ wallet, rows, loading, note, unsaved, onRefresh }: { wallet: string; rows: readonly BridgeHistoryEntry[]; loading: boolean; note: string; unsaved: boolean; onRefresh: () => void }) {
   return (
-    <section id="transfers" className={`${styles.history} ${dotFont.variable}`} aria-labelledby="bridge-transfers">
+    <section id="transfers" className={`${styles.history} ${dotFont.variable}`} aria-labelledby="bridge-transfers" tabIndex={-1}>
       <div className={styles.head}>
         <div>
           <h2 id="bridge-transfers">Your transfers</h2>

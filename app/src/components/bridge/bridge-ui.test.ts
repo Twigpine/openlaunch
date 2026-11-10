@@ -70,12 +70,13 @@ test("the signal board is decorative and sliding confirms the deposit only", () 
   assert.equal((panel.match(/<SignalBoard /g) ?? []).length, 3, "form, approval and transfer views");
   // the slide appears for the deposit alone, and runs the very same guarded path as the button
   assert.match(panel, /const slideReady = !!b\.address && reviewing && !b\.approvalRequired && !loading && !b\.allowanceLoading;/);
-  assert.match(panel, /\{slideReady \? <SlideConfirm key=\{b\.quote!\.requestId\}[^\n]+onConfirm=\{runPrimaryAction\} \/> : null\}/);
+  assert.match(panel, /\{slideReady \? <SlideConfirm key=\{b\.quote!\.requestId\}[^\n]+onConfirm=\{runWalletAction\} \/> : null\}/);
   const formSubmit = panel.match(/<form className=\{dotFont\.variable\} onSubmit=\{\(event\) => \{([\s\S]*?)\}\}>/)?.[1] ?? "";
   assert.match(formSubmit, /event\.preventDefault\(\);/);
-  assert.match(formSubmit, /if \(b\.address && !actionDisabled && !reviewing\) void b\.requestQuote\(\);/);
-  assert.doesNotMatch(formSubmit, /runPrimaryAction|\.approve\(|\.confirm\(|connect\(/, "implicit submission can only request a quote");
-  assert.match(panel, /<button type="button" className=\{slideReady \? styles\.secondary : styles\.primary\} disabled=\{actionDisabled\} onClick=\{runPrimaryAction\}/, "the ordinary button never goes away");
+  assert.match(formSubmit, /if \(quoteAction && !actionDisabled\) void b\.requestQuote\(\);/);
+  assert.doesNotMatch(formSubmit, /runWalletAction|\.approve\(|\.confirm\(|connect\(/, "implicit submission can only request a quote");
+  assert.match(panel, /const quoteAction = !!b\.address && !reviewing/);
+  assert.match(panel, /<button\s+type=\{quoteAction \? "submit" : "button"\}\s+className=\{slideReady \? styles\.secondary : styles\.primary\}\s+disabled=\{actionDisabled\}\s+onClick=\{quoteAction \? undefined : runWalletAction\}/, "only the quote action submits the form");
   assert.equal((panel.match(/b\.confirm\(\)/g) ?? []).length, 1);
   assert.equal((panel.match(/b\.approve\(\)/g) ?? []).length, 1);
   // only a release or Enter at the end confirms, read from the live drag, never from movement
@@ -94,7 +95,7 @@ test("the signal board is decorative and sliding confirms the deposit only", () 
 
 test("bridge review names minimum, separate gas, recipient, risk and expiry", () => {
   for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0 Openlaunch fee"]) assert.ok(panel.includes(content), content);
-  assert.match(panel, /reviewing \? b.approvalRequired \? b.approve\(\) : b.confirm\(\) : b.requestQuote\(\)/);
+  assert.match(panel, /if \(reviewing\) void \(b\.approvalRequired \? b\.approve\(\) : b\.confirm\(\)\);/);
   assert.doesNotMatch(panel, /dangerouslySetInnerHTML|setInterval|sendTransaction/);
 });
 
@@ -186,8 +187,7 @@ test("USDC selectors separate selected token units from native gas and disallow 
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
   assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
   assert.match(panel, /USDC on Robinhood is unavailable: its routes do not pass our current safety checks\. ETH and USDG are available\./);
-  // Elysium carries USDC only, and says its gas is HYPE, which the bridge does not carry
-  assert.ok(panel.includes(`{b.originChainId === 99901 || b.destinationChainId === 99901 ? <p className={styles.routeNotice}>Only USDC moves to and from Elysium. Gas there is HYPE, which this bridge does not carry, so keep some HYPE on Elysium to use or send your USDC.</p> : null}`));
+  assert.match(panel, /chain === 99901 \? <span className=\{styles\.assetRequirement\}>USDC only · Gas in HYPE<\/span>/);
   assert.ok(panel.includes('if (chain === 99901) return <span className={`${styles.networkMark} ${styles.elysiumMark}`} aria-hidden><Image src="/brand/elysium.png"'));
   assert.ok(css.includes(".elysiumMark img { border-radius: 7px; }"));
   // each asset is named in full, and says which token pays its chain's gas
@@ -257,7 +257,8 @@ test("quotes update without locking typing or automatically submitting wallet ac
   assert.match(hook, /busy: sending \|\| approvalSending \|\| approvalPending,/);
   assert.match(panel, /const loading = locked \|\| b.quoteLoading/);
   assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
-  assert.match(panel, /if \(loading \|\| b.allowanceLoading \|\| !b.canQuote\) return/);
+  assert.match(panel, /const actionDisabled = loading \|\| b\.allowanceLoading \|\| \(!!b\.address && !b\.canQuote\)/);
+  assert.match(panel, /if \(actionDisabled\) return/);
   assert.match(panel, /Your quote updates automatically/);
   assert.match(panel, /rejection.reason === "relay-fee"/);
   assert.match(panel, /rejection.relayFeePercent/);

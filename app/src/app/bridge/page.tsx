@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowDown, ArrowLeftRight } from "lucide-react";
 import { pageMetadata } from "@/lib/seo";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
@@ -36,7 +36,9 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
         icon={<ArrowLeftRight />}
         title="Move funds to where you launch"
         description="Send ETH and dollars between Base, Robinhood Chain, Arc and Elysium, or bring them in from Ethereum, Arbitrum and Optimism. They arrive at the same wallet address. openlaunch charges nothing for it."
-      />
+      >
+        <a href="#transfers" className={shell.textLink}>Your transfers <ArrowDown size={14} aria-hidden="true" /></a>
+      </SectionIntro>
       <div className={styles.layout}>
         <BridgePageSlot link={link} />
         <div className={styles.facts}>
