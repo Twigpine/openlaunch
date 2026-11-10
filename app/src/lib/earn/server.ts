@@ -19,7 +19,7 @@ export function earnEnabled(): boolean {
 }
 
 /** Rough block times, to find the block about 30 days back; the rate itself uses the two blocks' real timestamps. */
-const BLOCK_TIME_S: Record<ChainKey, number> = { base: 2, robinhood: 0.1, arc: 0.5 };
+const BLOCK_TIME_S: Record<ChainKey, number> = { base: 2, robinhood: 0.1, arc: 0.5, elysium: 0.1 };
 /** The vault's figures move slowly and every visitor sees the same ones: one read per 10 minutes per vault. */
 const SNAPSHOT_TTL_MS = 10 * 60_000;
 

@@ -59,7 +59,7 @@ const BASE_VAULT: EarnVault = {
   reviewed: { performanceFee: 0n, managementFee: 0n, on: "2026-10-14" },
 };
 
-export const EARN_VAULTS: Record<ChainKey, EarnVault | null> = { base: BASE_VAULT, robinhood: null, arc: null };
+export const EARN_VAULTS: Record<ChainKey, EarnVault | null> = { base: BASE_VAULT, robinhood: null, arc: null, elysium: null };
 
 /** Morpho's VaultV2Factory on Base: `isVaultV2(vault)` proves a vault was deployed by it (the opt-in live test reads it). */
 export const VAULT_V2_FACTORY_BASE: Address = "0x4501125508079A99ebBebCE205DeC9593C2b5857";

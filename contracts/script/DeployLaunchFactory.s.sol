@@ -9,7 +9,7 @@ import {LaunchFactory} from "src/LaunchFactory.sol";
 import {LaunchFactoryArc} from "src/LaunchFactoryArc.sol";
 
 /// Deploys the fee-free LaunchFactory (+ its LaunchLocker) against the canonical
-/// Uniswap v4 deployment of the current chain (Base 8453, Robinhood Chain 4663, Arc 5042).
+/// Uniswap v4 deployment of the current chain (Base 8453, Robinhood Chain 4663, Arc 5042, Elysium 99901).
 /// On Arc it deploys LaunchFactoryArc (src/LaunchFactoryArc.sol: the same contract plus the native-quote guard).
 /// There is nothing to configure: no fee recipient, no bps, no owner.
 ///
@@ -21,6 +21,7 @@ import {LaunchFactoryArc} from "src/LaunchFactoryArc.sol";
 ///   forge script script/DeployLaunchFactory.s.sol --rpc-url https://mainnet.base.org --broadcast
 ///   forge script script/DeployLaunchFactory.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
 ///   forge script script/DeployLaunchFactory.s.sol --rpc-url $ARC_RPC_URL --broadcast   (Arc: gas is paid in USDC; fund the deployer with USDC)
+///   forge script script/DeployLaunchFactory.s.sol --rpc-url $ELYSIUM_RPC_URL --broadcast   (Elysium: gas is paid in HYPE; fund the deployer with HYPE)
 /// Then verify factory + locker (constructor args: factory = pm, posm, permit2;
 /// locker = posm) and point the app at the factory address.
 contract DeployLaunchFactory is Script {
@@ -36,6 +37,11 @@ contract DeployLaunchFactory is Script {
         if (chainId == 5042) {
             // Uniswap/contracts deployments/5042.md — same PoolManager address as Robinhood, a different PositionManager
             return (0x8366a39CC670B4001A1121B8F6A443A643e40951, 0x6049c9a0e26405C0985f9E3685C87d0aE917f82B);
+        }
+        if (chainId == 99901) {
+            // Elysium (Kinetiq's Arbitrum Orbit L2 for Hyperliquid): Uniswap/contracts deployments/99901.md. Plain LaunchFactory:
+            // HYPE is an ordinary native asset with no ERC-20 face sharing its balance (test/LaunchFactory.elysium.fork.t.sol)
+            return (0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1, 0x1d1C51b9d07fD27d36412A2b66CC23D19Eb3E518);
         }
         return (address(0), address(0));
     }

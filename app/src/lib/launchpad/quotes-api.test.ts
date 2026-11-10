@@ -20,7 +20,7 @@ const ISSUED = new Map([[addressOf("AAPLc"), true], [addressOf("COINc"), false],
 // server ones (prices, the Robinhood registry fetch, GITLAWB's price, the memo) are local fakes. No network, no database.
 // `grow`: a registry refresh that lands while the route reads prices (one more stock on the chain asked about)
 function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseStock[] = [], grow = false) {
-  const calls = { registry: 0, baseRefresh: 0, prices: [] as { chain: string; addresses: string[] }[], issued: [] as string[] };
+  const calls = { registry: 0, baseRefresh: 0, hype: 0, prices: [] as { chain: string; addresses: string[] }[], issued: [] as string[] };
   // the Base list as the server holds it: the static one plus what Coinbase's registry added
   let baseList: readonly BaseStock[] = [...BASE_STOCKS, ...baseAdded];
   let robinhood = robinhoodRegistry === null ? null : Array.from({ length: robinhoodRegistry }, (_, i) => ({ chain: "robinhood" as ChainKey, address: "0x" + (i + 1).toString(16).padStart(40, "0"), symbol: `RH${String(i).padStart(2, "0")}`, name: `Robinhood ${i}`, decimals: 18, logo: null }));
@@ -51,6 +51,7 @@ function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseSto
     "@/lib/launchpad/baseStocks": { BASE_STOCK_SEARCH_LIMIT, searchBaseStocks, stockTileSvg },
     "@/lib/launchpad/memo": { memo: async (_key: string, _ttl: number, fn: () => Promise<unknown>) => fn() },
     "@/lib/launchpad/gitlawbServer": { gitlawbUsd: async () => 0.002 },
+    "@/lib/launchpad/hypePrice": { hypeUsd: async () => { calls.hype++; return 74.5; } },
     "@/lib/launchpad/twig": { gitlawbLinkedUsd },
   };
   const compiled = ts.transpileModule(route, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -122,7 +123,7 @@ test("arc has no stock registry: no stocks, total 0, nothing looked up", async (
   assert.deepEqual(body.stocks, []);
   assert.equal(body.stocksTotal, 0);
   assert.equal(body.stocksMatched, 0);
-  assert.deepEqual(calls, { registry: 0, baseRefresh: 0, prices: [], issued: [] });
+  assert.deepEqual(calls, { registry: 0, baseRefresh: 0, hype: 0, prices: [], issued: [] });
 });
 
 test("robinhood: one page of twelve from its own registry with that registry's total; none when the registry is unavailable", async () => {
@@ -201,4 +202,16 @@ test("fixed: the form's quotes (offered) then the official ones it no longer off
   for (const chain of ["base", "robinhood", "arc"] as const) {
     assert.deepEqual((await get(`chain=${chain}`)).body.fixed.filter((q) => q.offered).map((q) => q.key), launchpad(chain).quotes.map((q) => q.key), chain);
   }
+});
+
+test("elysium: HYPE comes back with its live price (outside callers have no other source for the key), USDC at a dollar", async () => {
+  const { get, calls } = isolatedRoute();
+  const { response, body } = await get("chain=elysium");
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.fixed.map((q) => [q.key, q.usd, q.offered]), [["hype", 74.5, true], ["usdc", 1, true]]);
+  assert.deepEqual(body.stocks, []);
+  assert.equal(calls.hype, 1);
+  // a chain without a HYPE quote never waits on HYPE's price
+  await get("chain=base");
+  assert.equal(calls.hype, 1);
 });

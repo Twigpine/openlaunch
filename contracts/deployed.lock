@@ -4,6 +4,9 @@
 # Robinhood Chain (4663) and Arc (5042) on 2026-10-11: every source file identical, solc 0.8.26, optimizer 200 runs, via-IR,
 # cancun.
 #
+# Elysium (99901) went live on 2026-11-10 (block 3986599) with the unchanged src/LaunchFactory.sol; its deployment record
+# is pinned below like the others. Its executable code equals Base's and Robinhood Chain's; its solc metadata matches Arc's.
+#
 # A change for another chain is a new copied file, never an edit (src/LaunchFactoryArc.sol is the pattern). A contract that
 # goes live is added here with:  contracts/script/check-deployed-sources.sh --update <path>
 # CI runs the same script without arguments, and the pull request guard refuses any change to a path listed here.
@@ -20,3 +23,4 @@ sha256 924b0a14b5c1d42a240c99a99106e1ebc460027f5541fa7ca1648ed953812bdd  contrac
 sha256 749fcc571c1a79f57ad7ea1e45c287abdeb021b6d0fa014ecb7005265a8742e3  .gitmodules
 gitlink 886b4f8b63409ef474542de6394d25a9b5908ed3  contracts/lib/forge-std
 gitlink 07336f2144f522874e2c3c85e04d1d3f8d5fa471  contracts/lib/v4-periphery
+sha256 b3d27c6d94f5b3a921c85550fb5c489be106c3fb0c6a9c296677e7ed0b023575  contracts/deployments/launchpad-elysium.json
