@@ -46,14 +46,19 @@ const DEPLOY_BLOCK_ENV: Record<ChainKey, () => string | undefined> = {
   base: () => process.env.LAUNCH_DEPLOY_BLOCK,
   robinhood: () => process.env.LAUNCH_DEPLOY_BLOCK_ROBINHOOD,
   arc: () => process.env.LAUNCH_DEPLOY_BLOCK_ARC,
+  elysium: () => process.env.LAUNCH_DEPLOY_BLOCK_ELYSIUM,
 };
 
 export function launchDeployBlock(chain: ChainKey): bigint {
   const raw = (DEPLOY_BLOCK_ENV[chain]() ?? "").trim();
   return /^\d+$/.test(raw) ? BigInt(raw) : 0n;
 }
-/** Blocks left behind the head before a range is indexed. Arc finalizes every block (no reorgs), so none there. */
-const DEFAULT_CONFIRMATIONS: Record<ChainKey, number> = { base: 2, robinhood: 2, arc: 0 };
+/**
+ * Blocks left behind the head before a range is indexed. Arc finalizes every block (no reorgs), so none there. Elysium is an
+ * Arbitrum Orbit chain like Robinhood Chain (sequencer-ordered, soft-final at once; `finalized` trails by ~15 min while batches
+ * post to HyperEVM), so it keeps the same small margin.
+ */
+const DEFAULT_CONFIRMATIONS: Record<ChainKey, number> = { base: 2, robinhood: 2, arc: 0, elysium: 2 };
 /**
  * LAUNCH_SYNC_CONFIRMATIONS_<CHAIN> overrides one chain. LAUNCH_SYNC_CONFIRMATIONS overrides the chains that need a reorg
  * margin at all; a chain whose default is 0 finalizes every block and keeps 0 regardless of the global setting.

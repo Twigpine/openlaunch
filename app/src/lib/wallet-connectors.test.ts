@@ -43,7 +43,7 @@ test("connect errors are explained without leaking raw messages", () => {
   assert.equal(connectErrorMessage(Object.assign(new Error("Request of type 'wallet_requestPermissions' already pending"), { code: -32002 })), "The wallet already has a connection request open. Finish it there, then try again.");
   assert.match(connectErrorMessage(new Error("Popup was blocked")), /Allow pop-ups/);
   assert.match(connectErrorMessage(Object.assign(new Error("Cannot find module '@coinbase/wallet-sdk'"), { code: "MODULE_NOT_FOUND" })), /Reload the page/);
-  assert.match(connectErrorMessage(named("ChainNotConfiguredError", "Chain not configured.")), /Base, Robinhood Chain or Arc/);
+  assert.match(connectErrorMessage(named("ChainNotConfiguredError", "Chain not configured.")), /Base, Robinhood Chain, Arc or Elysium/);
 });
 
 test("wrapped errors are recognised through their cause chain, and unknown ones get a generic line", () => {
