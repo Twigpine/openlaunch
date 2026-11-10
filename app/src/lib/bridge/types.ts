@@ -71,6 +71,17 @@ export function bridgeCurrency(chainId: BridgeChainId, asset: BridgeAsset | unde
   if (!entry) throw new Error("This token is not supported on this bridge network.");
   return { ...entry[side] };
 }
+/**
+ * Which bridge asset a currency address is on `chainId`, from either side, with its decimals; null when the bridge
+ * does not carry it. Used to read Relay's own records, which name currencies by address.
+ */
+export function bridgeCurrencyAsset(chainId: BridgeChainId, address: string): { asset: BridgeAsset; decimals: 6 | 18 } | null {
+  const wanted = address.toLowerCase();
+  for (const asset of BRIDGE_ASSETS[chainId]) for (const currency of [CURRENCIES[chainId][asset]!.input, CURRENCIES[chainId][asset]!.output]) {
+    if (currency.address.toLowerCase() === wanted) return { asset, decimals: currency.decimals };
+  }
+  return null;
+}
 /** The ERC-20 a chain's bridge can send (it needs an exact approval first), or null where every asset is native. */
 export function bridgeTokenAsset(chainId: BridgeChainId): BridgeAsset | null {
   return BRIDGE_ASSETS[chainId].find((asset) => CURRENCIES[chainId][asset]!.input.address !== NATIVE_ADDRESS) ?? null;

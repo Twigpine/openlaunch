@@ -55,6 +55,16 @@ These tests never connect a wallet or submit a transaction.
 
 `/ui-review-bridge` is a development-only visual fixture with disconnected, quote, quoting, high-fee, expired, error, pending, success, uncertain and refund states, plus approval/recovery states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
 
+### Transfer history (2026-11-10)
+
+`/bridge` ends with **Your transfers**, a departures board for the connected wallet: time, route (the Signal board's network codes), amount sent, amount received, status, and links to Relay and both explorers. The header panel's footer links to it. It reads two sources and sends nothing.
+
+- **This browser.** A small ledger (`openlaunch.bridge.history.v1:<wallet>`, `lib/bridge/history-store.ts`) beside the recovery record, never instead of it. The bridge controller writes a transfer there once it has a source transaction hash or a settled status, so a cancelled wallet prompt never appears, and removes it again if the transfer is discarded as never sent. It keeps the 20 newest per wallet, drops any stored row that fails validation on its own, and a storage failure only shows a notice: it never throws into a transfer. The recovery record and its rules are unchanged.
+- **Relay.** `GET /api/bridge/history?address=` reads `GET /requests/v3?user=…` with `RELAY_API_KEY` in the `x-api-key` header (never in the URL). Relay retires the keyless `/requests/v2` on 2026-11-24 and v3 requires a key, so **without `RELAY_API_KEY` the route answers `{ relay: "off" }` and calls nothing**; the board then says it shows what this browser saved. With a key, v3 returns requests made under openlaunch's key plus Relay's public keyless ones, so transfers made here before the key was set appear too. One wallet's answer is reused for 20 seconds, upstream calls share a budget of 120 a minute (Relay's keyed limit is 200), and the route allows 30 requests a minute per IP.
+- **One set of rules.** `lib/bridge/history.ts` turns both sources into the same row. A Relay request becomes a row only when the wallet sent it and both ends are this bridge's networks and tokens, matched by currency address with matching decimals; anything else is left out. A settled status is never replaced by an unsettled one, a delivered amount beats a quoted one, and the browser re-validates every row the server sends.
+- **What it says.** Status is a word (Arrived, In transit, Delayed, Refunded, Failed, Reverted, Checking). The received column shows Relay's delivered amount, or the accepted quote's amount labelled "Quoted"; a refund or failure shows no destination amount, since nothing is known to have arrived. A transfer sent to another address names that address.
+- Checked with `/ui-review-bridge`'s history scenes on desktop and phone widths in both themes; tests cover the parser against Relay's published schema, the ledger, the route and the key handling. The opt-in live test (`RUN_BRIDGE_LIVE_TESTS=1` with `RELAY_API_KEY`) reads recent Robinhood requests from v3 through the same parser. It has not run yet, because there is no key.
+
 ### Signal panel and the /bridge page (2026-11-10)
 
 The panel was redesigned without touching the transfer logic: `useBridge`, the validators and every wallet guard are unchanged.

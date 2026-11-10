@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getBridgeQuote, getBridgeStatus } from "./relay.ts";
+import { getBridgeHistory, getBridgeQuote, getBridgeStatus } from "./relay.ts";
+import { relayHistoryEntry } from "./history.ts";
 import { formatUnits } from "viem";
 import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency } from "./types.ts";
 
@@ -23,3 +24,21 @@ for (const originChainId of BRIDGE_CHAIN_IDS) for (const destinationChainId of B
   });
   }
 }
+
+// History needs Relay's API key (GET /requests/v3). Recent requests into Robinhood Chain are read and run through the
+// same parser the history board uses: the published schema must still yield rows for this bridge's routes.
+test("read-only live Relay history reads /requests/v3 into board rows", { skip: process.env.RUN_BRIDGE_LIVE_TESTS !== "1" || !process.env.RELAY_API_KEY }, async (t) => {
+  const response = await fetch("https://api.relay.link/requests/v3?destinationChainId=4663&limit=50&sortBy=createdAt&sortDirection=desc", { headers: { "x-api-key": process.env.RELAY_API_KEY! }, signal: AbortSignal.timeout(20_000) });
+  assert.equal(response.status, 200);
+  const body = await response.json() as { requests: { user?: string }[] };
+  assert.ok(Array.isArray(body.requests) && body.requests.length > 0);
+  const rows = body.requests.flatMap((request) => {
+    const row = typeof request.user === "string" ? relayHistoryEntry(request, request.user) : null;
+    return row ? [{ user: request.user!, row }] : [];
+  });
+  assert.ok(rows.length > 0, "at least one recent Robinhood transfer uses a route this bridge carries");
+  t.diagnostic(JSON.stringify({ requests: body.requests.length, rows: rows.length, sample: rows[0].row }));
+  // the same wallet through the server path finds that transfer
+  const wallet = await getBridgeHistory(rows[0].user);
+  assert.ok(wallet.relay === "on" && wallet.transfers.some((entry) => entry.requestId.toLowerCase() === rows[0].row.requestId.toLowerCase()));
+});

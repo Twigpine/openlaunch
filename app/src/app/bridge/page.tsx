@@ -4,6 +4,7 @@ import { pageMetadata } from "@/lib/seo";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import BridgePageSlot from "@/components/bridge/BridgePageSlot";
+import BridgeHistory from "@/components/bridge/BridgeHistory";
 import { parseBridgeLink } from "@/lib/bridge/link";
 import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS } from "@/lib/bridge/types";
 import styles from "./bridge.module.css";
@@ -67,10 +68,12 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
               <li>Funds go from your wallet to Relay&apos;s deposit contract. They never pass through an openlaunch wallet or contract.</li>
               <li>Relay is a third-party protocol. openlaunch does not operate it and cannot reverse a transfer.</li>
               <li>A transfer is saved in this browser while it is in progress. Reopen the bridge with the same wallet to pick it up.</li>
+              <li>Finished transfers stay on the board below. It never asks your wallet for anything.</li>
             </ul>
           </section>
         </div>
       </div>
+      <BridgeHistory />
     </main>
   );
 }

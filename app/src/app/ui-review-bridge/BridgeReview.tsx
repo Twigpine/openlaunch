@@ -12,13 +12,31 @@ import type { TrackedApproval } from "@/lib/bridge/approval";
 import { describePendingApproval } from "@/lib/bridge/approval-health";
 import { BRIDGE_QUOTE_DEBOUNCE_MS } from "@/lib/bridge/quote-session";
 import styles from "@/components/bridge/BridgeDialog.module.css";
+import { HistoryBoard } from "@/components/bridge/BridgeHistory";
+import type { BridgeHistoryEntry } from "@/lib/bridge/history";
 
 const wallet = "0x03508bB71268BBA25ECaCC8F620e01866650532c" as const;
 const requestId = `0x${"1".repeat(64)}` as const;
 type Scene = "idle" | "disconnected" | "quote" | "quoting" | "high_fee" | "fee_boundary" | "impact_limit" | "expired" | "error" | "pending" | "success" | "uncertain" | "refund" | "approval_pending" | "approval_uncertain" | "approval_confirmed" | "approval_queued" | "approval_missing" | "approval_fee";
 const scenes: Scene[] = ["disconnected", "quote", "quoting", "high_fee", "fee_boundary", "impact_limit", "expired", "error", "pending", "success", "uncertain", "refund", "approval_pending", "approval_uncertain", "approval_confirmed", "approval_queued", "approval_missing", "approval_fee"];
 
+const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as const;
+const minutesAgo = (minutes: number) => Date.UTC(2026, 10, 10, 12, 0) - minutes * 60_000;
+// One row per thing the board can say, on real routes and in real units.
+const HISTORY_ROWS: BridgeHistoryEntry[] = [
+  { requestId: hash(11), originChainId: 8453, destinationChainId: 4663, originAsset: "ETH", destinationAsset: "ETH", amountIn: "20000000000000000", inDecimals: 18, amountOut: "19962000000000000", outDecimals: 18, outKind: "quoted", status: "pending", reverted: false, createdAt: minutesAgo(1), sourceHash: hash(12), destinationHashes: [], recipient: null },
+  { requestId: hash(21), originChainId: 42161, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amountIn: "25000000", inDecimals: 6, amountOut: "24975000", outDecimals: 6, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(48), sourceHash: hash(22), destinationHashes: [hash(23)], recipient: null },
+  { requestId: hash(31), originChainId: 8453, destinationChainId: 4663, originAsset: "USDC", destinationAsset: "USDG", amountIn: "150000000", inDecimals: 6, amountOut: "149810000", outDecimals: 6, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 5), sourceHash: hash(32), destinationHashes: [hash(33)], recipient: null },
+  { requestId: hash(41), originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amountIn: "60000000", inDecimals: 6, amountOut: "59940000000000000000", outDecimals: 18, outKind: "quoted", status: "delayed", reverted: false, createdAt: minutesAgo(60 * 9), sourceHash: hash(42), destinationHashes: [], recipient: null },
+  { requestId: hash(51), originChainId: 1, destinationChainId: 5042, originAsset: "ETH", destinationAsset: "USDC", amountIn: "50000000000000000", inDecimals: 18, amountOut: "155300000000000000000", outDecimals: 18, outKind: "quoted", status: "refund", reverted: false, createdAt: minutesAgo(60 * 26), sourceHash: hash(52), destinationHashes: [], recipient: null },
+  { requestId: hash(61), originChainId: 10, destinationChainId: 8453, originAsset: "ETH", destinationAsset: "ETH", amountIn: "8000000000000000", inDecimals: 18, amountOut: null, outDecimals: 18, outKind: null, status: "failure", reverted: true, createdAt: minutesAgo(60 * 50), sourceHash: hash(62), destinationHashes: [], recipient: null },
+  { requestId: hash(71), originChainId: 4663, destinationChainId: 8453, originAsset: "ETH", destinationAsset: "ETH", amountIn: "4000000000000000", inDecimals: 18, amountOut: "3991000000000000", outDecimals: 18, outKind: "received", status: "success", reverted: false, createdAt: minutesAgo(60 * 80), sourceHash: hash(72), destinationHashes: [hash(73)], recipient: "0x9f3a2bE0c1D4e5F6a7b8C9d0E1f2A3b4C5d6E7F8" },
+];
+type HistoryScene = "rows" | "empty" | "loading" | "no wallet" | "unsaved";
+const HISTORY_SCENES: HistoryScene[] = ["rows", "empty", "loading", "no wallet", "unsaved"];
+
 export default function BridgeReview() {
+  const [historyScene, setHistoryScene] = useState<HistoryScene>("rows");
   const [open, setOpen] = useState(false);
   const [scene, setScene] = useState<Scene>("disconnected");
   const [route, setRoute] = useState<BridgeRouteInputs>({ originChainId: 8453, destinationChainId: 5042, originAsset: "USDC", destinationAsset: "USDC", amount: "25" });
@@ -74,6 +92,7 @@ export default function BridgeReview() {
     canDiscard: scene === "uncertain", discard: async () => setScene("idle"), discarding: false,
   };
   return (
+    <>
     <main className="mx-auto max-w-3xl px-5 py-20">
       <h1 className="text-2xl font-semibold">Bridge visual review</h1>
       <p className="mt-3 text-sm text-body">Development-only synthetic data. No wallet requests, API calls, or funds.</p>
@@ -87,6 +106,11 @@ export default function BridgeReview() {
           <div className={styles.footer}><span>Powered by Relay</span><span>0 Openlaunch fee</span></div>
         </Dialog.Popup></Dialog.Portal>
       </Dialog.Root>
+      <div className="mt-16 flex flex-wrap gap-2">{HISTORY_SCENES.map((value) => <button key={value} type="button" aria-pressed={historyScene === value} className="min-h-11 rounded-lg border border-line-strong px-4 text-sm aria-pressed:border-ink" onClick={() => setHistoryScene(value)}>history: {value}</button>)}</div>
     </main>
+    <div className="mx-auto max-w-6xl px-5 pb-24">
+      <HistoryBoard wallet={historyScene === "no wallet" ? "" : wallet.toLowerCase()} rows={historyScene === "rows" || historyScene === "unsaved" ? HISTORY_ROWS : []} loading={historyScene === "loading"} unsaved={historyScene === "unsaved"} note="Preview only. Synthetic transfers, no wallet and no Relay call." onRefresh={() => {}} />
+    </div>
+    </>
   );
 }

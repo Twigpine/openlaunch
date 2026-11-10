@@ -11,6 +11,7 @@ import { parseBridgeQuoteRejection } from "@/lib/bridge/client";
 import { createBridgeQuoteSession } from "@/lib/bridge/quote-session";
 import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, canReverseBridgeRoute, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
+import { bridgeLedger } from "./history-ledger";
 import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, canApplyApprovalPoll, createApprovalStore, reconcileApproval, recoverApprovalFromEvidence, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
 import { APPROVAL_HEALTH_UNAVAILABLE, readPendingApprovalHealth, type ApprovalHealth } from "@/lib/bridge/approval-health";
 import { assertBridgeWalletQueueClear } from "@/lib/bridge/transaction-preflight";
@@ -65,6 +66,8 @@ export function useBridge(open: boolean) {
   const [now, setNow] = useState(0);
   const [discarding, setDiscarding] = useState(false);
   const actionLock = useRef(false);
+  // The quote a deposit was sent from, so the history can show what it expected to deliver.
+  const sentQuote = useRef<{ requestId: string; amountOut: string } | null>(null);
   const [quoteSession] = useState(createBridgeQuoteSession);
   const inputs = useRef<BridgeRouteInputs>({ originChainId: 8453, destinationChainId: 4663, originAsset: "ETH", destinationAsset: "ETH", amount: "" });
   const snapshot = useSyncExternalStore(transfers.subscribe, transfers.getSnapshot, transfers.getServerSnapshot);
@@ -98,6 +101,14 @@ export function useBridge(open: boolean) {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [address]);
+
+  // Remember every transfer that leaves the wallet, for the history board. Separate from the recovery record and best
+  // effort: nothing here can block, change or clear a transfer.
+  useEffect(() => {
+    if (!tracked) return;
+    const quoted = sentQuote.current?.requestId === tracked.requestId ? sentQuote.current.amountOut : null;
+    try { bridgeLedger.record(tracked, quoted); } catch { /* history only */ }
+  }, [tracked]);
 
   // Existing quotes are hidden immediately by their wallet-chain key. Abort
   // in-flight responses as well; an old account's response cannot reappear.
@@ -481,6 +492,7 @@ export function useBridge(open: boolean) {
     setIssue(null);
     const reviewed = quote;
     const reviewedAt = envelope?.requestedAt ?? 0;
+    sentQuote.current = { requestId: reviewed.requestId, amountOut: reviewed.amountOut };
     const operationKey = bridgeRequestKey(reviewed);
     setActivity({ key: operationKey, phase: "switching" });
     // Never reuse this review after an interrupted/rejected confirmation.
@@ -616,6 +628,7 @@ export function useBridge(open: boolean) {
         setObservation(fresh);
         if (!transferCanDiscard(current, fresh, Date.now())) throw new Error("This transfer now shows activity, so it was kept. Tracking continues.");
         transfers.remove(address);
+        try { bridgeLedger.forget(address, requestId); } catch { /* history only */ }
         setObservation(null);
         invalidateQuote();
         setStatusIssue(null);

@@ -210,6 +210,18 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(hook, /const messageOf = bridgeErrorMessage;/);
 });
 
+test("the history board only reads: no second bridge, no recovery record, and the ledger is written by the controller alone", () => {
+  const board = read("./BridgeHistory.tsx");
+  const hook = read("./useBridge.ts");
+  const page = read("../../app/bridge/page.tsx");
+  assert.doesNotMatch(board, /useBridge|client-storage|sendTransaction|writeContract|\.record\(|\.forget\(/);
+  assert.ok(board.includes("bridgeLedger.read(address)"));
+  assert.ok(page.includes("<BridgeHistory />"));
+  assert.ok(hook.includes("try { bridgeLedger.record(tracked, quoted); } catch"));
+  assert.match(hook, /transfers\.remove\(address\);\s+try \{ bridgeLedger\.forget\(address, requestId\); \} catch/);
+  assert.ok(panel.includes(`href="/bridge#transfers"`));
+});
+
 test("quotes update without locking typing or automatically submitting wallet actions", () => {
   const hook = read("./useBridge.ts");
   assert.match(panel, /useBridge\(open \|\| onPage\)/);

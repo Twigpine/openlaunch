@@ -205,7 +205,7 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = 
   const footer = (
     <div className={styles.footer}>
       <a href="https://relay.link" target="_blank" rel="noreferrer">Powered by Relay <ArrowUpRight size={12} aria-hidden /></a>
-      {onPage ? null : <Link href="/bridge" onClick={() => onOpenChange(false)}>Open full page</Link>}
+      {onPage ? null : <Link href="/bridge#transfers" onClick={() => onOpenChange(false)}>Your transfers</Link>}
       <span>0 Openlaunch fee</span>
     </div>
   );
