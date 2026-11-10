@@ -18,7 +18,7 @@ type StockHit = { key: "stock"; address: string; symbol: string; name: string; d
  * (TWIG and GITLAWB on Base, GITLAWB on Robinhood Chain: `offered: false`, priced at GITLAWB's live price). Outside
  * callers read prices from it by key (Playground prices its tokenize launches here), so the official ones stay listed;
  * the launch form itself reads only `stocks`. Plus tokenized stocks from that chain's registry (with live USD where the stock has a price):
- * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc.
+ * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc or Elysium.
  * `stocks` is one page of matches; `stocksMatched` is how many match the search in all and `stocksTotal` how many the chain's registry holds, so the form can say there are more.
  * Each stock's `issued` says whether any of it is in circulation: false = none yet (nobody can buy with it), null = not known (Robinhood, or no good read yet).
  * Only registry addresses are ever labelled as stocks.

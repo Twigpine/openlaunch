@@ -2,7 +2,7 @@
   <a href="https://openlaunch.lol"><img src="brand/readme-banner.png" alt="OPENLAUNCH.LOL — Launch a token. Free. Open source. Liquidity locked forever." width="100%"></a>
 </p>
 
-<p align="center"><b>Launch a token. Free. Open source. On Base, Robinhood Chain or Arc.</b></p>
+<p align="center"><b>Launch a token. Free. Open source. On Base, Robinhood Chain, Arc or Elysium.</b></p>
 
 <p align="center">
   <a href="https://openlaunch.lol">openlaunch.lol</a> ·
@@ -16,6 +16,7 @@
   <img alt="Base" src="https://img.shields.io/badge/chain-Base-0052FF">
   <img alt="Robinhood Chain" src="https://img.shields.io/badge/chain-Robinhood%20Chain-15803d">
   <img alt="Arc" src="https://img.shields.io/badge/chain-Arc-111111">
+  <img alt="Elysium" src="https://img.shields.io/badge/chain-Elysium-0B0B0C">
   <img alt="platform fee 0" src="https://img.shields.io/badge/platform%20fee-0-15803d">
   <img alt="contracts verified" src="https://img.shields.io/badge/contracts-verified%20on%20Basescan%20%2B%20Sourcify-0052FF">
 </p>
@@ -32,8 +33,8 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 - **Free by construction.** No fee parameter exists in the contracts, so there is nothing to raise later.
 - **Rug-proof liquidity.** The position NFT lives in a locker with no owner, no pause, no upgrade path and
   no transfer function. Proven with an adversarial fork suite against the live deployment.
-- **Three chains, one set of rules.** Base, Robinhood Chain and Arc (Circle's L1, where gas and quotes are USDC), same contracts; Arc runs `LaunchFactoryArc`, the same source plus a guard that refuses native-asset quotes (see `contracts/docs/LAUNCHPAD.md`).
-- **Any quote asset.** ETH, USDG, USDC on Arc, **TWIG** ([Twigpine](https://twigpine.com)'s token on Base: a 1:1 wrapper of GITLAWB,
+- **Four chains, one set of rules.** Base, Robinhood Chain, Arc (Circle's L1, where gas and quotes are USDC) and Elysium (Kinetiq's L2 for Hyperliquid, where gas is HYPE), same contracts; Arc runs `LaunchFactoryArc`, the same source plus a guard that refuses native-asset quotes (see `contracts/docs/LAUNCHPAD.md`).
+- **Any quote asset.** ETH, USDG, USDC on Arc, HYPE and USDC on Elysium, **TWIG** ([Twigpine](https://twigpine.com)'s token on Base: a 1:1 wrapper of GITLAWB,
   wrap or unwrap any time with no fee; priced at GITLAWB's price; fees paid or burned in TWIG; no longer offered in the Base form, ahead of the planned
   [token migration](https://migrate.twigpine.com), while launches already paired with it keep their badge, price and trading), **GITLAWB** ([Twigpine](https://twigpine.com)'s token, on Base and bridged 1:1 to
   Robinhood Chain; priced from its Base Uniswap v4 WETH pool; fees paid or burned in GITLAWB; no longer offered in any launch form, for the same migration, while launches already paired with it keep their badge, price and trading), or a **tokenized stock**: Coinbase's B20 stocks on Base
@@ -61,7 +62,7 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 
 Full addresses: factory `0x815542E8b392389A1389E22E588E4B62A67Ade72`, locker `0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a`
 — identical on all four chains (same deployer, first transaction each; on Arc the factory is `LaunchFactoryArc`, the same contract plus the native-quote guard). Source verified on Basescan, Blockscout (Base and
-Robinhood Chain), Sourcify (exact match on Base, Robinhood Chain and Arc) and the Elysium explorer. The site does not offer Elysium yet. Every launched token is verified too. No owner, no admin, no upgrade path.
+Robinhood Chain), Sourcify (exact match on Base, Robinhood Chain and Arc) and the Elysium explorer. Every launched token is verified too. No owner, no admin, no upgrade path.
 
 ## How it works
 
