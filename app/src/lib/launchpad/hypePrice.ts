@@ -7,6 +7,11 @@ import "server-only";
  *   2. Hyperliquid's own mid price (the public info API, `allMids`), which fails independently of Coinbase;
  *   3. the last good value, for at most HYPE_STALE_MAX_MS after it was confirmed;
  *   4. null.
+ * Stale-while-revalidate: once a value exists, a caller never waits on a refresh. Past the TTL it gets the last good value
+ * at once (while still inside the stale bound) and one background refresh replaces it; only a cold start, or a value past
+ * the stale bound, waits. Every list and page reads this, so a slow upstream must never sit on the request path.
+ * Both upstreams are fetched with cache: "no-store": this memo is the only cache, so the fallback and the stale bound see
+ * a failing Coinbase as failing (Next's data cache would keep answering with its last good body).
  * Failures still advance the attempt timestamp, so a dead upstream is retried once per TTL, not on every request.
  * Display and sorting only: nothing on-chain reads any of this.
  */
@@ -53,11 +58,11 @@ export function parseHyperliquidMid(body: unknown): number | null {
   return positive((body as Record<string, unknown>).HYPE);
 }
 
-type FetchFn = (input: string, init?: RequestInit & { next?: { revalidate: number } }) => Promise<Response>;
+type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
 
 async function fromCoinbase(fetchFn: FetchFn): Promise<number | null> {
   try {
-    const res = await fetchFn(HYPE_SPOT_URL, { next: { revalidate: 60 }, signal: AbortSignal.timeout(HYPE_FETCH_TIMEOUT_MS) });
+    const res = await fetchFn(HYPE_SPOT_URL, { cache: "no-store", signal: AbortSignal.timeout(HYPE_FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     return parseHypeSpot(await res.json());
   } catch {
@@ -91,6 +96,8 @@ export async function hypeUsd(opts: { fetchFn?: FetchFn; now?: () => number } = 
   inflight ??= refresh(fetchFn, now).finally(() => {
     inflight = null;
   });
+  // a value inside its stale bound is served at once; the refresh above replaces it for the next caller
+  if (cached.usd !== null && !staleExpired) return cached.usd;
   return inflight;
 }
 

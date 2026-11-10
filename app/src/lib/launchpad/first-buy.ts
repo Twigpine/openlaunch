@@ -64,6 +64,8 @@ export type SuggestInput = {
   sharesGasBalance?: boolean;
   /** The creator cleared the suggestion (this session). */
   declined: boolean;
+  /** The quote is the chain's native asset (address(0), config.isNativeQuote): the buy and its gas come from one balance. Decided by address, never by key (WETH and WHYPE share their native asset's key); unset falls back to the form's native keys. */
+  native?: boolean;
   /** viem's parseUnits, injected so this module stays dependency-free for tests. */
   parse: (amount: string, decimals: number) => bigint;
 };
@@ -81,8 +83,9 @@ export function suggestFirstBuy(i: SuggestInput): FirstBuySuggestion {
   if (!i.connected) return { amount, provisional: true }; // selected from the start; a wallet can only take it away
   if (i.balance === undefined || i.nativeBalance === undefined) return i.balanceFailed ? { amount: null, reason: "unknown-balance" } : { amount, provisional: true };
   const raw = i.parse(amount, i.quote.decimals);
-  // the form's native quotes (ETH, HYPE: it never offers WETH or WHYPE) pay the buy and its gas from one balance
-  if (i.quote.key === "eth" || i.quote.key === "hype" || i.sharesGasBalance) return raw + gasReserveInQuote(i.gasReserve, i.quote.decimals) > i.balance ? { amount: null, reason: "insufficient" } : { amount, provisional: false };
+  // a native quote pays the buy and its gas from one balance (callers pass `native` from the address; the key fallback is the form's ETH and HYPE)
+  const native = i.native ?? (i.quote.key === "eth" || i.quote.key === "hype");
+  if (native || i.sharesGasBalance) return raw + gasReserveInQuote(i.gasReserve, i.quote.decimals) > i.balance ? { amount: null, reason: "insufficient" } : { amount, provisional: false };
   if (raw > i.balance) return { amount: null, reason: "insufficient" };
   if (i.nativeBalance < i.gasReserve) return { amount: null, reason: "no-gas" };
   return { amount, provisional: false };

@@ -281,7 +281,7 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
   const buyBalanceFailed = isNativeQuote(quote) ? ethBal.isError : quoteBal.isError;
   // The suggested buy is selected from the start; a connected wallet's balances can only take it away (or a failed read),
   // so it can never block the launch below. A typed amount keeps the strict checks.
-  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed || ethBal.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
+  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed || ethBal.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined || Boolean(typedBuy), native: isNativeQuote(quote), parse: parseUnits });
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
@@ -509,7 +509,7 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
                 <h2 className="text-sm font-semibold text-ink">Chain</h2>
                 <span className="text-xs text-muted">same launch, same rules, on every chain</span>
               </div>
-              <div className="grid sm:grid-cols-3 gap-2">
+              <div className="grid sm:grid-cols-2 gap-2">
                 {CHAIN_KEYS.map((k) => {
                   const active = chain === k;
                   const ok = launchpad(k).configured;
@@ -561,7 +561,7 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
                   </div>
                   <p className="text-xs text-muted">
                     {/* the picked quote key, not the resolved quote: with Stock chosen and no stock yet, the quote still falls back to the first one */}
-                    {quoteKey === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : "Buyers pay with ETH."}
+                    {quoteKey === "stock" ? (CHAIN_COPY[chain].stock?.pays ?? "") : quote.key === "usdg" || quote.key === "usdc" ? `Buyers pay with ${quote.symbol}; market cap and fees are in dollars.` : `Buyers pay with ${quote.symbol}.`}
                   </p>
                 </div>
               ) : null}

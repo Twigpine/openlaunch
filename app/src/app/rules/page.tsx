@@ -54,7 +54,7 @@ const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr:
   ],
   // Sourcify lists only Elysium's testnet (99801) so far: add repo.sourcify.dev/99901 once it verifies mainnet
   elysium: [
-    { name: "Elysium Explorer", url: (a) => `https://elysium.kinetiq.xyz/explorer/address/${a}` },
+    { name: "Elysium Explorer", url: (a) => explorerAddress("elysium", a) },
   ],
 };
 

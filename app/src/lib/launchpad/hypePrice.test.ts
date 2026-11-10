@@ -108,3 +108,31 @@ test("concurrent callers share one refresh", async () => {
   assert.deepEqual(all, [74.5, 74.5, 74.5]);
   assert.equal(seen.cb, 1);
 });
+
+test("past the TTL a caller never waits on the refresh: the last good value comes back at once", async () => {
+  resetHypePriceCache();
+  const c = clock();
+  const seen = { cb: 0, hl: 0 };
+  assert.equal(await hypeUsd({ fetchFn: upstreams(spot("74.5"), null, seen), now: c.now }), 74.5);
+  c.advance(HYPE_PRICE_TTL_MS);
+  let release: (r: Response) => void = () => {};
+  const slow = async () => new Promise<Response>((resolve) => { release = resolve; });
+  const t0 = Date.now();
+  assert.equal(await hypeUsd({ fetchFn: slow, now: c.now }), 74.5, "served from the memo while the refresh hangs");
+  assert.ok(Date.now() - t0 < 1_000);
+  release(spot("80")());
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(await hypeUsd({ fetchFn: slow, now: c.now }), 80, "the background refresh replaced it");
+});
+
+test("both upstreams bypass Next's data cache: this memo is the only cache", async () => {
+  resetHypePriceCache();
+  const inits: (RequestInit | undefined)[] = [];
+  const f = async (input: string, init?: RequestInit) => { inits.push(init); return input === HYPE_SPOT_URL ? new Response("down", { status: 503 }) : mids("74.5")(); };
+  assert.equal(await hypeUsd({ fetchFn: f, now: clock().now }), 74.5);
+  assert.equal(inits.length, 2);
+  for (const init of inits) {
+    assert.equal(init?.cache, "no-store");
+    assert.equal((init as { next?: unknown } | undefined)?.next, undefined);
+  }
+});
