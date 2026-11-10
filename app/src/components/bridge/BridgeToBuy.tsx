@@ -54,6 +54,8 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
   const [now, setNow] = useState(0);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [scan, setScan] = useState<Scan | null>(null);
+  // looks already made or still out, by wallet and network, so one is never started twice
+  const scans = useRef(new Map<string, Promise<BridgeHolding[]>>());
   const arrived = useRef("");
 
   useEffect(() => {
@@ -73,7 +75,7 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
     return () => window.removeEventListener("storage", onStorage);
   }, [address]);
 
-  const row = now ? followedBridge(rows, destination, now, dismissed) : null;
+  const row = now ? followedBridge(rows, destination, asset, now, dismissed) : null;
   const step = fundStep(row);
   const rowId = row?.requestId ?? "";
   const rowStatus = row?.status ?? null;
@@ -87,20 +89,29 @@ function Follow({ destination, asset, symbol, pay, short, shortBy, ethUsd, onArr
     onArrived();
   }, [rowId, rowStatus, onArrived]);
 
-  // Look for funds elsewhere only while the buyer is short and no bridge is being followed. One look per wallet and page.
+  // Look for funds elsewhere only while the buyer is short and no bridge is being followed. One look per wallet and
+  // network: an amount edited back and forth across the balance reuses the look already made, or the one still out.
   const scanKey = wallet && short && step === "short" ? `${wallet}:${destination}` : "";
+  // A followed bridge moves funds, so what was seen before it is stale: the next shortfall looks again.
+  useEffect(() => { if (step !== "short") scans.current.clear(); }, [step]);
   useEffect(() => {
     if (!scanKey || !address) return;
     let stopped = false;
-    const client = (id: BridgeChainId) => {
-      const pub = getPublicClient(config, { chainId: id });
-      if (!pub) throw new Error("no client");
-      return pub;
-    };
-    void readBridgeHoldings({
-      native: async (id, who) => client(id).getBalance({ address: who }),
-      token: async (id, token, who) => client(id).readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [who] }),
-    }, address, destination).then((holdings) => { if (!stopped) setScan({ key: scanKey, holdings }); });
+    let look = scans.current.get(scanKey);
+    if (!look) {
+      const client = (id: BridgeChainId) => {
+        const pub = getPublicClient(config, { chainId: id });
+        if (!pub) throw new Error("no client");
+        return pub;
+      };
+      look = readBridgeHoldings({
+        native: async (id, who) => client(id).getBalance({ address: who }),
+        token: async (id, token, who) => client(id).readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [who] }),
+      }, address, destination);
+      scans.current.set(scanKey, look);
+    }
+    // a late result lands only while this wallet and network are still the ones asked about
+    void look.then((holdings) => { if (!stopped) setScan({ key: scanKey, holdings }); });
     return () => { stopped = true; };
   }, [scanKey, address, config, destination]);
 

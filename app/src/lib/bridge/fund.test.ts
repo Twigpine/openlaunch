@@ -96,12 +96,17 @@ function row(overrides: Partial<BridgeHistoryEntry> = {}): BridgeHistoryEntry {
 test("the trade panel follows the newest recent transfer into its network, until dismissed", () => {
   const now = 1_000_000 + 60_000;
   const rows = [row(), row({ requestId: hash(3), createdAt: 900_000 }), row({ requestId: hash(4), destinationChainId: 8453, createdAt: 1_050_000 })];
-  assert.equal(followedBridge(rows, 4663, now, [])!.requestId, hash(1));
-  assert.equal(followedBridge(rows, 4663, now, [hash(1).toUpperCase().replace("0X", "0x")])!.requestId, hash(3), "a dismissed one gives way to the next");
-  assert.equal(followedBridge(rows, 5042, now, []), null);
-  assert.equal(followedBridge([row({ createdAt: now - FUND_FOLLOW_MS - 1 })], 4663, now, []), null, "an old transfer is history, not a step");
-  assert.equal(followedBridge([row({ createdAt: now + 120_000 })], 4663, now, []), null, "a clock far ahead is not trusted");
-  assert.equal(followedBridge([row({ recipient: "0x2222222222222222222222222222222222222222" })], 4663, now, []), null, "funds sent elsewhere are no help to this wallet's buy");
+  assert.equal(followedBridge(rows, 4663, "ETH", now, [])!.requestId, hash(1));
+  assert.equal(followedBridge(rows, 4663, "ETH", now, [hash(1).toUpperCase().replace("0X", "0x")])!.requestId, hash(3), "a dismissed one gives way to the next");
+  assert.equal(followedBridge(rows, 5042, "USDC", now, []), null);
+  assert.equal(followedBridge([row({ createdAt: now - FUND_FOLLOW_MS - 1 })], 4663, "ETH", now, []), null, "an old transfer is history, not a step");
+  assert.equal(followedBridge([row({ createdAt: now + 120_000 })], 4663, "ETH", now, []), null, "a clock far ahead is not trusted");
+  assert.equal(followedBridge([row({ recipient: "0x2222222222222222222222222222222222222222" })], 4663, "ETH", now, []), null, "funds sent elsewhere are no help to this wallet's buy");
+  // ETH that arrived does not pay for a buy priced in dollars: the shortfall stays on show
+  assert.equal(followedBridge(rows, 4663, "USDG", now, []), null, "a transfer in another asset is not this buy's funding");
+  const dollars = row({ requestId: hash(5), destinationAsset: "USDG", createdAt: 950_000 });
+  assert.equal(followedBridge([...rows, dollars], 4663, "USDG", now, [])!.requestId, hash(5), "the older transfer in the right asset is the one followed");
+  assert.equal(followedBridge([row({ destinationChainId: 99901, destinationAsset: "USDC" })], 99901, "HYPE", now, []), null, "USDC on Elysium is not the HYPE a buy there pays with");
 
   assert.equal(fundStep(null), "short");
   for (const status of ["waiting", "depositing", "pending", "submitted", "delayed"] as const) assert.equal(fundStep({ status }), "moving", status);

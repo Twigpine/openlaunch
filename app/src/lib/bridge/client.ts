@@ -471,7 +471,10 @@ export function parseStoredTransfer(raw: string, address: Address): TrackedBridg
 }
 
 export function serializeTransfer(transfer: TrackedBridgeTransfer): string {
-  const explicitAssets = transfer.originAsset !== undefined || transfer.destinationAsset !== undefined;
+  // Versions 1 and 2 are the records from before assets were named: a native deposit, and Arc's USDC. Any other token
+  // deposit without named assets (Elysium's USDC is its default) is written with them, as version 3: the reader takes
+  // version 2 from Arc alone, and a record it refuses is a transfer that can no longer be tracked.
+  const explicitAssets = transfer.originAsset !== undefined || transfer.destinationAsset !== undefined || (transfer.depositKind === "erc20" && transfer.originChainId !== 5042);
   return JSON.stringify({ ...transfer, ...(explicitAssets ? { originAsset: transfer.originAsset ?? defaultBridgeAsset(transfer.originChainId), destinationAsset: transfer.destinationAsset ?? defaultBridgeAsset(transfer.destinationChainId) } : {}), version: transfer.provider === "cctp" ? 4 : explicitAssets ? 3 : transfer.depositKind === "erc20" ? 2 : 1 });
 }
 

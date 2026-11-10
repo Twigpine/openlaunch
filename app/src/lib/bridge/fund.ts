@@ -89,11 +89,14 @@ export function formatFundAmount(amount: bigint, decimals: number): string {
 /** How long a bridge to this network stays on the token page: long enough to come back to, short enough to stay relevant. */
 export const FUND_FOLLOW_MS = 2 * 60 * 60_000;
 
-/** The newest transfer into `destination` from the last two hours that the buyer has not dismissed, or null. */
-export function followedBridge(rows: readonly BridgeHistoryEntry[], destination: BridgeDestinationId, now: number, dismissed: readonly string[]): BridgeHistoryEntry | null {
+/**
+ * The newest transfer delivering `asset` to `destination` from the last two hours that the buyer has not dismissed, or
+ * null. A transfer that arrives as something else does not pay for this buy, so it never stands in for the shortfall.
+ */
+export function followedBridge(rows: readonly BridgeHistoryEntry[], destination: BridgeDestinationId, asset: BridgeAsset, now: number, dismissed: readonly string[]): BridgeHistoryEntry | null {
   const skip = new Set(dismissed.map((id) => id.toLowerCase()));
   return rows
-    .filter((row) => row.destinationChainId === destination && !row.recipient && !skip.has(row.requestId.toLowerCase()) && row.createdAt <= now + 60_000 && now - row.createdAt <= FUND_FOLLOW_MS)
+    .filter((row) => row.destinationChainId === destination && row.destinationAsset === asset && !row.recipient && !skip.has(row.requestId.toLowerCase()) && row.createdAt <= now + 60_000 && now - row.createdAt <= FUND_FOLLOW_MS)
     .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
 }
 

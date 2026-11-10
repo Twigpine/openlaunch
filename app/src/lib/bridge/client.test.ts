@@ -4,7 +4,7 @@ import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, HttpRequest
 import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, canReverseBridgeRoute, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
 import { parseBridgeQuoteRejection } from "./client";
-import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, isBridgeFundingChain, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
+import { ARC_USDC, BASE_USDC, ELYSIUM_USDC, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, isBridgeFundingChain, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const OTHER = "0x2222222222222222222222222222222222222222" as Address;
@@ -543,6 +543,22 @@ test("transfer storage restores per wallet including an unknown transaction hash
   assert.equal(restored.getServerSnapshot().transfers[ADDRESS.toLowerCase()], undefined);
   store.remove(ADDRESS);
   assert.equal(restored.read(ADDRESS), null);
+});
+
+test("a token deposit saved without named assets reads back: Elysium's default USDC is written as version three", () => {
+  const depositData = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [ADDRESS, ELYSIUM_USDC, 25_000_000n, ORDER] });
+  const transfer: TrackedBridgeTransfer = { address: ADDRESS, originChainId: 99901, destinationChainId: 8453, amount: "25000000", requestId: REQUEST, destinationHashes: [], status: "pending", createdAt: 1_000_000, depositData, depositKind: "erc20" };
+  const saved = JSON.parse(serializeTransfer(transfer));
+  // version 2 is Arc's alone on read, so this record names its assets and takes version 3
+  assert.deepEqual([saved.version, saved.originAsset, saved.destinationAsset], [3, "USDC", "ETH"]);
+  assert.deepEqual(parseStoredTransfer(serializeTransfer(transfer), ADDRESS), { ...transfer, originAsset: "USDC", destinationAsset: "ETH", sourceHash: undefined });
+  // the old shape for the same record is still refused, which is why it must never be written
+  assert.throws(() => parseStoredTransfer(JSON.stringify({ ...transfer, version: 2 }), ADDRESS));
+  // Arc's own records keep version 2 and read back unchanged
+  const arcData = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [ADDRESS, ARC_USDC, 25_000_000n, ORDER] });
+  const arc: TrackedBridgeTransfer = { ...transfer, originChainId: 5042, depositData: arcData };
+  assert.equal(JSON.parse(serializeTransfer(arc)).version, 2);
+  assert.deepEqual(parseStoredTransfer(serializeTransfer(arc), ADDRESS), { ...arc, sourceHash: undefined });
 });
 
 test("version-one recovery keeps old Base/Robinhood records and accepts every distinct Arc route", () => {
