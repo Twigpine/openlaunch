@@ -13,7 +13,8 @@ test("every bridge source has a matching wallet chain, and Arc is the registry's
     assert.equal(walletChain.nativeCurrency.decimals, 18);
     assert.ok(walletChain.rpcUrls.default.http.length > 0);
   }
-  assert.deepEqual(CHAIN_KEYS, ["base", "robinhood", "arc"]);
+  // Elysium is a launchpad chain but not (yet) a bridge source: Relay serves it, the bridge dialog does not offer it
+  assert.deepEqual(CHAIN_KEYS, ["base", "robinhood", "arc", "elysium"]);
   const arc = BRIDGE_WALLET_CHAINS[5042];
   assert.equal(arc, CHAINS.arc, "one Arc definition, shared by the launchpad and the bridge");
   assert.equal(arc.rpcUrls.default.http[0], "https://rpc.mainnet.arc.io");

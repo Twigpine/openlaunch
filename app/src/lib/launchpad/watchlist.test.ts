@@ -44,7 +44,7 @@ test("the v1 store retains existing entries when Arc is added, reviewed and relo
   assert.deepEqual(reloaded.getSnapshot().entries, [
     { ...token(1, "arc"), addedAt: NOW, seenAt: NOW, holders: 0 }, ...oldEntries,
   ]);
-  assert.equal(new Set(reloaded.getSnapshot().savedKeys).size, CHAIN_KEYS.length);
+  assert.equal(new Set(reloaded.getSnapshot().savedKeys).size, 3, "one entry each on Base, Robinhood Chain and Arc");
   assert.equal(reloaded.toggle(token(1, "arc")), "removed");
   assert.deepEqual(reloaded.getSnapshot().entries, oldEntries);
 });

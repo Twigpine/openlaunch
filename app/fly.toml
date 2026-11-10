@@ -2,9 +2,10 @@
 #   fly deploy -c fly.toml --ha=false --remote-only \
 #     --build-arg NEXT_PUBLIC_LAUNCH_FACTORY=0x... --build-arg NEXT_PUBLIC_LAUNCH_LOCKER=0x... \
 #     --build-arg NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD=0x... --build-arg NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD=0x... \
-#     --build-arg NEXT_PUBLIC_LAUNCH_FACTORY_ARC=0x... --build-arg NEXT_PUBLIC_LAUNCH_LOCKER_ARC=0x...
+#     --build-arg NEXT_PUBLIC_LAUNCH_FACTORY_ARC=0x... --build-arg NEXT_PUBLIC_LAUNCH_LOCKER_ARC=0x... \
+#     --build-arg NEXT_PUBLIC_LAUNCH_FACTORY_ELYSIUM=0x... --build-arg NEXT_PUBLIC_LAUNCH_LOCKER_ELYSIUM=0x...
 # Postgres: attached `basebid-db` (private 6PN; DATABASE_URL injected as a secret).
-# Runtime secrets: BASE_RPC_URL, ROBINHOOD_RPC_URL, ARC_RPC_URL, LAUNCH_DEPLOY_BLOCK, LAUNCH_DEPLOY_BLOCK_ROBINHOOD, LAUNCH_DEPLOY_BLOCK_ARC (scripts/fly-secrets.sh).
+# Runtime secrets: BASE_RPC_URL, ROBINHOOD_RPC_URL, ARC_RPC_URL, ELYSIUM_RPC_URL, LAUNCH_DEPLOY_BLOCK, LAUNCH_DEPLOY_BLOCK_ROBINHOOD, LAUNCH_DEPLOY_BLOCK_ARC, LAUNCH_DEPLOY_BLOCK_ELYSIUM (scripts/fly-secrets.sh).
 app = 'basebid'
 primary_region = 'iad'
 
