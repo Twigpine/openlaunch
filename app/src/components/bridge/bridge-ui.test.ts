@@ -200,13 +200,14 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(hook, /if \(!transferCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
   assert.match(hook, /if \(!approvalCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
   assert.match(panel, /Keep the Transfer ID below/);
-  assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
+  assert.match(panel, /Openlaunch does not operate \{provider\}, holds no funds in transit, and is not responsible for delays, refunds or losses/);
   assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);
   assert.match(hook, /linkedTimeoutSignal\(signal, 20_000\)/);
   assert.match(hook, /anchorQuoteExpiry\(body, requestedAt\)/);
   assert.match(hook, /setActivity\(activityAfterWalletChange\)/);
   assert.match(hook, /error instanceof TransactionReceiptNotFoundError\) return null/);
-  assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
+  assert.match(hook, /const walletHashUnmined = receipt\.status === "fulfilled" && receipt\.value === null;/);
+  assert.match(hook, /replacementSourceHash\(current, status, walletHashUnmined\)/);
   assert.match(hook, /const messageOf = bridgeErrorMessage;/);
 });
 
@@ -282,4 +283,21 @@ test("pending approvals explain missing/queued transactions and accept a verifie
   assert.match(hook, /const health = receipt \? null : await readPendingApprovalHealth/);
   assert.match(hook, /value: APPROVAL_HEALTH_UNAVAILABLE/);
   assert.equal((hook.match(/await assertBridgeWalletQueueClear\(/g) ?? []).length, 2);
+});
+
+test("a Circle transfer is named as Circle's, reads allowance for Circle's spender, and never links to a Relay page", () => {
+  const hook = read("./useBridge.ts");
+  const board = read("./BridgeHistory.tsx");
+  // allowances are read for whichever contract the approval names, never a hard-coded Relay depository
+  assert.doesNotMatch(hook, /RELAY_DEPOSITORY/);
+  assert.match(hook, /args: \[quote\.address, quote\.approval\.spender\]/);
+  assert.match(hook, /const statusUrl = observed \? bridgeStatusUrl\(observed\)/);
+  assert.match(hook, /findCctpBurn\(pub, current\)/);
+  assert.match(panel, /const circle = \(bridge\.tracked\?\.provider \?\? bridge\.quote\?\.provider\) === "cctp";/);
+  assert.match(panel, /Powered by Circle CCTP/);
+  assert.match(panel, /\{circle \? null : <a className=\{styles\.externalAction\} href=\{\x60https:\/\/relay\.link\/transaction\//);
+  assert.match(panel, /\{circle \? null : <p className=\{styles\.disclaimer\}>Transfer ID/);
+  assert.match(panel, /Circle takes one fixed fee, so this is the exact amount you receive\./);
+  assert.match(board, /entry\.provider === "cctp" \? <span className=\{styles\.via\}>Circle<\/span> : <a href=\{\x60https:\/\/relay\.link\/transaction\//);
+  assert.doesNotMatch(panel, /—/);
 });

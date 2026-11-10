@@ -2,40 +2,16 @@ import "server-only";
 import { BridgeApiError, isRequestId, parseBridgeRequest, parseRelayStatus, validateRelayChains, validateRelayQuote } from "./validation";
 import { bridgeCurrency, type BridgeQuote, type BridgeQuoteRequest, type BridgeStatusResponse } from "./types";
 import { parseRelayHistory, type BridgeHistoryResponse } from "./history";
+import { readBridgeJson } from "./read-json";
+import { cctpRoute } from "./cctp";
+import { getCctpQuote } from "./cctp-server";
+
+export { readBridgeJson };
 
 const RELAY_API = "https://api.relay.link";
 const UPSTREAM_TIMEOUT_MS = 12_000;
 export const BRIDGE_PRIVATE_HEADERS = { "Cache-Control": "private, no-store, max-age=0", "CDN-Cache-Control": "no-store" };
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
-
-/** Count streamed bytes, not Content-Length alone; cap reads even for chunked bodies. */
-export async function readBridgeJson(body: ReadableStream<Uint8Array> | null, maxBytes: number, timeoutMs = 8_000): Promise<unknown> {
-  if (!body) throw new BridgeApiError("Invalid JSON body.", 400);
-  const reader = body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let bytes = 0;
-  let text = "";
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new BridgeApiError("The bridge request timed out. Please try again.", 504)), timeoutMs); });
-  try {
-    while (true) {
-      const chunk = await Promise.race([reader.read(), timeout]);
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > maxBytes) throw new BridgeApiError("The request is too large.", 413);
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-    text += decoder.decode();
-    return JSON.parse(text);
-  } catch (error) {
-    void reader.cancel().catch(() => {});
-    if (error instanceof BridgeApiError) throw error;
-    throw new BridgeApiError("Invalid JSON body.", 400);
-  } finally {
-    clearTimeout(timer);
-    reader.releaseLock();
-  }
-}
 
 async function relayJson(path: string, init: RequestInit, maxBytes: number, fetcher: Fetcher): Promise<unknown> {
   try {
@@ -70,8 +46,25 @@ function forgetChains(fetcher: Fetcher, value: Promise<unknown>) {
   if (chainsCache.get(fetcher)?.value === value) chainsCache.delete(fetcher);
 }
 
-export async function getBridgeQuote(request: BridgeQuoteRequest, fetcher: Fetcher = fetch, now: () => number = Date.now): Promise<BridgeQuote> {
+/**
+ * The better of Relay's and Circle's quotes. A USDC to USDC route between Circle networks also asks Circle; its quote
+ * wins only when it delivers strictly more. Circle failing, or declining the route, changes nothing: Relay's quote or
+ * error stands. `circle` reaches Circle and the source RPC; it is the real network only when Relay's fetcher is, so a
+ * test that fakes Relay never reaches Circle by accident.
+ */
+export async function getBridgeQuote(request: BridgeQuoteRequest, fetcher: Fetcher = fetch, now: () => number = Date.now, circle: Fetcher | null = fetcher === fetch ? fetch : null): Promise<BridgeQuote> {
   const input = parseBridgeRequest(request);
+  if (!circle || !cctpRoute(input)) return getRelayQuote(input, fetcher, now);
+  const [relay, cctp] = await Promise.allSettled([getRelayQuote(input, fetcher, now), getCctpQuote(input, circle, now)]);
+  const viaCircle = cctp.status === "fulfilled" ? cctp.value : null;
+  if (relay.status === "rejected") {
+    if (viaCircle) return viaCircle;
+    throw relay.reason;
+  }
+  return viaCircle && BigInt(viaCircle.amountOut) > BigInt(relay.value.amountOut) ? viaCircle : relay.value;
+}
+
+async function getRelayQuote(input: BridgeQuoteRequest, fetcher: Fetcher, now: () => number): Promise<BridgeQuote> {
   const chainsPromise = relayChains(fetcher, now());
   const [chains, quote] = await Promise.all([
     chainsPromise,

@@ -118,7 +118,7 @@ function Row({ entry }: { entry: BridgeHistoryEntry }) {
       <span className={`${styles.amount} ${styles.received}`} data-note={received.note ? "" : undefined} data-kind={received.label === "Quoted" ? "quoted" : undefined}><small>{received.label}</small>{received.amount ?? received.note}</span>
       <span className={styles.status}>{status.label}</span>
       <span className={styles.links}>
-        <a href={`https://relay.link/transaction/${entry.requestId}`} target="_blank" rel="noreferrer">Relay<ArrowUpRight size={12} aria-hidden /></a>
+        {entry.provider === "cctp" ? <span className={styles.via}>Circle</span> : <a href={`https://relay.link/transaction/${entry.requestId}`} target="_blank" rel="noreferrer">Relay<ArrowUpRight size={12} aria-hidden /></a>}
         {entry.sourceHash ? <a href={`${origin.explorer}/tx/${entry.sourceHash}`} target="_blank" rel="noreferrer">Source<ArrowUpRight size={12} aria-hidden /></a> : null}
         {entry.status === "success" && entry.destinationHashes[0] ? <a href={`${destination.explorer}/tx/${entry.destinationHashes[0]}`} target="_blank" rel="noreferrer">Destination<ArrowUpRight size={12} aria-hidden /></a> : null}
       </span>

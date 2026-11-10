@@ -114,7 +114,14 @@ export type BridgeQuoteRequest = {
   amount: string; // input currency base units, never native-gas units for ERC-20s
 };
 
+/** Who carries a transfer. Omitted means Relay (every record written before Circle was added). */
+export type BridgeProvider = "cctp";
+export const BRIDGE_PROVIDER_NAMES = { relay: "Relay", cctp: "Circle" } as const;
+export const bridgeProviderName = (provider: BridgeProvider | undefined) => BRIDGE_PROVIDER_NAMES[provider ?? "relay"];
+
 export type BridgeQuote = BridgeQuoteRequest & {
+  /** Circle's CCTP (lib/bridge/cctp.ts), or Relay when omitted. */
+  provider?: BridgeProvider;
   requestId: Hex;
   amountOut: string;
   minimumAmountOut: string;

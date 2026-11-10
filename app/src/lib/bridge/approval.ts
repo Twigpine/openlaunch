@@ -1,5 +1,6 @@
 import { decodeEventLog, encodeFunctionData, isAddress, type Address, type Hex } from "viem";
 import { bridgeCurrency, bridgeTokenAsset, isBridgeChainId, type BridgeChainId } from "./types";
+import { CCTP_TOKEN_MESSENGER } from "./cctp";
 
 // Independently pinned: provider calldata never chooses the token or spender.
 // https://docs.arc.io/arc/references/contract-addresses
@@ -7,6 +8,11 @@ import { bridgeCurrency, bridgeTokenAsset, isBridgeChainId, type BridgeChainId }
 export const ARC_APPROVAL_CHAIN_ID = 5042 as const;
 export const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 export const RELAY_APPROVAL_SPENDER = "0x4cd00e387622c35bddb9b4c962c136462338bc31" as const;
+// Circle's TokenMessengerV2 (lib/bridge/cctp.ts), which pulls the exact amount it burns.
+export const CCTP_APPROVAL_SPENDER = CCTP_TOKEN_MESSENGER.toLowerCase() as Address;
+/** The only contracts an approval may name. Anything else is refused before the wallet is asked. */
+export const APPROVAL_SPENDERS: readonly Address[] = [RELAY_APPROVAL_SPENDER, CCTP_APPROVAL_SPENDER];
+const spenderOf = (value: unknown): Address | null => typeof value === "string" ? APPROVAL_SPENDERS.find((spender) => spender === value.toLowerCase()) ?? null : null;
 export const EXACT_APPROVAL_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] }] as const;
 export const USDC_APPROVAL_EVENT = [{ type: "event", name: "Approval", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "spender", type: "address", indexed: true }, { name: "value", type: "uint256", indexed: false }] }] as const;
 export const APPROVAL_STORAGE_PREFIX = "openlaunch.bridge.approval.v1:";
@@ -16,13 +22,14 @@ const MAX_APPROVAL_AMOUNT = MAX_UINT / 10n ** 12n;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const STATUSES = ["uncertain", "pending", "confirmed", "reverted", "insufficient"] as const;
 
-export type ApprovalRequest = { address: Address; amount: string; chainId?: BridgeChainId }; // Omitted chain is legacy Arc; amounts are token units, 6 decimals.
+// Omitted chain is legacy Arc; omitted spender is Relay's depository (every record before Circle). Amounts are token units, 6 decimals.
+export type ApprovalRequest = { address: Address; amount: string; chainId?: BridgeChainId; spender?: Address };
 export type ApprovalStatus = typeof STATUSES[number];
 export type TrackedApproval = ApprovalRequest & {
   version: 1;
   chainId: BridgeChainId;
   token: Address;
-  spender: typeof RELAY_APPROVAL_SPENDER;
+  spender: Address;
   createdAt: number;
   status: ApprovalStatus;
   approvalHash?: Hex;
@@ -52,20 +59,23 @@ function validateRequest(value: ApprovalRequest): ApprovalRequest {
   const chainId = value.chainId ?? ARC_APPROVAL_CHAIN_ID;
   approvalToken(chainId);
   if (chainId === ARC_APPROVAL_CHAIN_ID && BigInt(value.amount) > MAX_APPROVAL_AMOUNT) throw new Error("The USDC approval amount exceeds Arc's native balance range.");
-  return { address: value.address, amount: value.amount, ...(value.chainId !== undefined ? { chainId } : {}) };
+  const spender = value.spender === undefined ? RELAY_APPROVAL_SPENDER : spenderOf(value.spender);
+  if (!spender) throw new Error("The token approval names an unsupported spender.");
+  return { address: value.address, amount: value.amount, ...(value.chainId !== undefined ? { chainId } : {}), ...(spender !== RELAY_APPROVAL_SPENDER ? { spender } : {}) };
 }
 
 /** Validate provider metadata before adapting a quote to this fixed approval flow. */
 export function validateApprovalMetadata(value: unknown, address: Address, chainId?: BridgeChainId): ApprovalRequest {
   const metadata = value as { token?: unknown; spender?: unknown; amount?: unknown } | null;
-  if (!metadata || typeof metadata.token !== "string" || metadata.token.toLowerCase() !== approvalToken(chainId).toLowerCase() || typeof metadata.spender !== "string" || metadata.spender.toLowerCase() !== RELAY_APPROVAL_SPENDER || !validAmount(metadata.amount)) {
+  if (!metadata || typeof metadata.token !== "string" || metadata.token.toLowerCase() !== approvalToken(chainId).toLowerCase() || !spenderOf(metadata.spender) || !validAmount(metadata.amount)) {
     throw new Error("The bridge requested an unsupported token, spender, or approval amount.");
   }
-  return validateRequest({ address, amount: metadata.amount, ...(chainId !== undefined ? { chainId } : {}) });
+  return validateRequest({ address, amount: metadata.amount, ...(chainId !== undefined ? { chainId } : {}), spender: spenderOf(metadata.spender)! });
 }
 
 export function approvalRequestKey(request: ApprovalRequest | null): string {
-  return request ? `${request.address.toLowerCase()}:${request.chainId ?? ARC_APPROVAL_CHAIN_ID}:${request.amount}` : "";
+  const spender = request?.spender?.toLowerCase();
+  return request ? `${request.address.toLowerCase()}:${request.chainId ?? ARC_APPROVAL_CHAIN_ID}:${request.amount}${spender && spender !== RELAY_APPROVAL_SPENDER ? `:${spender}` : ""}` : "";
 }
 
 export const approvalStorageKey = (address: Address) => `${APPROVAL_STORAGE_PREFIX}${address.toLowerCase()}`;
@@ -99,7 +109,7 @@ export function canApplyApprovalPoll(current: TrackedApproval | null, observed: 
 
 export function exactApprovalTransaction(request: ApprovalRequest): ApprovalTransaction {
   const checked = validateRequest(request);
-  return { chainId: checked.chainId ?? ARC_APPROVAL_CHAIN_ID, to: approvalToken(checked.chainId), value: 0n, data: encodeFunctionData({ abi: EXACT_APPROVAL_ABI, functionName: "approve", args: [RELAY_APPROVAL_SPENDER, BigInt(checked.amount)] }) };
+  return { chainId: checked.chainId ?? ARC_APPROVAL_CHAIN_ID, to: approvalToken(checked.chainId), value: 0n, data: encodeFunctionData({ abi: EXACT_APPROVAL_ABI, functionName: "approve", args: [checked.spender ?? RELAY_APPROVAL_SPENDER, BigInt(checked.amount)] }) };
 }
 
 /** Also bind candidate chain and block time to the journal in the RPC caller. */
@@ -119,7 +129,7 @@ export function hasMatchingApprovalEvent(approval: TrackedApproval, receipt: { s
       if (log.address.toLowerCase() !== checked.token.toLowerCase() || log.topics.length !== 3 || !log.topics.every((topic) => HASH.test(topic)) || !/^0x[0-9a-fA-F]{64}$/.test(log.data)) return false;
       try {
         const event = decodeEventLog({ abi: USDC_APPROVAL_EVENT, data: log.data, topics: [log.topics[0], ...log.topics.slice(1)], strict: true });
-        return event.args.owner.toLowerCase() === checked.address.toLowerCase() && event.args.spender.toLowerCase() === RELAY_APPROVAL_SPENDER && event.args.value.toString() === checked.amount;
+        return event.args.owner.toLowerCase() === checked.address.toLowerCase() && event.args.spender.toLowerCase() === checked.spender && event.args.value.toString() === checked.amount;
       } catch { return false; }
     });
   } catch { return false; }
@@ -129,8 +139,8 @@ export function parseStoredApproval(raw: string, address: Address): TrackedAppro
   try {
     const entry = JSON.parse(raw) as TrackedApproval;
     const request = validateRequest(entry);
-    if (entry.version !== 1 || request.address.toLowerCase() !== address.toLowerCase() || !isBridgeChainId(entry.chainId) || typeof entry.token !== "string" || entry.token.toLowerCase() !== approvalToken(entry.chainId).toLowerCase() || entry.spender !== RELAY_APPROVAL_SPENDER || !Number.isSafeInteger(entry.createdAt) || entry.createdAt <= 0 || !STATUSES.includes(entry.status) || (entry.approvalHash !== undefined && !validHash(entry.approvalHash)) || (entry.status !== "uncertain" && !entry.approvalHash)) throw new Error("invalid record");
-    return { ...request, version: 1, chainId: entry.chainId, token: approvalToken(entry.chainId), spender: RELAY_APPROVAL_SPENDER, createdAt: entry.createdAt, status: entry.status, ...(entry.approvalHash ? { approvalHash: entry.approvalHash } : {}) };
+    if (entry.version !== 1 || request.address.toLowerCase() !== address.toLowerCase() || !isBridgeChainId(entry.chainId) || typeof entry.token !== "string" || entry.token.toLowerCase() !== approvalToken(entry.chainId).toLowerCase() || !spenderOf(entry.spender) || !Number.isSafeInteger(entry.createdAt) || entry.createdAt <= 0 || !STATUSES.includes(entry.status) || (entry.approvalHash !== undefined && !validHash(entry.approvalHash)) || (entry.status !== "uncertain" && !entry.approvalHash)) throw new Error("invalid record");
+    return { ...request, version: 1, chainId: entry.chainId, token: approvalToken(entry.chainId), spender: spenderOf(entry.spender)!, createdAt: entry.createdAt, status: entry.status, ...(entry.approvalHash ? { approvalHash: entry.approvalHash } : {}) };
   } catch { throw new Error("Saved token approval recovery data could not be read. Check the approval before trying again."); }
 }
 
@@ -293,7 +303,7 @@ export async function submitExactApproval(input: ApprovalRequest, deps: Approval
   const latest = deps.readApproval(request.address);
   if (approvalBlocksSubmission(latest)) throw new Error("Another approval is now being tracked. Check it before continuing.");
   const createdAt = Math.max(deps.now(), (latest?.createdAt ?? 0) + 1);
-  const tracked: TrackedApproval = { ...request, version: 1, chainId, token: approvalToken(chainId), spender: RELAY_APPROVAL_SPENDER, createdAt, status: "uncertain" };
+  const tracked: TrackedApproval = { ...request, version: 1, chainId, token: approvalToken(chainId), spender: request.spender ?? RELAY_APPROVAL_SPENDER, createdAt, status: "uncertain" };
   serializeApproval(tracked);
   const restore = () => { if (latest) deps.saveApproval(latest); else deps.removeApproval(request.address); };
   try { deps.saveApproval(tracked); }

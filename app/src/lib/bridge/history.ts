@@ -12,6 +12,8 @@ import { bridgeCurrency, bridgeCurrencyAsset, bridgeTransferInputCurrency, isBri
 
 export type BridgeHistoryStatus = BridgeStatus | "uncertain";
 export type BridgeHistoryEntry = {
+  /** Circle's CCTP, or Relay when omitted. A Circle row has no Relay page; its `requestId` is this app's own. */
+  provider?: "cctp";
   requestId: Hex;
   originChainId: BridgeChainId;
   destinationChainId: BridgeDestinationId;
@@ -57,6 +59,7 @@ export function historyFromTransfer(transfer: TrackedBridgeTransfer, quotedOut: 
   const output = bridgeCurrency(transfer.destinationChainId, transfer.destinationAsset, "output");
   const out = quotedOut !== null && isUint(quotedOut) ? quotedOut : null;
   return {
+    ...(transfer.provider ? { provider: transfer.provider } : {}),
     requestId: transfer.requestId, originChainId: transfer.originChainId, destinationChainId: transfer.destinationChainId,
     originAsset: input.symbol, destinationAsset: output.symbol, amountIn: transfer.amount, inDecimals: input.decimals,
     amountOut: out, outDecimals: output.decimals, outKind: out === null ? null : "quoted",
@@ -80,7 +83,9 @@ export function parseHistoryEntry(value: unknown): BridgeHistoryEntry | null {
   if (typeof v.createdAt !== "number" || !Number.isFinite(v.createdAt) || v.createdAt <= 0) return null;
   if (!(v.sourceHash === null || isHash(v.sourceHash)) || !Array.isArray(v.destinationHashes) || v.destinationHashes.length > 50 || !v.destinationHashes.every(isHash)) return null;
   if (!(v.recipient === null || (typeof v.recipient === "string" && ADDRESS.test(v.recipient)))) return null;
+  if (v.provider !== undefined && v.provider !== "cctp") return null;
   return {
+    ...(v.provider === "cctp" ? { provider: "cctp" as const } : {}),
     requestId: v.requestId, originChainId: v.originChainId, destinationChainId: v.destinationChainId, originAsset: v.originAsset, destinationAsset: v.destinationAsset,
     amountIn: v.amountIn, inDecimals: v.inDecimals as 6 | 18, amountOut: v.amountOut as string | null, outDecimals: v.outDecimals as 6 | 18, outKind: v.outKind as BridgeHistoryEntry["outKind"],
     status: v.status as BridgeHistoryStatus, reverted: v.reverted, createdAt: v.createdAt, sourceHash: v.sourceHash as Hex | null,
@@ -100,7 +105,7 @@ export function combineHistory(prior: BridgeHistoryEntry, next: BridgeHistoryEnt
   const status = rank(prior.status) > rank(next.status) ? prior : next;
   const out = outRank(prior.outKind) > outRank(next.outKind) ? prior : next;
   return {
-    ...next, status: status.status, reverted: status.reverted,
+    ...prior, ...next, status: status.status, reverted: status.reverted,
     amountOut: out.amountOut, outKind: out.outKind,
     createdAt: Math.min(prior.createdAt, next.createdAt),
     sourceHash: next.sourceHash ?? prior.sourceHash,

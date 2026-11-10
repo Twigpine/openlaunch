@@ -278,3 +278,14 @@ test("HTTP history boundary accepts one wallet address only and answers privatel
     assert.equal(limited.headers.get("retry-after"), "5");
   });
 });
+
+test("a Circle row keeps its provider through the ledger, and no other provider is read back", () => {
+  const circle = historyFromTransfer(tracked({ provider: "cctp", sourceBlock: "10" }), "24984750")!;
+  assert.equal(circle.provider, "cctp");
+  assert.equal(historyFromTransfer(tracked())!.provider, undefined);
+  assert.deepEqual(parseHistoryLedger(serializeHistoryLedger([circle])), [circle]);
+  assert.equal(parseHistoryEntry({ ...circle, provider: "relay" }), null);
+  assert.equal(parseHistoryEntry({ ...circle, provider: 1 }), null);
+  assert.equal(combineHistory(circle, row({ status: "success" })).provider, "cctp");
+  assert.equal(combineHistory(row(), row({ status: "success" })).provider, undefined);
+});

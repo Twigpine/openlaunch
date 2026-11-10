@@ -4,7 +4,7 @@ The header's **Bridge** action opens a focused funding panel without leaving the
 
 ## Integration
 
-- Relay supplies quotes and transfer status. Openlaunch charges no application fee; Relay and source-network gas still cost money.
+- Relay supplies quotes and transfer status. For USDC to USDC into Base or Arc, Circle CCTP is quoted alongside and used when it delivers more (see Circle CCTP below). Openlaunch charges no application fee; the provider fee and source-network gas still cost money.
 - `POST /api/bridge/quote` accepts `{ address, originChainId, destinationChainId, originAsset, destinationAsset, amount }`. Asset choices are allowlisted `ETH`, `USDC` or `USDG` for that chain, never arbitrary addresses. Omitted asset fields retain legacy defaults: Base/Robinhood ETH, Arc USDC. The integer amount uses 18 decimals for ETH inputs and **6 decimals for USDC and USDG inputs**. Outputs use 6 decimals for Base USDC and Robinhood USDG, 18 for ETH or Arc native USDC. `GET /api/bridge/status?requestId=…` returns normalized provider state and transaction hashes.
 - Base USDC is Circle's `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. Its ERC-20 balance and allowance are checked separately from native ETH gas. An approval and deposit both require an ETH reserve; a USDC balance cannot pay Base gas. The picker, fee labels, quote identity and recovery journal all retain the selected asset.
 - Requests use a fixed upstream, timeout and streamed body-size bounds, existing per-IP limits, and private/no-store caching. The API does not need a wallet signature. Relay quotes/status stay server-side. Arc balance, allowance, gas and receipt reads go through the same-origin `/api/rpc?chain=arc` proxy (upstream `ARC_RPC_URL`, else the official public node), so the CSP gains no third-party origin and script restrictions are unchanged. The funding networks read the same way through `/api/rpc?chain=ethereum|arbitrum|optimism` (upstreams `ETHEREUM_RPC_URL`, `ARBITRUM_RPC_URL`, `OPTIMISM_RPC_URL`, else publicnode for Ethereum and the official Arbitrum and Optimism nodes), with the same read-only allowlist and per-IP budget. Public Base and Arc nodes rate-limit a single quote's burst of reads; the proxy turns rate-limit and malformed replies into HTTP 429/502 so viem retries them, and production should point `BASE_RPC_URL` and `ARC_RPC_URL` at keyed providers.
@@ -14,7 +14,7 @@ The header's **Bridge** action opens a focused funding panel without leaving the
 
 ## Transfer safety
 
-Quotes request `explicitDeposit`, `includeProtocolData`, and an explicit `refundTo` matching the connected wallet. The server verifies the order hash, route-specific chain metadata, independently pinned depository/router, exact input/output currencies, recipient/depositor, refund destinations, minimum output, deadline, and canonical calldata. ETH sources accept only `depositNative`. USDC sources accept only an exact-amount approval to the pinned Relay depository and the four-argument `depositErc20(depositor, currency, amount, orderId)`. Unlimited approvals, generic router/multicall transactions, extra steps, output calls and application fees are rejected. An unavailable route fails closed rather than silently changing assets or providers.
+Quotes request `explicitDeposit`, `includeProtocolData`, and an explicit `refundTo` matching the connected wallet. The server verifies the order hash, route-specific chain metadata, independently pinned depository/router, exact input/output currencies, recipient/depositor, refund destinations, minimum output, deadline, and canonical calldata. ETH sources accept only `depositNative`. USDC sources accept only an exact-amount approval to the pinned Relay depository and the four-argument `depositErc20(depositor, currency, amount, orderId)`. Unlimited approvals, generic router/multicall transactions, extra steps, output calls and application fees are rejected. An unavailable route fails closed rather than silently changing assets. The provider is chosen only between Relay and Circle on USDC to USDC routes, and the panel names it.
 
 The client binds the quote to the displayed account, direction and amount, rejects changed/expired quotes, then rechecks the wallet and source balance with fresh gas estimates before asking the wallet to send. Quotes are available for at most 45 seconds, with 0.5% output slippage. It rejects Relay fees above 5% of input and provider-reported total value loss above 5%. The latter is Relay's market estimate, not an independent fair-price oracle. ETH and USDC raw amounts are never subtracted from one another. No wallet request happens automatically. Inputs must leave room for source gas.
 
@@ -48,12 +48,39 @@ From `app/`, run `npm test`, `npm run lint`, `npm run typecheck`, and `npm run b
 
 ```powershell
 $env:RUN_BRIDGE_LIVE_TESTS='1'
-npx tsx --conditions=react-server --tsconfig tsconfig.test.json --test src/lib/bridge/relay.live.test.ts
+npx tsx --conditions=react-server --tsconfig tsconfig.test.json --test src/lib/bridge/relay.live.test.ts src/lib/bridge/cctp.live.test.ts
 ```
 
 These tests never connect a wallet or submit a transaction.
 
 `/ui-review-bridge` is a development-only visual fixture with disconnected, quote, quoting, high-fee, expired, error, pending, success, uncertain and refund states, plus approval/recovery states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
+
+### Circle CCTP (2026-11-10)
+
+USDC to USDC into Base or Arc is also quoted through Circle's Cross-Chain Transfer Protocol v2. For these routes both quotes are requested together and the panel offers whichever delivers more. Every other route is Relay alone, exactly as before. The panel names the provider in use: the Route row, the fee label, the approval notice, the footer and the transfer steps.
+
+- **What is sent.** One transaction, `depositForBurnWithHook` on Circle's TokenMessengerV2 `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d` (the same address on Ethereum, Optimism, Arbitrum, Base and Arc). It burns the exact amount for the same wallet on the destination, with a zero destination caller, Fast finality (1000) and Circle's Forwarding Service hook (`cctp-forward`, version 0, no payload). Arc has no Fast Transfer as a source, so a burn from Arc asks for Standard (2000); Arc blocks are final in about half a second. Circle attests and mints on the destination itself: there is no second wallet step and no destination gas. Domains, read on-chain with `localDomain()`: Ethereum 0, Optimism 2, Arbitrum 3, Base 6, Arc 26.
+- **Fee and amount.** The fee is Circle's published fee for the route at the burn's finality (`GET /v2/burn/USDC/fees/{src}/{dst}?forward=true`, in basis points, rounded up) plus the high tier of its forwarding fee, set as the burn's `maxFee`. With forwarding, Circle takes the whole `maxFee` (every live forwarded burn checked had `feeExecuted` equal to `maxFee`), so the quote shows one fixed fee and the exact amount received, with no slippage. The server refuses a rate above 1% or a forward above $5 before using them, and the client applies the same 5% ceiling as for Relay.
+- **What Circle decides.** Only the fee, within those bounds, and progress. The server builds the calldata from pinned values (`lib/bridge/cctp.ts`), and the browser rebuilds it byte for byte from the wallet, amount and route before the wallet is asked (`validateCctpQuote` in `lib/bridge/client.ts`). Approval is the same exact-amount flow; Circle's messenger is the only spender allowed besides Relay's depository.
+- **When Circle is not offered.** A route other than USDC to USDC into Base or Arc (Robinhood has a Circle domain, 35, but no live USDC route); more than 10,000,000 USDC, Circle's per-burn limit; Circle's global Fast Transfer allowance below the amount (Circle would fall back to Standard and still charge the Fast fee); a fee outside the bounds; or Circle or the source RPC failing. In each case Relay's quote, or its error, stands as before.
+- **Status and recovery.** A Circle transfer is tracked by its source transaction. `GET /api/bridge/status?provider=cctp&origin=…&destination=…&hash=…&address=…&amount=…` reads Circle's message record and accepts it only when it names this wallet as sender and recipient, this amount, token, route, finality and hook. Not found yet is waiting. Attested with the forward complete is arrived, with the destination mint hash. A reported delay or a forward that is neither pending nor complete is delayed. The recovery record (version 4) keeps the burn calldata and the source block from before the wallet was asked. A burn whose hash the wallet never returned, or a sped-up replacement, is then found from the messenger's own `DepositForBurn` event: within 9,999 blocks, and only when exactly one burn matches. History rows carry the provider and show "Circle" where Relay rows link to Relay.
+- **Requests.** Circle allows 40 requests a second per IP and blocks for five minutes past that. The server shares one budget of 600 a minute across all callers and reuses fees for 30 seconds, the Fast allowance for 15 and a status for 5. Circle needs no API key.
+- **Cost.** Live on 2026-11-10, fees in USDC: Relay's quoted loss, then Circle's fee and forward.
+
+  | Route | $10 | $100 | $1,000 | $10,000 |
+  |---|---|---|---|---|
+  | Base to Arc | 0.0226 / 0.0161 | 0.0406 / 0.0190 | 0.2206 / 0.0483 | 2.0207 / 0.3408 |
+  | Ethereum to Arc | 0.0226 / 0.0165 | 0.0406 / 0.0187 | 0.2206 / 0.0412 | 2.0206 / 0.2662 |
+  | Arbitrum to Arc | 0.0226 / 0.0166 | 0.0406 / 0.0197 | 0.2206 / 0.0512 | 2.0206 / 0.3662 |
+  | Optimism to Arc | 0.0226 / 0.0166 | 0.0406 / 0.0195 | 0.2206 / 0.0487 | 2.0206 / 0.3412 |
+  | Arc to Base | 0.0259 / 0.0542 | 0.0709 / 0.0542 | 0.5209 / 0.0542 | 5.0209 / 0.0542 |
+  | Ethereum to Base | 0.0219 / 0.0552 | 0.0309 / 0.0642 | 0.1209 / 0.1542 | 1.0209 / 1.0542 |
+  | Arbitrum to Base | 0.0219 / 0.0556 | 0.0309 / 0.0682 | 0.1209 / 0.1942 | 1.0209 / 1.4542 |
+  | Optimism to Base | 0.0219 / 0.0555 | 0.0309 / 0.0672 | 0.1209 / 0.1842 | 1.0209 / 1.3542 |
+
+  Circle delivers more on every route into Arc and from Arc to Base above about $30. Relay delivers more from Ethereum, Arbitrum and Optimism into Base, where Circle's Fast fee is 1 to 1.4 basis points plus a $0.054 forward. Relay quoted about a second for most routes; Circle's estimate is 25 seconds (40 from Ethereum, 15 from Arc). The choice is by amount delivered alone, and the arrival estimate is shown on the quote.
+- **Not built.** A manual mint (`receiveMessage` with Circle's attestation) when Circle's forward stalls: the transfer shows Delayed and tracking continues. Elysium, which has no Circle domain. Near the crossover amount a quote can move between providers, and the approval's spender with it, so an exact approval granted for one can be followed by a second approval step for the other.
+- Checked with unit tests for the route rules, the calldata and every tampered field, the event match, the fee parser and its bounds, quote selection, the status mapping against Circle's real record, the stored record, the approval spender and the log search. The opt-in live test quotes all eight routes from Circle, matches a real forwarded Ethereum to Arc burn (`0x0095…ce01`) against this bridge's own calldata, and reads it from Circle as delivered with its mint hash. `/ui-review-bridge` has a "quote from: Circle" toggle for its quote, pending and arrived scenes, and a Circle row in the history board. No wallet signed anything; a small real Circle transfer is still needed before this is described as exercised.
 
 ### Bridge, then buy (2026-11-10)
 

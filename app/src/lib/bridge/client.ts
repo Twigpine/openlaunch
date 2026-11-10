@@ -1,9 +1,14 @@
 import { BaseError, decodeEventLog, decodeFunctionData, encodeFunctionData, InsufficientFundsError, isAddress, parseUnits, type Address, type Hex } from "viem";
 import { friendlyError } from "../errors";
-import { BRIDGE_ASSETS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { CCTP_BURN_EVENT, CCTP_TOKEN_MESSENGER, cctpAmountOut, cctpBurnFee, cctpRoute, isCctpBurnLog } from "./cctp";
+import { BRIDGE_ASSETS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeProvider, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 export type BridgePhase = "idle" | "quoting" | "review" | "switching" | "confirming" | "pending" | "success" | "refund" | "failure" | "uncertain";
 export type TrackedBridgeTransfer = BridgeQuoteRequest & {
+  /** Circle's CCTP, or Relay when omitted. A Circle record is tracked by its source transaction, not by `requestId`. */
+  provider?: BridgeProvider;
+  /** Circle only: the source block before the wallet was asked, where a burn with no returned hash is looked for. */
+  sourceBlock?: string;
   requestId: Hex;
   sourceHash?: Hex;
   destinationHashes: Hex[];
@@ -167,6 +172,7 @@ export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest,
   const tx = quote.transaction;
   const erc20 = !/^0x0{40}$/.test(inputCurrency.address);
   if (erc20 && BigInt(request.amount) === MAX_UINT) throw new Error("Unlimited token approvals are not supported. Enter an exact transfer amount.");
+  if (quote.provider !== undefined) return validateCctpQuote(quote, request);
   if (erc20 ? !quote.approval || quote.approval.token?.toLowerCase() !== inputCurrency.address.toLowerCase() || quote.approval.spender?.toLowerCase() !== RELAY_DEPOSITORY || quote.approval.amount !== request.amount : quote.approval !== undefined) {
     throw new Error("The approval did not match the exact token deposit on this network.");
   }
@@ -180,6 +186,25 @@ export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest,
       : encodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, functionName: "depositNative", args: [request.address, orderId] });
     if (/^0x0+$/.test(orderId) || canonical.toLowerCase() !== tx.data.toLowerCase()) throw new Error("binding");
   } catch { throw new Error("The bridge transaction did not match this wallet's exact deposit."); }
+  return quote;
+}
+
+/**
+ * A Circle quote is only ever the one burn `cctpBurnData` builds: the pinned messenger, this wallet as recipient, the
+ * exact amount, Circle's forwarding hook, and a fee under 5%. What arrives is the amount less that fee, exactly.
+ */
+function validateCctpQuote(quote: BridgeQuote, request: BridgeQuoteRequest): BridgeQuote {
+  const route = quote.provider === "cctp" ? cctpRoute(request) : null;
+  const tx = quote.transaction;
+  const maxFee = route && tx ? cctpBurnFee(tx.data, request) : null;
+  if (!route || maxFee === null || !quote.approval || quote.approval.token?.toLowerCase() !== route.burnToken.toLowerCase() || quote.approval.spender?.toLowerCase() !== CCTP_TOKEN_MESSENGER.toLowerCase() || quote.approval.amount !== request.amount) {
+    throw new Error("The approval did not match the exact Circle burn on this network.");
+  }
+  if (tx.chainId !== request.originChainId || typeof tx.to !== "string" || tx.to.toLowerCase() !== CCTP_TOKEN_MESSENGER.toLowerCase() || tx.value !== "0") {
+    throw new Error("The bridge transaction did not pass the deposit safety check.");
+  }
+  const out = cctpAmountOut(BigInt(request.amount), maxFee, route.outputDecimals).toString();
+  if (quote.amountOut !== out || quote.minimumAmountOut !== out || parseUnits(quote.relayFee, 6) !== maxFee) throw new Error("The Circle quote did not match its own burn.");
   return quote;
 }
 
@@ -276,12 +301,14 @@ export function mergeBridgeStatus(transfer: TrackedBridgeTransfer, status: Bridg
 
 /** Recovery without a wallet-returned hash must bind the provider's hash on-chain. */
 export function isMatchingSourceDeposit(transfer: TrackedBridgeTransfer, transaction: { from: Address; to: Address | null; input: Hex; value: bigint }): boolean {
+  if (transfer.provider === "cctp") return !!transfer.depositData && transaction.from.toLowerCase() === transfer.address.toLowerCase() && transaction.to?.toLowerCase() === CCTP_TOKEN_MESSENGER.toLowerCase() && transaction.value === 0n && transaction.input.toLowerCase() === transfer.depositData.toLowerCase();
   return !!transfer.depositData && transaction.from.toLowerCase() === transfer.address.toLowerCase() && transaction.to?.toLowerCase() === RELAY_DEPOSITORY && transaction.value.toString() === (transfer.depositKind === "erc20" ? "0" : transfer.amount) && transaction.input.toLowerCase() === transfer.depositData.toLowerCase();
 }
 
 /** Smart wallets may deposit through an internal call rather than the outer tx. */
 export function hasMatchingDepositEvent(transfer: TrackedBridgeTransfer, receipt: { status: "success" | "reverted"; logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[] }): boolean {
   if (!transfer.depositData || receipt.status !== "success") return false;
+  if (transfer.provider === "cctp") return receipt.logs.some((log) => isCctpBurnLog(log, transfer));
   try {
     const erc20 = transfer.depositKind === "erc20";
     const orderId = erc20 ? decodeFunctionData({ abi: ERC20_DEPOSIT_ABI, data: transfer.depositData }).args[3] : decodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, data: transfer.depositData }).args[1];
@@ -349,6 +376,8 @@ export type DepositDependencies = {
   readTransfer: (address: Address) => TrackedBridgeTransfer | null;
   saveTransfer: (transfer: TrackedBridgeTransfer) => void;
   removeTransfer: (address: Address) => void;
+  /** Circle only: the source network's current block, so a burn whose hash the wallet never returned can be found. */
+  sourceBlock?: (quote: BridgeQuote) => Promise<bigint>;
   send: (quote: BridgeQuote, gas: PreparedBridgeGas) => Promise<Hex>;
   phase: (phase: "switching" | "confirming") => void;
 };
@@ -378,7 +407,12 @@ export async function submitBridgeDeposit(quote: BridgeQuote, deps: DepositDepen
   if (wallet.address?.toLowerCase() !== request.address.toLowerCase() || wallet.chainId !== request.originChainId) throw new Error("Your wallet account or network changed. Review a new quote.");
   const latest = deps.readTransfer(request.address);
   if (latest && !transferIsTerminal(latest)) throw new Error("Another transfer is now being tracked for this wallet. Check its status before continuing.");
-  const tracked: TrackedBridgeTransfer = { ...request, requestId: quote.requestId, destinationHashes: [], status: "uncertain", createdAt: deps.now(), depositData: quote.transaction.data, ...(quote.approval ? { depositKind: "erc20" as const } : {}) };
+  let sourceBlock: string | undefined;
+  if (quote.provider === "cctp" && deps.sourceBlock) {
+    try { sourceBlock = (await deps.sourceBlock(quote)).toString(); } catch { /* recovery then relies on the wallet's hash */ }
+    checkRequest();
+  }
+  const tracked: TrackedBridgeTransfer = { ...request, ...(quote.provider ? { provider: quote.provider } : {}), ...(sourceBlock ? { sourceBlock } : {}), requestId: quote.requestId, destinationHashes: [], status: "uncertain", createdAt: deps.now(), depositData: quote.transaction.data, ...(quote.approval ? { depositKind: "erc20" as const } : {}) };
   // This write must succeed before invoking the wallet. A reload during its
   // prompt resumes read-only tracking by requestId, even without a tx hash.
   try { deps.saveTransfer(tracked); } catch {
@@ -411,13 +445,16 @@ export async function submitBridgeDeposit(quote: BridgeQuote, deps: DepositDepen
 export function parseStoredTransfer(raw: string, address: Address): TrackedBridgeTransfer {
   const entry = JSON.parse(raw) as TrackedBridgeTransfer & { version?: unknown };
   const erc20 = entry?.depositKind === "erc20";
+  const cctp = entry?.provider === "cctp";
   const assetsValid = isBridgeChainId(entry?.originChainId) && isBridgeChainId(entry?.destinationChainId) && isBridgeAssetSupported(entry.originChainId, entry.originAsset) && isBridgeAssetSupported(entry.destinationChainId, entry.destinationAsset);
   const legacyAssets = entry?.originAsset === undefined && entry?.destinationAsset === undefined;
-  const validVersion = (entry?.version === 1 && legacyAssets && entry.depositKind === undefined) || (entry?.version === 2 && legacyAssets && erc20 && entry.originChainId === 5042 && typeof entry.depositData === "string") || (entry?.version === 3 && assetsValid && typeof entry.depositData === "string" && (entry.depositKind === undefined || erc20) && erc20 === !/^0x0{40}$/.test(bridgeCurrency(entry.originChainId, entry.originAsset, "input").address));
-  if (!validVersion || typeof entry.address !== "string" || entry.address.toLowerCase() !== address.toLowerCase() || !isAddress(entry.address) || !isBridgeChainId(entry.originChainId) || !isBridgeDestination(entry.destinationChainId) || entry.destinationChainId === entry.originChainId || !isHash(entry.requestId) || !isWei(entry.amount, true) || !Number.isFinite(entry.createdAt) || entry.createdAt <= 0 || (entry.sourceHash !== undefined && !isHash(entry.sourceHash)) || !Array.isArray(entry.destinationHashes) || entry.destinationHashes.length > 50 || !entry.destinationHashes.every(isHash) || (entry.status !== "uncertain" && !STATUSES.includes(entry.status)) || (entry.depositData !== undefined && !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(entry.depositData)) || (entry.failureReason !== undefined && entry.failureReason !== "source-reverted")) {
+  const validVersion = cctp ? entry.version === 4 && assetsValid && erc20 && typeof entry.depositData === "string" && cctpBurnFee(entry.depositData, entry) !== null && (entry.sourceBlock === undefined || (typeof entry.sourceBlock === "string" && /^\d{1,20}$/.test(entry.sourceBlock)))
+    : entry?.provider === undefined && entry?.sourceBlock === undefined && ((entry?.version === 1 && legacyAssets && entry.depositKind === undefined) || (entry?.version === 2 && legacyAssets && erc20 && entry.originChainId === 5042 && typeof entry.depositData === "string") || (entry?.version === 3 && assetsValid && typeof entry.depositData === "string" && (entry.depositKind === undefined || erc20) && erc20 === !/^0x0{40}$/.test(bridgeCurrency(entry.originChainId, entry.originAsset, "input").address)));
+  if (!validVersion || typeof entry.address !== "string" || entry.address.toLowerCase() !== address.toLowerCase() || !isAddress(entry.address) || !isBridgeChainId(entry.originChainId) || !isBridgeDestination(entry.destinationChainId) || entry.destinationChainId === entry.originChainId || !isHash(entry.requestId) || !isWei(entry.amount, true) || !Number.isFinite(entry.createdAt) || entry.createdAt <= 0 || (entry.sourceHash !== undefined && !isHash(entry.sourceHash)) || !Array.isArray(entry.destinationHashes) || entry.destinationHashes.length > 50 || !entry.destinationHashes.every(isHash) || (entry.status !== "uncertain" && !STATUSES.includes(entry.status)) || (entry.depositData !== undefined && !cctp && !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(entry.depositData)) || (entry.failureReason !== undefined && entry.failureReason !== "source-reverted")) {
     throw new Error("Saved bridge recovery data could not be read. Check your transfer on Relay before trying again.");
   }
-  if (erc20) {
+  if (cctp) { /* the burn was re-encoded and bound to this wallet, amount and route above */ }
+  else if (erc20) {
     try {
       const order = decodeFunctionData({ abi: ERC20_DEPOSIT_ABI, data: entry.depositData! }).args[3];
       const canonical = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [entry.address, bridgeCurrency(entry.originChainId, entry.originAsset, "input").address, BigInt(entry.amount), order] });
@@ -430,10 +467,45 @@ export function parseStoredTransfer(raw: string, address: Address): TrackedBridg
       if (/^0x0+$/.test(order) || canonical.toLowerCase() !== entry.depositData.toLowerCase()) throw new Error("binding");
     } catch { throw new Error("Saved native deposit details could not be verified. Check Relay before trying again."); }
   }
-  return { address: entry.address, originChainId: entry.originChainId, destinationChainId: entry.destinationChainId, ...(entry.originAsset ? { originAsset: entry.originAsset } : {}), ...(entry.destinationAsset ? { destinationAsset: entry.destinationAsset } : {}), amount: entry.amount, requestId: entry.requestId, sourceHash: entry.sourceHash, destinationHashes: entry.destinationHashes, status: entry.status, createdAt: entry.createdAt, ...(entry.depositData ? { depositData: entry.depositData } : {}), ...(erc20 ? { depositKind: "erc20" as const } : {}), ...(entry.failureReason ? { failureReason: entry.failureReason } : {}) };
+  return { ...(cctp ? { provider: "cctp" as const, ...(entry.sourceBlock ? { sourceBlock: entry.sourceBlock } : {}) } : {}), address: entry.address, originChainId: entry.originChainId, destinationChainId: entry.destinationChainId, ...(entry.originAsset ? { originAsset: entry.originAsset } : {}), ...(entry.destinationAsset ? { destinationAsset: entry.destinationAsset } : {}), amount: entry.amount, requestId: entry.requestId, sourceHash: entry.sourceHash, destinationHashes: entry.destinationHashes, status: entry.status, createdAt: entry.createdAt, ...(entry.depositData ? { depositData: entry.depositData } : {}), ...(erc20 ? { depositKind: "erc20" as const } : {}), ...(entry.failureReason ? { failureReason: entry.failureReason } : {}) };
 }
 
 export function serializeTransfer(transfer: TrackedBridgeTransfer): string {
   const explicitAssets = transfer.originAsset !== undefined || transfer.destinationAsset !== undefined;
-  return JSON.stringify({ ...transfer, ...(explicitAssets ? { originAsset: transfer.originAsset ?? defaultBridgeAsset(transfer.originChainId), destinationAsset: transfer.destinationAsset ?? defaultBridgeAsset(transfer.destinationChainId) } : {}), version: explicitAssets ? 3 : transfer.depositKind === "erc20" ? 2 : 1 });
+  return JSON.stringify({ ...transfer, ...(explicitAssets ? { originAsset: transfer.originAsset ?? defaultBridgeAsset(transfer.originChainId), destinationAsset: transfer.destinationAsset ?? defaultBridgeAsset(transfer.destinationChainId) } : {}), version: transfer.provider === "cctp" ? 4 : explicitAssets ? 3 : transfer.depositKind === "erc20" ? 2 : 1 });
+}
+
+/** Where a tracked transfer's status is read: Relay by request ID, Circle by the burn's source transaction. */
+export function bridgeStatusUrl(transfer: TrackedBridgeTransfer): string | null {
+  if (transfer.provider !== "cctp") return `/api/bridge/status?requestId=${encodeURIComponent(transfer.requestId)}`;
+  if (!transfer.sourceHash) return null;
+  const params = new URLSearchParams({ provider: "cctp", origin: String(transfer.originChainId), destination: String(transfer.destinationChainId), hash: transfer.sourceHash, address: transfer.address.toLowerCase(), amount: transfer.amount });
+  return `/api/bridge/status?${params}`;
+}
+
+/** What a Circle record says before any burn is known: nothing seen yet. */
+export const CCTP_NOT_SEEN: BridgeStatusResponse = { status: "waiting", inTxHashes: [], txHashes: [] };
+
+type LogReader = {
+  getBlockNumber: () => Promise<bigint>;
+  getLogs: (args: { address: Address; event: (typeof CCTP_BURN_EVENT)[0]; args: { burnToken: Address; depositor: Address }; fromBlock: bigint; toBlock: bigint }) => Promise<readonly { address: Address; data: Hex; topics: readonly Hex[]; transactionHash: Hex | null }[]>;
+};
+/** Blocks searched after the saved source block: about 40 minutes on Arbitrum, hours elsewhere. */
+export const CCTP_SCAN_BLOCKS = 9_999n;
+
+/**
+ * The hash of this record's burn found on the source network, for a wallet that never returned one or replaced it
+ * (speed-up). Only Circle's own event from the pinned messenger, matching every saved field, counts; two matches are
+ * ambiguous and return null so tracking keeps waiting rather than guess.
+ */
+export async function findCctpBurn(reader: LogReader, transfer: TrackedBridgeTransfer): Promise<Hex | null> {
+  const route = transfer.provider === "cctp" ? cctpRoute(transfer) : null;
+  if (!route || !transfer.sourceBlock) return null;
+  const from = BigInt(transfer.sourceBlock);
+  const latest = await reader.getBlockNumber();
+  if (latest < from) return null;
+  const to = latest - from > CCTP_SCAN_BLOCKS ? from + CCTP_SCAN_BLOCKS : latest;
+  const logs = await reader.getLogs({ address: CCTP_TOKEN_MESSENGER, event: CCTP_BURN_EVENT[0], args: { burnToken: route.burnToken, depositor: transfer.address }, fromBlock: from, toBlock: to });
+  const hashes = [...new Set(logs.filter((log) => isCctpBurnLog(log, transfer) && isHash(log.transactionHash)).map((log) => log.transactionHash!.toLowerCase()))];
+  return hashes.length === 1 ? hashes[0] as Hex : null;
 }

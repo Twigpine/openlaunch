@@ -57,7 +57,8 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
             <h2 id="bridge-costs">What it costs</h2>
             <ul className={styles.points}>
               <li>openlaunch takes no fee on a transfer.</li>
-              <li>The bridge provider, Relay, charges a fee that is shown before you confirm and is already taken out of the amount you receive.</li>
+              <li>The bridge provider charges a fee that is shown before you confirm and is already taken out of the amount you receive.</li>
+              <li>Relay quotes every route. For USDC to USDC into Base or Arc, Circle is quoted too, and you get whichever delivers more. The quote names which one.</li>
               <li>Gas on the network you send from is extra.</li>
               <li>A quote that would cost more than 5% in fees, or lose more than 5% in conversion, is blocked.</li>
             </ul>
@@ -65,8 +66,8 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
           <section aria-labelledby="bridge-know">
             <h2 id="bridge-know">Good to know</h2>
             <ul className={styles.points}>
-              <li>Funds go from your wallet to Relay&apos;s deposit contract. They never pass through an openlaunch wallet or contract.</li>
-              <li>Relay is a third-party protocol. openlaunch does not operate it and cannot reverse a transfer.</li>
+              <li>Funds go from your wallet to Relay&apos;s deposit contract, or to Circle&apos;s transfer contract on a Circle route. They never pass through an openlaunch wallet or contract.</li>
+              <li>Relay and Circle are third parties. openlaunch operates neither and cannot reverse a transfer.</li>
               <li>A transfer is saved in this browser while it is in progress. Reopen the bridge with the same wallet to pick it up.</li>
               <li>Finished transfers stay on the board below. It never asks your wallet for anything.</li>
             </ul>

@@ -49,6 +49,8 @@
 .links a { display: inline-flex; align-items: center; gap: 3px; color: #8b95a7; text-decoration: none; }
 .links a:hover { color: #e7ecf3; }
 .links a:focus-visible { border-radius: 4px; outline: 2px solid #6d9dff; outline-offset: 2px; }
+/* A Circle transfer has no tracking page of its own; its source and destination links carry it. */
+.via { color: #6d7a90; }
 .recipient { grid-column: 2 / -1; margin-top: 8px; color: #fbbf24; font-size: 12px; }
 
 .empty { display: grid; justify-items: center; gap: 8px; padding: 46px 20px 44px; text-align: center; }

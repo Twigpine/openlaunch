@@ -8,8 +8,9 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
 import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
-import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
+import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeProviderName, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
+import { CCTP_APPROVAL_SPENDER } from "@/lib/bridge/approval";
 import { bridgeLinkKey, type BridgeLink } from "@/lib/bridge/link";
 import { signalCaption, signalMode } from "@/lib/bridge/signal";
 import { formatFeeWarningPercent } from "@/lib/bridge/fee-display";
@@ -204,9 +205,12 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = 
     setConnecting(true);
   }
 
+  const circle = (bridge.tracked?.provider ?? bridge.quote?.provider) === "cctp";
   const footer = (
     <div className={styles.footer}>
-      <a href="https://relay.link" target="_blank" rel="noreferrer">Powered by Relay <ArrowUpRight size={12} aria-hidden /></a>
+      {circle
+        ? <a href="https://developers.circle.com/cctp" target="_blank" rel="noreferrer">Powered by Circle CCTP <ArrowUpRight size={12} aria-hidden /></a>
+        : <a href="https://relay.link" target="_blank" rel="noreferrer">Powered by Relay <ArrowUpRight size={12} aria-hidden /></a>}
       {onPage ? null : <Link href="/bridge#transfers" onClick={() => onOpenChange(false)}>Your transfers</Link>}
       <span>0 Openlaunch fee</span>
     </div>
@@ -247,6 +251,8 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
   const outputCurrency = bridgeCurrency(b.destinationChainId, b.destinationAsset, "output");
   const erc20Input = inputCurrency.address !== zeroAddress;
   const convertsAsset = inputCurrency.symbol !== outputCurrency.symbol;
+  const provider = bridgeProviderName(b.quote?.provider);
+  const circle = b.quote?.provider === "cctp";
   // a wallet sitting on a funding network most likely wants to send from it
   const walletFunding = b.address && isBridgeFundingChain(b.walletChainId) && b.walletChainId !== b.originChainId ? b.walletChainId : null;
   const outputAmount = (value: string) => nativeAmount(formatUnits(BigInt(value), outputCurrency.decimals));
@@ -299,13 +305,14 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
           <p className={styles.receiveAmount}>{outputAmount(b.quote.amountOut)}<span><AssetMark asset={outputCurrency.symbol} />{outputCurrency.symbol}</span></p>
           <dl className={styles.fees}>
             <div><dt>Minimum received</dt><dd title={`${formatUnits(BigInt(b.quote.minimumAmountOut), outputCurrency.decimals)} ${outputCurrency.symbol}`}>{outputAmount(b.quote.minimumAmountOut)} {outputCurrency.symbol}</dd></div>
-            <div><dt>Relay fee <span>(included)</span></dt><dd>{nativeAmount(b.quote.relayFee)} {inputCurrency.symbol}</dd></div>
+            <div><dt>Route</dt><dd>{circle ? "Circle CCTP" : "Relay"}</dd></div>
+            <div><dt>{provider} fee <span>(included)</span></dt><dd>{nativeAmount(b.quote.relayFee)} {inputCurrency.symbol}</dd></div>
             <div><dt>Source gas <span>(extra, estimated)</span></dt><dd>{nativeAmount(b.quote.sourceGas)} {origin.symbol}</dd></div>
             {convertsAsset ? <div><dt>Value change <span>(conversion + fees)</span></dt><dd>{Number(b.quote.totalImpactPercent).toFixed(2)}%</dd></div> : null}
             <div><dt>Estimated arrival</dt><dd><Clock3 size={12} aria-hidden />{Math.max(1, Math.ceil(b.quote.timeEstimate))} seconds</dd></div>
           </dl>
-          <p className={styles.quoteNotice}>{needsRefresh ? "This quote expired. Refresh and review the new amounts." : "0.5% slippage limit. Arrival time and gas can change."}</p>
-          {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} {inputCurrency.symbol} for Relay’s deposit contract. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
+          <p className={styles.quoteNotice}>{needsRefresh ? "This quote expired. Refresh and review the new amounts." : circle ? "Circle takes one fixed fee, so this is the exact amount you receive. Arrival time and gas can change." : "0.5% slippage limit. Arrival time and gas can change."}</p>
+          {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} {inputCurrency.symbol} for {circle ? "Circle’s transfer contract" : "Relay’s deposit contract"}. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
         </div>
       ) : b.quoteRejection ? <FeeLimitNotice rejection={b.quoteRejection} inputSymbol={inputCurrency.symbol} gasSymbol={origin.symbol} /> : <div className={styles.previewNote} role="status" aria-live="polite">
         {b.quoteLoading ? <LoaderCircle size={16} className={styles.spinner} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
@@ -321,7 +328,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
         {b.address ? label : "Connect wallet"}
         {!loading && b.address ? <ArrowRight size={17} aria-hidden /> : null}
       </button>
-      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses Relay, a third-party protocol, and carries risk. Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? `An unspent ${inputCurrency.symbol} approval remains until used or revoked.` : "No token approvals required."}</p>
+      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses {provider}, a third-party protocol, and carries risk. Openlaunch does not operate {provider}, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? `An unspent ${inputCurrency.symbol} approval remains until used or revoked.` : "No token approvals required."}</p>
     </form>
   );
 }
@@ -347,7 +354,7 @@ function ApprovalProgress({ bridge: b }: { bridge: Bridge }) {
     </div>
     <dl className={styles.transferDetails}><div><dt>Approval limit</dt><dd>{nativeAmount(formatUnits(BigInt(approval.amount), 6))} {approvalSymbol}</dd></div></dl>
     {b.address ? <Recipient address={b.address} /> : null}
-    <p className={styles.approvalNotice}>No bridge deposit has been requested. An approval permits Relay’s deposit contract to use up to this amount; it does not bridge it.</p>
+    <p className={styles.approvalNotice}>No bridge deposit has been requested. An approval permits {approval.spender.toLowerCase() === CCTP_APPROVAL_SPENDER ? "Circle’s transfer contract" : "Relay’s deposit contract"} to use up to this amount; it does not bridge it.</p>
     {b.approvalError || b.storageError ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{b.approvalError || b.storageError}</span></p> : null}
     {approval.approvalHash ? <a className={styles.externalAction} href={`${approvalChain.explorer}/tx/${approval.approvalHash}`} target="_blank" rel="noreferrer">View approval on {approvalChain.name} <ArrowUpRight size={17} aria-hidden /></a> : null}
     {!b.approvalBusy ? <details className={styles.approvalRecovery}>
@@ -382,8 +389,10 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
   const destination = BRIDGE_CHAINS[transfer.destinationChainId];
   const inputCurrency = bridgeTransferInputCurrency(transfer);
   const outputCurrency = bridgeCurrency(transfer.destinationChainId, transfer.destinationAsset, "output");
-  const title = success ? `Arrived on ${destination.name}` : refund ? "Relay reports a refund" : reverted ? "The deposit reverted" : failed ? "Transfer needs attention" : uncertain ? "Checking your transfer" : waitingForWallet ? "Check your wallet" : "Your transfer is on its way";
-  const detail = success ? `Relay has confirmed ${outputCurrency.symbol} delivery to your receiving wallet.` : refund ? "Check your wallets on both networks and Relay’s transfer details before trying again." : reverted ? `The source network rejected the deposit. Your ${inputCurrency.symbol} was not bridged; network gas was still charged.` : failed ? "Relay couldn’t complete this transfer. Check the transfer details for recovery before sending again." : uncertain ? "The wallet response was interrupted. Don’t send again while we check whether your deposit was submitted." : waitingForWallet ? "Review the network, amount and transaction in your wallet. Nothing moves without your confirmation." : "You can close this panel. Reopen Bridge with this wallet to check its status.";
+  const circle = transfer.provider === "cctp";
+  const provider = bridgeProviderName(transfer.provider);
+  const title = success ? `Arrived on ${destination.name}` : refund ? `${provider} reports a refund` : reverted ? "The deposit reverted" : failed ? "Transfer needs attention" : uncertain ? "Checking your transfer" : waitingForWallet ? "Check your wallet" : "Your transfer is on its way";
+  const detail = success ? `${provider} has confirmed ${outputCurrency.symbol} delivery to your receiving wallet.` : refund ? `Check your wallets on both networks and ${provider}’s transfer details before trying again.` : reverted ? `The source network rejected the deposit. Your ${inputCurrency.symbol} was not bridged; network gas was still charged.` : failed ? `${provider} couldn’t complete this transfer. Check the transfer details for recovery before sending again.` : uncertain ? "The wallet response was interrupted. Don’t send again while we check whether your deposit was submitted." : waitingForWallet ? "Review the network, amount and transaction in your wallet. Nothing moves without your confirmation." : "You can close this panel. Reopen Bridge with this wallet to check its status.";
 
   const mode = signalMode({ phase: b.phase, tracked: true, approvalActive: false, quoteLoading: false, reviewing: false, quoteExpired: false, blocked: false });
 
@@ -401,11 +410,11 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
       <Recipient address={transfer.address} />
       <ol className={styles.steps} aria-label="Transfer progress">
         <li data-complete={!reverted && (!!transfer.sourceHash || success || refund)}><span>{!reverted && (transfer.sourceHash || success || refund) ? <Check size={13} aria-hidden /> : "1"}</span><div><strong>Deposit on {origin.name}</strong><small>{reverted ? "Reverted. Deposit not made." : transfer.sourceHash || success || refund ? "Submitted to the source network" : waitingForWallet ? "Awaiting wallet confirmation" : "Checking for your deposit"}</small></div></li>
-        <li data-complete={success}><span>{success ? <Check size={13} aria-hidden /> : "2"}</span><div><strong>{refund ? "Refund reported by Relay" : "Relay processes the transfer"}</strong><small>{transfer.status === "delayed" ? "Taking longer than expected. Tracking continues." : failed ? "Open transfer details for help" : success ? "Transfer complete" : "Live status from the bridge provider"}</small></div></li>
+        <li data-complete={success}><span>{success ? <Check size={13} aria-hidden /> : "2"}</span><div><strong>{refund ? `Refund reported by ${provider}` : circle ? `Circle mints on ${destination.name}` : "Relay processes the transfer"}</strong><small>{transfer.status === "delayed" ? "Taking longer than expected. Tracking continues." : failed ? "Open transfer details for help" : success ? "Transfer complete" : "Live status from the bridge provider"}</small></div></li>
         <li data-complete={success}><span>{success ? <Check size={13} aria-hidden /> : "3"}</span><div><strong>Receive {outputCurrency.symbol} on {destination.name}</strong><small>{success ? "Delivered to the same wallet address" : "Delivery will be confirmed here"}</small></div></li>
       </ol>
       {b.error || b.statusError || b.storageError ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{b.error || b.statusError || b.storageError}{b.statusError ? <button type="button" className={styles.inlineButton} onClick={b.retryStatus}>Check again</button> : null}</span></p> : null}
-      <a className={styles.externalAction} href={`https://relay.link/transaction/${transfer.requestId}`} target="_blank" rel="noreferrer">View transfer on Relay<ArrowUpRight size={17} aria-hidden /></a>
+      {circle ? null : <a className={styles.externalAction} href={`https://relay.link/transaction/${transfer.requestId}`} target="_blank" rel="noreferrer">View transfer on Relay<ArrowUpRight size={17} aria-hidden /></a>}
       <div className={styles.explorerLinks}>
         {transfer.sourceHash ? <a href={`${origin.explorer}/tx/${transfer.sourceHash}`} target="_blank" rel="noreferrer">Source transaction <ArrowUpRight size={12} aria-hidden /></a> : null}
         {success && transfer.destinationHashes[0] ? <a href={`${destination.explorer}/tx/${transfer.destinationHashes[0]}`} target="_blank" rel="noreferrer">Destination transaction <ArrowUpRight size={12} aria-hidden /></a> : null}
@@ -413,10 +422,10 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
       {b.canReset ? <button type="button" className={styles.newTransfer} onClick={b.reset}>New bridge<ChevronRight size={15} aria-hidden /></button> : null}
       {b.canDiscard ? <details className={styles.approvalRecovery}>
         <summary>No deposit after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
-        <p>Relay has not seen a deposit for this transfer and nothing is confirmed on {origin.name}. If your wallet shows the transaction as dropped or cancelled, you can discard this record and start over. Keep the Transfer ID below in case you need Relay support.</p>
+        <p>{provider} has not seen a deposit for this transfer and nothing is confirmed on {origin.name}. If your wallet shows the transaction as dropped or cancelled, you can discard this record and start over.{circle ? "" : " Keep the Transfer ID below in case you need Relay support."}</p>
         <button type="button" className={styles.newTransfer} disabled={b.discarding} onClick={b.discard}>{b.discarding ? "Checking the transfer…" : "Discard this transfer"}</button>
       </details> : null}
-      <p className={styles.disclaimer}>Transfer ID <span className={styles.requestId}>{transfer.requestId}</span></p>
+      {circle ? null : <p className={styles.disclaimer}>Transfer ID <span className={styles.requestId}>{transfer.requestId}</span></p>}
     </div>
   );
 }

@@ -9,10 +9,10 @@ import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
 import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { parseBridgeQuoteRejection } from "@/lib/bridge/client";
 import { createBridgeQuoteSession } from "@/lib/bridge/quote-session";
-import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, canReverseBridgeRoute, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, canReverseBridgeRoute, changeBridgeRoute, bridgeStatusUrl, CCTP_NOT_SEEN, findCctpBurn, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
 import { bridgeLedger } from "./history-ledger";
-import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, canApplyApprovalPoll, createApprovalStore, reconcileApproval, recoverApprovalFromEvidence, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
+import { APPROVAL_STORAGE_PREFIX, RELAY_APPROVAL_SPENDER, approvalBlocksSubmission, approvalCanDiscard, canApplyApprovalPoll, createApprovalStore, reconcileApproval, recoverApprovalFromEvidence, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
 import { APPROVAL_HEALTH_UNAVAILABLE, readPendingApprovalHealth, type ApprovalHealth } from "@/lib/bridge/approval-health";
 import { assertBridgeWalletQueueClear } from "@/lib/bridge/transaction-preflight";
 
@@ -130,7 +130,7 @@ export function useBridge(open: boolean) {
     let stopped = false;
     const pub = getPublicClient(config, { chainId: quote.originChainId });
     if (!pub) return;
-    void Promise.all([pub.getChainId(), pub.readContract({ address: quote.approval.token, abi: erc20Abi, functionName: "allowance", args: [quote.address, RELAY_DEPOSITORY] })]).then(([chainId, value]) => {
+    void Promise.all([pub.getChainId(), pub.readContract({ address: quote.approval.token, abi: erc20Abi, functionName: "allowance", args: [quote.address, quote.approval.spender] })]).then(([chainId, value]) => {
       if (chainId !== quote.originChainId) throw new Error("The approval RPC reported a different network.");
       if (!stopped) setAllowanceResult({ key: quote.requestId, value, error: null });
     }).catch((error) => {
@@ -159,7 +159,7 @@ export function useBridge(open: boolean) {
         if (!pub) throw new Error("Could not connect to the source network to check the approval.");
         const [chainId, allowance, receipt] = await Promise.all([
           pub.getChainId(),
-          pub.readContract({ address: observed.token, abi: erc20Abi, functionName: "allowance", args: [address, RELAY_DEPOSITORY] }),
+          pub.readContract({ address: observed.token, abi: erc20Abi, functionName: "allowance", args: [address, observed.spender] }),
           pub.getTransactionReceipt({ hash: approvalHash }).catch((error) => {
             if (error instanceof TransactionReceiptNotFoundError) return null;
             throw error;
@@ -217,8 +217,9 @@ export function useBridge(open: boolean) {
       try {
         const observed = transfers.getSnapshot().transfers[address.toLowerCase()];
         const pub = observed ? getPublicClient(config, { chainId: observed.originChainId }) : undefined;
+        const statusUrl = observed ? bridgeStatusUrl(observed) : `/api/bridge/status?requestId=${encodeURIComponent(trackedId)}`;
         const [provider, receipt] = await Promise.allSettled([
-          fetch(`/api/bridge/status?requestId=${encodeURIComponent(trackedId)}`, { cache: "no-store", signal: linkedTimeoutSignal(controller.signal, 15_000) }).then(responseBody).then(validateBridgeStatus),
+          statusUrl ? fetch(statusUrl, { cache: "no-store", signal: linkedTimeoutSignal(controller.signal, 15_000) }).then(responseBody).then(validateBridgeStatus) : Promise.resolve(CCTP_NOT_SEEN),
           // "Not found" is a real answer (unmined, dropped or replaced); other RPC failures stay unknown.
           observed?.sourceHash && pub ? Promise.all([pub.getChainId(), pub.getTransactionReceipt({ hash: observed.sourceHash }).catch((error) => {
             if (error instanceof TransactionReceiptNotFoundError) return null;
@@ -235,13 +236,16 @@ export function useBridge(open: boolean) {
           } else {
             if (provider.status === "rejected") throw provider.reason;
             const status = provider.value;
-            // The candidate must still be this wallet's exact deposit for this order.
-            const candidate = pub ? replacementSourceHash(current, status, receipt.status === "fulfilled" && receipt.value === null) : null;
+            // The candidate must still be this wallet's exact deposit for this order. Circle never reports another hash, so a
+            // Circle burn the wallet did not return (or replaced) is looked for in the messenger's own events instead.
+            const walletHashUnmined = receipt.status === "fulfilled" && receipt.value === null;
+            const found = pub && current.provider === "cctp" && status.status === "waiting" && (!current.sourceHash || walletHashUnmined) ? await findCctpBurn(pub, current) : null;
+            const candidate = !pub ? null : current.provider === "cctp" ? (found && found !== current.sourceHash?.toLowerCase() ? found : null) : replacementSourceHash(current, status, walletHashUnmined);
             if (candidate && pub) {
               const [chainId, transaction] = await Promise.all([pub.getChainId(), pub.getTransaction({ hash: candidate })]);
               if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Tracking will retry.");
               const matched = isMatchingSourceDeposit(current, transaction) || hasMatchingDepositEvent(current, await pub.getTransactionReceipt({ hash: candidate }));
-              if (!matched) throw new Error("Relay's source transaction could not be matched to this deposit. Tracking will retry.");
+              if (!matched) throw new Error("The source transaction could not be matched to this deposit. Tracking will retry.");
               current = { ...current, sourceHash: candidate };
             }
             next = mergeBridgeStatus(current, status);
@@ -412,7 +416,7 @@ export function useBridge(open: boolean) {
             const call = { account: owner.address, to: transaction.to, data: transaction.data, value: transaction.value };
             const [chainId, balance, estimate, fees, allowance, selectedBalance, additional] = await Promise.all([
               pub.getChainId(), pub.getBalance({ address: owner.address }), pub.estimateGas(call), pub.estimateFeesPerGas(),
-              pub.readContract({ address: transaction.to, abi: erc20Abi, functionName: "allowance", args: [owner.address, RELAY_DEPOSITORY] }),
+              pub.readContract({ address: transaction.to, abi: erc20Abi, functionName: "allowance", args: [owner.address, owner.spender ?? RELAY_APPROVAL_SPENDER] }),
               pub.readContract({ address: transaction.to, abi: erc20Abi, functionName: "balanceOf", args: [owner.address] }),
               reviewed.originChainId === 8453 ? estimateTotalFee(pub, call) : Promise.resolve(0n),
             ]);
@@ -469,7 +473,7 @@ export function useBridge(open: boolean) {
         if (!pub) throw new Error("Could not connect to the approval's network. Try checking again.");
         const [chainId, transaction, receipt, allowance] = await Promise.all([
           pub.getChainId(), pub.getTransaction({ hash }), pub.getTransactionReceipt({ hash }),
-          pub.readContract({ address: current.token, abi: erc20Abi, functionName: "allowance", args: [address, RELAY_DEPOSITORY] }),
+          pub.readContract({ address: current.token, abi: erc20Abi, functionName: "allowance", args: [address, current.spender] }),
         ]);
         if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("The transaction receipt did not match the supplied hash.");
         const block = await pub.getBlock({ blockNumber: receipt.blockNumber });
@@ -526,7 +530,7 @@ export function useBridge(open: boolean) {
               // Base charges L1 data/operator fees in addition to execution gas.
               // Reserving the total estimate here is intentionally conservative.
               q.originChainId === 8453 ? estimateTotalFee(pub, transaction) : Promise.resolve(0n),
-              q.approval ? pub.readContract({ address: q.approval.token, abi: erc20Abi, functionName: "allowance", args: [q.address, RELAY_DEPOSITORY] }) : Promise.resolve(null),
+              q.approval ? pub.readContract({ address: q.approval.token, abi: erc20Abi, functionName: "allowance", args: [q.address, q.approval.spender] }) : Promise.resolve(null),
               q.approval ? pub.readContract({ address: q.approval.token, abi: erc20Abi, functionName: "balanceOf", args: [q.address] }) : Promise.resolve(null),
             ]);
             if (rpcChain !== q.originChainId) throw new Error("The source RPC reported a different network. Try again later.");
@@ -539,6 +543,11 @@ export function useBridge(open: boolean) {
           readTransfer: (owner) => transfers.read(owner),
           saveTransfer: (transfer) => transfers.save(transfer),
           removeTransfer: (owner) => transfers.remove(owner),
+          sourceBlock: async (q) => {
+            const pub = getPublicClient(config, { chainId: q.originChainId });
+            if (!pub) throw new Error("no client");
+            return pub.getBlockNumber();
+          },
           send: (q, gas) => {
             const connected = getAccount(config);
             if (!wallet || connected.address?.toLowerCase() !== q.address.toLowerCase() || connected.chainId !== q.originChainId) throw new Error("Wallet changed before submission");
@@ -615,14 +624,19 @@ export function useBridge(open: boolean) {
         if (!lock) throw new Error("Another bridge action is in progress. Try again in a moment.");
         const current = transfers.read(address);
         if (current?.requestId !== requestId || transferIsTerminal(current)) return;
-        const status = await fetch(`/api/bridge/status?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store", signal: linkedTimeoutSignal(undefined, 15_000) }).then(responseBody).then(validateBridgeStatus);
+        const statusUrl = bridgeStatusUrl(current);
+        const status = statusUrl ? await fetch(statusUrl, { cache: "no-store", signal: linkedTimeoutSignal(undefined, 15_000) }).then(responseBody).then(validateBridgeStatus) : CCTP_NOT_SEEN;
         let sourceMined = false;
-        if (current.sourceHash) {
-          const pub = getPublicClient(config, { chainId: current.originChainId });
+        const pub = getPublicClient(config, { chainId: current.originChainId });
+        if (current.sourceHash || current.provider === "cctp") {
           if (!pub) throw new Error("Could not connect to the source network. Try again.");
-          const [chainId, receipt] = await Promise.all([pub.getChainId(), receiptOrNull(pub, current.sourceHash)]);
+          const [chainId, receipt, burn] = await Promise.all([
+            pub.getChainId(),
+            current.sourceHash ? receiptOrNull(pub, current.sourceHash) : Promise.resolve(null),
+            current.provider === "cctp" ? findCctpBurn(pub, current) : Promise.resolve(null),
+          ]);
           if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Try again.");
-          sourceMined = receipt !== null;
+          sourceMined = receipt !== null || burn !== null;
         }
         const fresh = { requestId, status, sourceMined, observedAt: Date.now() };
         setObservation(fresh);

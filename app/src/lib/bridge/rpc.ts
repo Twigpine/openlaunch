@@ -1,5 +1,6 @@
 import "server-only";
-import { BRIDGE_CHAINS, BRIDGE_FUNDING_IDS } from "./types";
+import { CHAINS, isChainKey, rpcUrl } from "@/lib/chain";
+import { BRIDGE_CHAINS, BRIDGE_FUNDING_IDS, type BridgeChainId } from "./types";
 
 /**
  * Upstreams for the bridge's funding networks behind the same-origin RPC proxy (api/rpc). A keyed URL from the
@@ -17,4 +18,11 @@ export function bridgeFundingUpstream(key: string): string | null {
   const id = BRIDGE_FUNDING_IDS.find((candidate) => BRIDGE_CHAINS[candidate].key === key);
   if (id === undefined) return null;
   return process.env[FUNDING_RPC[id].env]?.trim() || FUNDING_RPC[id].fallback;
+}
+
+/** The server's own upstream for any bridge network: the launch chains' keyed RPC or public node, else a funding upstream. */
+export function bridgeRpcUpstream(chainId: BridgeChainId): string | null {
+  const key = BRIDGE_CHAINS[chainId].key;
+  if (isChainKey(key)) return rpcUrl(key) ?? CHAINS[key].rpcUrls.default.http[0] ?? null;
+  return bridgeFundingUpstream(key);
 }
