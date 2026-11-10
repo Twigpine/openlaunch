@@ -30,7 +30,21 @@ export const arc: Chain = defineChain({
   contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11", blockCreated: 0 } },
 });
 
-export const CHAINS: Record<ChainKey, Chain> = { base, robinhood, arc };
+/**
+ * Elysium (Kinetiq's Arbitrum Orbit L2 for Hyperliquid, settles to HyperEVM). Gas is HYPE: an ordinary 18-decimal native
+ * asset with no ERC-20 face sharing its balance (WHYPE is a separate wrapper). 100 ms blocks. viem ships no Elysium chain
+ * as of 2.55; this definition carries the public endpoint (elysium.kinetiq.xyz/docs/connecting-to-elysium) and explorer.
+ */
+export const elysium: Chain = defineChain({
+  id: 99901,
+  name: "Elysium",
+  nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.elysium.kinetiq.xyz"] } },
+  blockExplorers: { default: { name: "Elysium Explorer", url: "https://elysium.kinetiq.xyz/explorer" } },
+  contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11", blockCreated: 0 } },
+});
+
+export const CHAINS: Record<ChainKey, Chain> = { base, robinhood, arc, elysium };
 
 export function chainIdOf(key: ChainKey): number {
   return CHAINS[key].id;
