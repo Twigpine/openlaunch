@@ -39,7 +39,7 @@ export function useOpenBridge(): (() => void) | null {
 export function BridgeButton({ block = false, compact = false, onOpen }: { block?: boolean; compact?: boolean; onOpen?: () => void }) {
   const show = useContext(BridgeContext);
   return (
-    <button type="button" className={`${styles.trigger} ${block ? styles.blockTrigger : ""} ${compact && !block ? styles.compactTrigger : ""}`} aria-label="Bridge funds" aria-haspopup="dialog" title="Bridge between Base, Robinhood and Arc" onClick={() => { show?.(); onOpen?.(); }}>
+    <button type="button" className={`${styles.trigger} ${block ? styles.blockTrigger : ""} ${compact && !block ? styles.compactTrigger : ""}`} aria-label="Bridge funds" aria-haspopup="dialog" title="Bridge to Base, Robinhood and Arc, or fund them from Ethereum, Arbitrum and Optimism" onClick={() => { show?.(); onOpen?.(); }}>
       <ArrowLeftRight size={17} strokeWidth={1.8} aria-hidden />
       <span className={styles.triggerLabel}>Bridge</span>
       {block ? <span className={styles.triggerHint}>Base · Robinhood · Arc</span> : null}

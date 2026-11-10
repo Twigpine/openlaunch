@@ -62,8 +62,13 @@ test("both quote and transfer recipients expose the full address without hover",
   assert.match(css, /input, select, summary\):focus-visible/);
 });
 
-test("bridge selectors expose three networks and label cross-asset conversion and gas", () => {
-  assert.match(panel, /BRIDGE_CHAIN_IDS.map/);
+test("bridge selectors send from every network, receive only on launch chains, and label conversion and gas", () => {
+  assert.match(panel, /const SOURCE_CHAINS: readonly BridgeChainId\[\] = BRIDGE_CHAIN_IDS;/);
+  assert.match(panel, /const DESTINATION_CHAINS: readonly BridgeChainId\[\] = BRIDGE_DESTINATION_IDS;/);
+  assert.match(panel, /const chains = label === "From" \? SOURCE_CHAINS : DESTINATION_CHAINS;/);
+  assert.match(panel, /<Select.GroupLabel className=\{styles.networkGroupLabel\}>Fund from<\/Select.GroupLabel>/);
+  assert.match(panel, /disabled=\{locked \|\| !b.canReverse\} onClick=\{b.reverseRoute\}/);
+  assert.match(panel, /onClick=\{\(\) => b.setOriginChainId\(walletFunding\)\}/);
   assert.match(panel, /Select.Trigger[^>]+aria-label=\{`\$\{label\} network`\}/);
   assert.match(panel, /onChange=\{b.setDestinationChainId\}/);
   assert.match(panel, /onClick=\{b.reverseRoute\}/);
@@ -76,7 +81,7 @@ test("bridge selectors expose three networks and label cross-asset conversion an
 test("network pickers use themed Base UI lists without native browser menus", () => {
   assert.match(panel, /import \{ Select \} from "@base-ui\/react\/select"/);
   assert.doesNotMatch(panel, /<select\b|<option\b/);
-  assert.match(panel, /Select.Root value=\{chain\} items=\{networkItems\} disabled=\{disabled\}/);
+  assert.match(panel, /Select.Root value=\{chain\} items=\{chains.map\(\(id\) => \(\{ value: id, label: BRIDGE_CHAINS\[id\].name \}\)\)\} disabled=\{disabled\}/);
   assert.match(panel, /if \(isBridgeChainId\(value\)\) onChange\(value\)/);
   assert.match(panel, /Select.Portal/);
   assert.match(panel, /alignItemWithTrigger=\{false\}/);

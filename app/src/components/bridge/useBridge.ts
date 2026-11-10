@@ -9,7 +9,7 @@ import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
 import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { parseBridgeQuoteRejection } from "@/lib/bridge/client";
 import { createBridgeQuoteSession } from "@/lib/bridge/quote-session";
-import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, canReverseBridgeRoute, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
 import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, canApplyApprovalPoll, createApprovalStore, reconcileApproval, recoverApprovalFromEvidence, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
 import { APPROVAL_HEALTH_UNAVAILABLE, readPendingApprovalHealth, type ApprovalHealth } from "@/lib/bridge/approval-health";
@@ -665,6 +665,7 @@ export function useBridge(open: boolean) {
   const phase: BridgePhase = sending && (activePhase === "switching" || activePhase === "confirming") ? activePhase : tracked ? transferPhase(tracked) : activePhase === "quoting" ? "quoting" : quote ? "review" : "idle";
   return {
     address, walletChainId, originChainId, destinationChainId, originAsset, destinationAsset, setOriginAsset, setDestinationAsset, setOriginChainId, setDestinationChainId, reverseRoute, amount, setAmount,
+    canReverse: canReverseBridgeRoute(route),
     balance: inputIsToken ? tokenBalance.data : sourceBalance.data?.value,
     nativeBalance: sourceBalance.data?.value,
     balanceLoading: !!address && (inputIsToken ? tokenBalance.isPending : sourceBalance.isPending),

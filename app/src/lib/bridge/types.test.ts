@@ -39,7 +39,7 @@ test("Robinhood USDG is the launch form's own six-decimal contract in both direc
 });
 
 test("every chain keeps its gas token as the default and has at most one ERC-20", () => {
-  assert.deepEqual(BRIDGE_CHAIN_IDS.map(bridgeTokenAsset), ["USDC", "USDG", "USDC"]);
+  assert.deepEqual(BRIDGE_CHAIN_IDS.map(bridgeTokenAsset), ["USDC", "USDG", "USDC", "USDC", "USDC", "USDC"]);
   for (const chain of BRIDGE_CHAIN_IDS) {
     assert.equal(defaultBridgeAsset(chain), BRIDGE_CHAINS[chain].symbol);
     assert.ok(isBridgeAssetSupported(chain, defaultBridgeAsset(chain)), String(chain));

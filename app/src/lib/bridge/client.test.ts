@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, HttpRequestError, InsufficientFundsError, RpcRequestError, SwitchChainError, UnknownRpcError, UserRejectedRequestError, type Address, type Hex } from "viem";
-import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, canReverseBridgeRoute, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
 import { parseBridgeQuoteRejection } from "./client";
-import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
+import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, isBridgeFundingChain, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const OTHER = "0x2222222222222222222222222222222222222222" as Address;
@@ -66,10 +66,10 @@ test("amount parsing preserves integer precision and never rounds extra decimal 
   assert.equal(bridgeRequestKey(bridgeRequest(ADDRESS, 8453, "0.01", 4663)), bridgeRequestKey(bridgeRequest(ADDRESS, 8453, ".0100", 4663)));
 });
 
-test("all six routes use the input currency precision, never native decimals for Arc ERC20", () => {
+test("every route uses the input currency precision, never native decimals for Arc ERC20, and never ends on a funding network", () => {
   for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_CHAIN_IDS) {
     const request = bridgeRequest(ADDRESS, origin, origin === 5042 ? "1.000001" : "1.000000000000000001", destination);
-    if (origin === destination) assert.equal(request, null);
+    if (origin === destination || isBridgeFundingChain(destination)) assert.equal(request, null);
     else {
       assert.equal(request?.amount, origin === 5042 ? "1000001" : "1000000000000000001");
       assert.equal(request?.destinationChainId, destination);
@@ -80,6 +80,27 @@ test("all six routes use the input currency precision, never native decimals for
   assert.equal(parseBridgeAmount("0.0000001", 6), null);
   assert.equal(nativeSourceAmount(arcQuote()), 25n * 10n ** 18n);
   assert.notEqual(bridgeRequestKey(bridgeRequest(ADDRESS, 8453, "1", 4663)), bridgeRequestKey(bridgeRequest(ADDRESS, 8453, "1", 5042)));
+});
+
+test("funding networks send but never receive: no reverse, no destination, and a collision picks another launch chain", () => {
+  const fromArbitrum = { originChainId: 42161, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amount: "25" } as const;
+  assert.equal(canReverseBridgeRoute(fromArbitrum), false);
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "reverse" }), fromArbitrum);
+  for (const id of BRIDGE_FUNDING_IDS) assert.deepEqual(changeBridgeRoute({ ...fromArbitrum, originChainId: 8453, destinationChainId: 4663 }, { side: "destination", chainId: id }), { ...fromArbitrum, originChainId: 8453, destinationChainId: 4663 });
+  // choosing the destination as the source cannot swap a funding network into the destination
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "origin", chainId: 8453 }), { originChainId: 8453, destinationChainId: 4663, originAsset: "USDC", destinationAsset: "USDG", amount: "25" });
+  assert.deepEqual(changeBridgeRoute({ ...fromArbitrum, destinationChainId: 4663, destinationAsset: "USDG" }, { side: "origin", chainId: 4663 }), { originChainId: 4663, destinationChainId: 8453, originAsset: "USDG", destinationAsset: "USDC", amount: "" });
+  // moving between funding networks keeps the dollar and the amount
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "origin", chainId: 10 }), { ...fromArbitrum, originChainId: 10 });
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "origin", chainId: 1 }), { ...fromArbitrum, originChainId: 1 });
+  // and a launch chain still reverses
+  for (const id of BRIDGE_DESTINATION_IDS) assert.equal(canReverseBridgeRoute({ originChainId: id }), true);
+  for (const origin of BRIDGE_FUNDING_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
+    const usdc = bridgeRequest(ADDRESS, origin, "10.5", destination, "USDC", destination === 4663 ? "USDG" : "USDC");
+    assert.equal(usdc?.amount, "10500000");
+    const eth = bridgeRequest(ADDRESS, origin, "0.01", destination, "ETH", destination === 5042 ? "USDC" : "ETH");
+    assert.equal(eth?.amount, "10000000000000000");
+  }
 });
 
 test("network selections resolve collisions atomically and never reinterpret ETH amounts as USDC", () => {
@@ -504,7 +525,9 @@ test("version-one recovery keeps old Base/Robinhood records and accepts every di
   for (const originChainId of BRIDGE_CHAIN_IDS) for (const destinationChainId of BRIDGE_CHAIN_IDS) {
     if (originChainId === destinationChainId) continue;
     const transfer = { ...tracked(), originChainId, destinationChainId };
-    assert.deepEqual(parseStoredTransfer(serializeTransfer(transfer), ADDRESS), { ...transfer, sourceHash: undefined });
+    // nothing is ever sent to a funding network, so a saved transfer naming one as its destination is corrupt
+    if (isBridgeFundingChain(destinationChainId)) assert.throws(() => parseStoredTransfer(serializeTransfer(transfer), ADDRESS));
+    else assert.deepEqual(parseStoredTransfer(serializeTransfer(transfer), ADDRESS), { ...transfer, sourceHash: undefined });
   }
 });
 

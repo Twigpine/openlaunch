@@ -147,5 +147,8 @@ test("status distinguishes refunds and delays and accepts waiting before hashes 
   assert.equal(parseRelayStatus({ status: "delayed" }).status, "delayed");
   assert.equal(parseRelayStatus({ status: "refund", txHashes: [FIXTURE_REQUEST_ID] }).status, "refund");
   assert.throws(() => parseRelayStatus({ status: "success", txHashes: ["javascript:alert(1)"] }), BridgeApiError);
-  assert.throws(() => parseRelayStatus({ status: "success", destinationChainId: 1 }), BridgeApiError);
+  // a funding network can be a status's origin, never its destination; an unknown chain is neither
+  assert.equal(parseRelayStatus({ status: "success", originChainId: 42161, destinationChainId: 8453 }).status, "success");
+  for (const destinationChainId of [1, 42161, 10, 137]) assert.throws(() => parseRelayStatus({ status: "success", destinationChainId }), BridgeApiError);
+  assert.throws(() => parseRelayStatus({ status: "success", originChainId: 137 }), BridgeApiError);
 });

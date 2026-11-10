@@ -3,6 +3,7 @@ import { b20RpcUrl, rpcUrl } from "@/lib/chain";
 import { responseHasB20Error } from "@/lib/launchpad/baseStocks";
 import { CHAINS, DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { upstreamStatus } from "@/lib/rpc-proxy";
+import { bridgeFundingUpstream } from "@/lib/bridge/rpc";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,9 +65,10 @@ function safeJson(text: string): unknown {
 export async function POST(req: Request) {
   const c = new URL(req.url).searchParams.get("chain") ?? DEFAULT_CHAIN;
   // every chain: the same read allowlist and per-IP bucket, its own upstream (the keyed *_RPC_URL, else the chain's
-  // official public node) so browsers never hit a public RPC directly and the API key stays server-side
-  if (!isChainKey(c)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
-  const upstream = rpcUrl(c) ?? CHAINS[c].rpcUrls.default.http[0];
+  // official public node) so browsers never hit a public RPC directly and the API key stays server-side. The bridge's
+  // funding networks (ethereum, arbitrum, optimism) are read here too: balances, allowances and gas before a deposit.
+  const upstream = isChainKey(c) ? (rpcUrl(c) ?? CHAINS[c].rpcUrls.default.http[0]) : bridgeFundingUpstream(c);
+  if (upstream === null) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   if (!upstream) return NextResponse.json({ error: "rpc unconfigured" }, { status: 503 });
   const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
   if (!take(ip)) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": "2" } });

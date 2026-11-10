@@ -1,12 +1,12 @@
 import "server-only";
 import { getOrderId, type Order } from "./relay-order";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, zeroAddress, type Hex } from "viem";
-import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
 export const RELAY_DEPOSITORY = "0x4cd00e387622c35bddb9b4c962c136462338bc31";
-// Relay's execution routers on Base, Robinhood Chain and Arc (the "Cancun" column of its contract-versions table,
+// Relay's execution routers on every bridge network (the "Cancun" column of its contract-versions table,
 // docs.relay.link/references/api/api_resources/contract-addresses): v3.2 first, then v3. Relay made v3.2 the default on
 // 2026-10-26 and keeps both live through the transition, telling integrators who pin addresses to allow both. A router
 // Relay publishes later is rejected until it is added here: every quote then fails closed, which the opt-in live tests
@@ -58,7 +58,8 @@ export function parseBridgeRequest(value: unknown): BridgeQuoteRequest {
     const required = ["address", "originChainId", "destinationChainId", "amount"];
     ensure(required.every((key) => Object.hasOwn(b, key)) && Object.keys(b).every((key) => [...required, "originAsset", "destinationAsset"].includes(key)));
     ensure(typeof b.address === "string" && isAddress(b.address, { strict: false }) && !sameAddress(b.address, zeroAddress));
-    ensure(isBridgeChainId(b.originChainId) && isBridgeChainId(b.destinationChainId) && b.originChainId !== b.destinationChainId);
+    // funding networks (Ethereum, Arbitrum, Optimism) send but never receive
+    ensure(isBridgeChainId(b.originChainId) && isBridgeDestination(b.destinationChainId) && b.originChainId !== b.destinationChainId);
     ensure(b.originAsset === undefined || isBridgeAssetSupported(b.originChainId, b.originAsset));
     ensure(b.destinationAsset === undefined || isBridgeAssetSupported(b.destinationChainId, b.destinationAsset));
     const amount = uint(b.amount, true);
@@ -230,9 +231,8 @@ export function parseRelayStatus(value: unknown): BridgeStatusResponse {
   const response = object(value);
   const statuses: BridgeStatus[] = ["waiting", "depositing", "pending", "submitted", "delayed", "success", "refund", "failure"];
   ensure(statuses.includes(response.status as BridgeStatus));
-  for (const key of ["originChainId", "destinationChainId"]) {
-    if (response[key] !== undefined) ensure(isBridgeChainId(response[key]));
-  }
+  if (response.originChainId !== undefined) ensure(isBridgeChainId(response.originChainId));
+  if (response.destinationChainId !== undefined) ensure(isBridgeDestination(response.destinationChainId));
   const hashes = (value: unknown): Hex[] => {
     if (value === undefined) return [];
     const values = list(value);

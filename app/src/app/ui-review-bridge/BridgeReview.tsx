@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { BridgeForm, Transfer } from "@/components/bridge/BridgeDialog";
 import type useBridge from "@/components/bridge/useBridge";
 import { formatUnits, parseEther, parseUnits, zeroAddress } from "viem";
-import { changeBridgeRoute, parseBridgeAmount, type BridgeRouteChange, type BridgeRouteInputs } from "@/lib/bridge/client";
+import { canReverseBridgeRoute, changeBridgeRoute, parseBridgeAmount, type BridgeRouteChange, type BridgeRouteInputs } from "@/lib/bridge/client";
 import { bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, type BridgeQuote } from "@/lib/bridge/types";
 import type { TrackedApproval } from "@/lib/bridge/approval";
 import { describePendingApproval } from "@/lib/bridge/approval-health";
@@ -55,7 +55,7 @@ export default function BridgeReview() {
   const rejectedFee = scene === "fee_boundary" ? inputAmount / 20n + 1n : scene === "impact_limit" ? inputAmount / 400n : inputAmount * 55548n / 1_000_000n;
   const bridge: ReturnType<typeof useBridge> = {
     address: scene === "disconnected" ? undefined : wallet, walletChainId: origin,
-    originChainId: origin, destinationChainId: destination, setOriginChainId: (chainId) => changeRoute({ side: "origin", chainId }), setDestinationChainId: (chainId) => changeRoute({ side: "destination", chainId }), reverseRoute: () => changeRoute({ side: "reverse" }), amount, setAmount,
+    originChainId: origin, destinationChainId: destination, setOriginChainId: (chainId) => changeRoute({ side: "origin", chainId }), setDestinationChainId: (chainId) => changeRoute({ side: "destination", chainId }), reverseRoute: () => changeRoute({ side: "reverse" }), canReverse: canReverseBridgeRoute({ originChainId: origin }), amount, setAmount,
     originAsset, destinationAsset, setOriginAsset: (asset) => changeRoute({ side: "origin-asset", asset }), setDestinationAsset: (asset) => changeRoute({ side: "destination-asset", asset }),
     balance: parseUnits(originAsset === "USDC" ? "125" : "0.05", inputCurrency.decimals), nativeBalance: parseEther(origin === 5042 ? "125" : "0.05"), balanceLoading: false, balanceError: null,
     quote: scene === "quote" || scene === "expired" ? quote : null,

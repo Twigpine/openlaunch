@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { encodeFunctionData, parseAbi, zeroAddress } from "viem";
 import { APPROVAL_ABI, BridgeApiError, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY, parseBridgeRequest, validateRelayChains, validateRelayQuote } from "./validation.ts";
 import { getOrderId, type Order } from "./relay-order.ts";
-import { ARC_USDC, BASE_USDC, BRIDGE_INPUT_CURRENCIES, ROBINHOOD_USDG, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
+import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, BRIDGE_INPUT_CURRENCIES, ETHEREUM_USDC, OPTIMISM_USDC, ROBINHOOD_USDG, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
 import { BRIDGE_PRIVATE_HEADERS, bridgeErrorResponse, getBridgeQuote, getBridgeStatus, readBridgeJson } from "./relay.ts";
 import { ARC_FIXTURE_NOW, ARC_FIXTURE_ORDER_ID, ARC_OUTBOUND_FIXTURE_NOW, ARC_OUTBOUND_ORDER_ID, BASE_USDC_FIXTURE_NOW, BASE_USDC_ORDER_ID, FIXTURE_INPUT, FIXTURE_NOW, FIXTURE_REQUEST_ID, addApprovalFixture, relayArcOutboundFixture, relayArcQuoteFixture, relayBaseUsdcFixture, relayChainsFixture, relayQuoteFixture, relayRouteFixture } from "./relay.fixture.ts";
 import { parseBridgeQuoteRejection } from "./client.ts";
@@ -470,6 +470,62 @@ test("USDG cannot be swapped for another token, another chain's dollar or other 
   ]) assert.throws(rebound(4663, 8453, "USDG", "USDC", mutate), BridgeApiError);
   assert.doesNotThrow(rebound(8453, 4663, "USDC", "USDG", () => {}));
   assert.doesNotThrow(rebound(4663, 8453, "USDG", "USDC", () => {}));
+});
+
+test("funding networks verify into every launch chain, approving exactly their own native USDC", () => {
+  const usdc = { 1: ETHEREUM_USDC, 42161: ARBITRUM_USDC, 10: OPTIMISM_USDC } as const;
+  let routes = 0;
+  for (const origin of BRIDGE_FUNDING_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
+    for (const originAsset of BRIDGE_ASSETS[origin]) for (const destinationAsset of BRIDGE_ASSETS[destination]) {
+      const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+      const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+      const metadata = validateRelayChains(relayChainsFixture(), input);
+      // the solver hub (Base) is always checked alongside the two ends
+      assert.deepEqual(Object.keys(metadata.vmTypes).sort(), [...new Set(["base", quote.protocol.v2.orderData.inputs[0].payment.chainId, quote.protocol.v2.orderData.output.chainId])].sort(), route);
+      const validated = validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+      assert.equal(validated.transaction.to, RELAY_DEPOSITORY, route);
+      assert.equal(validated.transaction.chainId, origin, route);
+      if (originAsset === "USDC") assert.deepEqual(validated.approval, { token: usdc[origin], spender: RELAY_DEPOSITORY, amount: input.amount }, route);
+      else assert.equal(validated.approval, undefined, route);
+      routes++;
+    }
+  }
+  assert.equal(routes, 30);
+});
+
+test("a funding network is never a destination, and its USDC cannot be swapped for another network's", () => {
+  for (const destinationChainId of BRIDGE_FUNDING_IDS) {
+    for (const originChainId of [8453, 4663, 5042, ...BRIDGE_FUNDING_IDS.filter((id) => id !== destinationChainId)] as BridgeChainId[]) {
+      assert.throws(() => parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId, destinationChainId, amount: "1000000" }), (error: unknown) => error instanceof BridgeApiError && error.status === 400);
+    }
+  }
+  assert.equal(parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId: 42161, destinationChainId: 4663, originAsset: "USDC", destinationAsset: "USDG", amount: "1000000" }).originChainId, 42161);
+  const rebound = (token: string) => {
+    const { input, quote } = relayRouteFixture(1, 8453, "USDC", "USDC");
+    quote.protocol.v2.orderData.inputs[0].payment.currency = token;
+    quote.protocol.v2.orderData.inputs[0].refunds[0].currency = token;
+    const metadata = validateRelayChains(relayChainsFixture(), input);
+    const orderId = getOrderId(quote.protocol.v2.orderData as Order, metadata.vmTypes);
+    quote.protocol.v2.orderId = orderId;
+    quote.steps[0].items[0].data.data = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, token as `0x${string}`, BigInt(input.amount), orderId] });
+    return () => validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+  };
+  for (const token of [ARBITRUM_USDC, OPTIMISM_USDC, BASE_USDC, zeroAddress]) assert.throws(rebound(token), BridgeApiError, token);
+  assert.doesNotThrow(rebound(ETHEREUM_USDC));
+});
+
+test("a funding network missing from Relay's catalogue, or not yet on the pinned router, fails closed", () => {
+  const input = { address: FIXTURE_INPUT.address, originChainId: 42161, destinationChainId: 8453, amount: "1000000" } as const;
+  const missing = relayChainsFixture();
+  missing.chains = missing.chains.filter((chain) => chain.id !== 42161);
+  assert.throws(() => validateRelayChains(missing, input), BridgeApiError);
+  const moved = relayChainsFixture();
+  moved.chains.find((chain) => chain.id === 42161)!.contracts.erc20Router = "0x000000000000000000000000000000000000dead";
+  assert.throws(() => validateRelayChains(moved, input), BridgeApiError);
+  const renamed = relayChainsFixture();
+  renamed.chains.find((chain) => chain.id === 42161)!.protocol.v2.chainId = "arbitrum-nova";
+  assert.throws(() => validateRelayChains(renamed, input), BridgeApiError);
+  assert.doesNotThrow(() => validateRelayChains(relayChainsFixture(), input));
 });
 
 test("a dollar is counted against a dollar: USDC and USDG routes never guarantee under 95% or claim over 105%", () => {

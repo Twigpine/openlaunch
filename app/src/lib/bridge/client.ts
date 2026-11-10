@@ -1,6 +1,6 @@
 import { BaseError, decodeEventLog, decodeFunctionData, encodeFunctionData, InsufficientFundsError, isAddress, parseUnits, type Address, type Hex } from "viem";
 import { friendlyError } from "../errors";
-import { BRIDGE_ASSETS, bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_ASSETS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 export type BridgePhase = "idle" | "quoting" | "review" | "switching" | "confirming" | "pending" | "success" | "refund" | "failure" | "uncertain";
 export type TrackedBridgeTransfer = BridgeQuoteRequest & {
@@ -47,13 +47,18 @@ export function parseBridgeAmount(value: string, decimals: 6 | 18 = 18): bigint 
 }
 
 export function bridgeRequest(address: Address | undefined, originChainId: BridgeChainId, amount: string, destinationChainId: BridgeChainId, originAsset?: BridgeAsset, destinationAsset?: BridgeAsset): BridgeQuoteRequest | null {
-  if (!address || !isAddress(address) || !isBridgeChainId(originChainId) || !isBridgeChainId(destinationChainId) || originChainId === destinationChainId || !isBridgeAssetSupported(originChainId, originAsset ?? defaultBridgeAsset(originChainId)) || !isBridgeAssetSupported(destinationChainId, destinationAsset ?? defaultBridgeAsset(destinationChainId))) return null;
+  if (!address || !isAddress(address) || !isBridgeChainId(originChainId) || !isBridgeDestination(destinationChainId) || originChainId === destinationChainId || !isBridgeAssetSupported(originChainId, originAsset ?? defaultBridgeAsset(originChainId)) || !isBridgeAssetSupported(destinationChainId, destinationAsset ?? defaultBridgeAsset(destinationChainId))) return null;
   const units = parseBridgeAmount(amount, bridgeCurrency(originChainId, originAsset, "input").decimals);
   return units === null ? null : { address, originChainId, destinationChainId, amount: units.toString(), ...(originAsset ? { originAsset } : {}), ...(destinationAsset ? { destinationAsset } : {}) };
 }
 
 export type BridgeRouteInputs = { originChainId: BridgeChainId; destinationChainId: BridgeChainId; amount: string; originAsset?: BridgeAsset; destinationAsset?: BridgeAsset };
 export type BridgeRouteChange = { side: "origin" | "destination"; chainId: BridgeChainId } | { side: "origin-asset" | "destination-asset"; asset: BridgeAsset } | { side: "reverse" };
+
+/** A route reverses only when its source can also receive: a funding network (Ethereum, Arbitrum, Optimism) cannot. */
+export function canReverseBridgeRoute(route: Pick<BridgeRouteInputs, "originChainId">): boolean {
+  return isBridgeDestination(route.originChainId);
+}
 
 /** Select/swap one distinct pair, clearing currency amounts when the source asset changes. */
 export function changeBridgeRoute(current: BridgeRouteInputs, change: BridgeRouteChange): BridgeRouteInputs {
@@ -63,6 +68,7 @@ export function changeBridgeRoute(current: BridgeRouteInputs, change: BridgeRout
   const previousOriginAsset = originAsset;
   const explicitAssets = current.originAsset !== undefined || current.destinationAsset !== undefined || change.side === "origin-asset" || change.side === "destination-asset";
   if (change.side === "reverse") {
+    if (!canReverseBridgeRoute(current)) return current;
     [originChainId, destinationChainId] = [destinationChainId, originChainId];
     [originAsset, destinationAsset] = [destinationAsset, originAsset];
   } else if (change.side === "origin-asset" || change.side === "destination-asset") {
@@ -73,9 +79,15 @@ export function changeBridgeRoute(current: BridgeRouteInputs, change: BridgeRout
   } else if ("chainId" in change) {
     if (!isBridgeChainId(change.chainId)) return current;
     if (change.side === "origin") {
-      if (change.chainId === destinationChainId) { destinationChainId = originChainId; [originAsset, destinationAsset] = [destinationAsset, originAsset]; }
+      // picking the destination as the source swaps the ends, unless the old source is a funding network, which cannot
+      // receive: then the transfer goes to the first other launch chain
+      if (change.chainId === destinationChainId) {
+        if (isBridgeDestination(originChainId)) { destinationChainId = originChainId; [originAsset, destinationAsset] = [destinationAsset, originAsset]; }
+        else destinationChainId = BRIDGE_DESTINATION_IDS.find((id) => id !== change.chainId)!;
+      }
       originChainId = change.chainId;
     } else {
+      if (!isBridgeDestination(change.chainId)) return current;
       if (change.chainId === originChainId) { originChainId = destinationChainId; [originAsset, destinationAsset] = [destinationAsset, originAsset]; }
       destinationChainId = change.chainId;
     }
@@ -115,7 +127,7 @@ export function parseBridgeQuoteRejection(value: unknown, request: BridgeQuoteRe
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const rejected = value as BridgeQuoteRejection;
     const allowed = ["address", "originChainId", "destinationChainId", "originAsset", "destinationAsset", "amount", "reason", "relayFee", "relayFeePercent", "sourceGas", "totalImpactPercent"];
-    if (Object.keys(value).some((key) => !allowed.includes(key)) || !isAddress(rejected.address ?? "") || !isBridgeChainId(rejected.originChainId) || !isBridgeChainId(rejected.destinationChainId) || rejected.originChainId === rejected.destinationChainId || !isWei(rejected.amount, true)) return null;
+    if (Object.keys(value).some((key) => !allowed.includes(key)) || !isAddress(rejected.address ?? "") || !isBridgeChainId(rejected.originChainId) || !isBridgeDestination(rejected.destinationChainId) || rejected.originChainId === rejected.destinationChainId || !isWei(rejected.amount, true)) return null;
     if ((rejected.originAsset !== undefined && !isBridgeAssetSupported(rejected.originChainId, rejected.originAsset)) || (rejected.destinationAsset !== undefined && !isBridgeAssetSupported(rejected.destinationChainId, rejected.destinationAsset)) || bridgeRequestKey(rejected) !== bridgeRequestKey(request)) return null;
     const decimals = bridgeCurrency(rejected.originChainId, rejected.originAsset, "input").decimals;
     for (const [fee, precision] of [[rejected.relayFee, decimals], [rejected.sourceGas, 18]] as const) {
@@ -134,7 +146,7 @@ export function parseBridgeQuoteRejection(value: unknown, request: BridgeQuoteRe
 export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest, now: number): BridgeQuote {
   if (!value || typeof value !== "object") throw new Error("The bridge returned an invalid quote. Request a new quote.");
   const quote = value as BridgeQuote;
-  if (!isAddress(quote.address ?? "") || !isBridgeChainId(quote.originChainId) || !isBridgeChainId(quote.destinationChainId) || !isBridgeAssetSupported(quote.originChainId, quote.originAsset ?? defaultBridgeAsset(quote.originChainId)) || !isBridgeAssetSupported(quote.destinationChainId, quote.destinationAsset ?? defaultBridgeAsset(quote.destinationChainId)) || bridgeRequestKey(quote) !== bridgeRequestKey(request) || quote.destinationChainId === quote.originChainId) {
+  if (!isAddress(quote.address ?? "") || !isBridgeChainId(quote.originChainId) || !isBridgeDestination(quote.destinationChainId) || !isBridgeAssetSupported(quote.originChainId, quote.originAsset ?? defaultBridgeAsset(quote.originChainId)) || !isBridgeAssetSupported(quote.destinationChainId, quote.destinationAsset ?? defaultBridgeAsset(quote.destinationChainId)) || bridgeRequestKey(quote) !== bridgeRequestKey(request) || quote.destinationChainId === quote.originChainId) {
     throw new Error("The quote no longer matches this wallet, amount, or route. Review a new quote.");
   }
   if (!isHash(quote.requestId) || !isWei(quote.amount, true) || !isWei(quote.amountOut, true) || !isWei(quote.minimumAmountOut, true) || BigInt(quote.minimumAmountOut) > BigInt(quote.amountOut)) {
@@ -402,7 +414,7 @@ export function parseStoredTransfer(raw: string, address: Address): TrackedBridg
   const assetsValid = isBridgeChainId(entry?.originChainId) && isBridgeChainId(entry?.destinationChainId) && isBridgeAssetSupported(entry.originChainId, entry.originAsset) && isBridgeAssetSupported(entry.destinationChainId, entry.destinationAsset);
   const legacyAssets = entry?.originAsset === undefined && entry?.destinationAsset === undefined;
   const validVersion = (entry?.version === 1 && legacyAssets && entry.depositKind === undefined) || (entry?.version === 2 && legacyAssets && erc20 && entry.originChainId === 5042 && typeof entry.depositData === "string") || (entry?.version === 3 && assetsValid && typeof entry.depositData === "string" && (entry.depositKind === undefined || erc20) && erc20 === !/^0x0{40}$/.test(bridgeCurrency(entry.originChainId, entry.originAsset, "input").address));
-  if (!validVersion || typeof entry.address !== "string" || entry.address.toLowerCase() !== address.toLowerCase() || !isAddress(entry.address) || !isBridgeChainId(entry.originChainId) || !isBridgeChainId(entry.destinationChainId) || entry.destinationChainId === entry.originChainId || !isHash(entry.requestId) || !isWei(entry.amount, true) || !Number.isFinite(entry.createdAt) || entry.createdAt <= 0 || (entry.sourceHash !== undefined && !isHash(entry.sourceHash)) || !Array.isArray(entry.destinationHashes) || entry.destinationHashes.length > 50 || !entry.destinationHashes.every(isHash) || (entry.status !== "uncertain" && !STATUSES.includes(entry.status)) || (entry.depositData !== undefined && !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(entry.depositData)) || (entry.failureReason !== undefined && entry.failureReason !== "source-reverted")) {
+  if (!validVersion || typeof entry.address !== "string" || entry.address.toLowerCase() !== address.toLowerCase() || !isAddress(entry.address) || !isBridgeChainId(entry.originChainId) || !isBridgeDestination(entry.destinationChainId) || entry.destinationChainId === entry.originChainId || !isHash(entry.requestId) || !isWei(entry.amount, true) || !Number.isFinite(entry.createdAt) || entry.createdAt <= 0 || (entry.sourceHash !== undefined && !isHash(entry.sourceHash)) || !Array.isArray(entry.destinationHashes) || entry.destinationHashes.length > 50 || !entry.destinationHashes.every(isHash) || (entry.status !== "uncertain" && !STATUSES.includes(entry.status)) || (entry.depositData !== undefined && !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(entry.depositData)) || (entry.failureReason !== undefined && entry.failureReason !== "source-reverted")) {
     throw new Error("Saved bridge recovery data could not be read. Check your transfer on Relay before trying again.");
   }
   if (erc20) {

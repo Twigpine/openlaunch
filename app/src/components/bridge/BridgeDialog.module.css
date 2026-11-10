@@ -31,6 +31,11 @@
 .networkPopup ::selection { background: var(--color-brand-soft); color: var(--color-brand); }
 .networkMenuTitle { margin: 0; padding: 8px 10px 10px; color: var(--color-body); font-size: 12px; font-weight: 500; }
 .networkList { display: grid; gap: 3px; }
+.networkGroupLabel { margin: 0; padding: 12px 10px 6px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 12px; font-weight: 500; }
+.letterMark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--mark-fill); box-shadow: 0 0 0 1.5px var(--mark-ring); color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .02em; }
+.walletHint { display: block; width: 100%; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--color-line-strong); border-radius: 10px; color: var(--color-body); font-size: 12px; text-align: left; cursor: pointer; transition: color 160ms, background 160ms; }
+.walletHint:not(:disabled):hover { color: var(--color-ink); background: var(--color-paper); }
+.walletHint:disabled { cursor: default; opacity: .6; }
 .networkOption { display: grid; grid-template-columns: 30px minmax(0, 1fr) 20px; align-items: center; gap: 12px; min-height: 64px; padding: 10px; border-radius: 10px; cursor: pointer; outline: none; user-select: none; }
 .networkOption[data-highlighted] { background: var(--color-paper); box-shadow: inset 0 0 0 1px var(--color-line-strong); }
 .networkOption[data-selected] { background: var(--color-brand-soft); }

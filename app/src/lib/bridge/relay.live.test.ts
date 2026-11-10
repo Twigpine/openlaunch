@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getBridgeQuote, getBridgeStatus } from "./relay.ts";
 import { formatUnits } from "viem";
-import { BRIDGE_ASSETS, BRIDGE_CHAINS, bridgeCurrency, type BridgeChainId } from "./types.ts";
+import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency } from "./types.ts";
 
 // Explicit opt-in. This only requests quotes/status using a public dummy address;
 // it never connects a wallet, signs, or submits a transaction.
-const chains = [8453, 4663, 5042] as BridgeChainId[];
-for (const originChainId of chains) for (const destinationChainId of chains) {
+// Every source (the launch chains and the funding networks) into every launch chain: forty-six routes.
+for (const originChainId of BRIDGE_CHAIN_IDS) for (const destinationChainId of BRIDGE_DESTINATION_IDS) {
   if (originChainId === destinationChainId) continue;
   for (const originAsset of BRIDGE_ASSETS[originChainId]) for (const destinationAsset of BRIDGE_ASSETS[destinationChainId]) {
   test(`read-only live Relay ${originChainId}:${originAsset}→${destinationChainId}:${destinationAsset}`, { skip: process.env.RUN_BRIDGE_LIVE_TESTS !== "1" }, async (t) => {

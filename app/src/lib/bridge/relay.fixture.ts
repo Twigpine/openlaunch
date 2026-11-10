@@ -1,6 +1,6 @@
 import { encodeFunctionData, zeroAddress } from "viem";
 import { getOrderId, type Order } from "./relay-order";
-import { BRIDGE_CHAINS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
+import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
 import { APPROVAL_ABI, DEPOSIT_ABI, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY } from "./validation";
 
 // Compact, read-only mainnet quote captured with Relay's public example account.
@@ -14,10 +14,10 @@ const extraData = `0x${router.slice(2).padStart(64, "0")}`;
 export const FIXTURE_INPUT: BridgeQuoteRequest = { address: FIXTURE_ADDRESS, originChainId: 8453, destinationChainId: 4663, amount: "10000000000000000" };
 
 export function relayChainsFixture() {
-  return { chains: ([8453, 4663, 5042] as BridgeChainId[]).map((id) => ({
+  return { chains: BRIDGE_CHAIN_IDS.map((id) => ({
     id, vmType: "evm", disabled: false, depositEnabled: true, blockProductionLagging: false,
     protocol: { v2: { chainId: BRIDGE_CHAINS[id].key, depository: RELAY_DEPOSITORY } },
-    currency: { address: zeroAddress, symbol: id === 5042 ? "USDC" : "ETH", decimals: 18, supportsBridging: true },
+    currency: { address: zeroAddress, symbol: BRIDGE_CHAINS[id].symbol, decimals: 18, supportsBridging: true },
     contracts: { erc20Router: router }, solverAddresses: ["0xf70da97812cb96acdf810712aa562db8dfa3dbef"],
   })) };
 }
@@ -103,7 +103,7 @@ export function relayRouteFixture(originChainId: BridgeChainId, destinationChain
   quote.fees.gas.currency.symbol = BRIDGE_CHAINS[originChainId].symbol;
   quote.fees.relayer.amount = feeAmount;
   quote.fees.gas.amount = originChainId === 5042 ? "3000000000000000" : "671181819574";
-  const orderId = getOrderId(order as Order, { base: "ethereum-vm", robinhood: "ethereum-vm", arc: "ethereum-vm" });
+  const orderId = getOrderId(order as Order, Object.fromEntries(BRIDGE_CHAIN_IDS.map((id) => [BRIDGE_CHAINS[id].key, "ethereum-vm" as const])));
   quote.protocol.v2.orderId = orderId;
   quote.steps[0].items[0].data.data = erc20
     ? encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, inputCurrency.address, BigInt(amount), orderId] })

@@ -4,7 +4,7 @@ import { encodeFunctionData, type Address, type Hex } from "viem";
 import { submitExactApproval, type ApprovalDependencies, type ApprovalRequest } from "./approval";
 import { ERC20_DEPOSIT_ABI, NATIVE_DEPOSIT_ABI, RELAY_DEPOSITORY, submitBridgeDeposit, type DepositDependencies } from "./client";
 import { assertBridgeWalletQueueClear } from "./transaction-preflight";
-import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "./types";
+import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const HASH = `0x${"a".repeat(64)}` as Hex;
@@ -159,9 +159,10 @@ function depositScenario(q: BridgeQuote, pending: number, latest: number) {
   return { deps, events };
 }
 
-test("all sixteen supported deposit routes block queued nonces before journaling or sending", async () => {
+test("all forty-six supported deposit routes block queued nonces before journaling or sending", async () => {
   let routes = 0;
-  for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_CHAIN_IDS) {
+  // sixteen between the launch chains, thirty from the funding networks (two assets each to five launch-chain assets)
+  for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
     if (origin === destination) continue;
     for (const originAsset of BRIDGE_ASSETS[origin]) for (const destinationAsset of BRIDGE_ASSETS[destination]) {
       const q = quote(origin, destination, originAsset, destinationAsset);
@@ -171,7 +172,7 @@ test("all sixteen supported deposit routes block queued nonces before journaling
       routes++;
     }
   }
-  assert.equal(routes, 16);
+  assert.equal(routes, 46);
 });
 
 test("clear queues preserve explicit approval and deposit submission order", async () => {

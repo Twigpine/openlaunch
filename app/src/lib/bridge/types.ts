@@ -1,13 +1,26 @@
 import type { Address, Hex } from "viem";
 
-/** Bridge networks do not extend the launch registry. */
-export type BridgeChainId = 8453 | 4663 | 5042;
+/**
+ * Bridge networks do not extend the launch registry. Base, Robinhood Chain and Arc are where tokens launch, so funds
+ * move between them both ways. Ethereum, Arbitrum and Optimism are funding sources only: money arrives from them and
+ * never leaves to them. `key` is Relay's protocol.v2 name for the chain, checked against GET /chains on every quote.
+ */
+export type BridgeChainId = 8453 | 4663 | 5042 | 1 | 42161 | 10;
 export const BRIDGE_CHAINS = {
   8453: { name: "Base", key: "base", explorer: "https://basescan.org", symbol: "ETH", decimals: 18 },
   4663: { name: "Robinhood", key: "robinhood", explorer: "https://robinhoodchain.blockscout.com", symbol: "ETH", decimals: 18 },
   5042: { name: "Arc", key: "arc", explorer: "https://explorer.arc.io", symbol: "USDC", decimals: 18 },
+  1: { name: "Ethereum", key: "ethereum", explorer: "https://etherscan.io", symbol: "ETH", decimals: 18 },
+  42161: { name: "Arbitrum", key: "arbitrum", explorer: "https://arbiscan.io", symbol: "ETH", decimals: 18 },
+  10: { name: "Optimism", key: "optimism", explorer: "https://optimistic.etherscan.io", symbol: "ETH", decimals: 18 },
 } as const;
-export const BRIDGE_CHAIN_IDS = [8453, 4663, 5042] as const;
+/** Networks a transfer can arrive on: the launch chains. */
+export const BRIDGE_DESTINATION_IDS = [8453, 4663, 5042] as const;
+/** Networks that only fund the launch chains. */
+export const BRIDGE_FUNDING_IDS = [1, 42161, 10] as const;
+/** Every network a transfer can leave from, in picker order. */
+export const BRIDGE_CHAIN_IDS = [...BRIDGE_DESTINATION_IDS, ...BRIDGE_FUNDING_IDS] as const;
+export type BridgeDestinationId = (typeof BRIDGE_DESTINATION_IDS)[number];
 // Arc's ERC-20 USDC interface shares the native balance, but has its own
 // transfer semantics and SIX decimals. Never alias it to native zero-address USDC.
 export const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
@@ -16,6 +29,11 @@ export const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
 // form's default quote there (lib/launchpad/config.ts names the same contract). Robinhood USDC is still not offered.
 // https://docs.paxos.com/guides/stablecoin/usdg/mainnet
 export const ROBINHOOD_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" as const;
+// Circle's native USDC on the funding networks (symbol USDC, name "USD Coin", six decimals, checked on-chain).
+// Never the bridged USDC.e that Arbitrum and Optimism also carry.
+export const ETHEREUM_USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
+export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
+export const OPTIMISM_USDC = "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" as const;
 export type BridgeAsset = "ETH" | "USDC" | "USDG";
 export type BridgeCurrency = { address: Address; symbol: BridgeAsset; decimals: 6 | 18 };
 const NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
@@ -33,12 +51,12 @@ const CURRENCIES: Record<BridgeChainId, Partial<Record<BridgeAsset, { input: Bri
   8453: { ETH: bothWays(native("ETH")), USDC: bothWays(token(BASE_USDC, "USDC")) },
   4663: { ETH: bothWays(native("ETH")), USDG: bothWays(token(ROBINHOOD_USDG, "USDG")) },
   5042: { USDC: { input: token(ARC_USDC, "USDC"), output: native("USDC") } },
+  // funding networks: only the input side is ever used, since nothing is sent to them
+  1: { ETH: bothWays(native("ETH")), USDC: bothWays(token(ETHEREUM_USDC, "USDC")) },
+  42161: { ETH: bothWays(native("ETH")), USDC: bothWays(token(ARBITRUM_USDC, "USDC")) },
+  10: { ETH: bothWays(native("ETH")), USDC: bothWays(token(OPTIMISM_USDC, "USDC")) },
 };
-export const BRIDGE_ASSETS: Record<BridgeChainId, readonly BridgeAsset[]> = {
-  8453: Object.keys(CURRENCIES[8453]) as BridgeAsset[],
-  4663: Object.keys(CURRENCIES[4663]) as BridgeAsset[],
-  5042: Object.keys(CURRENCIES[5042]) as BridgeAsset[],
-};
+export const BRIDGE_ASSETS = Object.fromEntries(BRIDGE_CHAIN_IDS.map((id) => [id, Object.keys(CURRENCIES[id]) as BridgeAsset[]])) as unknown as Record<BridgeChainId, readonly BridgeAsset[]>;
 /** What each asset is called in full, for pickers and screen readers. */
 export const BRIDGE_ASSET_NAMES: Record<BridgeAsset, string> = { ETH: "Ether", USDC: "USD Coin", USDG: "Global Dollar" };
 export function defaultBridgeAsset(chainId: BridgeChainId): BridgeAsset {
@@ -124,6 +142,16 @@ export type BridgeStatusResponse = {
 };
 
 export function isBridgeChainId(value: unknown): value is BridgeChainId {
-  return value === 8453 || value === 4663 || value === 5042;
+  return (BRIDGE_CHAIN_IDS as readonly unknown[]).includes(value);
+}
+
+/** Whether a transfer may arrive on this network. Funding networks never receive. */
+export function isBridgeDestination(value: unknown): value is BridgeDestinationId {
+  return (BRIDGE_DESTINATION_IDS as readonly unknown[]).includes(value);
+}
+
+/** Whether this network only funds the launch chains. */
+export function isBridgeFundingChain(value: unknown): value is (typeof BRIDGE_FUNDING_IDS)[number] {
+  return (BRIDGE_FUNDING_IDS as readonly unknown[]).includes(value);
 }
 

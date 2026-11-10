@@ -6,7 +6,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
 import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
-import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
+import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
 import { formatFeeWarningPercent } from "@/lib/bridge/fee-display";
 import { shortAddr } from "@/lib/chainPublic";
@@ -16,7 +16,14 @@ import useBridge from "./useBridge";
 import styles from "./BridgeDialog.module.css";
 
 type Bridge = ReturnType<typeof useBridge>;
-const networkItems = BRIDGE_CHAIN_IDS.map((id) => ({ value: id, label: BRIDGE_CHAINS[id].name }));
+// Money leaves from any network, funding ones included, but arrives only on a launch chain.
+const SOURCE_CHAINS: readonly BridgeChainId[] = BRIDGE_CHAIN_IDS;
+const DESTINATION_CHAINS: readonly BridgeChainId[] = BRIDGE_DESTINATION_IDS;
+// Funding networks without a bundled logo get a lettermark in the network's own colours.
+const LETTERMARKS: Partial<Record<BridgeChainId, { text: string; fill: string; ring: string }>> = {
+  42161: { text: "ARB", fill: "#213147", ring: "#12aaff" },
+  10: { text: "OP", fill: "#ff0420", ring: "#ff0420" },
+};
 
 function nativeAmount(value: string | bigint): string {
   const text = typeof value === "bigint" ? formatEther(value) : value;
@@ -26,6 +33,9 @@ function nativeAmount(value: string | bigint): string {
 }
 
 function NetworkMark({ chain }: { chain: BridgeChainId }) {
+  const letters = LETTERMARKS[chain];
+  if (letters) return <span className={styles.networkMark} aria-hidden><span className={styles.letterMark} style={{ "--mark-fill": letters.fill, "--mark-ring": letters.ring } as React.CSSProperties}>{letters.text}</span></span>;
+  if (chain === 1) return <span className={styles.networkMark} aria-hidden><Image src="/brand/ethereum.svg" alt="" width={28} height={28} draggable={false} /></span>;
   return <span className={`${styles.networkMark} ${chain === 5042 ? styles.arcMark : ""}`} aria-hidden>{chain === 8453
     ? <Image src="/brand/base.svg" alt="" width={30} height={30} draggable={false} />
     : chain === 5042 ? <Image src="/brand/arc.svg" alt="" width={23} height={24} draggable={false} />
@@ -70,8 +80,19 @@ function AssetSelect({ label, chain, asset, disabled, onChange }: { label: "Send
 
 function NetworkSelect({ label, chain, disabled, onChange }: { label: "From" | "To"; chain: BridgeChainId; disabled: boolean; onChange: (chain: BridgeChainId) => void }) {
   const [instant, setInstant] = useState(false);
+  const chains = label === "From" ? SOURCE_CHAINS : DESTINATION_CHAINS;
+  const launch = chains.filter((id) => !isBridgeFundingChain(id));
+  const funding = chains.filter(isBridgeFundingChain);
+  const option = (id: BridgeChainId) => <Select.Item key={id} value={id} label={BRIDGE_CHAINS[id].name} className={styles.networkOption}>
+    <NetworkMark chain={id} />
+    <span className={styles.networkCopy}>
+      <Select.ItemText className={styles.networkName}>{BRIDGE_CHAINS[id].name}</Select.ItemText>
+      <span className={styles.gasCurrency}>{BRIDGE_CHAINS[id].symbol} · Gas token</span>
+    </span>
+    <Select.ItemIndicator className={styles.networkCheck}><Check size={17} strokeWidth={2.5} aria-hidden /></Select.ItemIndicator>
+  </Select.Item>;
   return <div className={styles.network}>
-    <Select.Root value={chain} items={networkItems} disabled={disabled}
+    <Select.Root value={chain} items={chains.map((id) => ({ value: id, label: BRIDGE_CHAINS[id].name }))} disabled={disabled}
       onValueChange={(value) => { if (isBridgeChainId(value)) onChange(value); }}
       onOpenChange={(_, details) => setInstant(details.event.type.startsWith("key"))}>
       <Select.Label className={styles.smallLabel}>{label}<span className="sr-only"> network</span></Select.Label>
@@ -88,14 +109,11 @@ function NetworkSelect({ label, chain, disabled, onChange }: { label: "From" | "
           <Select.Popup className={styles.networkPopup} data-instant={instant || undefined}>
             <p className={styles.networkMenuTitle}>{label === "From" ? "Send from" : "Receive on"}</p>
             <Select.List className={styles.networkList}>
-              {BRIDGE_CHAIN_IDS.map((id) => <Select.Item key={id} value={id} label={BRIDGE_CHAINS[id].name} className={styles.networkOption}>
-                <NetworkMark chain={id} />
-                <span className={styles.networkCopy}>
-                  <Select.ItemText className={styles.networkName}>{BRIDGE_CHAINS[id].name}</Select.ItemText>
-                  <span className={styles.gasCurrency}>{BRIDGE_CHAINS[id].symbol} · Gas token</span>
-                </span>
-                <Select.ItemIndicator className={styles.networkCheck}><Check size={17} strokeWidth={2.5} aria-hidden /></Select.ItemIndicator>
-              </Select.Item>)}
+              {launch.map(option)}
+              {funding.length > 0 ? <Select.Group className={styles.networkList}>
+                <Select.GroupLabel className={styles.networkGroupLabel}>Fund from</Select.GroupLabel>
+                {funding.map(option)}
+              </Select.Group> : null}
             </Select.List>
           </Select.Popup>
         </Select.Positioner>
@@ -191,6 +209,8 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
   const outputCurrency = bridgeCurrency(b.destinationChainId, b.destinationAsset, "output");
   const erc20Input = inputCurrency.address !== zeroAddress;
   const convertsAsset = inputCurrency.symbol !== outputCurrency.symbol;
+  // a wallet sitting on a funding network most likely wants to send from it
+  const walletFunding = b.address && isBridgeFundingChain(b.walletChainId) && b.walletChainId !== b.originChainId ? b.walletChainId : null;
   const outputAmount = (value: string) => nativeAmount(formatUnits(BigInt(value), outputCurrency.decimals));
   const label = b.approvalBusy ? `Confirm ${inputCurrency.symbol} approval…` : b.allowanceLoading ? `Checking ${inputCurrency.symbol} permission…` : b.quoteLoading ? "Getting your quote…"
     : b.phase === "switching" ? "Confirm network switch…"
@@ -209,9 +229,10 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
     }}>
       <div className={styles.route}>
         <NetworkSelect label="From" chain={b.originChainId} disabled={locked} onChange={b.setOriginChainId} />
-        <button type="button" className={styles.reverse} aria-label={`Reverse route: ${destination.name} to ${origin.name}`} disabled={locked} onClick={b.reverseRoute}><ArrowLeftRight size={18} aria-hidden /></button>
+        <button type="button" className={styles.reverse} aria-label={b.canReverse ? `Reverse route: ${destination.name} to ${origin.name}` : `${origin.name} only sends funds here`} title={b.canReverse ? undefined : `${origin.name} only sends funds here`} disabled={locked || !b.canReverse} onClick={b.reverseRoute}><ArrowLeftRight size={18} aria-hidden /></button>
         <NetworkSelect label="To" chain={b.destinationChainId} disabled={locked} onChange={b.setDestinationChainId} />
       </div>
+      {walletFunding !== null ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setOriginChainId(walletFunding)}>Your wallet is on {BRIDGE_CHAINS[walletFunding].name}. Send from {BRIDGE_CHAINS[walletFunding].name}</button> : null}
       {convertsAsset ? <p className={styles.conversionNote}>{inputCurrency.symbol} <ArrowRight size={12} aria-hidden /> {outputCurrency.symbol}<span>Converted by Relay</span></p> : null}
       {b.originChainId === 4663 || b.destinationChainId === 4663 ? <p className={styles.routeNotice}>USDC on Robinhood is unavailable: its routes do not pass our current safety checks. ETH and USDG are available.</p> : null}
       {erc20Input && b.approval?.chainId === b.originChainId && b.approval.status === "confirmed" && !b.quote ? <p className={styles.approvalNotice} role="status">{inputCurrency.symbol} approval confirmed. Review a fresh quote before bridging. No funds have been bridged yet.</p> : null}
