@@ -7,6 +7,7 @@ import { ensureRegistry, stockByAddress, stockList, stockUsdInUse } from "./stoc
 import { unlistedQuote, type QuoteTokenMeta } from "./unlisted-quote";
 import { memo } from "./memo";
 import { gitlawbUsd } from "./gitlawbServer";
+import { hypeUsd } from "./hypePrice";
 import { loadPairs } from "./pairsServer";
 import type { PairPublic } from "./pairs";
 import { gitlawbLinkedUsd } from "./twig";
@@ -117,13 +118,16 @@ let stockSymbolsNow = new Map<ChainKey, string[]>();
 let pairsNow = new Map<string, PairPublic>();
 /** GITLAWB USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). */
 let gitlawbUsdNow: number | null = null;
+/** HYPE USD for this request (filled by `withStocks`; null = unknown → no USD, 0 weight in USD sorts). Elysium's native asset and WHYPE. */
+let hypeUsdNow: number | null = null;
 
 /** The quote prices in use, as one value: what `withStocks` last loaded (each piece is replaced, never edited). */
-type PriceState = { gitlawb: number | null; pairs: Map<string, PairPublic>; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
-const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, pairs: pairsNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
+type PriceState = { gitlawb: number | null; hype: number | null; pairs: Map<string, PairPublic>; stocks: Map<string, number | null>; quoteTokens: Map<string, QuoteTokenMeta>; stockSymbols: Map<ChainKey, string[]> };
+const priceState = (): PriceState => ({ gitlawb: gitlawbUsdNow, hype: hypeUsdNow, pairs: pairsNow, stocks: stockUsdNow, quoteTokens: quoteTokensNow, stockSymbols: stockSymbolsNow });
 
 /**
- * Server-side quote resolution: static ETH/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one), else a
+ * Server-side quote resolution: static ETH/HYPE/USDG/GITLAWB/TWIG (GITLAWB gets the live price, TWIG the same one, HYPE and
+ * WHYPE HYPE's live price), else a
  * listed community pair, else a registry stock, else an unlisted quote. Priced from `st` (the prices loaded now unless a
  * snapshot is passed). A suspended or delisted pair resolves as unlisted: no badge, no USD, out of Trending.
  */
@@ -131,6 +135,7 @@ function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState
   const q = staticQuoteInfo(chain, address);
   const linked = gitlawbLinkedUsd(q.key, st.gitlawb); // GITLAWB, and TWIG at the same price
   if (linked !== undefined) return { ...q, usd: linked };
+  if (q.key === "hype") return { ...q, usd: st.hype };
   if (q.key !== "other") return q;
   const pair = st.pairs.get(`${chainIdOf(chain)}:${address.toLowerCase()}`);
   if (pair?.status === "listed") return { key: "pair", address: pair.address as Quote["address"], symbol: pair.symbol, decimals: pair.decimals, usd: pair.usd, name: pair.name, logo: pair.logo, pairKind: pair.price_kind };
@@ -154,7 +159,8 @@ async function loadQuoteTokens(): Promise<Map<string, QuoteTokenMeta>> {
 
 /** Warm the stock registry + prices for the stocks in use (and the GITLAWB price), so `shape()` can stay synchronous. */
 async function withStocks(): Promise<void> {
-  gitlawbUsdNow = await gitlawbUsd(); // never throws; served from cache once warm (stale-while-revalidate)
+  // both never throw; GITLAWB is served from cache once warm (stale-while-revalidate), HYPE from a 60s memo
+  [gitlawbUsdNow, hypeUsdNow] = await Promise.all([gitlawbUsd(), hypeUsd()]);
   try {
     await ensureRegistry(); // robinhood registry (fail-soft); also starts a background refresh of the Base list
     stockUsdNow = await stockUsdInUse();
@@ -339,7 +345,11 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   // keyed "usdc" and already in stableCase above) and WETH on Base
   const ethArms = quotesWithKey("eth").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${ethFactor}::double precision`);
   const ethCase = ethArms.length ? ethArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision ${pairCase} ${ethCase} ELSE 0.0 END)`;
+  // HYPE's price for every quote keyed "hype" (Elysium's native HYPE and WHYPE), chain-scoped like ETH; unknown → 0 weight, like GITLAWB
+  const hypeFactor = hypeUsdNow !== null && hypeUsdNow > 0 ? hypeUsdNow : 0;
+  const hypeArms = quotesWithKey("hype").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${hypeFactor}::double precision`);
+  const hypeCase = hypeArms.length ? hypeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision ${pairCase} ${ethCase} ${hypeCase} ELSE 0.0 END)`;
   const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
@@ -529,7 +539,7 @@ export type LaunchTotals = {
   twig_burned: string;
   /** The boosts' part of twig_burned, raw 18-dec (the hero's tooltip splits the two). */
   twig_boost_burned: string;
-  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
+  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_hype: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string; volume_quote_twig: string }>;
 };
 
 /** Platform totals (launches, trades, USD volume, fees burned and paid to creators, GITLAWB burned); zeros without a database. */
@@ -544,7 +554,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     gitlawb_burned: "0",
     twig_burned: "0",
     twig_boost_burned: "0",
-    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0", volume_quote_twig: "0" }])) as LaunchTotals["by_chain"],
+    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_hype: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0", volume_quote_twig: "0" }])) as LaunchTotals["by_chain"],
   });
   const db = maybeDb();
   if (!db) return empty();
@@ -577,7 +587,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     const q = quoteInfo(chain, r.quote);
     const usd = quoteUsd(q, ethUsd);
     const qu = usd ?? 0;
-    // a quote that normally prices (ETH, GITLAWB, TWIG, a stock with a feed) but has no price this instant → the USD sums undercount;
+    // a quote that normally prices (ETH, HYPE, GITLAWB, TWIG, a stock with a feed) but has no price this instant → the USD sums undercount;
     // an unlisted ERC-20 (key "other") and a stock without a feed are unpriced by design and are left out of the USD figures silently, as always
     if (usd === null && hasPriceSource(q) && (BigInt(r.volume) > 0n || BigInt(r.burned) > 0n || BigInt(r.creators) > 0n)) t.usd_partial = true;
     t.launches += Number(r.launches);
@@ -589,6 +599,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     bc.launches += Number(r.launches);
     bc.trades += Number(r.trades);
     if (q.key === "eth") bc.volume_quote_eth = add(bc.volume_quote_eth, r.volume);
+    else if (q.key === "hype") bc.volume_quote_hype = add(bc.volume_quote_hype, r.volume);
     else if (q.key === "usdg") bc.volume_quote_usdg = add(bc.volume_quote_usdg, r.volume);
     // USDC volume is reported at 6 decimals; Arc's native USDC is the same asset at 18, so it is scaled down to join the bucket
     else if (q.key === "usdc") bc.volume_quote_usdc = add(bc.volume_quote_usdc, q.decimals === 18 ? (BigInt(r.volume) / 10n ** 12n).toString() : r.volume);
