@@ -39,7 +39,9 @@ export default function LaunchMechanism() {
   // `live` figures roll as they change (compact); the rest stay exact text. Both carry the same "≈" guard.
   const usd = (v: number, live = false) => (live ? <LiveNumber value={v} format={COMPACT_USD} prefix={t.usd_partial ? "≈" : undefined} /> : `${t.usd_partial ? "≈" : ""}${fmtUsd(v)}`);
   // the compact figure rounds, so its tooltip carries the exact sum and says what kind of number it is
-  const usdTitle = (v: number, what: string) => usdNote ?? `${fmtUsd(v)} · ${what} valued at current rates`;
+  // trade-time USD (lib/launchpad/trade-time-usd.ts): each trade and fee at the hour it happened; trades in a quote with no
+  // price history (registry stocks, community pairs and unlisted tokens before Nov 10, 2026) at today's rate
+  const usdTitle = (v: number, what: string) => usdNote ?? `${fmtUsd(v)} · ${what}, each valued in USD at the hour it happened (stock and community-pair trades before Nov 10, 2026 at today's rate)`;
   const usdChars = USD_CHARS + (t.usd_partial ? 1 : 0);
   const gitlawbBurnedExact = `${fmtUnitsExact(t.gitlawb_burned, GITLAWB_DECIMALS)} ${GITLAWB_SYMBOL}`; // every digit of the raw amount, no float
   // TWIG burned: its own figure (the GITLAWB behind it stays in the TWIG contract), shown once there is any; null-safe for a poll from an older machine
