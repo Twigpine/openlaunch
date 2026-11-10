@@ -46,9 +46,10 @@ export function GET() {
   const b = launchpad("base");
   const r = launchpad("robinhood");
   const a = launchpad("arc");
+  const e = launchpad("elysium");
   const body = `# ${BRAND_DOMAIN}
 
-> openlaunch (${BRAND_DOMAIN}) is an open-source (MIT: ${BRAND_GITHUB}), zero-fee token launchpad on Base (8453), Robinhood Chain (4663) and Arc (5042). One transaction deploys a token and locks 100% of its supply as
+> openlaunch (${BRAND_DOMAIN}) is an open-source (MIT: ${BRAND_GITHUB}), zero-fee token launchpad on Base (8453), Robinhood Chain (4663), Arc (5042) and Elysium (99901). One transaction deploys a token and locks 100% of its supply as
 > Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all. About page: ${SITE_URL}/about
 
 ## Source verification
@@ -65,10 +66,13 @@ ${verificationLine("Arc (5042)", a, [
   ["Arc Explorer", (x) => `https://explorer.arc.io/address/${x}?tab=contract`],
   ["Sourcify", (x) => `https://repo.sourcify.dev/5042/${x}`],
 ])}
+${verificationLine("Elysium (99901)", e, [
+  ["Elysium Explorer", (x) => `https://elysium.kinetiq.xyz/explorer/address/${x}`],
+])}
 
 ## What a launch does
 1. deploys a fixed-supply ERC-20 (1,000,000,000; no mint/pause/blacklist/tax/owner)
-2. initializes a Uniswap v4 pool quote/token (quote = ETH, USDG on Robinhood Chain, USDC on Arc, or a registry stock token, all in the form; also TWIG, GITLAWB, USDC or WETH on Base and GITLAWB on Robinhood Chain, priced but not in the form; tick spacing 200, no hook) at the chosen start tick
+2. initializes a Uniswap v4 pool quote/token (quote = ETH, USDG on Robinhood Chain, USDC on Arc, HYPE or USDC on Elysium, or a registry stock token, all in the form; also TWIG, GITLAWB, USDC or WETH on Base and GITLAWB on Robinhood Chain, priced but not in the form; tick spacing 200, no hook) at the chosen start tick
 3. mints one single-sided position holding 100% of supply to an ownerless locker (no withdraw path exists)
 4. registers fee routing: lpFee 0 | 10000 (1%) | 30000 (3%) pips; recipients [] = fees burned,
    else {payout,bps}[] summing to 10000. Fixed forever.
@@ -78,12 +82,17 @@ Anyone may call locker.collect(tokenId): accrued fees are paid straight to recip
 Base (8453):            LaunchFactory ${b.factory ?? "(not deployed yet)"} · LaunchLocker ${b.locker ?? "(not deployed yet)"}
 Robinhood Chain (4663): LaunchFactory ${r.factory ?? "(not deployed yet)"} · LaunchLocker ${r.locker ?? "(not deployed yet)"}
 Arc (5042):             LaunchFactory ${a.factory ?? "(not deployed yet)"} · LaunchLocker ${a.locker ?? "(not deployed yet)"}
+Elysium (99901):        LaunchFactory ${e.factory ?? "(not deployed yet)"} · LaunchLocker ${e.locker ?? "(not deployed yet)"}
 Uniswap v4: Base PoolManager 0x498581fF718922c3f8e6A244956aF099B2652b2b, Universal Router 0x6fF5693b99212Da76ad316178A184AB56D299b43;
             Robinhood PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951, Universal Router 0x8876789976decbfcbbbe364623c63652db8c0904;
-            Arc PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951, Universal Router 0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1
+            Arc PoolManager 0x8366a39CC670B4001A1121B8F6A443A643e40951, Universal Router 0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1;
+            Elysium PoolManager 0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1, Universal Router 0xa13f7611115752deb2b13813bdde16a5073e4b45
 USDG (Robinhood, 6 dec): 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 USDC (Arc, 6 dec):       0x3600000000000000000000000000000000000000 (also the gas token; native balance = the same USDC at 18 decimals)
 USDC (Base, 6 dec):      0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 (Circle's; priced at $1)
+HYPE (Elysium, 18 dec):  address zero (the gas token; priced from Coinbase HYPE-USD, Hyperliquid as the fallback)
+USDC (Elysium, 6 dec):   0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65 (Circle's; priced at $1)
+WHYPE (Elysium, 18 dec): 0xbA876237B0F021A6c6D852d6c26E107997cC5E81 (priced at HYPE; buyers pay WHYPE, not HYPE)
 WETH (Base, 18 dec):     0x4200000000000000000000000000000000000006 (priced at ETH; buyers pay WETH, not ETH)
 TWIG (Base, 18 dec):     0x6aC18bcf4eDE02591d4917452700ea5eaAea13c1 (Twigpine's token: 1:1 wrapper of GITLAWB, wrap/unwrap any time, no fee; no longer offered in the Base form, launches already paired with it keep trading; priced = GITLAWB; fees paid in TWIG, burned when recipients = [])
 GITLAWB (Base, 18 dec):  0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3 (Twigpine's token; still recognised and priced on Base; fees paid in GITLAWB, burned when recipients = [])
@@ -107,7 +116,7 @@ checked hourly and suspended when its checks fail.
 Pages: /pairs, /pair/<chain>/<address> (chain: ${PAIR_CHAINS.join(" or ")}). Launch with one against the factory exactly as with any ERC-20 quote (findSalt with the pair's address).
 ${pairApplySection()}
 ## API
-- GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50
+- GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc|elysium&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50
   sort=live (the home page default; "trending" is an alias): tokens an outside wallet traded in the last 24h first, ranked by outside
   wallets this hour, then today, then the last outside trade; then each launcher's newest launch under 1h old; then quiet launches, one
   row per launcher; both by age. "Outside" = not the launcher and not a swap in the sniper window (launch block + 3; a sell there can
@@ -115,7 +124,7 @@ ${pairApplySection()}
   (those counts), last_outside_trade_at, live_tier (live|new|quiet, live sort only) and launcher_collapsed.
 - GET  ${SITE_URL}/api/launch/feed
 - GET  ${SITE_URL}/api/launch/meta/<token>
-- POST ${SITE_URL}/api/launch/sync?chain=base|robinhood|arc&tx=0x…   (index a tx you just sent)
+- POST ${SITE_URL}/api/launch/sync?chain=base|robinhood|arc|elysium&tx=0x…   (index a tx you just sent)
 - GET  ${SITE_URL}/api/health
 Pages: / (list, ?chain=), /launch (?chain=), /t/<chain>/<token> (trade + fees), /rules, /agents.
 `;
