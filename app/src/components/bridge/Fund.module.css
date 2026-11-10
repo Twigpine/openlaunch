@@ -1,0 +1,33 @@
+/* "Bridge, then buy" in the trade panel: a short strip of the Signal board (dark plate in both themes) over two
+   numbered steps, because they are a real sequence: the bridge lands first, the buy is its own wallet request. */
+.fund { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); }
+.head { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
+.plate { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px 12px; border: 1px solid #1c1f27; border-radius: 10px; background: #050608; }
+.code { flex: none; color: rgb(var(--code)); font-family: var(--font-dots), var(--font-mono); font-size: 15px; font-weight: 800; font-variation-settings: "ROND" 100; letter-spacing: .06em; line-height: 1; text-shadow: 0 0 10px rgb(var(--code) / .45); }
+.code[data-unknown] { color: #4a5262; text-shadow: none; }
+.track { flex: 1 1 auto; min-width: 16px; height: 4px; color: #2c323d; background: radial-gradient(circle at center, currentColor 1.4px, transparent 1.9px) 0 50% / 6px 4px repeat-x; }
+.word { flex: none; margin-left: 4px; color: #8b95a7; font-family: var(--font-dots), var(--font-mono); font-size: 12px; font-weight: 800; font-variation-settings: "ROND" 100; letter-spacing: .08em; text-transform: uppercase; }
+.fund[data-step="short"] .word { color: #fbbf24; }
+.fund[data-step="moving"] .track { color: #6d9dff; animation: fund-chase 900ms linear infinite; }
+.fund[data-step="moving"] .word { color: #6d9dff; }
+.fund[data-step="arrived"] .track, .fund[data-step="arrived"] .word { color: #3ddc97; }
+.fund[data-step="attention"] .track { color: #fbbf24; opacity: .75; }
+.fund[data-step="attention"] .word { color: #fbbf24; }
+@keyframes fund-chase { to { background-position: 6px 50%; } }
+
+.steps { display: grid; gap: 10px; margin: 0; padding: 0 2px; list-style: none; }
+.steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px; }
+.mark { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--color-line-strong); border-radius: 50%; color: var(--color-muted); font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.steps li[data-state="active"] .mark { border-color: var(--color-ink); color: var(--color-ink); }
+.steps li[data-state="done"] .mark { border-color: var(--color-up); background: var(--color-up); color: var(--color-inverse); }
+.steps li[data-state="warn"] .mark { border-color: var(--color-warm-ink); color: var(--color-warm-ink); }
+.steps li[data-state="waiting"] { opacity: .62; }
+.steps strong { display: block; color: var(--color-ink); font-size: 13px; font-weight: 650; line-height: 22px; }
+.steps p { margin: 2px 0 0; color: var(--color-body); font-size: 12px; line-height: 1.5; text-wrap: pretty; }
+.action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: 100%; min-height: 40px; margin-top: 10px; padding: 0 14px; border: 1px solid var(--color-ink); border-radius: 999px; background: var(--color-ink); color: var(--color-inverse); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.action:hover { filter: brightness(1.12); }
+.link { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--color-ink); font: inherit; font-size: 12px; font-weight: 600; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; cursor: pointer; }
+.action:focus-visible, .link:focus-visible, .dismiss:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.dismiss { flex: none; display: grid; place-items: center; width: 38px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-card); color: var(--color-muted); cursor: pointer; }
+.dismiss:hover { color: var(--color-ink); }
+@media (prefers-reduced-motion: reduce) { .fund[data-step="moving"] .track { animation: none; } }

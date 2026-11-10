@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -27,6 +27,7 @@ import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
 import { ChainLogo } from "./ChainLogo";
+import BridgeToBuy from "@/components/bridge/BridgeToBuy";
 
 /**
  * In-page buy / sell straight against the token's Uniswap v4 pool via the
@@ -113,6 +114,11 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
   const busy = phase.k === "preparing" || phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
   const balance = side === "buy" ? (pay.native ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
   const insufficient = amountIn !== null && balance !== undefined && amountIn + (side === "buy" ? buyReserve : 0n) > balance;
+  // Bridge, then buy: how far short a buy is, and a way to read the balance at once when bridged funds land
+  const shortBy = side === "buy" && insufficient && amountIn !== null && balance !== undefined ? amountIn + buyReserve - balance : null;
+  const refetchEth = eth.refetch;
+  const refetchQuote = qbal.refetch;
+  const refetchPay = useCallback(() => { void refetchEth(); void refetchQuote(); }, [refetchEth, refetchQuote]);
 
   // the pay asset is part of the key: a TWIG quote never prices an ETH buy, or the other way round
   const quoteKey = `${tradeQuoteKey(chain, token, side, amount)}${viaEth ? ":eth" : ""}`;
@@ -409,6 +415,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
         </button>
       )}
 
+      {side === "buy" && isConnected && tradable ? (
+        <BridgeToBuy chain={chain} symbol={symbol} pay={{ symbol: pay.symbol, decimals: pay.decimals, address: viaEth ? NATIVE : quote.address, native: pay.native }} short={insufficient || balance === 0n} shortBy={shortBy} ethUsd={ethUsd} onArrived={refetchPay} />
+      ) : null}
       {side === "buy" && quote.key === "twig" && !viaEth && (balance === undefined || balance === 0n || insufficient) ? (
         <p className="text-center text-xs text-muted text-pretty">
           Need TWIG? Wrap GITLAWB 1:1 or buy TWIG at{" "}

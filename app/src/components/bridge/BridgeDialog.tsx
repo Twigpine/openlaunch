@@ -171,19 +171,21 @@ function FeeLimitNotice({ rejection, inputSymbol, gasSymbol }: { rejection: Brid
  * slot (bridge-slot.ts), inside that page instead: the same hook either way, so a transfer is quoted, sent and tracked
  * once. `link` is the page's shareable route (lib/bridge/link.ts); it only preselects networks and tokens.
  */
-export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = null, link = null }: {
+export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = null, link = null, linkCount = 0 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   restoreFocus: () => HTMLElement | null;
   slot?: HTMLElement | null;
   link?: BridgeLink | null;
+  /** Bumped by each request for a route, so asking for the same route again re-applies it. */
+  linkCount?: number;
 }) {
   const onPage = slot !== null;
   const bridge = useBridge(open || onPage);
   const popup = useRef<HTMLDivElement>(null);
   const [connecting, setConnecting] = useState(false);
   const transferring = bridge.tracked !== null;
-  const linkKey = bridgeLinkKey(link);
+  const linkKey = link ? `${linkCount}:${bridgeLinkKey(link)}` : "";
   const appliedLink = useRef("");
 
   // Each link is applied once, through the same guarded setters the pickers use: they refuse while an approval or a

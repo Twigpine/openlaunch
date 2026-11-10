@@ -30,7 +30,7 @@ test("bridge keeps one lazily loaded controller across desktop/mobile and dismis
   assert.match(header, /<BridgeButton block onOpen=\{\(\) => setOpen\(false\)\} \/>/);
   assert.match(provider, /dynamic\(\(\) => import\("\.\/BridgeDialog"\)/);
   // mounted on first use or when the /bridge page registers its slot, and kept mounted after either
-  assert.match(provider, /activated \|\| slot\.node \? <BridgeDialog open=\{open\} onOpenChange=\{setOpen\} restoreFocus=\{restoreFocus\} slot=\{slot\.node\} link=\{slot\.link\} \/>/);
+  assert.match(provider, /activated \|\| slot\.node \? <BridgeDialog open=\{open\} onOpenChange=\{setOpen\} restoreFocus=\{restoreFocus\} slot=\{slot\.node\} link=\{slot\.node \? slot\.link : requested\?\.link \?\? null\} linkCount=\{slot\.node \? 0 : requested\?\.count \?\? 0\} \/>/);
   assert.doesNotMatch(provider, /open \? <BridgeDialog/);
 });
 
@@ -220,6 +220,21 @@ test("the history board only reads: no second bridge, no recovery record, and th
   assert.ok(hook.includes("try { bridgeLedger.record(tracked, quoted); } catch"));
   assert.match(hook, /transfers\.remove\(address\);\s+try \{ bridgeLedger\.forget\(address, requestId\); \} catch/);
   assert.ok(panel.includes(`href="/bridge#transfers"`));
+});
+
+test("bridge, then buy stays two steps: the trade panel card opens and follows the one controller and never sends", () => {
+  const card = read("./BridgeToBuy.tsx");
+  const trade = read("../launchpad/TradePanel.tsx");
+  assert.doesNotMatch(card, /useBridge\b|client-storage|sendTransaction|writeContract|useWriteContract|\.record\(|\.forget\(/);
+  assert.ok(card.includes("useOpenBridge()") && card.includes("useWakeBridge()"));
+  assert.ok(card.includes("bridgeLedger.read(address)"));
+  assert.ok(trade.includes("<BridgeToBuy "));
+  assert.match(trade, /side === "buy" && isConnected && tradable \? \(\s*<BridgeToBuy /);
+  assert.ok(trade.includes("onArrived={refetchPay}"));
+  assert.ok(provider.includes("const wake = useCallback(() => setActivated(true), []);"), "waking mounts the controller closed so tracking continues");
+  assert.ok(provider.includes("export function useWakeBridge"));
+  assert.ok(provider.includes("if (slot.node && requested) setRequested(null);"), "the /bridge page's route is never overwritten later by an older request");
+  assert.ok(panel.includes("const linkKey = link ? `${linkCount}:${bridgeLinkKey(link)}` : \"\";"), "asking for the same route again re-applies it");
 });
 
 test("quotes update without locking typing or automatically submitting wallet actions", () => {

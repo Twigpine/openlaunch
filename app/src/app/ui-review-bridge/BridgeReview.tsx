@@ -14,6 +14,9 @@ import { BRIDGE_QUOTE_DEBOUNCE_MS } from "@/lib/bridge/quote-session";
 import styles from "@/components/bridge/BridgeDialog.module.css";
 import { HistoryBoard } from "@/components/bridge/BridgeHistory";
 import type { BridgeHistoryEntry } from "@/lib/bridge/history";
+import { FundCard } from "@/components/bridge/BridgeToBuy";
+import type { BridgeHolding, FundStep } from "@/lib/bridge/fund";
+import type { BridgeAsset, BridgeDestinationId } from "@/lib/bridge/types";
 
 const wallet = "0x03508bB71268BBA25ECaCC8F620e01866650532c" as const;
 const requestId = `0x${"1".repeat(64)}` as const;
@@ -34,6 +37,18 @@ const HISTORY_ROWS: BridgeHistoryEntry[] = [
 ];
 type HistoryScene = "rows" | "empty" | "loading" | "no wallet" | "unsaved";
 const HISTORY_SCENES: HistoryScene[] = ["rows", "empty", "loading", "no wallet", "unsaved"];
+
+// "Bridge, then buy" in the trade panel, one card per step it can show.
+type FundScene = { name: string; step: FundStep; destination: BridgeDestinationId; asset: BridgeAsset; symbol: string; row: BridgeHistoryEntry | null; shortBy: string | null; suggestion: BridgeHolding | null; searching: boolean };
+const FUND_SCENES: FundScene[] = [
+  { name: "short, source found", step: "short", destination: 4663, asset: "ETH", symbol: "ORBIT", row: null, shortBy: "0.0125 ETH", suggestion: { chainId: 8453, asset: "USDC", amount: 120_500_000n, decimals: 6 }, searching: false },
+  { name: "short, checking", step: "short", destination: 4663, asset: "ETH", symbol: "ORBIT", row: null, shortBy: "0.0125 ETH", suggestion: null, searching: true },
+  { name: "empty, nothing elsewhere", step: "short", destination: 5042, asset: "USDC", symbol: "ARCO", row: null, shortBy: null, suggestion: null, searching: false },
+  { name: "moving", step: "moving", destination: 4663, asset: "ETH", symbol: "ORBIT", row: { ...HISTORY_ROWS[0], originChainId: 42161, createdAt: minutesAgo(1) }, shortBy: null, suggestion: null, searching: false },
+  { name: "delayed", step: "moving", destination: 5042, asset: "USDC", symbol: "ARCO", row: HISTORY_ROWS[3], shortBy: null, suggestion: null, searching: false },
+  { name: "arrived", step: "arrived", destination: 8453, asset: "USDC", symbol: "BASED", row: HISTORY_ROWS[1], shortBy: null, suggestion: null, searching: false },
+  { name: "refunded", step: "attention", destination: 5042, asset: "USDC", symbol: "ARCO", row: HISTORY_ROWS[4], shortBy: null, suggestion: null, searching: false },
+];
 
 export default function BridgeReview() {
   const [historyScene, setHistoryScene] = useState<HistoryScene>("rows");
@@ -110,6 +125,11 @@ export default function BridgeReview() {
     </main>
     <div className="mx-auto max-w-6xl px-5 pb-24">
       <HistoryBoard wallet={historyScene === "no wallet" ? "" : wallet.toLowerCase()} rows={historyScene === "rows" || historyScene === "unsaved" ? HISTORY_ROWS : []} loading={historyScene === "loading"} unsaved={historyScene === "unsaved"} note="Preview only. Synthetic transfers, no wallet and no Relay call." onRefresh={() => {}} />
+      <h2 className="mt-16 text-lg font-semibold">Bridge, then buy</h2>
+      <p className="mt-2 text-sm text-body">The trade panel card, at trade panel width. Buttons do nothing here.</p>
+      <div className="mt-6 grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))]">
+        {FUND_SCENES.map(({ name, ...scene }) => <figure key={name} className="m-0 grid min-w-0 content-start gap-2"><figcaption className="text-xs text-muted">{name}</figcaption><FundCard {...scene} onBridge={() => {}} onOpen={() => {}} onDismiss={() => {}} /></figure>)}
+      </div>
     </div>
     </>
   );
