@@ -4,12 +4,13 @@ import Link from "next/link";
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { forceCollide, forceSimulation, forceX, forceY, type SimulationNodeDatum } from "d3-force";
+import { useTranslations } from "use-intl";
+import { useAgo } from "@/i18n/useAgo";
 import TokenAvatar from "./TokenAvatar";
 import { ChainCorner } from "./ChainLogo";
 import { BUBBLE_MAX, bubbleLean, bubbleRadii, bubbleVolume, type BubbleLean, type BubbleToken } from "@/lib/launchpad/bubbles";
 import { feedKey, riverUsd, type RiverEntry } from "@/lib/launchpad/river";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
-import { ago } from "@/lib/launchpad/time";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
 import styles from "./LiveBubbles.module.css";
 
@@ -65,6 +66,7 @@ export default function LiveBubbles({ tokens, entries, now, complete }: { tokens
   const field = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const tr = useTranslations("activity.bubbles");
 
   useEffect(() => {
     const el = field.current;
@@ -116,8 +118,8 @@ export default function LiveBubbles({ tokens, entries, now, complete }: { tokens
         })}
         {shown.length === 0 ? (
           <div className={styles.empty}>
-            <p className="text-sm font-medium text-ink">Nothing traded or launched in the last 24 hours</p>
-            <p className="text-xs text-muted">New ones show up here as they happen.</p>
+            <p className="text-sm font-medium text-ink">{tr("summary.nothing")}</p>
+            <p className="text-xs text-muted">{tr("emptyHelp")}</p>
           </div>
         ) : null}
       </div>
@@ -129,10 +131,11 @@ export default function LiveBubbles({ tokens, entries, now, complete }: { tokens
 }
 
 const Bubble = memo(function Bubble({ t, p, pulse, born, sparks, onEnter, onLeave }: { t: BubbleToken; p: Placed; pulse: string | null; born: boolean; sparks: Spark[]; onEnter: (id: string) => void; onLeave: (id: string) => void }) {
+  const tr = useTranslations("activity.bubbles");
   const lean = bubbleLean(t);
   const roomy = p.r >= 34;
   const trades = t.buys + t.sells;
-  const value = bubbleVolume(t) > 0 ? riverUsd(bubbleVolume(t)) : trades ? `${trades} ${trades === 1 ? "trade" : "trades"}` : "New";
+  const value = bubbleVolume(t) > 0 ? riverUsd(bubbleVolume(t)) : trades ? tr("trades", { count: trades }) : tr("new");
   const style = {
     "--x": p.x, "--y": p.y, "--r": p.r, "--tone": TONE[lean.side],
     "--k": lean.side === "even" ? 0.2 : lean.strength,
@@ -167,6 +170,8 @@ const Bubble = memo(function Bubble({ t, p, pulse, born, sparks, onEnter, onLeav
 /** What a bubble holds, on hover: both sides in dollars, the trade count, and when it last moved. */
 function BubbleCard({ t, p, w, h, now, complete }: { t: BubbleToken; p: Placed; w: number; h: number; now: number; complete: boolean }) {
   const reduced = useReducedMotion();
+  const tr = useTranslations("activity.bubbles.card");
+  const { short } = useAgo();
   const below = p.y < h * 0.45;
   const left = Math.min(Math.max(p.x, CARD_W / 2 + 6), w - CARD_W / 2 - 6);
   const from = { opacity: 0, scale: 0.92, y: below ? -6 : 6 };
@@ -188,20 +193,20 @@ function BubbleCard({ t, p, w, h, now, complete }: { t: BubbleToken; p: Placed; 
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold leading-tight text-ink">{t.name}</span>
-            <span className="block truncate text-[11px] leading-tight text-muted">{t.symbol} on {CHAIN_SHORT[t.chain]}</span>
+            <span className="block truncate text-[11px] leading-tight text-muted">{tr("symbolOn", { symbol: t.symbol, chain: CHAIN_SHORT[t.chain] })}</span>
           </span>
-          <span className="shrink-0 self-start font-mono text-[10px] text-muted" suppressHydrationWarning>{ago(new Date(t.lastAt).toISOString(), now)}</span>
+          <span className="shrink-0 self-start font-mono text-[10px] text-muted" suppressHydrationWarning>{short(new Date(t.lastAt).toISOString(), now)}</span>
         </div>
         {trades ? (
           <dl className="mt-2.5 grid grid-cols-2 gap-2 border-t border-line pt-2.5 text-[11px]">
-            <div><dt className="text-muted">Bought</dt><dd className="font-mono text-[13px] font-semibold text-up">{riverUsd(t.bought)}</dd></div>
-            <div><dt className="text-muted">Sold</dt><dd className="font-mono text-[13px] font-semibold text-down-ink">{riverUsd(t.sold)}</dd></div>
+            <div><dt className="text-muted">{tr("bought")}</dt><dd className="font-mono text-[13px] font-semibold text-up">{riverUsd(t.bought)}</dd></div>
+            <div><dt className="text-muted">{tr("sold")}</dt><dd className="font-mono text-[13px] font-semibold text-down-ink">{riverUsd(t.sold)}</dd></div>
           </dl>
         ) : null}
         <p className="mt-2 text-[11px] text-muted">
-          {trades ? `${trades.toLocaleString("en-US")} ${trades === 1 ? "trade" : "trades"} ${complete ? "in this window" : "in view"}` : "Launched, no trades yet"}
-          {t.unpriced ? `, ${t.unpriced} with no dollar price` : ""}
-          {trades && t.launched ? ". Launched in this window" : ""}
+          {trades ? (complete ? tr("tradesInWindow", { count: trades }) : tr("tradesInView", { count: trades })) : tr("noTrades")}
+          {t.unpriced ? tr("unpriced", { count: t.unpriced }) : ""}
+          {trades && t.launched ? tr("launchedHere") : ""}
         </p>
       </motion.div>
     </div>

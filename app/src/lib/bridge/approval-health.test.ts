@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TransactionNotFoundError, type Hex } from "viem";
+import { setClientLanguage } from "../../i18n/client.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 import { ARC_USDC, RELAY_APPROVAL_SPENDER, exactApprovalTransaction, type TrackedApproval } from "./approval";
-import { describePendingApproval, readPendingApprovalHealth } from "./approval-health";
+import { APPROVAL_HEALTH_UNAVAILABLE, describePendingApproval, readPendingApprovalHealth } from "./approval-health";
 
 const NOW = 1_800_000_000_000;
 const hash = `0x${"1".repeat(64)}` as Hex;
@@ -32,6 +34,25 @@ test("missing hash has a propagation grace period and never asserts failure or c
   assert.equal(health.kind, "not-seen");
   assert.match(health.detail, /may still be queued/);
   assert.match(health.detail, /do not approve again/);
+});
+
+test("advice is worded when shown, so it follows the reader's language, and nonces read as written", () => {
+  const queued = describePendingApproval({ ...observation, transaction: { ...transaction, nonce: 12345 }, latestNonce: 1234 });
+  assert.match(queued.detail, /uses nonce 12345, but your wallet’s next confirmed nonce is 1234\./);
+  const global = globalThis as { window?: unknown };
+  global.window = {};
+  try {
+    // the browser, after the reader switches to Chinese: advice already on screen re-words itself
+    setClientLanguage("zh-CN", messagesFor("zh-CN"));
+    assert.equal(queued.title, messagesFor("zh-CN").bridge.health.queued.title);
+    assert.match(queued.detail, /nonce 是 12345，.*nonce 是 1234。/);
+    assert.equal(APPROVAL_HEALTH_UNAVAILABLE.title, messagesFor("zh-CN").bridge.health.unavailable.title);
+  } finally {
+    setClientLanguage("en", en);
+    delete global.window;
+  }
+  assert.equal(APPROVAL_HEALTH_UNAVAILABLE.title, "Approval status unavailable");
+  assert.equal(APPROVAL_HEALTH_UNAVAILABLE.kind, "unavailable");
 });
 
 test("invalid nonce observations stay unknown rather than falsely identifying a queue", () => {

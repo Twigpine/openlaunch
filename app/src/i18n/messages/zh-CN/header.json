@@ -1,0 +1,61 @@
+{
+  "nav": {
+    "launchpad": "发射台",
+    "launchpadHint": "实时发行、图表与交易",
+    "posts": "帖子",
+    "postsHint": "大家对代币的讨论",
+    "rules": "运作方式",
+    "rulesHint": "发行会做什么、要花多少",
+    "agents": "智能体",
+    "agentsHint": "用智能体发行和交易"
+  },
+  "home": "{domain} 首页",
+  "primary": "主导航",
+  "tools": "工具",
+  "search": "搜索代币和页面（{shortcut}）",
+  "searchTitle": "搜索（{shortcut}）",
+  "searchMobile": "搜索代币和页面",
+  "openMenu": "打开菜单",
+  "closeMenu": "关闭菜单",
+  "onX": "@{handle} <muted>X 官方账号</muted>",
+  "onXLabel": "@{handle} 的 X 官方账号",
+  "theme": {
+    "label": "主题",
+    "dark": "深色",
+    "light": "浅色",
+    "toDark": "切换到深色模式",
+    "toLight": "切换到浅色模式"
+  },
+  "language": {
+    "label": "语言",
+    "switchTo": "切换到 {language}"
+  },
+  "notifications": {
+    "settings": "通知设置",
+    "title": "通知",
+    "liveOn": "实时提醒已开启",
+    "personalOnly": "仅个人通知",
+    "close": "关闭通知设置",
+    "description": "选择哪些通知可以打断你的浏览。",
+    "activity": "实时动态通知",
+    "activityHelp": "其他交易者发行、买入和卖出时弹出提示。",
+    "on": "开",
+    "off": "关",
+    "yours": "你的交易",
+    "alwaysOn": "始终开启",
+    "yoursHelp": "交易确认和重要通知仍会显示。",
+    "saved": "已保存在此浏览器中。",
+    "notSaved": "此浏览器阻止保存设置，该选择只在你离开页面前有效。",
+    "feedLive": "动态信息流保持实时更新。"
+  },
+  "bridge": {
+    "label": "跨链桥",
+    "aria": "跨链转移资金",
+    "title": "在 Base、Robinhood 和 Arc 之间跨链"
+  },
+  "pulse": {
+    "visits": "次访问",
+    "online": "人在线",
+    "title": "无 Cookie 统计：累计访问 · 当前在线"
+  }
+}

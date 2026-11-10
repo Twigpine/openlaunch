@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { earnedRaw, earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, holdingsValue, isBurnOnly } from "./creator.ts";
+import { earnedRaw, earnedSides, feeModeOf, feeShareBps, feeSidesUsd, hasFees, holdingUsd, holdingsValue, isBurnOnly } from "./creator.ts";
 import { buildEditMessage, isNonce, validateEdit } from "./editAuth.ts";
+import { X_HANDLE_ERROR } from "./xHandle.ts";
 import { ageLabel, clampSocial, feeLabel, shapeCard } from "./ogcard.ts";
 
 const DEAD = "0x000000000000000000000000000000000000dead";
@@ -71,6 +72,24 @@ test("validateEdit: https only, no private hosts, no HTML, handle format", () =>
   assert.equal(validateEdit({ description: "<script>x</script>" }).ok, false);
   assert.equal(validateEdit({ x_handle: "bad handle!" }).ok, false);
   assert.equal(validateEdit({}).ok, true, "all fields optional");
+});
+
+test("validateEdit: on the server, where the edit API returns them, the errors read in English", () => {
+  const error = (f: Parameters<typeof validateEdit>[0]) => { const v = validateEdit(f); return v.ok ? null : v.error; };
+  assert.equal(error({ image_url: "http://x.y/a.png" }), "image: https URL only");
+  assert.equal(error({ banner_url: "http://x.y/b.webp" }), "banner: https URL only");
+  assert.equal(error({ website: "https://localhost/" }), "website: https URL only");
+  assert.equal(error({ x_handle: "bad handle!" }), X_HANDLE_ERROR);
+  assert.equal(error({ description: "<b>x</b>" }), "description: no HTML");
+});
+
+test("feeModeOf: a 0% pool is free; no recipient, or 0x…dEaD alone, burns; one wallet is its beneficiary; more split", () => {
+  assert.equal(feeModeOf(0, [{ payout: W, bps: 10000 }]), "free");
+  assert.equal(feeModeOf(10_000, []), "burn");
+  assert.equal(feeModeOf(10_000, null), "burn");
+  assert.equal(feeModeOf(10_000, [{ payout: "0x000000000000000000000000000000000000dEaD", bps: 10000 }]), "burn");
+  assert.equal(feeModeOf(10_000, [{ payout: W, bps: 10000 }]), "creator");
+  assert.equal(feeModeOf(10_000, [{ payout: W, bps: 6000 }, { payout: DEAD, bps: 4000 }]), "split");
 });
 
 test("validateEdit: an X link normalizes to the handle, so the signed message is the same either way", () => {

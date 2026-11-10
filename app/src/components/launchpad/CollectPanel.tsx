@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "use-intl";
 import { useConfig, useReadContracts } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
@@ -56,6 +57,7 @@ export default function CollectPanel({
 }) {
   const router = useRouter();
   const config = useConfig();
+  const t = useTranslations("token.collect");
   const { address, chainId } = useHydratedAccount();
   const CHAIN = CHAINS[chain];
   const LOCKER_ADDRESS = launchpad(chain).locker;
@@ -102,11 +104,11 @@ export default function CollectPanel({
       }
       setPhase({ k: "sent", hash, what, currency });
       const receipt = await pub.waitForTransactionReceipt({ hash });
-      if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
+      if (receipt.status !== "success") throw new Error(t("reverted"));
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
       void mine.refetch();
       router.refresh();
-      toast({ kind: "collect", title: what === "collect" ? `Fees collected for ${symbol}` : "Claimed", sub: isBurnOnly ? "Burned on the spot" : "Paid to the beneficiaries" });
+      toast({ kind: "collect", title: what === "collect" ? t("toastCollected", { symbol }) : t("toastClaimed"), sub: isBurnOnly ? t("toastBurned") : t("toastPaid") });
       setPhase({ k: "idle" });
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
@@ -123,16 +125,16 @@ export default function CollectPanel({
   return (
     <section className="rounded-2xl border border-line bg-card p-5 space-y-3">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-ink">Where the fees go</h2>
+        <h2 className="text-sm font-semibold text-ink">{t("heading")}</h2>
         <span className="font-mono font-bold text-ink tnum">{pipsToPct(lpFee)}</span>
       </div>
 
       {lpFee === 0 ? (
-        <p className="text-sm text-body">This pool charges no fee. Nobody earns from trades, including the creator and us.</p>
+        <p className="text-sm text-body">{t("noFee")}</p>
       ) : (
         <>
           <ul className="space-y-1.5">
-            {isBurnOnly && recipients.length === 0 ? <li className="flex items-center justify-between text-sm"><span className="text-warm-ink">Burned</span><span className="font-mono text-body tnum">100%</span></li> : null}
+            {isBurnOnly && recipients.length === 0 ? <li className="flex items-center justify-between text-sm"><span className="text-warm-ink">{t("burnRow")}</span><span className="font-mono text-body tnum">100%</span></li> : null}
             {recipients.map((r) => {
               const burn = r.payout.toLowerCase() === DEAD.toLowerCase();
               return (
@@ -140,10 +142,10 @@ export default function CollectPanel({
                   <span className="flex items-center gap-2 min-w-0">
                     <span className={`h-2 w-2 rounded-full shrink-0 ${burn ? "bg-warm" : "bg-brand"}`} aria-hidden />
                     {burn ? (
-                      <span className="text-warm-ink font-medium">Burned</span>
+                      <span className="text-warm-ink font-medium">{t("burnRow")}</span>
                     ) : (
                       address && r.payout.toLowerCase() === address.toLowerCase() ? (
-                        <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">You</a>
+                        <a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">{t("you")}</a>
                       ) : (
                         <WhoName address={r.payout} explorer={explorerAddress(chain, r.payout)} fallback={<a href={explorerAddress(chain, r.payout)} target="_blank" rel="noreferrer" className="font-code text-ink hover:underline underline-offset-2 truncate">{shortAddr(r.payout)}</a>} />
                       )
@@ -156,15 +158,15 @@ export default function CollectPanel({
           </ul>
           <dl className="grid grid-cols-2 gap-2 pt-1">
             <div className="min-w-0 rounded-xl bg-paper border border-line px-3 py-2.5">
-              <dt className="text-[11px] text-muted">{isBurnOnly ? "Burned so far" : "Collected so far"}</dt>
+              <dt className="text-[11px] text-muted">{isBurnOnly ? t("burnedSoFar") : t("collectedSoFar")}</dt>
               <dd className="font-mono font-bold text-sm tnum text-ink break-words">{fq(isBurnOnly ? burned.quote : collected.quote)}</dd>
               <dd className="font-mono font-bold text-sm tnum text-ink break-words">{ft(isBurnOnly ? burned.token : collected.token)}</dd>
               {usd(isBurnOnly ? burned : collected) ? <dd className="text-[11px] font-mono text-muted tnum">{usd(isBurnOnly ? burned : collected)}</dd> : null}
             </div>
             <div className="min-w-0 rounded-xl bg-paper border border-line px-3 py-2.5">
-              <dt className="text-[11px] text-muted">{isBurnOnly ? "Where it went" : "Burned"}</dt>
+              <dt className="text-[11px] text-muted">{isBurnOnly ? t("whereItWent") : t("burned")}</dt>
               {isBurnOnly ? (
-                <dd className="text-[11px] text-body leading-relaxed">Both sides sent to the dead address. Nobody can claim them.</dd>
+                <dd className="text-[11px] text-body leading-relaxed">{t("deadAddress")}</dd>
               ) : (
                 <>
                   {/* amber only once something has actually burned; zero reads as the plain fact it is */}
@@ -175,7 +177,7 @@ export default function CollectPanel({
             </div>
             {!isBurnOnly ? (
               <div className="col-span-2 rounded-xl bg-paper border border-line px-3 py-2.5">
-                <dt className="text-[11px] text-muted">Paid to beneficiaries</dt>
+                <dt className="text-[11px] text-muted">{t("paidToBeneficiaries")}</dt>
                 <dd className="font-mono font-bold text-sm tnum text-ink break-words">{fq(toPeople.quote)} <span className="text-muted" aria-hidden>+</span> {ft(toPeople.token)}</dd>
                 {usd(toPeople) ? <dd className="text-[11px] font-mono text-muted tnum">{usd(toPeople)}</dd> : null}
               </div>
@@ -183,16 +185,16 @@ export default function CollectPanel({
           </dl>
           <div className="flex flex-wrap gap-2 pt-1">
             <button type="button" onClick={() => void send("collect")} disabled={busy || !address || !onChain} className={`${btn.secondarySm} flex-1`}>
-              {phase.k === "busy" && phase.what === "collect" ? <><Spinner size={13} /> Collecting…</> : phase.k === "sent" && phase.what === "collect" ? <><Spinner size={13} /> Confirming…</> : "Collect fees"}
+              {phase.k === "busy" && phase.what === "collect" ? <><Spinner size={13} /> {t("collecting")}</> : phase.k === "sent" && phase.what === "collect" ? <><Spinner size={13} /> {t("confirming")}</> : t("collectFees")}
             </button>
             {claims.map((c) => (
-              <button key={c.currency} type="button" onClick={() => void send("claim", c.currency)} disabled={busy || !onChain} className={`${btn.secondarySm} flex-1`} title="A payout to you could not be delivered and was credited instead">
-                {phase.k === "busy" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> Claiming…</> : phase.k === "sent" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> Confirming…</> : `Claim ${c.label(c.raw)}`}
+              <button key={c.currency} type="button" onClick={() => void send("claim", c.currency)} disabled={busy || !onChain} className={`${btn.secondarySm} flex-1`} title={t("claimHint")}>
+                {phase.k === "busy" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> {t("claiming")}</> : phase.k === "sent" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> {t("confirming")}</> : t("claim", { amount: c.label(c.raw) })}
               </button>
             ))}
           </div>
           <p className="text-[11px] text-muted leading-relaxed">
-            Anyone can collect. Collecting pulls accrued fees out of the pool and {isBurnOnly ? "burns them on the spot" : "pays the beneficiaries directly, in the same transaction"}. Liquidity never moves.
+            {isBurnOnly ? t("anyoneBurn") : t("anyonePay")}
           </p>
         </>
       )}
@@ -203,7 +205,7 @@ export default function CollectPanel({
       ) : null}
       {phase.k === "sent" ? (
         <p className="text-[11px] text-muted">
-          tx{" "}
+          {t("tx")}{" "}
           <a href={explorerTx(chain, phase.hash)} target="_blank" rel="noreferrer" className="font-code underline underline-offset-2">
             {phase.hash.slice(0, 10)}…
           </a>

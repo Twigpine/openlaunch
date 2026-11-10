@@ -1,10 +1,12 @@
 import { Sk } from "@/components/Skeleton";
 import PendingTokenHeader from "@/components/launchpad/PendingTokenHeader";
+import { getTranslations } from "@/i18n/server";
 
 /* Same frame as page.tsx (main padding, the hero with its cover): the token header that the market-row
    morph lands on must sit exactly where the real one renders, or the second hop would jump. */
-export default function Loading() {
-  return <main className="bb-mid bb-page pt-5 pb-28 sm:pt-7 lg:pb-16" aria-busy="true" aria-label="Loading token market">
+export default async function Loading() {
+  const t = await getTranslations("token");
+  return <main className="bb-mid bb-page pt-5 pb-28 sm:pt-7 lg:pb-16" aria-busy="true" aria-label={t("loading")}>
     <PendingTokenHeader />
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_23.75rem] lg:gap-6">
       <div className="min-w-0 space-y-4">

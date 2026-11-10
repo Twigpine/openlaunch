@@ -1,17 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Globe } from "lucide-react";
+import { useTranslations } from "use-intl";
 import TokenAvatar from "./TokenAvatar";
 import type { LaunchRow as L } from "@/lib/launchpad/queries";
-import { ago } from "@/lib/launchpad/time";
+import { useAgo } from "@/i18n/useAgo";
 import ChangeChip from "./ChangeChip";
 import { QuoteBrandBadge } from "./QuoteBadge";
 import UnlistedPairBadge from "./UnlistedPairBadge";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import { addressHue } from "@/lib/launchpad/tint";
-import type { ChipParts } from "@/lib/launchpad/ranking";
+import type { ChipParts, LiveTier } from "@/lib/launchpad/ranking";
 import { MorphAvatar, MorphName } from "./TokenMorph";
 import { ChainLogo } from "./ChainLogo";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
@@ -19,7 +20,11 @@ import { safeSocials } from "@/lib/launchpad/socials";
 import { XMark } from "./BrandMarks";
 import { MagicCard } from "@/components/vendor/magic-card";
 import { BorderBeam } from "@/components/vendor/border-beam";
-import type { RowHighlight } from "./LaunchRow";
+import { localizedCap, useLiveWords, type ChipFacts, type LiveWords, type RowHighlight } from "./LaunchRow";
+
+/** A token that arrived on this poll before the ranking has a chip for it: "just launched". */
+const JUST_LAUNCHED: ChipFacts = { tier: "new", count: null, when: null, more: null };
+const sr = (chunks: ReactNode) => <span className="sr-only">{chunks}</span>;
 
 /**
  * The market list as cards: a banner, the token's mark over it, then only what decides a click (name, market cap,
@@ -29,11 +34,14 @@ import type { RowHighlight } from "./LaunchRow";
  * page transition, no hover lift, and "now" for its age.
  */
 export default function LaunchCard({ l, rank, hl = null, now, pop = false, chip = null, preview = false }: { l: L; rank?: number; hl?: RowHighlight; now: number; pop?: boolean; chip?: ChipParts | null; preview?: boolean }) {
+  const t = useTranslations("market");
+  const { short } = useAgo();
+  const liveWords = useLiveWords();
   // one string: the compact form carries the mark for a quote with no dollar price
-  const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact;
+  const cap = localizedCap(capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }), t("noUsdPrice")).compact;
   const trades = l.buys + l.sells;
   const { x, site } = safeSocials(l);
-  const activity = chip ?? (hl?.kind === "new" ? { tier: "new" as const, count: null, label: "just launched", when: null, more: null } : null);
+  const facts = chip ?? (hl?.kind === "new" ? JUST_LAUNCHED : null);
 
   const avatar = <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="rounded-2xl" />;
   const body = (
@@ -43,7 +51,7 @@ export default function LaunchCard({ l, rank, hl = null, now, pop = false, chip 
           {/* the cover melts into the card, so the mark and the name read on one surface */}
           <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-b from-transparent via-card/45 to-card" />
           <div className="absolute left-2 top-2 flex min-w-0 items-center gap-1 pr-10">
-            {rank !== undefined ? <span className={`grid h-6 min-w-6 shrink-0 place-items-center rounded-full px-1.5 text-xs font-bold tabular-nums ${rank <= 3 ? "bg-white text-black shadow-sm" : "bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-md"}`}><span className="sr-only">Rank </span>{rank}</span> : null}
+            {rank !== undefined ? <span className={`grid h-6 min-w-6 shrink-0 place-items-center rounded-full px-1.5 text-xs font-bold tabular-nums ${rank <= 3 ? "bg-white text-black shadow-sm" : "bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-md"}`}><span className="sr-only">{t("card.rank")} </span>{rank}</span> : null}
             <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} />
             {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} className="shrink-0" /> : null}
           </div>
@@ -66,25 +74,25 @@ export default function LaunchCard({ l, rank, hl = null, now, pop = false, chip 
                 {/* above the stretched name link, so each opens its own page */}
                 {x || site ? (
                   <span className="relative z-[2] ml-auto flex shrink-0 items-center gap-0.5">
-                    {x ? <a href={`https://x.com/${x}`} target="_blank" rel="noopener noreferrer nofollow" aria-label={`${l.name} on X (@${x})`} title={`@${x} on X`} className={social}><XMark className="size-3" /></a> : null}
-                    {site ? <a href={site} target="_blank" rel="noopener noreferrer nofollow" aria-label={`${l.name} website`} title={site} className={social}><Globe size={13} aria-hidden="true" /></a> : null}
+                    {x ? <a href={`https://x.com/${x}`} target="_blank" rel="noopener noreferrer nofollow" aria-label={t("card.onX", { name: l.name, handle: x })} title={t("card.xTitle", { handle: x })} className={social}><XMark className="size-3" /></a> : null}
+                    {site ? <a href={site} target="_blank" rel="noopener noreferrer nofollow" aria-label={t("card.website", { name: l.name })} title={site} className={social}><Globe size={13} aria-hidden="true" /></a> : null}
                   </span>
                 ) : null}
               </div>
               <p className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
                 <ChainLogo chain={l.chain} size={13} />
-                <span className="truncate"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span>{preview ? "now" : <><span className="sr-only">launched </span><time dateTime={l.block_time} title={new Date(l.block_time).toUTCString()} suppressHydrationWarning>{ago(l.block_time, now)}</time><span className="sr-only"> ago</span></>}</span>
+                <span className="truncate"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span>{preview ? t("now") : t.rich("card.launched", { time: short(l.block_time, now), sr, age: (chunks) => <time dateTime={l.block_time} title={new Date(l.block_time).toUTCString()} suppressHydrationWarning>{chunks}</time> })}</span>
               </p>
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between gap-2">
-            <span key={hl?.at ?? "rest"} className={`min-w-0 truncate font-mono text-lg font-bold tracking-tight text-ink tnum ${pop ? "bb-pop" : ""}`}><span className="sr-only">Market cap </span>{cap}</span>
-            <span className="shrink-0"><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} /></span>
+            <span key={hl?.at ?? "rest"} className={`min-w-0 truncate font-mono text-lg font-bold tracking-tight text-ink tnum ${pop ? "bb-pop" : ""}`}><span className="sr-only">{t("marketCap")} </span>{cap}</span>
+            <span className="shrink-0"><span className="sr-only">{t("changeSinceLaunch")} </span><ChangeChip v={l.change_from_launch} /></span>
           </div>
-          {activity ? <Activity chip={activity} /> : null}
+          {facts ? <Activity tier={facts.tier} words={liveWords(l, facts, now)} /> : null}
         </div>
         {/* buys against sells, flush with the bottom edge; no trades draws an empty track, never an even split */}
-        <div className="mt-auto flex h-[3px] shrink-0 gap-px" title={trades ? `${l.buys.toLocaleString("en-US")} buys, ${l.sells.toLocaleString("en-US")} sells` : "No trades yet"}>
+        <div className="mt-auto flex h-[3px] shrink-0 gap-px" title={trades ? t("buysSells", { buys: l.buys.toLocaleString("en-US"), sells: l.sells.toLocaleString("en-US") }) : t("noTrades")}>
           {trades ? <><span className="bg-up" style={{ width: `${(l.buys / trades) * 100}%` }} /><span className="flex-1 bg-down" /></> : <span className="flex-1 bg-line" />}
         </div>
       </article>
@@ -101,19 +109,18 @@ export default function LaunchCard({ l, rank, hl = null, now, pop = false, chip 
 const social = "grid size-7 place-items-center rounded-full text-muted transition-colors hover:bg-ink/[0.06] hover:text-ink motion-reduce:transition-none";
 
 /** Why the card sits where it sits: a live dot that pings, the wallet count in bold, and when the last outside trade was. */
-function Activity({ chip }: { chip: ChipParts }) {
-  const live = chip.tier === "live";
+function Activity({ tier, words }: { tier: LiveTier; words: LiveWords }) {
+  const live = tier === "live";
   return (
     <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] leading-4" suppressHydrationWarning>
       <span aria-hidden="true" className="relative flex size-1.5 shrink-0">
         {live ? <span className="absolute inset-0 animate-ping rounded-full bg-up opacity-60 motion-reduce:hidden" /> : null}
-        <span className={`relative size-1.5 rounded-full ${live ? "bg-up" : chip.tier === "new" ? "bg-ink" : "bg-line-strong"}`} />
+        <span className={`relative size-1.5 rounded-full ${live ? "bg-up" : tier === "new" ? "bg-ink" : "bg-line-strong"}`} />
       </span>
-      <span className={`truncate ${live ? "text-up" : chip.tier === "new" ? "text-ink" : "text-muted"}`}>
-        {chip.count !== null ? <b className="font-semibold tabular-nums">{chip.count} </b> : null}
-        {chip.label}
-        {chip.when ? <span className="text-muted"> · {chip.when}</span> : null}
-        {chip.more ? <span className="text-muted"> · {chip.more}</span> : null}
+      <span className={`truncate ${live ? "text-up" : tier === "new" ? "text-ink" : "text-muted"}`}>
+        {words.rich((chunks) => <b className="font-semibold tabular-nums">{chunks}</b>)}
+        {words.when ? <span className="text-muted"> · {words.when}</span> : null}
+        {words.more ? <span className="text-muted"> · {words.more}</span> : null}
       </span>
     </p>
   );

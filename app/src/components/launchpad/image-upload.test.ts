@@ -1,30 +1,34 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { en } from "../../i18n/messages/index.ts";
 
 type PreviewInput = { value: string; compact?: boolean };
 
 /**
- * Render the real client component and React's attribute serializer. The main
- * test command selects react-server exports, so this child deliberately starts
- * without that condition: useState/useRef and react-dom/server need the normal
- * React entry points. Static rendering performs no image requests or uploads.
+ * Render the real client component and React's attribute serializer, inside use-intl's provider with the messages of
+ * `locale` (English by default). The main test command selects react-server exports, so this child deliberately starts
+ * without that condition: useState/useRef and react-dom/server need the normal React entry points. Static rendering
+ * performs no image requests or uploads.
  */
-function renderPreviews(inputs: PreviewInput[]): string[] {
+function renderPreviews(inputs: PreviewInput[], locale = "en"): string[] {
   const result = spawnSync(process.execPath, ["--import", "tsx", "--eval", `
     const { readFileSync } = require("node:fs");
     const { createElement } = require("react");
     const { renderToStaticMarkup } = require("react-dom/server");
+    const { IntlProvider } = require("use-intl");
+    const { messagesFor } = require("./src/i18n/messages/index.ts");
     const ImageUpload = require("./src/components/launchpad/ImageUpload.tsx").default;
-    const inputs = JSON.parse(readFileSync(0, "utf8"));
-    const output = inputs.map((props) => renderToStaticMarkup(createElement(ImageUpload, {
+    const { inputs, locale } = JSON.parse(readFileSync(0, "utf8"));
+    const output = inputs.map((props) => renderToStaticMarkup(createElement(IntlProvider, { locale, messages: messagesFor(locale), timeZone: "UTC" }, createElement(ImageUpload, {
       ...props, wallet: undefined, onChange() { throw new Error("Rendering must not upload or change the URL"); },
-    })));
+    }))));
     process.stdout.write(JSON.stringify(output));
   `], {
     cwd: fileURLToPath(new URL("../../../", import.meta.url)),
-    input: JSON.stringify(inputs),
+    input: JSON.stringify({ inputs, locale }),
     encoding: "utf8",
     timeout: 10_000,
     windowsHide: true,
@@ -82,4 +86,31 @@ test("quotes and markup in an HTTP(S) URL remain encoded attribute data", () => 
   assert.equal(html.includes(' onerror="'), false);
   assert.equal(html.includes("<script>"), false);
   assert.equal(html.includes("</script>"), false);
+});
+
+test("the picker reads in the page's language", () => {
+  const [empty, filled] = renderPreviews([{ value: "" }, { value: "https://images.example/logo.png" }], "zh-CN");
+  assert.ok(empty.includes(">上传图片</p>"));
+  assert.ok(empty.includes('aria-label="上传代币图片"'));
+  assert.ok(filled.includes(">更换图片</p>"));
+  assert.ok(filled.includes('<img src="https://images.example/logo.png"'), "the URL is the same in every language");
+});
+
+test("every upload failure the picker translates is one the route really gives, and its English reads as the reason did", () => {
+  const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
+  const picker = read("./ImageUpload.tsx");
+  // the reasons as the upload route and the image checks it runs write them
+  const given = ["../../app/api/launch/image/route.ts", "../../lib/launchpad/images.ts", "../../lib/launchpad/imageProcess.ts"].map(read).join("\n");
+  const mapped = new Map([...picker.matchAll(/^\s*\["([^"]+)", "(\w+)"\],$/gm)].map((m) => [m[2], m[1]]));
+  for (const [key, english] of Object.entries(en.launch.upload.reasons)) {
+    if (key === "tooBig") continue; // the template, read back by pattern below
+    assert.equal(mapped.get(key), english, `REASONS maps "${english}" to upload.reasons.${key}`);
+    assert.ok(given.includes(`"${english}"`), `upload.reasons.${key} ("${english}") is not a reason the code gives`);
+  }
+  assert.equal(en.launch.upload.reasons.tooBig, "image must be ≤ {mb} MB");
+  assert.match(given, /`image must be ≤ \$\{\w+ \/ 1024 \/ 1024\} MB`/);
+  assert.ok(picker.includes(String.raw`/^image must be ≤ ([\d.]+) MB$/.exec(reason)`));
+  // a refused upload is shown through the map; anything else (a network error) reads as it came
+  assert.match(picker, /throw new Error\(j\.error \? explain\(j\.error\) : t\("failedStatus", \{ status: r\.status \}\)\)/);
+  assert.equal(en.launch.upload.failedStatus, "upload failed ({status})");
 });

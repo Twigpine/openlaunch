@@ -10,6 +10,7 @@ import { ACTION_SETTLE, ACTION_SWAP_EXACT_IN, ACTION_TAKE_ALL, ADDRESS_THIS, OPE
 
 const WETH_BASE = "0x4200000000000000000000000000000000000006";
 import { TWIG_ADDRESS, TWIG_HOOK, TWIG_HOOK_POOL } from "./twig.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * "Buy with ETH" (eth-route.ts): one Universal Router call, WRAP_ETH then V4_SWAP along ETH → GITLAWB (→ TWIG) → token.
@@ -95,5 +96,6 @@ test("trade panel: ETH is the default way to pay where the route exists; quotes 
   assert.match(panel, /const payToken: Address \| null = side === "sell" \? token : isNative \|\| ethBuy \? null : quote\.address;/, "no approvals for an ETH buy");
   assert.match(panel, /encodeEthRouteBuy\(\{ route: ethRoute, token, amountIn, minOut: min \}\)/);
   assert.match(panel, /quote\.key === "twig" && !viaEth/, "the 'Need TWIG?' hint only when paying in TWIG");
-  assert.match(panel, /One swap through Uniswap: \{\[\.\.\.ethRoute\.via, symbol\]\.join\(" → "\)\}/);
+  assert.match(panel, /t\("route", \{ path: \[\.\.\.ethRoute\.via, symbol\]\.join\(" → "\) \}\)/);
+  assert.equal(en.trade.panel.route, "One swap through Uniswap: {path}");
 });

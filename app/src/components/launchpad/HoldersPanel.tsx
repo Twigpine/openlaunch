@@ -1,10 +1,11 @@
 import { UsersRound } from "lucide-react";
 import type { HolderPanel } from "@/lib/launchpad/holdersServer";
 import { holderFactsAvailable } from "@/lib/launchpad/token-market";
-import { fmtShare } from "@/lib/launchpad/holders";
+import { fmtShare, trustNoteFacts, type TrustNote } from "@/lib/launchpad/holders";
 import { fmtCompact } from "@/lib/launchpad/math";
 import { explorerAddress, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { WhoName } from "@/components/profile/Who";
+import { getTranslations } from "@/i18n/server";
 
 /**
  * Holders & trust panel (server component). Facts only — no score: who holds the supply, what the
@@ -17,31 +18,34 @@ const TAG_STYLE: Record<string, string> = {
   sniper: "border-warm/40 bg-warm-soft text-warm-ink",
   whale: "border-line-strong bg-card text-ink",
 };
-/** Tags read as words in sentence case, not shouted labels. */
-const TAG_LABEL: Record<string, string> = { creator: "Creator", pool: "Pool", burn: "Burn", sniper: "Sniper", whale: "Whale" };
 const NOTE_STYLE = { warn: "border-warm/40 bg-warm-soft text-warm-ink", info: "border-line bg-card text-body", good: "border-holder-good-line bg-holder-good-bg text-up" } as const;
+/** The notes the panel shows: every trust note but the all-clear one. */
+type ShownNote = TrustNote & { key: Exclude<TrustNote["key"], "clean"> };
 
 /** Holder distribution and the top holders of a token, each named by their profile where they have one. */
-export default function HoldersPanel({ chain, symbol, p, embedded = false }: { chain: ChainKey; symbol: string; p: HolderPanel | null; embedded?: boolean }) {
-  if (!p || !holderFactsAvailable(p)) return <section aria-label="holders" className={embedded ? "p-5" : "rounded-2xl border border-line bg-paper p-5"}><div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-ink">Supply distribution</h2><span className="text-[11px] text-muted">Awaiting transfer history</span></div><div className="flex min-h-44 flex-col items-center justify-center gap-2 text-center"><UsersRound size={24} strokeWidth={1.4} className="mb-1 text-muted" /><h3 className="text-sm font-medium text-ink">The holder picture is not ready yet.</h3><p className="max-w-sm text-xs leading-relaxed text-muted text-pretty">Concentration, creator holdings and early buyers appear after transfer history is indexed. Missing data is not a clean bill of health.</p></div></section>;
+export default async function HoldersPanel({ chain, symbol, p, embedded = false }: { chain: ChainKey; symbol: string; p: HolderPanel | null; embedded?: boolean }) {
+  const t = await getTranslations("token");
+  if (!p || !holderFactsAvailable(p)) return <section aria-label={t("holders.label")} className={embedded ? "p-5" : "rounded-2xl border border-line bg-paper p-5"}><div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-ink">{t("holders.distribution")}</h2><span className="text-[11px] text-muted">{t("holders.awaiting")}</span></div><div className="flex min-h-44 flex-col items-center justify-center gap-2 text-center"><UsersRound size={24} strokeWidth={1.4} className="mb-1 text-muted" /><h3 className="text-sm font-medium text-ink">{t("holders.notReadyTitle")}</h3><p className="max-w-sm text-xs leading-relaxed text-muted text-pretty">{t("holders.notReadyBody")}</p></div></section>;
   const supply = Number(BigInt(p.supply)) / 1e18;
+  // the same notes the holders API words in English (p.notes), in the reader's language
+  const notes = trustNoteFacts({ holders: p.holders, creatorBps: p.creator.bps, creatorSells: p.creator.sells, sniperBps: p.sniper.bps, sniperWallets: p.sniper.wallets, top10Bps: p.top10Bps, poolBps: p.poolBps }).filter((n): n is ShownNote => n.key !== "clean");
   return (
-    <section className={embedded ? "overflow-hidden" : "overflow-hidden rounded-2xl border border-line bg-card"} aria-label="holders">
+    <section className={embedded ? "overflow-hidden" : "overflow-hidden rounded-2xl border border-line bg-card"} aria-label={t("holders.label")}>
       <div className="px-5 pt-4 pb-3 flex items-baseline justify-between gap-3 flex-wrap">
         {/* inside the Holders tab the tab already names the panel; the heading stays for the document outline */}
-        <h2 className={embedded ? "sr-only" : "text-sm font-semibold text-ink"}>Holders</h2>
-        <span className="text-[11px] text-muted">{p.synced ? "From every transfer of the token, live" : "Indexing transfer history…"}</span>
+        <h2 className={embedded ? "sr-only" : "text-sm font-semibold text-ink"}>{t("holders.heading")}</h2>
+        <span className="text-[11px] text-muted">{p.synced ? t("holders.live") : t("holders.indexing")}</span>
       </div>
       <dl className="px-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <Stat k="Holders" v={`${p.holders}`} />
-        <Stat k="Top 10 hold" v={fmtShare(p.top10Bps)} warn={p.top10Bps >= 5000} />
-        <Stat k="Creator holds" v={fmtShare(p.creator.bps)} sub={p.creator.sells > 0 ? `sold ${p.creator.sells}×` : "never sold"} warn={p.creator.bps >= 2000 || p.creator.sells > 0} />
-        <Stat k="Sniped at launch" v={fmtShare(p.sniper.bps)} sub={`${p.sniper.wallets} wallet${p.sniper.wallets === 1 ? "" : "s"}`} warn={p.sniper.bps >= 1000} />
+        <Stat k={t("holders.holders")} v={`${p.holders}`} />
+        <Stat k={t("holders.top10")} v={fmtShare(p.top10Bps)} warn={p.top10Bps >= 5000} />
+        <Stat k={t("holders.creator")} v={fmtShare(p.creator.bps)} sub={p.creator.sells > 0 ? t("holders.soldTimes", { count: p.creator.sells }) : t("holders.neverSold")} warn={p.creator.bps >= 2000 || p.creator.sells > 0} />
+        <Stat k={t("holders.sniped")} v={fmtShare(p.sniper.bps)} sub={t("holders.wallets", { count: p.sniper.wallets })} warn={p.sniper.bps >= 1000} />
       </dl>
       <ul className="px-5 pt-3 flex flex-wrap gap-1.5">
-        {p.notes.filter((n) => !n.text.includes("no red flags")).map((n) => (
-          <li key={n.text} className={`inline-flex items-center h-6 px-2 rounded-full border text-[11px] font-medium ${NOTE_STYLE[n.level]}`}>
-            {n.text}
+        {notes.map((n) => (
+          <li key={n.key} className={`inline-flex items-center h-6 px-2 rounded-full border text-[11px] font-medium ${NOTE_STYLE[n.level]}`}>
+            {t(`holders.notes.${n.key}`, { count: n.count, share: n.share })}
           </li>
         ))}
       </ul>
@@ -61,9 +65,10 @@ export default function HoldersPanel({ chain, symbol, p, embedded = false }: { c
                 }
               />
               <span className="flex gap-1">
-                {h.tags.map((t) => (
-                  <span key={t} className={`inline-flex items-center h-5 px-1.5 rounded-md border text-[10px] font-medium ${TAG_STYLE[t]}`}>
-                    {TAG_LABEL[t] ?? t}
+                {/* tags read as words in sentence case, not shouted labels */}
+                {h.tags.map((tag) => (
+                  <span key={tag} className={`inline-flex items-center h-5 px-1.5 rounded-md border text-[10px] font-medium ${TAG_STYLE[tag]}`}>
+                    {t(`holders.tags.${tag}`)}
                   </span>
                 ))}
               </span>
@@ -78,10 +83,10 @@ export default function HoldersPanel({ chain, symbol, p, embedded = false }: { c
           ))}
         </ol>
       ) : (
-        <p className="px-5 pb-4 pt-3 text-sm text-muted">{p.synced ? `Nobody holds ${symbol} outside the pool yet.` : "Holder list appears once the transfer history is indexed."}</p>
+        <p className="px-5 pb-4 pt-3 text-sm text-muted">{p.synced ? t("holders.nobody", { symbol }) : t("holders.listPending")}</p>
       )}
       <p className="px-5 py-3 text-[11px] text-muted border-t border-line">
-        {fmtShare(p.poolBps)} of the {fmtCompact(supply, 0)} supply is in the locked Uniswap v4 pool. Pool, locker and burn addresses are never counted as holders.
+        {t("holders.poolShare", { share: fmtShare(p.poolBps), supply: fmtCompact(supply, 0) })}
       </p>
     </section>
   );

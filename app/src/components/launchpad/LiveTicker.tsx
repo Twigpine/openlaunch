@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { useLive } from "./LiveProvider";
 import { ChainLogo } from "./ChainLogo";
 import { CHAIN_LABELS } from "@/lib/chainPublic";
 import { feedKey, riverUsd } from "@/lib/launchpad/river";
-import { ago } from "@/lib/launchpad/time";
+import { useAgo } from "@/i18n/useAgo";
 import styles from "./LiveTicker.module.css";
 
 /**
@@ -16,22 +17,24 @@ import styles from "./LiveTicker.module.css";
  */
 export default function LiveTicker({ className = "" }: { className?: string }) {
   const { live } = useLive();
+  const t = useTranslations("token.ticker");
+  const { short } = useAgo();
   // the newest event worth a line: a launch, or a trade of a dollar or more (an unpriced one counts); a quiet feed shows its newest
   const item = live.feed.find((e) => e.kind === "launch" || e.usd === null || e.usd >= 1) ?? live.feed[0];
   if (!item) return null;
   const chain = CHAIN_LABELS[item.chain];
   const kind = item.kind === "launch" ? "launch" : item.is_buy ? "buy" : "sell";
-  const what = item.kind === "launch" ? `New launch on ${chain}` : `${item.is_buy ? "Buy" : "Sell"}${item.usd !== null ? ` ${riverUsd(item.usd)}` : ""} on ${chain}`;
+  const what = item.kind === "launch" ? t("launch", { chain }) : item.usd !== null ? t(item.is_buy ? "buy" : "sell", { usd: riverUsd(item.usd), chain }) : t(item.is_buy ? "buyUnpriced" : "sellUnpriced", { chain });
   return (
     <p className={`${styles.ticker} ${styles[kind]} ${className}`}>
       <span aria-hidden="true" className={styles.dot} />
-      <span className={styles.label}>Latest</span>
+      <span className={styles.label}>{t("latest")}</span>
       <Link key={feedKey(item)} href={`/t/${item.chain}/${item.token}`} className={`${styles.what} ${styles.enter}`}>
         <ChainLogo chain={item.chain} size={16} />
         <span className="truncate">{what}</span>
         <ArrowUpRight size={13} aria-hidden="true" className={styles.arrow} />
       </Link>
-      <time dateTime={item.at} className={styles.age} suppressHydrationWarning>{ago(item.at, live.at)}<span className="sr-only"> ago</span></time>
+      <time dateTime={item.at} className={styles.age} suppressHydrationWarning>{t.rich("age", { time: short(item.at, live.at), sr: (chunks) => <span className="sr-only">{chunks}</span> })}</time>
     </p>
   );
 }

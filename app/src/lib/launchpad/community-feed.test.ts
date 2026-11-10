@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { communityFingerprint, filterCommunityPosts } from "./community-feed.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 const posts = [
   { id: 1, chain: "base", token: "0xAbC", wallet: "0xWallet", symbol: "SKY", name: "Clear Sky", body: "A real conversation", tag: "creator", created_at: "2026-09-07T00:00:00Z" },
@@ -27,8 +28,10 @@ test("community remains read-only with token-thread links and shared refresh sig
   assert.match(source, /router\.refresh\(\)/);
   assert.match(source, /nowMs\(\) - fullWindowRefresh\.current < 60_000/);
   assert.match(source, /#comments/);
-  assert.match(source, /Search covers only the recent posts loaded here/);
-  assert.match(source, /aria-label="Search recent posts"/);
+  assert.match(source, /t\("filteredBody"\)/);
+  assert.match(en.info.community.filteredBody, /Search covers only the recent posts loaded here/);
+  assert.match(source, /aria-label=\{t\("search"\)\}/);
+  assert.equal(en.info.community.search, "Search recent posts");
   assert.doesNotMatch(source, /signMessage|writeContract|dangerouslySetInnerHTML|setInterval/);
 });
 

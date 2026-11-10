@@ -3,7 +3,8 @@ import { ArrowRight, ArrowUpRight, Check } from "lucide-react";
 import { ChainLogoStack } from "./ChainLogo";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import { MagicCard } from "@/components/vendor/magic-card";
-import { BRAND_GITHUB } from "@/lib/brand";
+import { BRAND, BRAND_GITHUB } from "@/lib/brand";
+import { getTranslations } from "@/i18n/server";
 
 const CONTRACTS = `${BRAND_GITHUB}/tree/main/contracts/src`;
 
@@ -12,44 +13,45 @@ const CONTRACTS = `${BRAND_GITHUB}/tree/main/contracts/src`;
  * wallets or burned, none to openlaunch), the fees a creator can pick, and the two contract facts behind it, each one
  * checkable in the source.
  */
-export default function WhyFree() {
+export default async function WhyFree() {
+  const t = await getTranslations("hero");
   return (
     <MagicCard className="rounded-2xl">
       <section aria-labelledby="free-heading" className="p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="free-heading" className="text-sm font-semibold text-ink">Why it&apos;s free</h2>
+          <h2 id="free-heading" className="text-sm font-semibold text-ink">{t("whyFree.title")}</h2>
           <ChainLogoStack chains={VISIBLE_CHAINS} size={16} />
         </div>
         <p className="mt-3 flex items-baseline gap-2">
           <span className="text-4xl font-bold tracking-tight text-up tnum">$0</span>
-          <span className="text-sm font-medium text-ink">platform fee</span>
+          <span className="text-sm font-medium text-ink">{t("whyFree.platformFee")}</span>
         </p>
-        <p className="mt-1 text-pretty text-xs leading-relaxed text-muted">On every launch and every trade, on every chain.</p>
+        <p className="mt-1 text-pretty text-xs leading-relaxed text-muted">{t("whyFree.everywhere")}</p>
 
         {/* where a trading fee goes, as the two shares it can have */}
         <div className="mt-4 rounded-xl border border-line bg-paper/60 p-3">
-          <p className="text-[11px] font-medium text-body">Where a trading fee goes</p>
-          <FeeShare label="The creator's wallets, or burned" pct={100} />
-          <FeeShare label="openlaunch" pct={0} />
+          <p className="text-[11px] font-medium text-body">{t("whyFree.feeGoes")}</p>
+          <FeeShare label={t("whyFree.toCreator")} pct={100} />
+          <FeeShare label={BRAND} pct={0} />
         </div>
 
         <div className="mt-3">
           <div className="flex items-center justify-between gap-2 text-[11px]">
-            <span className="text-body">Trading fee</span>
+            <span className="text-body">{t("whyFree.tradingFee")}</span>
             <span className="flex gap-1">{["0%", "1%", "3%"].map((fee) => <span key={fee} className="rounded-md border border-line bg-card px-1.5 py-px font-mono text-[11px] text-ink tnum">{fee}</span>)}</span>
           </div>
-          <p className="mt-1 text-[11px] text-muted">Picked by the creator at launch</p>
+          <p className="mt-1 text-[11px] text-muted">{t("whyFree.pickedAtLaunch")}</p>
         </div>
 
         <ul className="mt-4 space-y-2 text-xs text-body">
-          {["No fee address in the factory", "No platform cut in the locker"].map((fact) => (
-            <li key={fact} className="flex items-center gap-2"><span className="grid size-4 shrink-0 place-items-center rounded-full bg-up-soft text-up"><Check size={10} strokeWidth={3} aria-hidden="true" /></span>{fact}</li>
+          {(["noFeeAddress", "noPlatformCut"] as const).map((fact) => (
+            <li key={fact} className="flex items-center gap-2"><span className="grid size-4 shrink-0 place-items-center rounded-full bg-up-soft text-up"><Check size={10} strokeWidth={3} aria-hidden="true" /></span>{t(`whyFree.facts.${fact}`)}</li>
           ))}
         </ul>
 
         <div className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-3">
-          <a href={CONTRACTS} target="_blank" rel="noopener noreferrer" className={`${action} text-body hover:text-ink`}>Read the contracts<ArrowUpRight size={12} aria-hidden="true" /></a>
-          <Link href="/agents" className={`${action} text-brand hover:border-brand/40`}>Agents launch too<ArrowRight size={12} aria-hidden="true" /></Link>
+          <a href={CONTRACTS} target="_blank" rel="noopener noreferrer" className={`${action} text-body hover:text-ink`}>{t("whyFree.readContracts")}<ArrowUpRight size={12} aria-hidden="true" /></a>
+          <Link href="/agents" className={`${action} text-brand hover:border-brand/40`}>{t("whyFree.agents")}<ArrowRight size={12} aria-hidden="true" /></Link>
         </div>
       </section>
     </MagicCard>

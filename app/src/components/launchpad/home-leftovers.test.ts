@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for three leftovers of the home redesign: token names that collapsed beside their quote badge on
@@ -32,7 +33,8 @@ test("buys and sells are shown compact, on one line, in the desktop column and i
   const shown = row.match(/<span className="text-up">\{count\(l\.buys\)\}<\/span>/g) ?? [];
   assert.equal(shown.length, 2, "one value for the desktop column, one for the phone line");
   assert.equal((row.match(/<span className="text-down-ink">\{count\(l\.sells\)\}<\/span>/g) ?? []).length, 2);
-  assert.match(row, /<span className="whitespace-nowrap"><span className="sr-only">Buys <\/span><span className="text-up">\{count\(l\.buys\)\}/, "the desktop value stays on one line");
+  assert.match(row, /<span className="whitespace-nowrap"><span className="sr-only">\{t\("row\.buys"\)\} <\/span><span className="text-up">\{count\(l\.buys\)\}/, "the desktop value stays on one line");
+  assert.equal(en.market.row.buys, "Buys");
   assert.match(row, /<p className="col-span-2 flex min-w-0 items-center gap-x-3 truncate text-\[11px\] text-muted md:hidden">/, "the phone line truncates as a whole");
 });
 

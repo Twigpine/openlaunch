@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the token page: its tint, the Proof panel, price impact in the trade box and the chart
@@ -24,7 +25,7 @@ test("the tint comes from the stored logo by key, per theme, and never reaches a
 });
 
 test("the Proof panel is built from facts with a link for each, holder facts gated on the index", () => {
-  assert.match(page, /proofFacts\(\{ holders, symbol: l\.symbol, launcher: l\.launcher, launcherName: names\[l\.launcher\.toLowerCase\(\)\]\?\.u \?\? null, lpFee: l\.lp_fee, mode, recipients: l\.recipients\.length \}\)/);
+  assert.match(page, /proofFacts\(\{ holders, symbol: l\.symbol, launcher: l\.launcher, launcherName: names\[l\.launcher\.toLowerCase\(\)\]\?\.u \?\? null, lpFee: l\.lp_fee, mode, recipients: l\.recipients\.length, locale \}\)/);
   for (const key of ["lock", "creator", "spread", "launch", "fees"]) assert.match(page, new RegExp(`${key}: \\{ href: `), `link for ${key}`);
   assert.match(page, /bar=\{proof\.holdersReady && holders \?/);
 });
@@ -36,7 +37,8 @@ test("price impact uses the pool's own spot and fee, and a big move takes a seco
   assert.match(panel, /onClick=\{onTrade\}/);
   const trade = panel.slice(panel.indexOf("async function trade()"), panel.indexOf("const outLabel"));
   assert.doesNotMatch(trade, /armed|impact/, "trade() keeps its synchronous lock as the first thing it does");
-  assert.match(panel, /Sell it all now/);
+  assert.match(panel, /t\("sellAll"\)/);
+  assert.equal(en.trade.panel.sellAll, "Sell it all now");
 });
 
 test("our on-chain chart is the default; GeckoTerminal is checked only when asked for and framed safely", () => {
@@ -57,6 +59,7 @@ test("the About card sits under the trade box and links only checked socials", (
 test("the trades scroller is the containing block for its sr-only labels, so a long tape adds no blank page height", () => {
   const trades = read("./TokenTrades.tsx");
   // every row carries an absolutely positioned sr-only label; without a positioned scroller they escape its clipping and stretch the page
-  assert.match(trades, /<span className="sr-only">View transaction, <\/span>/);
+  assert.match(trades, /<span className="sr-only">\{tr\("trades\.viewTx"\)\}<\/span>/);
+  assert.equal(en.token.trades.viewTx, "View transaction, ");
   assert.match(trades, /<div className="relative max-h-\[480px\] overflow-auto bb-scroll"/);
 });

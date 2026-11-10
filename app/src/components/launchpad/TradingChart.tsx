@@ -8,10 +8,11 @@ import {
 } from "lightweight-charts";
 import { Popover } from "@base-ui/react/popover";
 import { ChartArea, ChartCandlestick, ChartNoAxesColumn, Expand, Info, Shrink, Wallet } from "lucide-react";
+import { useLocale, useTranslations } from "use-intl";
 import type { ChainKey } from "@/lib/chainPublic";
 import { INTERVAL_KEYS, INTERVALS, fillCandles, type Interval } from "@/lib/launchpad/candles";
 import { chartAlpha } from "@/lib/launchpad/chart-display";
-import { aggregateWalletMarkers, chartSpanLabel, defaultChartScale, formatChartAxis, formatChartPrice, selectedRangeStats, type ChartRange } from "@/lib/launchpad/chart-terminal";
+import { aggregateWalletMarkers, chartSpanParts, defaultChartScale, formatChartAxis, formatChartPrice, selectedRangeStats, type ChartRange } from "@/lib/launchpad/chart-terminal";
 import type { ChartPayload } from "@/lib/launchpad/chart-payload";
 import { prepareChartSeries } from "@/lib/launchpad/chart-render";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
@@ -25,7 +26,8 @@ type Props = {
   onIntervalChange: (interval: Interval) => void; onRefresh: () => void;
 };
 type View = "line" | "candles";
-const utcTime = (time: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(time * 1000);
+/** A bucket's time in the reader's language, always UTC and 24-hour: "04 Oct, 08:05" in English, "10月04日 08:05" in Chinese. */
+const utcTime = (time: number, locale: string) => new Intl.DateTimeFormat(locale === "en" ? "en-GB" : locale, { timeZone: "UTC", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(time * 1000);
 
 /** The line's area: green above the reference price, red below it, each fading toward the reference line. */
 const fills = (up: string, down: string) => ({
@@ -45,6 +47,9 @@ function Readout({ value, usd, animated }: { value: number | undefined; usd: boo
 
 /** The real renderer, also usable in isolated read-only data reviews. */
 export default function TradingChart({ chain, token, symbol, data, interval, range, loading, error, hasWallet, onIntervalChange, onRefresh }: Props) {
+  const t = useTranslations("trade.chart");
+  const tTime = useTranslations("common.time");
+  const locale = useLocale();
   const [metric, setMetric] = useState<"mcap" | "price">("mcap");
   const [denomination, setDenomination] = useState<"usd" | "quote">("usd");
   const [view, setView] = useState<View>("line");
@@ -71,7 +76,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
   const fullscreenAvailable = useSyncExternalStore(() => () => {}, () => Boolean(document.fullscreenEnabled), () => false);
   const usdAvailable = data?.quote.usd != null && Number.isFinite(data.quote.usd) && data.quote.usd > 0;
   const usd = denomination === "usd" && usdAvailable;
-  const currency = usd ? "USD" : data?.quote.symbol ?? "Quote";
+  const currency = usd ? "USD" : data?.quote.symbol ?? t("quote");
   const prepared = useMemo(() => {
     // no trade yet: an empty chart, never a flat line drawn from the launch price
     if (!data || (!data.baseline.hasPriorTrades && !data.candles.length)) return prepareChartSeries([], [1]);
@@ -89,15 +94,16 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
   const stats = useMemo(() => selectedRangeStats(series, visible?.from, visible?.to), [series, visible]);
   // scrubbing reads against the first candle in view, like the resting figure does
   const change = inspected ? (stats && stats.open > 0 ? inspected.close / stats.open - 1 : null) : stats?.change ?? null;
-  const span = visible ? chartSpanLabel(visible.to - visible.from + INTERVALS[interval]) : "";
+  const spanParts = visible ? chartSpanParts(visible.to - visible.from + INTERVALS[interval]) : null;
+  const span = spanParts ? tTime(spanParts.unit, { n: spanParts.n }) : "";
   // the price the fill flips at: the launch price when the loaded history starts at launch, else its first open
   const anchor = useMemo(() => {
     const first = series[0];
     if (!data || !first) return null;
     const launchInView = data.launch.t >= first.t && data.launch.t < first.t + INTERVALS[interval];
     const launch = data.launch.price * (metric === "mcap" ? data.supply : 1) * (usd ? data.quote.usd! : 1);
-    return launchInView && Number.isFinite(launch) && launch > 0 ? { value: launch, label: "Launch" } : { value: first.open, label: "Open" };
-  }, [data, series, interval, metric, usd]);
+    return launchInView && Number.isFinite(launch) && launch > 0 ? { value: launch, label: t("launch") } : { value: first.open, label: t("open") };
+  }, [data, series, interval, metric, usd, t]);
   const noWindowTrades = data?.candles.length === 0;
   const hasHistory = Boolean(data?.baseline.hasPriorTrades || data?.candles.length);
   const fmt = (value: number, compact = false) => `${usd ? "$" : ""}${formatChartPrice(value, compact)}`;
@@ -115,9 +121,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.14, bottom: 0.2 }, minimumWidth: 64, entireTextOnly: true },
       timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 6, shiftVisibleRangeOnNewBar: false, fixLeftEdge: true, lockVisibleTimeRangeOnResize: true },
       crosshair: { mode: CrosshairMode.Magnet, vertLine: crosshairLine(), horzLine: { ...crosshairLine(), visible: false } },
-      // A global priceFormatter overrides the per-series formatters, including
-      // the volume strip. Each series must restore its own normalized units.
-      localization: { locale: "en-US", timeFormatter: (time: Time) => typeof time === "number" ? `${utcTime(time)} UTC` : String(time) },
+      // localization is applied by the effect below, so dates follow the reader's language
     });
     line.current = c.addSeries(BaselineSeries, { lineWidth: 2, lineType: LineType.Simple, priceLineStyle: LineStyle.Dashed,
       crosshairMarkerRadius: 5, crosshairMarkerBorderWidth: 2, crosshairMarkerBorderColor: tokenColor("card"),
@@ -147,6 +151,13 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => { observer.disconnect(); c.unsubscribeCrosshairMove(onCrosshair); c.timeScale().unsubscribeVisibleTimeRangeChange(onRange); markers.current?.detach(); markers.current = null; reference.current = null; c.remove(); chart.current = null; line.current = null; candles.current = null; histogram.current = null; fitted.current = ""; };
   }, []);
+
+  // Month names on the time axis and the crosshair's time label read in the reader's language, and change with it.
+  // A global priceFormatter overrides the per-series formatters, including
+  // the volume strip. Each series must restore its own normalized units.
+  useEffect(() => {
+    chart.current?.applyOptions({ localization: { locale: locale === "en" ? "en-US" : locale, timeFormatter: (time: Time) => typeof time === "number" ? `${utcTime(time, locale)} UTC` : String(time) } });
+  }, [locale]);
 
   useEffect(() => {
     const c = chart.current;
@@ -186,7 +197,8 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
     const own = hasWallet && showTrades ? aggregateWalletMarkers(data?.mine ?? [], INTERVALS[interval], series[0]?.t, series.at(-1)?.t === undefined ? undefined : series.at(-1)!.t + INTERVALS[interval] - 1) : [];
     markers.current = createSeriesMarkers(active, own.map((trade) => ({ time: trade.t as UTCTimestamp, position: trade.is_buy ? "belowBar" as const : "aboveBar" as const,
       color: trade.is_buy ? up : down, shape: trade.is_buy ? "arrowUp" as const : "arrowDown" as const,
-      text: `${trade.count > 1 ? `${trade.count} ` : ""}${trade.is_buy ? "buy" : "sell"}${trade.count > 1 ? "s" : ""}` })));
+      // one trade reads "buy"; a bucket of them carries its count ("3 buys")
+      text: trade.count > 1 ? t(trade.is_buy ? "marker.buys" : "marker.sells", { count: trade.count }) : t(trade.is_buy ? "marker.buy" : "marker.sell") })));
     const fitKey = `${chain}:${token}:${interval}:${range}`;
     if (series.length && fitted.current !== fitKey) {
       c.timeScale().fitContent();
@@ -201,7 +213,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
       c.timeScale().setVisibleLogicalRange({ from: logicalRange.from - shift, to: logicalRange.to - shift });
     }
     if (!series.length) fitted.current = "";
-  }, [prepared, series, data, anchor, interval, range, unit, themeTick, view, volume, scale, showTrades, hasWallet, chain, token]);
+  }, [prepared, series, data, anchor, interval, range, unit, themeTick, view, volume, scale, showTrades, hasWallet, chain, token, t]);
 
   useEffect(() => {
     let wasActive = false;
@@ -212,7 +224,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
 
   async function toggleFullscreen() {
     try { if (document.fullscreenElement === panel.current) await document.exitFullscreen(); else await panel.current?.requestFullscreen(); }
-    catch { setAnnouncement("Your browser couldn’t open fullscreen. You can still zoom and pan the chart."); }
+    catch { setAnnouncement(t("fullscreenFailed")); }
   }
   function inspectBar(direction: string) {
     if (!series.length) return;
@@ -228,43 +240,47 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
       chart.current?.timeScale().setVisibleLogicalRange(logical < viewport.from ? { from: logical, to: logical + width } : { from: logical - width, to: logical });
     }
     chart.current?.setCrosshairPosition(bar.close / prepared.priceDivisor, bar.t as UTCTimestamp, (view === "candles" ? candles.current : line.current)!);
-    setAnnouncement(`${utcTime(bar.t)} UTC. Open ${fmt(bar.open)}, high ${fmt(bar.high)}, low ${fmt(bar.low)}, close ${fmt(bar.close)} ${currency}. Volume ${formatChartPrice(bar.volume)} ${data?.quote.symbol}. ${bar.filled ? "No swaps in this bucket; carried price." : `${bar.trades} trades.`}`);
+    setAnnouncement(t("announce", {
+      time: utcTime(bar.t, locale), open: fmt(bar.open), high: fmt(bar.high), low: fmt(bar.low), close: fmt(bar.close), currency,
+      volume: formatChartPrice(bar.volume), quote: data?.quote.symbol ?? "",
+      detail: bar.filled ? t("announceCarried") : t("announceTrades", { trades: String(bar.trades) }),
+    }));
   }
   function fitAll() { line.current?.priceScale().applyOptions({ autoScale: true }); chart.current?.timeScale().fitContent(); }
 
   return (
-    <section ref={panel} className={styles.terminal} aria-label={`${symbol} market chart`}>
+    <section ref={panel} className={styles.terminal} aria-label={t("label", { symbol })}>
       <header className={styles.header}>
         <div className={styles.top}>
-          <ToggleGroup aria-label="Chart metric" value={[metric]} onValueChange={(values) => { if (values[0]) setMetric(values[0] as "mcap" | "price"); }} className={styles.compact}>
-            <ToggleGroupItem value="mcap" className={styles.compactItem}>Market cap</ToggleGroupItem>
-            <ToggleGroupItem value="price" className={styles.compactItem}>Price</ToggleGroupItem>
+          <ToggleGroup aria-label={t("metric")} value={[metric]} onValueChange={(values) => { if (values[0]) setMetric(values[0] as "mcap" | "price"); }} className={styles.compact}>
+            <ToggleGroupItem value="mcap" className={styles.compactItem}>{t("mcap")}</ToggleGroupItem>
+            <ToggleGroupItem value="price" className={styles.compactItem}>{t("price")}</ToggleGroupItem>
           </ToggleGroup>
           <div className={styles.controls}>
-            <ToggleGroup aria-label="Chart type" value={[view]} onValueChange={(values) => { if (values[0]) setView(values[0] as View); }} className={styles.compact}>
-              <ToggleGroupItem value="line" aria-label="Line chart" title="Line" className={styles.iconItem}><ChartArea size={15} aria-hidden /></ToggleGroupItem>
-              <ToggleGroupItem value="candles" aria-label="Candlestick chart" title="Candles" className={styles.iconItem}><ChartCandlestick size={15} aria-hidden /></ToggleGroupItem>
+            <ToggleGroup aria-label={t("type")} value={[view]} onValueChange={(values) => { if (values[0]) setView(values[0] as View); }} className={styles.compact}>
+              <ToggleGroupItem value="line" aria-label={t("line")} title={t("lineTitle")} className={styles.iconItem}><ChartArea size={15} aria-hidden /></ToggleGroupItem>
+              <ToggleGroupItem value="candles" aria-label={t("candles")} title={t("candlesTitle")} className={styles.iconItem}><ChartCandlestick size={15} aria-hidden /></ToggleGroupItem>
             </ToggleGroup>
-            <button type="button" ref={fullscreenButton} className={styles.iconButton} onClick={() => void toggleFullscreen()} disabled={!fullscreenAvailable} aria-label={fullscreen ? "Exit chart fullscreen" : "Enter chart fullscreen"} title={fullscreenAvailable ? "Fullscreen chart" : "Fullscreen isn’t available in this browser"}>{fullscreen ? <Shrink size={15} aria-hidden /> : <Expand size={15} aria-hidden />}</button>
+            <button type="button" ref={fullscreenButton} className={styles.iconButton} onClick={() => void toggleFullscreen()} disabled={!fullscreenAvailable} aria-label={fullscreen ? t("exitFullscreen") : t("enterFullscreen")} title={fullscreenAvailable ? t("fullscreen") : t("fullscreenUnavailable")}>{fullscreen ? <Shrink size={15} aria-hidden /> : <Expand size={15} aria-hidden />}</button>
           </div>
         </div>
         <div className={styles.value}>
           <span className={styles.figure} title={shown ? `${shown.close} ${currency}` : undefined}><Readout value={shown?.close} usd={usd} animated={!inspected} /></span>
           {/* the figure's unit is its own switch: dollars, or the pool's quote token */}
           {usdAvailable ? (
-            <ToggleGroup aria-label="Chart currency" value={[usd ? "usd" : "quote"]} onValueChange={(values) => { if (values[0]) setDenomination(values[0] as "usd" | "quote"); }} className={styles.unitGroup}>
+            <ToggleGroup aria-label={t("currency")} value={[usd ? "usd" : "quote"]} onValueChange={(values) => { if (values[0]) setDenomination(values[0] as "usd" | "quote"); }} className={styles.unitGroup}>
               <ToggleGroupItem value="usd" className={styles.unitItem}>USD</ToggleGroupItem>
-              <ToggleGroupItem value="quote" className={styles.unitItem}>{data?.quote.symbol ?? "Quote"}</ToggleGroupItem>
+              <ToggleGroupItem value="quote" className={styles.unitItem}>{data?.quote.symbol ?? t("quote")}</ToggleGroupItem>
             </ToggleGroup>
           ) : <span className={styles.unit}>{currency}</span>}
           {usd ? (
             <Popover.Root>
-              <Popover.Trigger openOnHover delay={120} aria-label="How USD values are worked out" className={styles.info}><Info size={13} aria-hidden /></Popover.Trigger>
+              <Popover.Trigger openOnHover delay={120} aria-label={t("usdHow")} className={styles.info}><Info size={13} aria-hidden /></Popover.Trigger>
               {/* inside the card, so the note still opens while the chart is fullscreen */}
               <Popover.Portal container={panel}>
                 <Popover.Positioner side="bottom" align="start" sideOffset={8} collisionPadding={12} className="z-50">
                   <Popover.Popup className="w-60 origin-(--transform-origin) rounded-xl border border-line bg-raised p-3 text-xs leading-relaxed text-body shadow-dialog outline-none transition-[opacity,transform] duration-150 ease-out data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 motion-reduce:transition-none">
-                    Every candle is converted to USD at today’s {data?.quote.symbol} price, not the rate at the time.
+                    {t("usdNote", { symbol: data?.quote.symbol ?? "" })}
                   </Popover.Popup>
                 </Popover.Positioner>
               </Popover.Portal>
@@ -272,45 +288,45 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
           ) : null}
         </div>
           <p className={styles.context}>
-            {change !== null ? <ChangeChip v={change} context={inspected ? "against the first candle in view" : "across the visible candles"} /> : null}
-            {inspected ? <time dateTime={new Date(inspected.t * 1000).toISOString()}>{utcTime(inspected.t)} UTC</time>
-              : <span>{stats && span ? `${span} in view` : data && !hasHistory ? "Awaiting first swap" : "Waiting for chart data"}</span>}
-            {error && data && !inspected ? <span role="status" className={styles.stale}>Refresh failed. Showing the last snapshot.</span> : null}
+            {change !== null ? <ChangeChip v={change} context={inspected ? t("vsFirst") : t("acrossVisible")} /> : null}
+            {inspected ? <time dateTime={new Date(inspected.t * 1000).toISOString()}>{utcTime(inspected.t, locale)} UTC</time>
+              : <span>{stats && span ? t("inView", { span }) : data && !hasHistory ? t("awaitingSwap") : t("waitingData")}</span>}
+            {error && data && !inspected ? <span role="status" className={styles.stale}>{t("refreshFailed")}</span> : null}
           </p>
           <p className={styles.details} aria-live="off">
             {inspected ? <>
-              {view === "candles" ? ([["O", "open"], ["H", "high"], ["L", "low"], ["C", "close"]] as const).map(([label, key]) => <span key={key} title={`${key}: ${inspected[key]} ${currency}`}><b>{label}</b>{formatChartPrice(inspected[key], true)}</span>) : null}
-              <span><b>Vol</b>{formatChartPrice(inspected.volume, true)} <small>{data?.quote.symbol ?? "Quote"}</small></span>
-              {inspected.filled ? <span className={styles.carried}>Carried price · no swaps</span> : <span><b>Trades</b>{inspected.trades.toLocaleString("en-US")}</span>}
+              {view === "candles" ? (["open", "high", "low", "close"] as const).map((key) => <span key={key} title={t(`ohlc.${key}.title`, { value: String(inspected[key]), currency })}><b>{t(`ohlc.${key}.label`)}</b>{formatChartPrice(inspected[key], true)}</span>) : null}
+              <span><b>{t("vol")}</b>{formatChartPrice(inspected.volume, true)} <small>{data?.quote.symbol ?? t("quote")}</small></span>
+              {inspected.filled ? <span className={styles.carried}>{t("carried")}</span> : <span><b>{t("trades")}</b>{inspected.trades.toLocaleString("en-US")}</span>}
             </> : stats ? <>
-              {stats.high !== null ? <span><b>High</b>{fmt(stats.high, true)}</span> : null}
-              {stats.low !== null ? <span><b>Low</b>{fmt(stats.low, true)}</span> : null}
-              <span><b>Vol</b>{formatChartPrice(stats.volume, true)} <small>{data?.quote.symbol ?? "Quote"}</small></span>
-              <span><b>Trades</b>{stats.trades.toLocaleString("en-US")}</span>
+              {stats.high !== null ? <span><b>{t("high")}</b>{fmt(stats.high, true)}</span> : null}
+              {stats.low !== null ? <span><b>{t("low")}</b>{fmt(stats.low, true)}</span> : null}
+              <span><b>{t("vol")}</b>{formatChartPrice(stats.volume, true)} <small>{data?.quote.symbol ?? t("quote")}</small></span>
+              <span><b>{t("trades")}</b>{stats.trades.toLocaleString("en-US")}</span>
             </> : null}
           </p>
       </header>
       <div className={styles.plotWrap}>
-        <div ref={box} className={styles.plot} tabIndex={0} role="group" aria-label={`${symbol} interactive ${metric === "mcap" ? "market cap" : "price"} chart, ${currency}`} aria-describedby={helpId}
+        <div ref={box} className={styles.plot} tabIndex={0} role="group" aria-label={t(metric === "mcap" ? "plotMcap" : "plotPrice", { symbol, currency })} aria-describedby={helpId}
           onPointerMove={() => { keyboardInspection.current = false; }}
           onDoubleClick={fitAll}
-          onKeyDown={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); inspectBar(event.key); } else if (event.key === "Escape" && !fullscreen) { keyboardInspection.current = false; chart.current?.clearCrosshairPosition(); setHoverTime(null); setAnnouncement("Showing the latest candle."); } }} />
-        {loading && !data ? <div className={styles.overlay} aria-label="Loading chart"><Sk className="h-full w-full rounded-xl" /></div> : null}
-        {error && !data ? <div className={`${styles.overlay} ${styles.empty}`} role="status"><strong>Chart data is unavailable</strong><p>Try loading the indexed history again.</p><button type="button" onClick={onRefresh}>Retry chart</button></div> : null}
-        {prepared.unavailable ? <div className={`${styles.overlay} ${styles.empty}`} role="status"><strong>This history can’t be charted safely</strong><p>The returned values are invalid or exceed supported numeric precision.</p><button type="button" onClick={onRefresh}>Retry chart</button></div> : null}
-        {!loading && !error && !prepared.unavailable && noWindowTrades ? <div className={styles.note}><span>{hasHistory ? "A quiet window" : "No trades yet"}</span><small>{hasHistory ? "Showing the last indexed price. No swaps in this range." : "Candles appear after the first indexed swap. A launch price is not trading history."}</small></div> : null}
+          onKeyDown={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); inspectBar(event.key); } else if (event.key === "Escape" && !fullscreen) { keyboardInspection.current = false; chart.current?.clearCrosshairPosition(); setHoverTime(null); setAnnouncement(t("latest")); } }} />
+        {loading && !data ? <div className={styles.overlay} aria-label={t("loading")}><Sk className="h-full w-full rounded-xl" /></div> : null}
+        {error && !data ? <div className={`${styles.overlay} ${styles.empty}`} role="status"><strong>{t("unavailable")}</strong><p>{t("unavailableHelp")}</p><button type="button" onClick={onRefresh}>{t("retry")}</button></div> : null}
+        {prepared.unavailable ? <div className={`${styles.overlay} ${styles.empty}`} role="status"><strong>{t("unsafe")}</strong><p>{t("unsafeHelp")}</p><button type="button" onClick={onRefresh}>{t("retry")}</button></div> : null}
+        {!loading && !error && !prepared.unavailable && noWindowTrades ? <div className={styles.note}><span>{hasHistory ? t("quiet") : t("noTrades")}</span><small>{hasHistory ? t("quietHelp") : t("noTradesHelp")}</small></div> : null}
       </div>
       <div className={styles.bar}>
-        <ToggleGroup aria-label="Chart interval" value={[interval]} onValueChange={(values) => { if (values[0]) onIntervalChange(values[0] as Interval); }} className={styles.intervals}>
+        <ToggleGroup aria-label={t("interval")} value={[interval]} onValueChange={(values) => { if (values[0]) onIntervalChange(values[0] as Interval); }} className={styles.intervals}>
           {INTERVAL_KEYS.map((key) => <ToggleGroupItem key={key} value={key} className={styles.interval}>{key === "1d" ? "1D" : key}</ToggleGroupItem>)}
         </ToggleGroup>
         <div className={styles.chips}>
-          <button type="button" className={styles.chip} aria-pressed={volume} onClick={() => setVolume(!volume)}><ChartNoAxesColumn size={13} aria-hidden />Volume</button>
+          <button type="button" className={styles.chip} aria-pressed={volume} onClick={() => setVolume(!volume)}><ChartNoAxesColumn size={13} aria-hidden />{t("volume")}</button>
           {/* only a connected wallet has trades to mark; the markers read indexed history and never ask for a signature */}
-          {hasWallet ? <button type="button" className={styles.chip} aria-pressed={showTrades} title="Show your latest 200 indexed trades within this range" onClick={() => setShowTrades(!showTrades)}><Wallet size={13} aria-hidden />My trades</button> : null}
+          {hasWallet ? <button type="button" className={styles.chip} aria-pressed={showTrades} title={t("myTradesTitle")} onClick={() => setShowTrades(!showTrades)}><Wallet size={13} aria-hidden />{t("myTrades")}</button> : null}
         </div>
       </div>
-      <p id={helpId} className="sr-only">Use left and right arrows to inspect candles, Home and End for the first and last loaded candle. Escape clears inspection, and a double click fits the whole history. Volume uses the pool quote currency. Filled gaps are carried prices, not executed trades.</p>
+      <p id={helpId} className="sr-only">{t("help")}</p>
       <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
     </section>
   );

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform, type MotionValue } from "motion/react";
 import { Bubbles, List, LockKeyhole, Waves } from "lucide-react";
+import { useTranslations } from "use-intl";
+import { useAgo } from "@/i18n/useAgo";
 import { useLive } from "./LiveProvider";
 import TokenAvatar from "./TokenAvatar";
 import { TapeList } from "./LaunchTape";
@@ -17,7 +19,6 @@ import { BUBBLE_HISTORY_MS, aggregateBubbles, bubbleSummary, bubbleWindow, bubbl
 import { fmtQuote, fmtUsd } from "@/lib/launchpad/math";
 import { CHAIN_LABELS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
-import { ago } from "@/lib/launchpad/time";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
 import styles from "./LiveRiver.module.css";
 import { ShineBorder } from "@/components/vendor/shine-border";
@@ -30,7 +31,6 @@ const CLOCK_MS = 10_000;
 const ESTIMATED_WIDTH = { wide: 760, compact: 302 };
 const CARD_W = 252;
 const NAMES = VISIBLE_CHAINS.map((k) => CHAIN_LABELS[k]);
-const WHERE = NAMES.length <= 1 ? (NAMES[0] ?? "") : `${NAMES.slice(0, -1).join(", ")} and ${NAMES[NAMES.length - 1]}`;
 const newestAt = (items: readonly FeedItem[], from = 0) => items.reduce((max, item) => Math.max(max, new Date(item.at).getTime() || 0), from);
 
 /** The mark under a mouse pointer, in the stage's coordinates; drives the card and the same-token highlight. */
@@ -60,6 +60,12 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
   const [bodyHeight, setBodyHeight] = useState<number | null>(null);
   const centre = useRef(0);
   const tilt = useMotionValue(0);
+  const t = useTranslations("activity.river");
+  const riverWords = useTranslations("activity.river.summary");
+  const bubbleWords = useTranslations("activity.bubbles.summary");
+  const { ago } = useAgo();
+  // the chains in the reader's language: "Base, Robinhood Chain and Arc"
+  const where = NAMES.length <= 1 ? (NAMES[0] ?? "") : t("chainList", { others: NAMES.slice(0, -1).join(t("chainSeparator")), last: NAMES[NAMES.length - 1] });
 
   useEffect(() => subscribe((snap) => {
     const feed = snap.feed ?? [];
@@ -112,6 +118,11 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
 
   const hovered = hover ? marks.find((m) => m.key === hover.key) : undefined;
   const sameToken = hovered ? entries.filter((e) => e.item.kind === "swap" && e.item.token === hovered.item.token && e.item.chain === hovered.item.chain).length : 0;
+  /** The hovered mark's place on the time axis, in the axis's own words. */
+  const minutesAgo = (ms: number) => {
+    const m = Math.floor(Math.max(0, ms) / 60_000);
+    return m < 1 ? t("justNow") : t("minAgo", { minutes: m });
+  };
 
   return (
     <section ref={section} aria-labelledby="river-heading" className="relative rounded-3xl border border-line bg-card/70 p-4 shadow-card backdrop-blur-xl sm:p-6">
@@ -121,35 +132,35 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
           <h2 id="river-heading" className="group flex items-start gap-2.5 text-[15px] font-semibold leading-snug tracking-tight text-ink">
             <span className="mt-0.5"><ChainLogoStack chains={VISIBLE_CHAINS} size={17} /></span>
             {/* phones read "Live now" (the full name wrapped to three lines); the heading keeps its full name for assistive tech */}
-            <span className="text-pretty"><span aria-hidden="true" className="sm:hidden">Live now</span><span className="sr-only sm:not-sr-only">Live on {WHERE}</span></span>
+            <span className="text-pretty"><span aria-hidden="true" className="sm:hidden">{t("liveNow")}</span><span className="sr-only sm:not-sr-only">{t("liveOn", { chains: where })}</span></span>
           </h2>
-          <p className="mt-1 text-xs text-muted tnum">{view === "river" ? riverSummary(entries, complete) : bubbleSummary(tokens, windowMs, bubblesComplete)}</p>
+          <p className="mt-1 text-xs text-muted tnum">{view === "river" ? riverSummary(entries, complete, riverWords) : bubbleSummary(tokens, windowMs, bubblesComplete, bubbleWords)}</p>
           <Flow bought={flow.bought} sold={flow.sold} unpriced={flow.unpriced} className="mt-2.5 flex w-full lg:hidden" />
         </div>
         <div className="flex shrink-0 items-center gap-4">
           <Flow bought={flow.bought} sold={flow.sold} unpriced={flow.unpriced} className="hidden lg:flex" />
-          <ToggleGroup aria-label="Activity view" value={[view]} onValueChange={(values) => {
+          <ToggleGroup aria-label={t("view")} value={[view]} onValueChange={(values) => {
             const next = values[0];
             if (next !== "bubbles" && next !== "river" && next !== "list") return;
             if (next === "list" && body.current) setBodyHeight(body.current.offsetHeight);
             setView(next);
           }}>
-            <ToggleGroupItem value="bubbles" aria-label="Show as bubbles" title="Show as bubbles" className="px-2.5"><Bubbles size={14} aria-hidden="true" /><span className="hidden sm:inline">Bubbles</span></ToggleGroupItem>
-            <ToggleGroupItem value="river" aria-label="Show as a river" title="Show as a river" className="px-2.5"><Waves size={14} aria-hidden="true" /><span className="hidden sm:inline">River</span></ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label="Show as a list" title="Show as a list" className="px-2.5"><List size={14} aria-hidden="true" /><span className="hidden sm:inline">List</span></ToggleGroupItem>
+            <ToggleGroupItem value="bubbles" aria-label={t("showBubbles")} title={t("showBubbles")} className="px-2.5"><Bubbles size={14} aria-hidden="true" /><span className="hidden sm:inline">{t("bubbles")}</span></ToggleGroupItem>
+            <ToggleGroupItem value="river" aria-label={t("showRiver")} title={t("showRiver")} className="px-2.5"><Waves size={14} aria-hidden="true" /><span className="hidden sm:inline">{t("river")}</span></ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label={t("showList")} title={t("showList")} className="px-2.5"><List size={14} aria-hidden="true" /><span className="hidden sm:inline">{t("list")}</span></ToggleGroupItem>
           </ToggleGroup>
         </div>
       </div>
       {view === "bubbles" ? (
         <div ref={body} className="grid gap-x-6 gap-y-4 pt-4 sm:gap-y-5 sm:pt-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
           <div className="min-w-0">
-            <p className="sr-only">A bubble for each token traded or launched in the last {bubbleWindowLabel(windowMs)}, sized by the dollars traded. Choose Show as a list for the same events as links.</p>
+            <p className="sr-only">{t("bubblesHelp", { window: bubbleWindowLabel(windowMs, bubbleWords) })}</p>
             <LiveBubbles tokens={tokens} entries={recent} now={now} complete={bubblesComplete} />
             <ul aria-hidden="true" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-              <li className="max-sm:hidden">Bigger bubble, more dollars traded</li>
-              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-up" />More bought</li>
-              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-down" />More sold</li>
-              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brand" />Launched, no trades yet</li>
+              <li className="max-sm:hidden">{t("legend.bigger")}</li>
+              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-up" />{t("legend.moreBought")}</li>
+              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-down" />{t("legend.moreSold")}</li>
+              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brand" />{t("legend.launched")}</li>
             </ul>
           </div>
           <RiverFeed entries={recent} now={now} />
@@ -157,7 +168,7 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
       ) : view === "river" ? (
         <div ref={body} className="grid gap-x-6 gap-y-5 pt-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
           <div className="min-w-0">
-            <p className="sr-only">A drawing of the last 30 minutes of trades and launches. Choose Show as a list for the same events as links.</p>
+            <p className="sr-only">{t("riverHelp")}</p>
             <div ref={stage} className="relative" onPointerMove={(e) => { if (hover) tilt.set(e.clientX - centre.current); }}>
               <div ref={field} aria-hidden="true" className={styles.field} data-hovering={hover ? "" : undefined}>
                 <span className={styles.line} />
@@ -172,8 +183,8 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
                 </div>
                 {entries.length === 0 ? (
                   <div className={styles.empty}>
-                    <p className="mx-auto w-fit rounded-md bg-card px-2 text-sm font-medium text-ink">Quiet for the last 30 minutes</p>
-                    <p className="mx-auto w-fit rounded-md bg-card px-2 text-xs text-muted">{lastAt ? `The last trade or launch was ${ago(new Date(lastAt).toISOString(), now)} ago. ` : ""}New ones flow in from the right.</p>
+                    <p className="mx-auto w-fit rounded-md bg-card px-2 text-sm font-medium text-ink">{t("quiet")}</p>
+                    <p className="mx-auto w-fit rounded-md bg-card px-2 text-xs text-muted">{lastAt ? t("quietSince", { ago: ago(new Date(lastAt).toISOString(), now) }) : t("quietNever")}</p>
                   </div>
                 ) : null}
               </div>
@@ -182,47 +193,42 @@ export default function LiveRiver({ initial, recent: seed = initial, serverNow, 
               </AnimatePresence>
             </div>
             <div aria-hidden="true" className={styles.axis}>
-              {RIVER_TICKS.map((m) => <span key={m} className={m % 10 ? styles.compactHide : undefined} style={{ left: tickLeft(m) }}>{m} min ago</span>)}
-              <span className={styles.nowLabel} style={{ left: "100%" }}>now</span>
+              {RIVER_TICKS.map((m) => <span key={m} className={m % 10 ? styles.compactHide : undefined} style={{ left: tickLeft(m) }}>{t("minAgo", { minutes: m })}</span>)}
+              <span className={styles.nowLabel} style={{ left: "100%" }}>{t("now")}</span>
               {hover && hovered ? <span className={styles.crossLabel} style={{ left: hover.x }}>{minutesAgo(now - hovered.at)}</span> : null}
             </div>
             <ul aria-hidden="true" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-up" />Buys stand above the line</li>
-              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-down" />Sells hang below it</li>
-              <li className="flex items-center gap-1.5"><LockKeyhole size={11} className="text-ink" />Launches sit on it</li>
-              <li>Bigger and taller means more dollars</li>
+              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-up" />{t("legend.buys")}</li>
+              <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-down" />{t("legend.sells")}</li>
+              <li className="flex items-center gap-1.5"><LockKeyhole size={11} className="text-ink" />{t("legend.launches")}</li>
+              <li>{t("legend.taller")}</li>
             </ul>
           </div>
           <RiverFeed entries={recent} now={now} />
         </div>
       ) : (
         <div className="pt-5" style={{ height: bodyHeight ?? undefined }}>
-          <TapeList items={inView.map((e) => e.item)} now={now} fresh={fresh} label={`Trades and launches in the last ${bubbleWindowLabel(windowMs)}`} className={`rounded-xl border border-line ${bodyHeight ? "h-full" : "max-h-80"}`} />
+          <TapeList items={inView.map((e) => e.item)} now={now} fresh={fresh} label={t("listLabel", { window: bubbleWindowLabel(windowMs, bubbleWords) })} className={`rounded-xl border border-line ${bodyHeight ? "h-full" : "max-h-80"}`} />
         </div>
       )}
     </section>
   );
 }
 
-/** The hovered mark's place on the time axis, in the axis's own words. */
-function minutesAgo(ms: number): string {
-  const m = Math.floor(Math.max(0, ms) / 60_000);
-  return m < 1 ? "just now" : `${m} min ago`;
-}
-
 /** Dollars bought against dollars sold in view, as one split bar. Hidden until a priced trade arrives. */
 function Flow({ bought, sold, unpriced, className }: { bought: number; sold: number; unpriced: number; className: string }) {
+  const t = useTranslations("activity.river.flow");
   const total = bought + sold;
   if (total <= 0) return null;
-  const note = `Dollar value of the priced trades in view.${unpriced ? ` ${unpriced} with no dollar price ${unpriced === 1 ? "is" : "are"} left out.` : ""}`;
+  const note = unpriced ? t("noteUnpriced", { count: unpriced }) : t("note");
   return (
     <div title={note} className={`items-center gap-2.5 text-[11px] font-medium tnum ${className}`}>
-      <span className="shrink-0 whitespace-nowrap text-right text-up lg:w-[5.75rem]"><LiveNumber value={bought} format={COMPACT_USD} /> bought</span>
+      <span className="shrink-0 whitespace-nowrap text-right text-up lg:w-[5.75rem]">{t.rich("bought", { amount: () => <LiveNumber value={bought} format={COMPACT_USD} /> })}</span>
       <span aria-hidden="true" className="flex h-1.5 min-w-12 flex-1 gap-0.5 lg:w-28 lg:flex-none">
         <span className="h-full rounded-full bg-up transition-[width] duration-500 ease-out motion-reduce:transition-none" style={{ width: `${(bought / total) * 100}%` }} />
         <span className="h-full flex-1 rounded-full bg-down" />
       </span>
-      <span className="shrink-0 whitespace-nowrap text-down-ink lg:w-[5.75rem]"><LiveNumber value={sold} format={COMPACT_USD} /> sold</span>
+      <span className="shrink-0 whitespace-nowrap text-down-ink lg:w-[5.75rem]">{t.rich("sold", { amount: () => <LiveNumber value={sold} format={COMPACT_USD} /> })}</span>
     </div>
   );
 }
@@ -256,10 +262,12 @@ const Mark = memo(function Mark({ m, now, match, onEnter, onLeave }: { m: RiverM
 function MarkCard({ hover, mark, now, trades, complete, tilt }: { hover: Hover; mark: RiverMark; now: number; trades: number; complete: boolean; tilt: MotionValue<number> }) {
   const reduced = useReducedMotion();
   const lean = useSpring(useTransform(tilt, [-40, 40], [-5, 5], { clamp: true }), { stiffness: 220, damping: 18 });
+  const t = useTranslations("activity.river.card");
+  const { short } = useAgo();
   const { item } = mark;
   const left = Math.min(Math.max(hover.x, CARD_W / 2 + 4), hover.stage - CARD_W / 2 - 4);
   const from = { opacity: 0, scale: 0.9, y: hover.below ? -8 : 8 };
-  const side = item.kind === "launch" ? { word: "Launch", pill: "bg-ink text-inverse" } : item.is_buy ? { word: "Buy", pill: "bg-up-soft text-up" } : { word: "Sell", pill: "bg-down-soft text-down-ink" };
+  const side = item.kind === "launch" ? { word: t("launch"), pill: "bg-ink text-inverse" } : item.is_buy ? { word: t("buy"), pill: "bg-up-soft text-up" } : { word: t("sell"), pill: "bg-down-soft text-down-ink" };
   return (
     <div aria-hidden="true" className="pointer-events-none absolute z-20" style={{ left, top: hover.below ? hover.bottom + 10 : hover.top - 10, width: CARD_W, transform: `translate(-50%, ${hover.below ? "0" : "-100%"})` }}>
       <motion.div
@@ -277,9 +285,9 @@ function MarkCard({ hover, mark, now, trades, complete, tilt }: { hover: Hover; 
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold leading-tight text-ink">{item.name}</span>
-            <span className="block truncate text-[11px] leading-tight text-muted">{item.symbol} on {CHAIN_SHORT[item.chain]}</span>
+            <span className="block truncate text-[11px] leading-tight text-muted">{t("symbolOn", { symbol: item.symbol, chain: CHAIN_SHORT[item.chain] })}</span>
           </span>
-          <span className="shrink-0 self-start font-mono text-[10px] text-muted tnum">{ago(item.at, now)}</span>
+          <span className="shrink-0 self-start font-mono text-[10px] text-muted tnum">{short(item.at, now)}</span>
         </div>
         <div className="mt-2.5 flex items-center gap-2 border-t border-line pt-2.5">
           <span className={`rounded-full px-1.5 py-px text-[10px] font-semibold ${side.pill}`}>{side.word}</span>
@@ -288,12 +296,12 @@ function MarkCard({ hover, mark, now, trades, complete, tilt }: { hover: Hover; 
               <span className="text-[15px] font-semibold tracking-tight text-ink tnum">{item.usd !== null ? fmtUsd(item.usd) : fmtQuote(item.quote_wei, item.quote_decimals, item.quote_symbol)}</span>
               {item.usd !== null ? <span className="min-w-0 truncate text-[11px] text-muted tnum">{fmtQuote(item.quote_wei, item.quote_decimals, item.quote_symbol)}</span> : null}
             </>
-          ) : <span className="text-[13px] font-medium text-ink">{item.lp_fee / 10_000}% trading fee</span>}
+          ) : <span className="text-[13px] font-medium text-ink">{t("tradingFee", { fee: item.lp_fee / 10_000 })}</span>}
         </div>
         <p className="mt-1.5 truncate text-[11px] text-muted">
-          {item.kind === "launch" ? "Liquidity locked forever" : item.is_dev ? <span className="text-warm-ink">Traded by the creator</span> : item.trader ? `Trader ${shortAddr(item.trader)}` : null}
+          {item.kind === "launch" ? t("locked") : item.is_dev ? <span className="text-warm-ink">{t("byCreator")}</span> : item.trader ? t("trader", { address: shortAddr(item.trader) }) : null}
         </p>
-        {item.kind === "swap" && trades > 1 ? <p className="mt-0.5 text-[11px] text-muted">{trades} trades {complete ? "in the last 30 minutes" : "in view"}</p> : null}
+        {item.kind === "swap" && trades > 1 ? <p className="mt-0.5 text-[11px] text-muted">{complete ? t("tradesInWindow", { count: trades }) : t("tradesInView", { count: trades })}</p> : null}
       </motion.div>
     </div>
   );

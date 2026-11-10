@@ -1,4 +1,6 @@
 import { BaseError, decodeEventLog, decodeFunctionData, encodeFunctionData, InsufficientFundsError, isAddress, parseUnits, type Address, type Hex } from "viem";
+import { clientTranslator } from "@/i18n/client";
+import { en } from "@/i18n/messages/en";
 import { friendlyError } from "../errors";
 import { bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
@@ -128,34 +130,35 @@ export function parseBridgeQuoteRejection(value: unknown, request: BridgeQuoteRe
 }
 
 export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest, now: number): BridgeQuote {
-  if (!value || typeof value !== "object") throw new Error("The bridge returned an invalid quote. Request a new quote.");
+  const t = clientTranslator("bridge");
+  if (!value || typeof value !== "object") throw new Error(t("errors.invalidQuote"));
   const quote = value as BridgeQuote;
   if (!isAddress(quote.address ?? "") || !isBridgeChainId(quote.originChainId) || !isBridgeChainId(quote.destinationChainId) || !isBridgeAssetSupported(quote.originChainId, quote.originAsset ?? defaultBridgeAsset(quote.originChainId)) || !isBridgeAssetSupported(quote.destinationChainId, quote.destinationAsset ?? defaultBridgeAsset(quote.destinationChainId)) || bridgeRequestKey(quote) !== bridgeRequestKey(request) || quote.destinationChainId === quote.originChainId) {
-    throw new Error("The quote no longer matches this wallet, amount, or route. Review a new quote.");
+    throw new Error(t("errors.quoteMismatch"));
   }
   if (!isHash(quote.requestId) || !isWei(quote.amount, true) || !isWei(quote.amountOut, true) || !isWei(quote.minimumAmountOut, true) || BigInt(quote.minimumAmountOut) > BigInt(quote.amountOut)) {
-    throw new Error("The bridge returned invalid transfer amounts.");
+    throw new Error(t("errors.invalidAmounts"));
   }
-  if (!Number.isFinite(quote.expiresAt) || quote.expiresAt <= now || quote.expiresAt > now + 120_000) throw new Error("This quote expired. Request a new quote and review it before continuing.");
+  if (!Number.isFinite(quote.expiresAt) || quote.expiresAt <= now || quote.expiresAt > now + 120_000) throw new Error(t("errors.quoteExpired"));
   const inputCurrency = bridgeCurrency(request.originChainId, request.originAsset, "input");
   const inputDecimals = inputCurrency.decimals;
   if (!Number.isFinite(quote.timeEstimate) || quote.timeEstimate < 0 || ![[quote.relayFee, inputDecimals], [quote.sourceGas, 18]].every(([fee, decimals]) => typeof fee === "string" && new RegExp(`^\\d+(?:\\.\\d{1,${decimals}})?$`).test(fee) && fee.length <= 100 && parseUnits(fee, Number(decimals)) <= MAX_UINT)) {
-    throw new Error("The bridge returned invalid fee details.");
+    throw new Error(t("errors.invalidFees"));
   }
   if (parseUnits(quote.relayFee, inputDecimals) * 100n > BigInt(quote.amount) * 5n) {
-    throw new Error("The relay fee exceeds the 5% limit. Try a different amount.");
+    throw new Error(t("errors.feeLimit"));
   }
   if (!validImpactPercent(quote.totalImpactPercent)) {
-    throw new Error("The quote's total impact is unavailable or exceeds the 5% loss limit. Try a different amount.");
+    throw new Error(t("errors.impactLimit"));
   }
   const tx = quote.transaction;
   const erc20 = !/^0x0{40}$/.test(inputCurrency.address);
-  if (erc20 && BigInt(request.amount) === MAX_UINT) throw new Error("Unlimited USDC approvals are not supported. Enter an exact transfer amount.");
+  if (erc20 && BigInt(request.amount) === MAX_UINT) throw new Error(t("errors.unlimitedApproval"));
   if (erc20 ? !quote.approval || quote.approval.token?.toLowerCase() !== inputCurrency.address.toLowerCase() || quote.approval.spender?.toLowerCase() !== RELAY_DEPOSITORY || quote.approval.amount !== request.amount : quote.approval !== undefined) {
-    throw new Error("The approval did not match the exact USDC deposit on this network.");
+    throw new Error(t("errors.approvalMismatch"));
   }
   if (!tx || tx.chainId !== request.originChainId || typeof tx.to !== "string" || tx.to.toLowerCase() !== RELAY_DEPOSITORY || tx.value !== (erc20 ? "0" : request.amount) || typeof tx.data !== "string" || !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(tx.data)) {
-    throw new Error("The bridge transaction did not pass the deposit safety check.");
+    throw new Error(t("errors.depositUnsafe"));
   }
   try {
     const orderId = erc20 ? decodeFunctionData({ abi: ERC20_DEPOSIT_ABI, data: tx.data }).args[3] : decodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, data: tx.data }).args[1];
@@ -163,7 +166,7 @@ export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest,
       ? encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [request.address, inputCurrency.address, BigInt(request.amount), orderId] })
       : encodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, functionName: "depositNative", args: [request.address, orderId] });
     if (/^0x0+$/.test(orderId) || canonical.toLowerCase() !== tx.data.toLowerCase()) throw new Error("binding");
-  } catch { throw new Error("The bridge transaction did not match this wallet's exact deposit."); }
+  } catch { throw new Error(t("errors.depositMismatch")); }
   return quote;
 }
 
@@ -175,14 +178,14 @@ export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest,
 export function anchorQuoteExpiry(value: unknown, requestedAt: number): unknown {
   if (!value || typeof value !== "object") return value;
   const { ttlMs } = value as { ttlMs?: unknown };
-  if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs < 0 || ttlMs > 120_000) throw new Error("The bridge returned an invalid quote validity. Request a new quote.");
+  if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs < 0 || ttlMs > 120_000) throw new Error(clientTranslator("bridge")("errors.invalidValidity"));
   return { ...value, expiresAt: requestedAt + ttlMs };
 }
 
 /** AbortSignal.any/timeout are missing in older in-app wallet browsers; link the signals by hand. */
 export function linkedTimeoutSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortSignal {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new DOMException("The request timed out.", "TimeoutError")), timeoutMs);
+  const timer = setTimeout(() => controller.abort(new DOMException(clientTranslator("bridge")("errors.timedOut"), "TimeoutError")), timeoutMs);
   controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
   if (parent?.aborted) controller.abort(parent.reason);
   else parent?.addEventListener("abort", () => controller.abort(parent.reason), { once: true });
@@ -225,10 +228,10 @@ export function transferCanDiscard(transfer: TrackedBridgeTransfer | null, obser
 }
 
 export function validateBridgeStatus(value: unknown): BridgeStatusResponse {
-  if (!value || typeof value !== "object") throw new Error("Transfer status is temporarily unavailable.");
+  if (!value || typeof value !== "object") throw new Error(clientTranslator("bridge")("errors.statusUnavailable"));
   const status = value as BridgeStatusResponse;
   if (!STATUSES.includes(status.status) || !Array.isArray(status.inTxHashes) || !Array.isArray(status.txHashes) || status.inTxHashes.length > 50 || status.txHashes.length > 50 || ![...status.inTxHashes, ...status.txHashes].every(isHash)) {
-    throw new Error("Transfer status is temporarily unavailable.");
+    throw new Error(clientTranslator("bridge")("errors.statusUnavailable"));
   }
   return status;
 }
@@ -247,7 +250,7 @@ export function mergeBridgeStatus(transfer: TrackedBridgeTransfer, status: Bridg
   const sourceHash = transfer.sourceHash;
   const matchingHash = sourceHash && status.inTxHashes.some((hash) => hash.toLowerCase() === sourceHash.toLowerCase());
   if ((["success", "refund", "failure"].includes(status.status) && !matchingHash) || (sourceHash && status.inTxHashes.length > 0 && !matchingHash)) {
-    throw new Error("Relay's update has not yet been matched to your source transaction. Tracking will retry.");
+    throw new Error(clientTranslator("bridge")("errors.updateUnmatched"));
   }
   return {
     ...transfer,
@@ -283,10 +286,10 @@ export function hasMatchingDepositEvent(transfer: TrackedBridgeTransfer, receipt
 
 /** An estimate is only a preflight, with room for changing gas prices. */
 export function bridgeGasBudget(value: bigint, balance: bigint, gasEstimate: bigint, maxFeePerGas: bigint, additionalFeeReserve = 0n, symbol = "ETH"): { gas: bigint; reserve: bigint } {
-  if (value < 0n || balance < 0n || gasEstimate <= 0n || maxFeePerGas <= 0n || additionalFeeReserve < 0n) throw new Error("Could not estimate network fees. Try again.");
+  if (value < 0n || balance < 0n || gasEstimate <= 0n || maxFeePerGas <= 0n || additionalFeeReserve < 0n) throw new Error(clientTranslator("bridge")("errors.networkFees"));
   const gas = (gasEstimate * 120n + 99n) / 100n;
   const reserve = gas * maxFeePerGas + (additionalFeeReserve * 120n + 99n) / 100n;
-  if (balance < value + reserve) throw new Error(`Not enough ${symbol} for this amount and network gas. Reduce the amount and request a new quote.`);
+  if (balance < value + reserve) throw new Error(clientTranslator("bridge")("errors.gasShort", { symbol }));
   return { gas, reserve };
 }
 
@@ -299,16 +302,28 @@ const GENERIC_RPC_MESSAGE = /^(An unknown RPC error occurred\.|HTTP request fail
  */
 export function bridgeErrorMessage(error: unknown, fallback: string, gasSymbol = "ETH"): string {
   if (error instanceof BaseError) {
+    const t = clientTranslator("bridge");
     const short = error.shortMessage || error.message;
     const details = typeof error.details === "string" ? error.details.replace(/\s+/g, " ").trim() : "";
-    if (error.walk((e) => e instanceof InsufficientFundsError) || /insufficient funds/i.test(`${short} ${details}`)) return `Not enough ${gasSymbol} for this transaction plus gas.`;
-    if (/unrecognized chain|wallet_addEthereumChain|chain .* not (?:been )?added/i.test(details)) return "Your wallet doesn't have this network yet. Add it in the wallet, then try again.";
-    if (/rate limit|too many requests/i.test(`${short} ${details}`)) return "The network is busy right now. Try again in a moment.";
+    if (error.walk((e) => e instanceof InsufficientFundsError) || /insufficient funds/i.test(`${short} ${details}`)) return t("errors.gasShortTransaction", { symbol: gasSymbol });
+    if (/unrecognized chain|wallet_addEthereumChain|chain .* not (?:been )?added/i.test(details)) return t("errors.networkMissing");
+    if (/rate limit|too many requests/i.test(`${short} ${details}`)) return t("errors.networkBusy");
     const message = friendlyError(error);
     if (!GENERIC_RPC_MESSAGE.test(message) || !details) return message;
     return `${message} ${details.length > 160 ? `${details.slice(0, 160)}…` : details}`;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+const SERVICE_MESSAGES = new Map(Object.entries(en.bridge.service).map(([key, text]) => [text, key as keyof typeof en.bridge.service]));
+
+/**
+ * The bridge API words its errors in English, as an API (agents read it too). A message it is known to send reads in
+ * the reader's language here; anything else is shown as sent.
+ */
+export function bridgeServiceMessage(message: string): string {
+  const key = SERVICE_MESSAGES.get(message);
+  return key ? clientTranslator("bridge")(`service.${key}`) : message;
 }
 
 export function isWalletRejection(error: unknown): boolean {
@@ -340,17 +355,18 @@ export type DepositResult = { kind: "sent"; transfer: TrackedBridgeTransfer } | 
 
 /** The actual send workflow, dependency-injected so tests exercise its async boundaries. */
 export async function submitBridgeDeposit(quote: BridgeQuote, deps: DepositDependencies): Promise<DepositResult> {
+  const t = clientTranslator("bridge");
   const request = deps.currentRequest();
-  if (!request) throw new Error("Reconnect this wallet and review a new quote.");
+  if (!request) throw new Error(t("errors.reconnect"));
   const checkRequest = () => {
-    if (bridgeRequestKey(deps.currentRequest()) !== bridgeRequestKey(request)) throw new Error("The wallet or bridge inputs changed. Review a new quote.");
+    if (bridgeRequestKey(deps.currentRequest()) !== bridgeRequestKey(request)) throw new Error(t("errors.inputsChanged"));
     validateBridgeQuote(quote, request, deps.now());
   };
   checkRequest();
   const existing = deps.readTransfer(request.address);
-  if (existing && !transferIsTerminal(existing)) throw new Error("A transfer is already being tracked for this wallet. Check its status before starting another.");
+  if (existing && !transferIsTerminal(existing)) throw new Error(t("errors.transferTracked"));
   let wallet = await deps.readWallet();
-  if (wallet.address?.toLowerCase() !== request.address.toLowerCase()) throw new Error("The connected wallet changed. Review a new quote.");
+  if (wallet.address?.toLowerCase() !== request.address.toLowerCase()) throw new Error(t("errors.walletChanged"));
   if (wallet.chainId !== request.originChainId) {
     deps.phase("switching");
     await deps.switchChain(request.originChainId);
@@ -359,9 +375,9 @@ export async function submitBridgeDeposit(quote: BridgeQuote, deps: DepositDepen
   const gas = await deps.prepare(quote);
   wallet = await deps.readWallet();
   checkRequest();
-  if (wallet.address?.toLowerCase() !== request.address.toLowerCase() || wallet.chainId !== request.originChainId) throw new Error("Your wallet account or network changed. Review a new quote.");
+  if (wallet.address?.toLowerCase() !== request.address.toLowerCase() || wallet.chainId !== request.originChainId) throw new Error(t("errors.accountChanged"));
   const latest = deps.readTransfer(request.address);
-  if (latest && !transferIsTerminal(latest)) throw new Error("Another transfer is now being tracked for this wallet. Check its status before continuing.");
+  if (latest && !transferIsTerminal(latest)) throw new Error(t("errors.otherTransfer"));
   const tracked: TrackedBridgeTransfer = { ...request, requestId: quote.requestId, destinationHashes: [], status: "uncertain", createdAt: deps.now(), depositData: quote.transaction.data, ...(quote.approval ? { depositKind: "erc20" as const } : {}) };
   // This write must succeed before invoking the wallet. A reload during its
   // prompt resumes read-only tracking by requestId, even without a tx hash.
@@ -369,7 +385,7 @@ export async function submitBridgeDeposit(quote: BridgeQuote, deps: DepositDepen
     // No wallet call happened. Clear a partially written record when storage
     // permits it; never continue signing without durable recovery details.
     try { deps.removeTransfer(request.address); } catch { /* retain recovery warning */ }
-    throw new Error("Could not save bridge recovery details. No transaction was requested. Enable site storage before trying again.");
+    throw new Error(t("errors.recoveryNotSaved"));
   }
   deps.phase("confirming");
   let hash: Hex;
@@ -399,20 +415,20 @@ export function parseStoredTransfer(raw: string, address: Address): TrackedBridg
   const legacyAssets = entry?.originAsset === undefined && entry?.destinationAsset === undefined;
   const validVersion = (entry?.version === 1 && legacyAssets && entry.depositKind === undefined) || (entry?.version === 2 && legacyAssets && erc20 && entry.originChainId === 5042 && typeof entry.depositData === "string") || (entry?.version === 3 && assetsValid && typeof entry.depositData === "string" && (entry.depositKind === undefined || erc20) && erc20 === !/^0x0{40}$/.test(bridgeCurrency(entry.originChainId, entry.originAsset, "input").address));
   if (!validVersion || typeof entry.address !== "string" || entry.address.toLowerCase() !== address.toLowerCase() || !isAddress(entry.address) || !isBridgeChainId(entry.originChainId) || !isBridgeChainId(entry.destinationChainId) || entry.destinationChainId === entry.originChainId || !isHash(entry.requestId) || !isWei(entry.amount, true) || !Number.isFinite(entry.createdAt) || entry.createdAt <= 0 || (entry.sourceHash !== undefined && !isHash(entry.sourceHash)) || !Array.isArray(entry.destinationHashes) || entry.destinationHashes.length > 50 || !entry.destinationHashes.every(isHash) || (entry.status !== "uncertain" && !STATUSES.includes(entry.status)) || (entry.depositData !== undefined && !new RegExp(`^0x[0-9a-fA-F]{${erc20 ? 264 : 136}}$`).test(entry.depositData)) || (entry.failureReason !== undefined && entry.failureReason !== "source-reverted")) {
-    throw new Error("Saved bridge recovery data could not be read. Check your transfer on Relay before trying again.");
+    throw new Error(clientTranslator("bridge")("errors.savedTransferUnreadable"));
   }
   if (erc20) {
     try {
       const order = decodeFunctionData({ abi: ERC20_DEPOSIT_ABI, data: entry.depositData! }).args[3];
       const canonical = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [entry.address, bridgeCurrency(entry.originChainId, entry.originAsset, "input").address, BigInt(entry.amount), order] });
       if (/^0x0+$/.test(order) || canonical.toLowerCase() !== entry.depositData!.toLowerCase()) throw new Error("binding");
-    } catch { throw new Error("Saved USDC deposit details could not be verified. Check Relay before trying again."); }
+    } catch { throw new Error(clientTranslator("bridge")("errors.savedUsdcDeposit")); }
   } else if (entry.depositData) {
     try {
       const order = decodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, data: entry.depositData }).args[1];
       const canonical = encodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, functionName: "depositNative", args: [entry.address, order] });
       if (/^0x0+$/.test(order) || canonical.toLowerCase() !== entry.depositData.toLowerCase()) throw new Error("binding");
-    } catch { throw new Error("Saved native deposit details could not be verified. Check Relay before trying again."); }
+    } catch { throw new Error(clientTranslator("bridge")("errors.savedNativeDeposit")); }
   }
   return { address: entry.address, originChainId: entry.originChainId, destinationChainId: entry.destinationChainId, ...(entry.originAsset ? { originAsset: entry.originAsset } : {}), ...(entry.destinationAsset ? { destinationAsset: entry.destinationAsset } : {}), amount: entry.amount, requestId: entry.requestId, sourceHash: entry.sourceHash, destinationHashes: entry.destinationHashes, status: entry.status, createdAt: entry.createdAt, ...(entry.depositData ? { depositData: entry.depositData } : {}), ...(erc20 ? { depositKind: "erc20" as const } : {}), ...(entry.failureReason ? { failureReason: entry.failureReason } : {}) };
 }

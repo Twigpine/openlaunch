@@ -1,0 +1,135 @@
+{
+  "river": {
+    "liveNow": "Live now",
+    "liveOn": "Live on {chains}",
+    "chainList": "{others} and {last}",
+    "chainSeparator": ", ",
+    "view": "Activity view",
+    "showBubbles": "Show as bubbles",
+    "bubbles": "Bubbles",
+    "showRiver": "Show as a river",
+    "river": "River",
+    "showList": "Show as a list",
+    "list": "List",
+    "bubblesHelp": "A bubble for each token traded or launched in the last {window}, sized by the dollars traded. Choose Show as a list for the same events as links.",
+    "riverHelp": "A drawing of the last 30 minutes of trades and launches. Choose Show as a list for the same events as links.",
+    "listLabel": "Trades and launches in the last {window}",
+    "legend": {
+      "bigger": "Bigger bubble, more dollars traded",
+      "moreBought": "More bought",
+      "moreSold": "More sold",
+      "launched": "Launched, no trades yet",
+      "buys": "Buys stand above the line",
+      "sells": "Sells hang below it",
+      "launches": "Launches sit on it",
+      "taller": "Bigger and taller means more dollars"
+    },
+    "quiet": "Quiet for the last 30 minutes",
+    "quietSince": "The last trade or launch was {ago}. New ones flow in from the right.",
+    "quietNever": "New ones flow in from the right.",
+    "minAgo": "{minutes} min ago",
+    "now": "now",
+    "justNow": "just now",
+    "summary": {
+      "nothing": "Nothing in the last 30 minutes",
+      "trades": "{count, plural, one {# trade} other {# trades}}",
+      "launches": "{count, plural, one {# launch} other {# launches}}",
+      "both": "{trades} and {launches}",
+      "inWindow": "{activity} in the last 30 minutes",
+      "latest": "Latest {activity}"
+    },
+    "flow": {
+      "note": "Dollar value of the priced trades in view.",
+      "noteUnpriced": "Dollar value of the priced trades in view. {count, plural, one {{count} with no dollar price is left out.} other {{count} with no dollar price are left out.}}",
+      "bought": "<amount></amount> bought",
+      "sold": "<amount></amount> sold"
+    },
+    "card": {
+      "launch": "Launch",
+      "buy": "Buy",
+      "sell": "Sell",
+      "symbolOn": "{symbol} on {chain}",
+      "tradingFee": "{fee}% trading fee",
+      "locked": "Liquidity locked forever",
+      "byCreator": "Traded by the creator",
+      "trader": "Trader {address}",
+      "tradesInWindow": "{count} trades in the last 30 minutes",
+      "tradesInView": "{count} trades in view"
+    }
+  },
+  "bubbles": {
+    "new": "New",
+    "trades": "{count, plural, one {{count} trade} other {{count} trades}}",
+    "emptyHelp": "New ones show up here as they happen.",
+    "card": {
+      "symbolOn": "{symbol} on {chain}",
+      "bought": "Bought",
+      "sold": "Sold",
+      "noTrades": "Launched, no trades yet",
+      "tradesInWindow": "{count, plural, one {# trade} other {# trades}} in this window",
+      "tradesInView": "{count, plural, one {# trade} other {# trades}} in view",
+      "unpriced": ", {count} with no dollar price",
+      "launchedHere": ". Launched in this window"
+    },
+    "summary": {
+      "nothing": "Nothing traded or launched in the last 24 hours",
+      "tokens": "{count, plural, one {# token} other {# tokens}}",
+      "trades": "{count, plural, one {# trade} other {# trades}}",
+      "launches": "{count, plural, one {# launch} other {# launches}}",
+      "both": "{trades} and {launches}",
+      "inWindow": "{tokens}, {activity} in the last {window}",
+      "latest": "{tokens} in the latest {activity}",
+      "minutes": "{count} minutes",
+      "hour": "hour",
+      "hours": "{count} hours"
+    }
+  },
+  "feed": {
+    "latest": "Latest",
+    "empty": "New trades and launches show up here as they happen.",
+    "listLabel": "Latest trades and launches",
+    "launched": "Launched",
+    "bought": "Bought",
+    "sold": "Sold",
+    "launchDetail": "{fee}% fee, on {chain}",
+    "symbolOn": "{symbol} on {chain}",
+    "byCreator": ", by the creator"
+  },
+  "tape": {
+    "recent": "Recent launches and trades",
+    "empty": "Nothing in the last 30 minutes.",
+    "emptyHelp": "New launches and trades will appear here as they happen.",
+    "launched": "Launched",
+    "buy": "Buy",
+    "sell": "Sell",
+    "byCreator": "by the creator",
+    "zeroFee": ", 0% trading fee"
+  },
+  "justLaunched": {
+    "title": "Just launched",
+    "seeAll": "See all",
+    "empty": "No launches yet.",
+    "emptyHelp": "New tokens show here the moment they launch.",
+    "listLabel": "Newest launches",
+    "nameOn": "{name} on {chain}",
+    "marketCap": ", market cap ",
+    "trades": "{count, plural, one {<n>{count}</n> trade} other {<n>{count}</n> trades}}",
+    "noTrades": "No trades yet"
+  },
+  "toasts": {
+    "launched": "{name} just launched on {chain}",
+    "by": "by {address}",
+    "zeroFee": "0% fee",
+    "buy": "Buy {amount} of {symbol}",
+    "sell": "Sell {amount} of {symbol}",
+    "devBuy": "Dev buy {amount} of {symbol}",
+    "devSell": "Dev sold {amount} of {symbol}",
+    "creatorWallet": "creator wallet",
+    "update": "Update",
+    "confirmed": "Confirmed",
+    "live": "Live activity",
+    "viewToken": "View token",
+    "dismiss": "Dismiss",
+    "queued": "{count} queued"
+  }
+}

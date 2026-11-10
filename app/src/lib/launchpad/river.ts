@@ -138,14 +138,21 @@ export function riverCoverage(seed: readonly FeedItem[], limit: number, now: num
   return Number.isFinite(oldest) && now - oldest < RIVER_WINDOW_MS ? oldest : null;
 }
 
+/**
+ * The summary's words in the reader's language: `t` over the activity.river.summary messages. Each count is a phrase
+ * of its own ("18 trades"), so every language orders and joins them its own way.
+ */
+export type RiverSummaryWords = (key: "nothing" | "trades" | "launches" | "both" | "inWindow" | "latest", values?: Record<string, string | number>) => string;
+
 /** "18 trades and 2 launches in the last 30 minutes", or "Latest 100 trades" while the seed was cut off. */
-export function riverSummary(entries: readonly RiverEntry[], complete = true): string {
+export function riverSummary(entries: readonly RiverEntry[], complete: boolean, t: RiverSummaryWords): string {
   const launches = entries.filter((entry) => entry.item.kind === "launch").length;
   const trades = entries.length - launches;
-  const part = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
-  if (!launches && !trades) return "Nothing in the last 30 minutes";
-  const parts = [trades ? part(trades, "trade", "trades") : null, launches ? part(launches, "launch", "launches") : null].filter(Boolean);
-  return complete ? `${parts.join(" and ")} in the last 30 minutes` : `Latest ${parts.join(" and ")}`;
+  if (!launches && !trades) return t("nothing");
+  const activity = trades && launches
+    ? t("both", { trades: t("trades", { count: trades }), launches: t("launches", { count: launches }) })
+    : trades ? t("trades", { count: trades }) : t("launches", { count: launches });
+  return complete ? t("inWindow", { activity }) : t("latest", { activity });
 }
 
 /** Dollars bought and sold across the trades held. A trade with no dollar price is counted, never guessed. */

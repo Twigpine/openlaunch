@@ -1,8 +1,10 @@
 import { Sk } from "@/components/Skeleton";
+import { getTranslations } from "@/i18n/server";
 
-export default function Loading() {
+export default async function Loading() {
+  const t = await getTranslations("launch");
   return (
-    <main className="mx-auto max-w-6xl px-4 pt-8 sm:pt-10 pb-16 space-y-6" aria-busy="true" aria-label="loading launch form">
+    <main className="mx-auto max-w-6xl px-4 pt-8 sm:pt-10 pb-16 space-y-6" aria-busy="true" aria-label={t("page.loading")}>
       <header className="space-y-3">
         <Sk className="h-10 w-72 max-w-full" />
         <Sk className="h-5 w-3/4 max-w-2xl" />

@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, Check, Coins, Info, Plus, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useState } from "react";
+import { useTranslations } from "use-intl";
 import TokenAvatar from "./TokenAvatar";
+import type { FeedItem } from "@/lib/launchpad/queries";
 import { fmtQuote } from "@/lib/launchpad/math";
 import { CHAIN_SHORT, DEFAULT_CHAIN } from "@/lib/chainPublic";
 import { shortAddr } from "@/lib/chainPublic";
@@ -27,15 +29,26 @@ export function toast(detail: ToastDetail) {
 
 export default function TxToasts() {
   const { live, subscribe } = useLive();
+  const t = useTranslations("activity.toasts");
   const [queue, setQueue] = useState(createToastQueue);
   const [freshFeed] = useState(() => createToastFeedTracker(live.feed ?? [], live.at));
   const active = queue.active;
 
-  const push = useCallback((t: ToastDetail, source: QueuedToast["source"]) => {
+  const push = useCallback((detail: ToastDetail, source: QueuedToast["source"]) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const now = Date.now();
-    setQueue((cur) => enqueueToast(cur, { ...t, id, source }, now));
+    setQueue((cur) => enqueueToast(cur, { ...detail, id, source }, now));
   }, []);
+
+  // Someone else's launch or trade as a card, worded in the reader's language when it arrives. An Effect Event: a
+  // language switch re-renders with the new words but never re-subscribes the feed below.
+  const describe = useEffectEvent((i: FeedItem): ToastDetail => {
+    if (i.kind === "launch") {
+      return { kind: "launch", title: t("launched", { name: i.name, chain: CHAIN_SHORT[i.chain] }), sub: `${i.symbol} · ${t("by", { address: shortAddr(i.launcher) })}${i.lp_fee === 0 ? ` · ${t("zeroFee")}` : ""}`, chain: i.chain, token: i.token, symbol: i.symbol, image: i.image_url };
+    }
+    const side = i.is_dev ? (i.is_buy ? "devBuy" : "devSell") : i.is_buy ? "buy" : "sell";
+    return { kind: i.is_buy ? "buy" : "sell", title: t(side, { amount: fmtQuote(i.quote_wei, i.quote_decimals, i.quote_symbol), symbol: i.symbol }), sub: `${i.is_dev ? t("creatorWallet") : shortAddr(i.trader)} · ${CHAIN_SHORT[i.chain]}`, chain: i.chain, token: i.token, symbol: i.symbol, image: i.image_url };
+  });
 
   // local events
   useEffect(() => {
@@ -67,13 +80,7 @@ export default function TxToasts() {
         baselineNextFeed = false;
         return;
       }
-      for (const i of fresh) {
-        if (i.kind === "launch") {
-          push({ kind: "launch", title: `${i.name} just launched on ${CHAIN_SHORT[i.chain]}`, sub: `${i.symbol} · by ${shortAddr(i.launcher)}${i.lp_fee === 0 ? " · 0% fee" : ""}`, chain: i.chain, token: i.token, symbol: i.symbol, image: i.image_url }, "activity");
-        } else {
-          push({ kind: i.is_buy ? "buy" : "sell", title: `${i.is_dev ? (i.is_buy ? "Dev buy" : "Dev sold") : i.is_buy ? "Buy" : "Sell"} ${fmtQuote(i.quote_wei, i.quote_decimals, i.quote_symbol)} of ${i.symbol}`, sub: `${i.is_dev ? "creator wallet" : shortAddr(i.trader)} · ${CHAIN_SHORT[i.chain]}`, chain: i.chain, token: i.token, symbol: i.symbol, image: i.image_url }, "activity");
-        }
-      }
+      for (const i of fresh) push(describe(i), "activity");
     });
     return () => {
       unsubscribePreference();
@@ -133,9 +140,10 @@ export default function TxToasts() {
 }
 
 function ToastCard({ t, pending = 0, onClose }: { t: ActiveToast; pending?: number; onClose: () => void }) {
+  const tr = useTranslations("activity.toasts");
   const EventIcon = t.kind === "buy" ? ArrowDownLeft : t.kind === "sell" ? ArrowUpRight : t.kind === "launch" ? Plus : t.kind === "collect" ? Coins : Info;
   const confirmed = t.source === "local" && t.kind !== "info";
-  const eventLabel = t.kind === "info" ? "Update" : confirmed ? "Confirmed" : "Live activity";
+  const eventLabel = t.kind === "info" ? tr("update") : confirmed ? tr("confirmed") : tr("live");
   const content = (
     <>
       <div className="bb-toast-body">
@@ -150,7 +158,7 @@ function ToastCard({ t, pending = 0, onClose }: { t: ActiveToast; pending?: numb
       <div className="bb-toast-meta">
         <span className="bb-toast-status">{confirmed ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <EventIcon size={13} strokeWidth={1.8} aria-hidden="true" />}{eventLabel}</span>
         {t.chain ? <span className="bb-toast-chain">{CHAIN_SHORT[t.chain]}</span> : null}
-        {t.token ? <span className="bb-toast-destination">View token <ArrowUpRight size={13} strokeWidth={1.8} aria-hidden="true" /></span> : null}
+        {t.token ? <span className="bb-toast-destination">{tr("viewToken")} <ArrowUpRight size={13} strokeWidth={1.8} aria-hidden="true" /></span> : null}
       </div>
     </>
   );
@@ -164,12 +172,12 @@ function ToastCard({ t, pending = 0, onClose }: { t: ActiveToast; pending?: numb
       <button
         type="button"
         onClick={onClose}
-        aria-label="Dismiss"
+        aria-label={tr("dismiss")}
         className="bb-toast-dismiss"
       >
         <X size={16} strokeWidth={1.8} aria-hidden="true" />
       </button>
-      {pending > 0 ? <div className="bb-toast-queued" aria-live="off">{pending} queued</div> : null}
+      {pending > 0 ? <div className="bb-toast-queued" aria-live="off">{tr("queued", { count: pending })}</div> : null}
       <div className="bb-toast-timer" aria-hidden="true">
         <span className="bb-toast-progress" style={{ animationDuration: `${TOAST_TTL_MS}ms`, animationPlayState: t.startedAt === null ? "paused" : "running", opacity: t.leaving ? 0 : 1 }} />
       </div>

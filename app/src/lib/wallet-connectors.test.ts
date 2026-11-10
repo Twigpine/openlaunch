@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NO_WALLET_NOTE, connectErrorMessage, walletChoices, type ConnectorInfo } from "./wallet-connectors.ts";
+import { connectErrorMessage, walletChoices, type ConnectorInfo } from "./wallet-connectors.ts";
+import { chainList } from "./chainKeys.ts";
+import { en, messagesFor } from "../i18n/messages/index.ts";
+import { setClientLanguage } from "../i18n/client.ts";
+
+// the picker's words are messages; outside the browser (here) they read in English
+const NO_WALLET_NOTE = en.account.walletPicker.noWallet;
 
 // The ids and types wagmi 3 / @wagmi/connectors 8 actually use. The Coinbase connector's id is
 // "coinbaseWalletSDK", not "coinbaseWallet": matching on `type` is what keeps the picker honest.
@@ -44,6 +50,23 @@ test("connect errors are explained without leaking raw messages", () => {
   assert.match(connectErrorMessage(new Error("Popup was blocked")), /Allow pop-ups/);
   assert.match(connectErrorMessage(Object.assign(new Error("Cannot find module '@coinbase/wallet-sdk'"), { code: "MODULE_NOT_FOUND" })), /Reload the page/);
   assert.match(connectErrorMessage(named("ChainNotConfiguredError", "Chain not configured.")), /Base, Robinhood Chain or Arc/);
+  // every chain the site names, worded as chainList words it
+  assert.ok(connectErrorMessage(named("ChainNotConfiguredError")).includes(` ${chainList("or")} `));
+});
+
+test("in the browser the picker reads in the reader's language, the chains listed the Chinese way", () => {
+  const g = globalThis as { window?: unknown };
+  g.window = {}; // clientTranslator follows the page's language only in a browser
+  try {
+    setClientLanguage("zh-CN", messagesFor("zh-CN"));
+    assert.match(connectErrorMessage(Object.assign(new Error("Chain not configured."), { name: "ChainNotConfiguredError" })), /请在钱包中切换到 Base、Robinhood Chain 或 Arc。$/);
+    assert.equal(connectErrorMessage(Object.assign(new Error("boom"), { code: 4001 })), messagesFor("zh-CN").account.walletPicker.errors.cancelled);
+    const [browser, cb] = walletChoices([injected, coinbase], { hasInjectedProvider: true });
+    assert.deepEqual([browser.name, browser.hint, cb.name], ["浏览器钱包", "此浏览器中的钱包扩展或应用", "Coinbase Wallet"]);
+  } finally {
+    setClientLanguage("en", en);
+    delete g.window;
+  }
 });
 
 test("wrapped errors are recognised through their cause chain, and unknown ones get a generic line", () => {

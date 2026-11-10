@@ -1,6 +1,7 @@
 import { ArrowUpRight, Coins, LockKeyhole, UserRound, UsersRound, Zap, type LucideIcon } from "lucide-react";
 import type { ProofFact, ProofKey } from "@/lib/launchpad/proof";
 import { fmtShare } from "@/lib/launchpad/holders";
+import { getTranslations } from "@/i18n/server";
 
 const ICON: Record<ProofKey, LucideIcon> = { lock: LockKeyhole, creator: UserRound, spread: UsersRound, launch: Zap, fees: Coins };
 /** A good fact reads green, a plain one in the token's colour, one worth a second look in amber. */
@@ -15,12 +16,13 @@ export type ProofLink = { href: string; label: string; external?: boolean };
  * The token's Proof panel (server component): five facts read from the chain, one line each, with a link to check
  * it. No score. A fact worth a second look is marked in amber, using the same thresholds as the Holders tab.
  */
-export default function TokenProof({ facts, holdersReady, links, bar }: { facts: ProofFact[]; holdersReady: boolean; links: Partial<Record<ProofKey, ProofLink>>; bar: { top10Bps: number; poolBps: number } | null }) {
+export default async function TokenProof({ facts, holdersReady, links, bar }: { facts: ProofFact[]; holdersReady: boolean; links: Partial<Record<ProofKey, ProofLink>>; bar: { top10Bps: number; poolBps: number } | null }) {
+  const t = await getTranslations("token");
   return (
     <section aria-labelledby="proof-heading" className="min-w-0 overflow-hidden rounded-2xl border border-line bg-card">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3.5">
-        <h2 id="proof-heading" className="text-sm font-semibold text-ink">Proof</h2>
-        <span className="text-[11px] text-muted">Every line links to where you can check it</span>
+        <h2 id="proof-heading" className="text-sm font-semibold text-ink">{t("proof.heading")}</h2>
+        <span className="text-[11px] text-muted">{t("proof.hint")}</span>
       </div>
       <ul className="divide-y divide-line">
         {facts.map((fact) => {
@@ -44,29 +46,30 @@ export default function TokenProof({ facts, holdersReady, links, bar }: { facts:
           );
         })}
       </ul>
-      {!holdersReady ? <p className="border-t border-line px-5 py-3 text-[11px] leading-relaxed text-muted text-pretty">Creator holdings, holder spread and launch-window buyers appear once this token&apos;s transfer history is indexed. Missing data is not a clean bill of health.</p> : null}
+      {!holdersReady ? <p className="border-t border-line px-5 py-3 text-[11px] leading-relaxed text-muted text-pretty">{t("proof.pending")}</p> : null}
     </section>
   );
 }
 
 /** Where the supply sits: the ten largest wallets, then the locked pool, then everyone else, each with its share. */
-function SupplyBar({ top10Bps, poolBps }: { top10Bps: number; poolBps: number }) {
+async function SupplyBar({ top10Bps, poolBps }: { top10Bps: number; poolBps: number }) {
+  const t = await getTranslations("token");
   const top = Math.max(0, Math.min(10_000, top10Bps));
   const pool = Math.max(0, Math.min(10_000 - top, poolBps));
   const rest = 10_000 - top - pool;
   const parts = [
-    { label: "Top 10 wallets", bps: top, swatch: { background: "var(--tok, var(--color-ink))" }, className: "" },
-    { label: "Locked pool", bps: pool, swatch: undefined, className: "bg-muted/50" },
-    { label: "Everyone else", bps: rest, swatch: undefined, className: "bg-line-strong" },
+    { id: "top10", label: t("proof.bar.top10"), bps: top, swatch: { background: "var(--tok, var(--color-ink))" }, className: "" },
+    { id: "pool", label: t("proof.bar.pool"), bps: pool, swatch: undefined, className: "bg-muted/50" },
+    { id: "rest", label: t("proof.bar.rest"), bps: rest, swatch: undefined, className: "bg-line-strong" },
   ];
   return (
     <div className="mt-3">
       <div className="flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
-        {parts.map((part) => part.bps > 0 ? <span key={part.label} className={`h-full ${part.className}`} style={{ width: `${part.bps / 100}%`, ...part.swatch }} /> : null)}
+        {parts.map((part) => part.bps > 0 ? <span key={part.id} className={`h-full ${part.className}`} style={{ width: `${part.bps / 100}%`, ...part.swatch }} /> : null)}
       </div>
       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
         {parts.map((part) => (
-          <li key={part.label} className="inline-flex items-center gap-1.5">
+          <li key={part.id} className="inline-flex items-center gap-1.5">
             <span className={`size-2 rounded-full ${part.className}`} style={part.swatch} aria-hidden="true" />
             {part.label} <span className="font-mono text-body tnum">{fmtShare(part.bps)}</span>
           </li>

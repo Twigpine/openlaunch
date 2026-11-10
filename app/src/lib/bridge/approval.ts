@@ -1,4 +1,5 @@
 import { decodeEventLog, encodeFunctionData, isAddress, type Address, type Hex } from "viem";
+import { clientTranslator } from "@/i18n/client";
 import { bridgeCurrency, isBridgeChainId, type BridgeChainId } from "./types";
 
 // Independently pinned: provider calldata never chooses the token or spender.
@@ -39,17 +40,17 @@ function validAmount(value: unknown): value is string {
 }
 
 export function approvalToken(chainId: BridgeChainId = ARC_APPROVAL_CHAIN_ID): Address {
-  if (!isBridgeChainId(chainId) || (chainId !== 8453 && chainId !== 5042)) throw new Error("USDC approvals are not supported on this network.");
+  if (!isBridgeChainId(chainId) || (chainId !== 8453 && chainId !== 5042)) throw new Error(clientTranslator("bridge")("errors.approvalUnsupported"));
   return bridgeCurrency(chainId, "USDC", "input").address;
 }
 
 function validateRequest(value: ApprovalRequest): ApprovalRequest {
   if (!value || typeof value.address !== "string" || !isAddress(value.address, { strict: false }) || /^0x0{40}$/i.test(value.address) || !validAmount(value.amount)) {
-    throw new Error("The USDC approval does not match a valid wallet and exact amount.");
+    throw new Error(clientTranslator("bridge")("errors.approvalInvalid"));
   }
   const chainId = value.chainId ?? ARC_APPROVAL_CHAIN_ID;
   approvalToken(chainId);
-  if (chainId === ARC_APPROVAL_CHAIN_ID && BigInt(value.amount) > MAX_APPROVAL_AMOUNT) throw new Error("The USDC approval amount exceeds Arc's native balance range.");
+  if (chainId === ARC_APPROVAL_CHAIN_ID && BigInt(value.amount) > MAX_APPROVAL_AMOUNT) throw new Error(clientTranslator("bridge")("errors.approvalTooLarge"));
   return { address: value.address, amount: value.amount, ...(value.chainId !== undefined ? { chainId } : {}) };
 }
 
@@ -57,7 +58,7 @@ function validateRequest(value: ApprovalRequest): ApprovalRequest {
 export function validateApprovalMetadata(value: unknown, address: Address, chainId?: BridgeChainId): ApprovalRequest {
   const metadata = value as { token?: unknown; spender?: unknown; amount?: unknown } | null;
   if (!metadata || typeof metadata.token !== "string" || metadata.token.toLowerCase() !== approvalToken(chainId).toLowerCase() || typeof metadata.spender !== "string" || metadata.spender.toLowerCase() !== RELAY_APPROVAL_SPENDER || !validAmount(metadata.amount)) {
-    throw new Error("The bridge requested an unsupported token, spender, or approval amount.");
+    throw new Error(clientTranslator("bridge")("errors.approvalMetadata"));
   }
   return validateRequest({ address, amount: metadata.amount, ...(chainId !== undefined ? { chainId } : {}) });
 }
@@ -129,7 +130,7 @@ export function parseStoredApproval(raw: string, address: Address): TrackedAppro
     const request = validateRequest(entry);
     if (entry.version !== 1 || request.address.toLowerCase() !== address.toLowerCase() || !isBridgeChainId(entry.chainId) || typeof entry.token !== "string" || entry.token.toLowerCase() !== approvalToken(entry.chainId).toLowerCase() || entry.spender !== RELAY_APPROVAL_SPENDER || !Number.isSafeInteger(entry.createdAt) || entry.createdAt <= 0 || !STATUSES.includes(entry.status) || (entry.approvalHash !== undefined && !validHash(entry.approvalHash)) || (entry.status !== "uncertain" && !entry.approvalHash)) throw new Error("invalid record");
     return { ...request, version: 1, chainId: entry.chainId, token: approvalToken(entry.chainId), spender: RELAY_APPROVAL_SPENDER, createdAt: entry.createdAt, status: entry.status, ...(entry.approvalHash ? { approvalHash: entry.approvalHash } : {}) };
-  } catch { throw new Error("Saved USDC approval recovery data could not be read. Check the approval before trying again."); }
+  } catch { throw new Error(clientTranslator("bridge")("errors.savedApprovalUnreadable")); }
 }
 
 export function serializeApproval(approval: TrackedApproval): string {
@@ -149,10 +150,10 @@ export type ApprovalObservation = {
  */
 export function reconcileApproval(approval: TrackedApproval, observation: ApprovalObservation): TrackedApproval {
   const checked = parseStoredApproval(serializeApproval(approval), approval.address);
-  if (observation.chainId !== checked.chainId || typeof observation.allowance !== "bigint" || observation.allowance < 0n || observation.allowance > MAX_UINT) throw new Error("Could not verify the approval on its source network. Check again before continuing.");
+  if (observation.chainId !== checked.chainId || typeof observation.allowance !== "bigint" || observation.allowance < 0n || observation.allowance > MAX_UINT) throw new Error(clientTranslator("bridge")("errors.approvalUnverified"));
   if (!checked.approvalHash) return { ...checked, status: "uncertain" };
   if (!observation.receipt) return { ...checked, status: "pending" };
-  if (!validHash(observation.receipt.transactionHash) || observation.receipt.transactionHash.toLowerCase() !== checked.approvalHash.toLowerCase() || !["success", "reverted"].includes(observation.receipt.status)) throw new Error("The approval receipt did not match the saved transaction.");
+  if (!validHash(observation.receipt.transactionHash) || observation.receipt.transactionHash.toLowerCase() !== checked.approvalHash.toLowerCase() || !["success", "reverted"].includes(observation.receipt.status)) throw new Error(clientTranslator("bridge")("errors.approvalReceiptMismatch"));
   return { ...checked, status: observation.receipt.status === "reverted" ? "reverted" : observation.allowance >= BigInt(checked.amount) ? "confirmed" : "insufficient" };
 }
 
@@ -166,13 +167,13 @@ export function recoverApprovalFromEvidence(approval: TrackedApproval, evidence:
   now: number;
 }): TrackedApproval {
   const current = parseStoredApproval(serializeApproval(approval), approval.address);
-  if (!approvalBlocksSubmission(current)) throw new Error("The saved approval is already resolved. Review its current status.");
+  if (!approvalBlocksSubmission(current)) throw new Error(clientTranslator("bridge")("errors.approvalResolved"));
   const hash = evidence.receipt.transactionHash;
-  if (evidence.chainId !== current.chainId || !validHash(hash) || evidence.transaction.hash.toLowerCase() !== hash.toLowerCase()) throw new Error("The transaction could not be verified on the approval's network.");
+  if (evidence.chainId !== current.chainId || !validHash(hash) || evidence.transaction.hash.toLowerCase() !== hash.toLowerCase()) throw new Error(clientTranslator("bridge")("errors.approvalTxUnverified"));
   const blockTime = Number(evidence.blockTimestamp) * 1000;
   // Approvals have no order ID. Never adopt an old approval from before this attempt.
-  if (!Number.isSafeInteger(blockTime) || !Number.isSafeInteger(evidence.now) || blockTime < current.createdAt - 30_000 || blockTime > evidence.now + 30_000) throw new Error("This transaction predates the saved approval or your clock differs from the network. Check the hash and device clock.");
-  if (!isMatchingApprovalTransaction(current, evidence.transaction) && !hasMatchingApprovalEvent(current, evidence.receipt)) throw new Error("That transaction does not match this wallet's exact USDC approval.");
+  if (!Number.isSafeInteger(blockTime) || !Number.isSafeInteger(evidence.now) || blockTime < current.createdAt - 30_000 || blockTime > evidence.now + 30_000) throw new Error(clientTranslator("bridge")("errors.approvalPredates"));
+  if (!isMatchingApprovalTransaction(current, evidence.transaction) && !hasMatchingApprovalEvent(current, evidence.receipt)) throw new Error(clientTranslator("bridge")("errors.approvalTxMismatch"));
   return reconcileApproval({ ...current, approvalHash: hash }, evidence);
 }
 
@@ -206,7 +207,7 @@ export function createApprovalStore(storage: () => StorageAdapter) {
         update(address, approval, null);
         return approval;
       } catch {
-        const message = "USDC approval recovery storage is unavailable or unreadable. Enable site storage and reload before approving.";
+        const message = clientTranslator("bridge")("errors.approvalStorageUnreadable");
         update(address, snapshot.approvals[address.toLowerCase()] ?? null, message);
         throw new Error(message);
       }
@@ -220,7 +221,7 @@ export function createApprovalStore(storage: () => StorageAdapter) {
         if (adapter.getItem(approvalStorageKey(approval.address)) !== raw) throw new Error("Storage did not retain approval");
         update(approval.address, approval, null);
       } catch {
-        const message = "Could not save USDC approval recovery details. Keep this page open and check the approval before trying again.";
+        const message = clientTranslator("bridge")("errors.approvalStorageNotSaved");
         update(approval.address, approval, message);
         throw new Error(message);
       }
@@ -228,7 +229,7 @@ export function createApprovalStore(storage: () => StorageAdapter) {
     remove(address: Address) {
       try { storage().removeItem(approvalStorageKey(address)); update(address, null, null); }
       catch {
-        const message = "Could not clear the saved USDC approval. Enable site storage and reload before trying again.";
+        const message = clientTranslator("bridge")("errors.approvalStorageNotCleared");
         update(address, snapshot.approvals[address.toLowerCase()] ?? null, message);
         throw new Error(message);
       }
@@ -274,22 +275,22 @@ export async function submitExactApproval(input: ApprovalRequest, deps: Approval
   const transaction = exactApprovalTransaction(request);
   const checkRequest = () => {
     const current = deps.currentRequest();
-    if (!current || approvalRequestKey(validateRequest(current)) !== approvalRequestKey(request)) throw new Error("The wallet, route, amount, or quote changed. Review a new quote before approving.");
+    if (!current || approvalRequestKey(validateRequest(current)) !== approvalRequestKey(request)) throw new Error(clientTranslator("bridge")("errors.approvalInputsChanged"));
   };
   checkRequest();
   const existing = deps.readApproval(request.address);
-  if (approvalBlocksSubmission(existing)) throw new Error("An approval is already being tracked. Check its status before approving again.");
+  if (approvalBlocksSubmission(existing)) throw new Error(clientTranslator("bridge")("errors.approvalTracked"));
   let wallet = await deps.readWallet();
-  if (wallet.address?.toLowerCase() !== request.address.toLowerCase()) throw new Error("The connected wallet changed. Review a new quote.");
+  if (wallet.address?.toLowerCase() !== request.address.toLowerCase()) throw new Error(clientTranslator("bridge")("errors.walletChanged"));
   if (wallet.chainId !== chainId) { deps.phase("switching"); await deps.switchChain(chainId); }
   checkRequest();
   const gas = await deps.prepare(request, transaction);
-  if (typeof gas.gas !== "bigint" || gas.gas <= 0n || typeof gas.maxFeePerGas !== "bigint" || gas.maxFeePerGas <= 0n || typeof gas.maxPriorityFeePerGas !== "bigint" || gas.maxPriorityFeePerGas < 0n || gas.maxPriorityFeePerGas > gas.maxFeePerGas) throw new Error("Could not estimate approval gas. Request a new quote.");
+  if (typeof gas.gas !== "bigint" || gas.gas <= 0n || typeof gas.maxFeePerGas !== "bigint" || gas.maxFeePerGas <= 0n || typeof gas.maxPriorityFeePerGas !== "bigint" || gas.maxPriorityFeePerGas < 0n || gas.maxPriorityFeePerGas > gas.maxFeePerGas) throw new Error(clientTranslator("bridge")("errors.approvalGas"));
   wallet = await deps.readWallet();
   checkRequest();
-  if (wallet.address?.toLowerCase() !== request.address.toLowerCase() || wallet.chainId !== chainId) throw new Error("Your wallet account or network changed. Review a new quote.");
+  if (wallet.address?.toLowerCase() !== request.address.toLowerCase() || wallet.chainId !== chainId) throw new Error(clientTranslator("bridge")("errors.accountChanged"));
   const latest = deps.readApproval(request.address);
-  if (approvalBlocksSubmission(latest)) throw new Error("Another approval is now being tracked. Check it before continuing.");
+  if (approvalBlocksSubmission(latest)) throw new Error(clientTranslator("bridge")("errors.otherApproval"));
   const createdAt = Math.max(deps.now(), (latest?.createdAt ?? 0) + 1);
   const tracked: TrackedApproval = { ...request, version: 1, chainId, token: approvalToken(chainId), spender: RELAY_APPROVAL_SPENDER, createdAt, status: "uncertain" };
   serializeApproval(tracked);
@@ -297,7 +298,7 @@ export async function submitExactApproval(input: ApprovalRequest, deps: Approval
   try { deps.saveApproval(tracked); }
   catch {
     try { restore(); } catch { /* retain the storage warning; no wallet call happened */ }
-    throw new Error("Could not save approval recovery details. No transaction was requested. Enable site storage before trying again.");
+    throw new Error(clientTranslator("bridge")("errors.approvalRecoveryNotSaved"));
   }
   deps.phase("confirming");
   let hash: Hex;

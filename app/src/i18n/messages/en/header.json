@@ -1,0 +1,61 @@
+{
+  "nav": {
+    "launchpad": "Launchpad",
+    "launchpadHint": "Live launches, charts and trades",
+    "posts": "Posts",
+    "postsHint": "What people say about tokens",
+    "rules": "How it works",
+    "rulesHint": "What a launch does and costs",
+    "agents": "Agents",
+    "agentsHint": "Launch and trade from an agent"
+  },
+  "home": "{domain} home",
+  "primary": "Primary",
+  "tools": "Tools",
+  "search": "Search tokens and pages ({shortcut})",
+  "searchTitle": "Search ({shortcut})",
+  "searchMobile": "Search tokens and pages",
+  "openMenu": "Open menu",
+  "closeMenu": "Close menu",
+  "onX": "@{handle} <muted>on X</muted>",
+  "onXLabel": "@{handle} on X",
+  "theme": {
+    "label": "Theme",
+    "dark": "Dark",
+    "light": "Light",
+    "toDark": "Switch to dark mode",
+    "toLight": "Switch to light mode"
+  },
+  "language": {
+    "label": "Language",
+    "switchTo": "Switch to {language}"
+  },
+  "notifications": {
+    "settings": "Notification settings",
+    "title": "Notifications",
+    "liveOn": "Live on",
+    "personalOnly": "Personal only",
+    "close": "Close notification settings",
+    "description": "Choose what interrupts your browsing.",
+    "activity": "Live activity notifications",
+    "activityHelp": "Popups for other traders’ launches, buys and sells.",
+    "on": "On",
+    "off": "Off",
+    "yours": "Your transactions",
+    "alwaysOn": "Always on",
+    "yoursHelp": "Confirmations and important notices still appear.",
+    "saved": "Saved in this browser.",
+    "notSaved": "This browser is blocking saved settings, so this choice lasts until you leave the page.",
+    "feedLive": "The activity feed stays live."
+  },
+  "bridge": {
+    "label": "Bridge",
+    "aria": "Bridge funds",
+    "title": "Bridge between Base, Robinhood and Arc"
+  },
+  "pulse": {
+    "visits": "visits",
+    "online": "online",
+    "title": "cookie-free: all-time visits · people here right now"
+  }
+}

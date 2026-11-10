@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "use-intl";
 import LiveNumber from "../LiveNumber";
 
 type Pulse = { visits: number; online: number };
@@ -39,21 +40,22 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
   }, []);
 
   const live = p.online > 0;
+  const t = useTranslations("header.pulse");
   const online = (
     <span className="inline-flex items-center gap-1.5">
       {/* beacon: solid dot + an expanding, fading ring (only while someone is here; static under reduced motion) */}
       <span className={`relative inline-flex h-2 w-2 rounded-full ${live ? "bg-up bb-beacon" : "bg-line-strong"}`} aria-hidden />
       {/* the count rolls to its new value when people arrive or leave */}
-      <LiveNumber value={p.online} className="font-mono tnum text-ink" /> online
+      <LiveNumber value={p.online} className="font-mono tnum text-ink" /> {t("online")}
     </span>
   );
 
   if (block) {
     // the phone menu's footer line: quiet, under the buttons
     return (
-      <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-3 text-xs text-muted" title="cookie-free: all-time visits · people here right now">
+      <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-3 text-xs text-muted" title={t("title")}>
         <span>
-          <LiveNumber value={p.visits} className="font-mono tnum text-body" /> visits
+          <LiveNumber value={p.visits} className="font-mono tnum text-body" /> {t("visits")}
         </span>
         {online}
       </div>
@@ -62,14 +64,14 @@ export default function LivePulse({ initial, block = false }: { initial: Pulse; 
   return (
     <span
       className="hidden sm:inline-flex items-center gap-2 h-6 px-2.5 rounded-full border border-line bg-card text-[11px] font-medium text-muted whitespace-nowrap"
-      title="cookie-free: all-time visits · people here right now"
+      title={t("title")}
     >
       <span>
         <span className="font-mono tnum text-ink">
           <span className="md:hidden"><LiveNumber value={p.visits} format={COMPACT} /></span>
           <span className="hidden md:inline"><LiveNumber value={p.visits} /></span>
         </span>{" "}
-        visits
+        {t("visits")}
       </span>
       <span className="text-line-strong" aria-hidden>
         ·

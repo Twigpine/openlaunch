@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "use-intl";
 import LaunchMachine from "./LaunchMachine";
 import { useLive } from "./LiveProvider";
 import { CHAIN_LABELS } from "@/lib/chainPublic";
@@ -13,6 +14,7 @@ import { coinActive, pickLaunch, type CoinReaction, COIN_LIFE_MS } from "@/lib/l
  * It reads the shared poll and takes its clock from it, so there is no timer here. `imageBase` is the server's image host.
  */
 export default function HeroLocker({ imageBase }: { imageBase: string | null }) {
+  const t = useTranslations("launch.machine");
   const { live, subscribe } = useLive();
   // the launches the page was drawn with never react: only ones that arrive after it
   const seen = useRef<Set<string> | null>(null);
@@ -24,5 +26,5 @@ export default function HeroLocker({ imageBase }: { imageBase: string | null }) 
     setReaction((cur) => picked.reaction ?? (cur && data.at - cur.since >= COIN_LIFE_MS ? null : cur));
   }), [subscribe, imageBase]);
   const active = coinActive(reaction, live.at);
-  return <LaunchMachine coin={active && reaction.src ? { key: reaction.key, src: reaction.src } : null} eyebrow={active ? `New launch on ${CHAIN_LABELS[reaction.chain]}` : undefined} />;
+  return <LaunchMachine coin={active && reaction.src ? { key: reaction.key, src: reaction.src } : null} eyebrow={active ? t("newLaunchOn", { chain: CHAIN_LABELS[reaction.chain] }) : undefined} />;
 }

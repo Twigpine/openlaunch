@@ -5,43 +5,49 @@ import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, explorerAddress } from "@/lib/chainPu
 import { hasChainPage, launchpad } from "@/lib/launchpad/config";
 import { chainLandingPath } from "@/lib/chainLanding";
 import Mark from "./launchpad/Mark";
+import { getTranslations } from "@/i18n/server";
+import type { Messages } from "@/i18n/messages";
 import styles from "./Footer.module.css";
 
+// labels are messages: footer.links.<key>
 const EXPLORE = [
-  { href: "/", label: "Launchpad" },
-  { href: "/rules", label: "How it works" },
-  { href: "/about", label: "About openlaunch" },
-  { href: "/feed", label: "Community posts" },
-  { href: "/me", label: "Your dashboard" },
-];
+  { href: "/", key: "launchpad" },
+  { href: "/rules", key: "rules" },
+  { href: "/about", key: "about" },
+  { href: "/feed", key: "feed" },
+  { href: "/me", key: "me" },
+] as const;
 const BUILD = [
-  { href: "/agents", label: "Developers & agents" },
-  { href: BRAND_GITHUB, label: "Source code", external: true },
-  { href: "/llms.txt", label: "LLM reference" },
-  { href: `https://x.com/${BRAND_X}`, label: "Updates on X", external: true },
-];
+  { href: "/agents", key: "agents" },
+  { href: BRAND_GITHUB, key: "source", external: true },
+  { href: "/llms.txt", key: "llms" },
+  { href: `https://x.com/${BRAND_X}`, key: "x", external: true },
+] as const;
 
 /** Shared server-rendered footer. Proof links come from the deployed configuration. */
-export default function Footer() {
+export default async function Footer() {
+  const t = await getTranslations("footer");
+  const tc = await getTranslations("common");
+  const label = (links: ReadonlyArray<{ href: string; key: keyof Messages["footer"]["links"]; external?: boolean }>) => links.map(({ key, ...link }) => ({ ...link, label: t(`links.${key}`) }));
   return (
-    <footer id="site-footer" className={`bb-footer ${styles.footer}`} aria-label="Site footer">
+    <footer id="site-footer" className={`bb-footer ${styles.footer}`} aria-label={t("label")}>
       <div className={styles.shell}>
         <div className={styles.main}>
           <div className={styles.invitation}>
             <div className={styles.eyebrow}>
               <span aria-hidden="true"><Mark size={24} /></span>
-              Open to your next idea
+              {t("eyebrow")}
             </div>
-            <h2 className={styles.heading}>Make it yours.<br /><span>Keep it open.</span></h2>
-            <p className={styles.description}>Launch on Base, Robinhood Chain or Arc.<br />No platform cut. You only pay gas.</p>
+            <h2 className={styles.heading}>{t("headingTop")}<br /><span>{t("headingBottom")}</span></h2>
+            <p className={styles.description}>{t("descriptionTop")}<br />{t("descriptionBottom")}</p>
             <Link href="/launch" className={styles.launch}>
-              Launch a token <ArrowRight size={17} aria-hidden="true" />
+              {tc("launchToken")} <ArrowRight size={17} aria-hidden="true" />
             </Link>
           </div>
 
-          <nav className={styles.navigation} aria-label="Footer navigation">
-            <LinkGroup title="Explore" links={EXPLORE} />
-            <LinkGroup title="Build & connect" links={BUILD} />
+          <nav className={styles.navigation} aria-label={t("navigation")}>
+            <LinkGroup title={t("explore")} links={label(EXPLORE)} />
+            <LinkGroup title={t("build")} links={label(BUILD)} />
           </nav>
         </div>
 
@@ -49,8 +55,8 @@ export default function Footer() {
           <div className={styles.proofIntro}>
             <FileCode2 size={20} aria-hidden="true" />
             <div>
-              <p className={styles.proofTitle}>The code is the commitment.</p>
-              <Link href="/rules#contracts" className={styles.verification}>Verify the contracts <ArrowUpRight size={13} aria-hidden="true" /></Link>
+              <p className={styles.proofTitle}>{t("proofTitle")}</p>
+              <Link href="/rules#contracts" className={styles.verification}>{t("verify")} <ArrowUpRight size={13} aria-hidden="true" /></Link>
             </div>
           </div>
           {CHAIN_KEYS.map((chain) => {
@@ -59,24 +65,24 @@ export default function Footer() {
               <div className={styles.chain} key={chain}>
                 <div className={styles.chainName}>{hasChainPage(chain) ? <Link href={chainLandingPath(chain)} className="hover:underline underline-offset-4">{CHAIN_LABELS[chain]}</Link> : CHAIN_LABELS[chain]}<span className={styles.chainId}>{CHAINS[chain].id}</span></div>
                 <div className={styles.contracts}>
-                  {factory ? <a href={explorerAddress(chain, factory)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} factory on explorer`} title={factory}>Factory <ArrowUpRight size={12} aria-hidden="true" /></a> : <span className={styles.unconfigured}>Factory not configured</span>}
-                  {locker ? <a href={explorerAddress(chain, locker)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} locker on explorer`} title={locker}>Locker <ArrowUpRight size={12} aria-hidden="true" /></a> : <span className={styles.unconfigured}>Locker not configured</span>}
+                  {factory ? <a href={explorerAddress(chain, factory)} target="_blank" rel="noreferrer" aria-label={t("factoryOnExplorer", { chain: CHAIN_LABELS[chain] })} title={factory}>{t("factory")} <ArrowUpRight size={12} aria-hidden="true" /></a> : <span className={styles.unconfigured}>{t("factoryMissing")}</span>}
+                  {locker ? <a href={explorerAddress(chain, locker)} target="_blank" rel="noreferrer" aria-label={t("lockerOnExplorer", { chain: CHAIN_LABELS[chain] })} title={locker}>{t("locker")} <ArrowUpRight size={12} aria-hidden="true" /></a> : <span className={styles.unconfigured}>{t("lockerMissing")}</span>}
                 </div>
               </div>
             );
           })}
         </div>
 
-        <Link href="/" aria-label={`${BRAND_DOMAIN} home`} className={styles.signature}>
+        <Link href="/" aria-label={t("home", { domain: BRAND_DOMAIN })} className={styles.signature}>
           <span aria-hidden="true">{BRAND}</span>
         </Link>
 
         <div className={styles.bottom}>
           {/* the chart library's licence credit, on every page that can show a chart */}
-          <p>Open source. Open participation. Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer" className={styles.credit}>TradingView</a>.</p>
+          <p>{t.rich("credit", { link: (chunks) => <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer" className={styles.credit}>{chunks}</a> })}</p>
           <div className={styles.utilities}>
-            <a href={`${BRAND_GITHUB}/blob/main/LICENSE`} target="_blank" rel="noreferrer" className={styles.license}>MIT licensed <ArrowUpRight size={12} aria-hidden="true" /></a>
-            <a href="#site-top" className={styles.backTop}>Back to top <ArrowUp size={14} aria-hidden="true" /></a>
+            <a href={`${BRAND_GITHUB}/blob/main/LICENSE`} target="_blank" rel="noreferrer" className={styles.license}>{t("license")} <ArrowUpRight size={12} aria-hidden="true" /></a>
+            <a href="#site-top" className={styles.backTop}>{t("backTop")} <ArrowUp size={14} aria-hidden="true" /></a>
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { COIN_LIFE_MS } from "../../lib/launchpad/hero-coin.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the hero locker's reaction to a real launch. The rules themselves (our own images only, no
@@ -20,7 +21,9 @@ test("the wrapper reads the shared poll and draws a chain, never a token name", 
   assert.match(locker, /const active = coinActive\(reaction, live\.at\);/, "its clock is the poll's");
   // what reaches the drawing is a vetted picture and a chain's full name: nothing about the token's name or symbol
   assert.doesNotMatch(locker, /\.name\b|\.symbol\b|image_url/);
-  assert.match(locker, /eyebrow=\{active \? `New launch on \$\{CHAIN_LABELS\[reaction\.chain\]\}` : undefined\}/);
+  assert.match(locker, /eyebrow=\{active \? t\("newLaunchOn", \{ chain: CHAIN_LABELS\[reaction\.chain\] \}\) : undefined\}/);
+  assert.equal(en.launch.machine.newLaunchOn, "New launch on {chain}");
+  assert.match(messagesFor("zh-CN").launch.machine.newLaunchOn, /^\{chain\} /, "the chain's own name, untranslated");
   assert.match(locker, /coin=\{active && reaction\.src \? \{ key: reaction\.key, src: reaction\.src \} : null\}/);
 });
 
@@ -35,7 +38,8 @@ test("the machine draws the picture upright and foreshortened to the coin's ring
   assert.match(machine, /<g transform="translate\(280 88\) scale\(1 \.4186\)">\s*<g key=\{coin\.key\} className=\{styles\.coinFace\}>/, "43 x 18 is the coin's inner ring: .4186 is 18/43");
   assert.match(machine, /<clipPath id=\{clip\}><circle r=\{43\} \/><\/clipPath>/);
   assert.match(machine, /<image href=\{coin\.src\} x=\{-43\} y=\{-43\} width=\{86\} height=\{86\} preserveAspectRatio="xMidYMid slice" clipPath=\{`url\(#\$\{clip\}\)`\} \/>/);
-  assert.match(machine, /\{eyebrow \?\? "One transaction\. Built to stay\."\}/, "without a host the caption is the one /rules shows");
+  assert.match(machine, /\{eyebrow \?\? t\("eyebrow"\)\}/, "without a host the caption is the one /rules shows");
+  assert.equal(en.launch.machine.eyebrow, "One transaction. Built to stay.");
   assert.doesNotMatch(machine, /setTimeout|setInterval|\bfetch\s*\(|canvas/i);
 });
 

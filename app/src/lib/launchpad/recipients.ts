@@ -1,4 +1,5 @@
 import { getAddress, isAddress, type Address } from "viem";
+import { clientTranslator } from "@/i18n/client";
 import { BPS, DEAD, MAX_RECIPIENTS } from "./config";
 
 /**
@@ -49,33 +50,37 @@ export function bpsToPct(bps: number): string {
   return `${whole}.${String(frac).padStart(2, "0").replace(/0$/, "")}`;
 }
 
-/** Parses the editor rows into factory recipients. Never throws; every problem is a message the form can list. */
+/**
+ * Parses the editor rows into factory recipients. Never throws; every problem is a message the form can list, in the
+ * reader's language (launch.recipients; English outside the browser).
+ */
 export function buildRecipients(rows: RecipientRow[]): SplitResult {
+  const t = clientTranslator("launch");
   const errors: string[] = [];
   const recipients: Recipient[] = [];
   const seen = new Map<string, number>();
   let total = 0;
 
-  if (rows.length === 0) errors.push("Beneficiaries: add at least one address, or choose Burn it.");
-  if (rows.length > MAX_RECIPIENTS) errors.push(`Beneficiaries: at most ${MAX_RECIPIENTS} addresses.`);
+  if (rows.length === 0) errors.push(t("recipients.none"));
+  if (rows.length > MAX_RECIPIENTS) errors.push(t("recipients.tooMany", { max: MAX_RECIPIENTS }));
 
   rows.forEach((row, i) => {
     const n = i + 1;
     const raw = row.payout.trim();
     let payout: Address | null = null;
-    if (!isAddress(raw)) errors.push(`Beneficiary ${n}: enter a valid address.`);
-    else if (raw.toLowerCase() === ZERO) errors.push(`Beneficiary ${n}: the zero address cannot receive fees. Use 0x…dEaD to burn a share.`);
+    if (!isAddress(raw)) errors.push(t("recipients.invalid", { n }));
+    else if (raw.toLowerCase() === ZERO) errors.push(t("recipients.zero", { n }));
     else {
       payout = getAddress(raw);
       const lc = payout.toLowerCase();
       const first = seen.get(lc);
-      if (first !== undefined) errors.push(`Beneficiary ${n}: same address as beneficiary ${first}. Give it one row with the combined share.`);
+      if (first !== undefined) errors.push(t("recipients.duplicate", { n, first }));
       else seen.set(lc, n);
     }
 
     const bps = pctToBps(row.pct);
-    if (bps === null) errors.push(`Beneficiary ${n}: share must be a percentage between 0.01 and 100, with at most two decimals.`);
-    else if (bps === 0) errors.push(`Beneficiary ${n}: share must be at least 0.01%.`);
+    if (bps === null) errors.push(t("recipients.badShare", { n }));
+    else if (bps === 0) errors.push(t("recipients.zeroShare", { n }));
     else total += bps;
 
     if (payout && bps) recipients.push({ payout, bps });
@@ -83,13 +88,14 @@ export function buildRecipients(rows: RecipientRow[]): SplitResult {
 
   const remainingBps = BPS - total;
   if (rows.length > 0 && remainingBps !== 0) {
-    errors.push(remainingBps > 0 ? `Beneficiaries: shares add up to ${bpsToPct(total)}%. ${bpsToPct(remainingBps)}% left to assign.` : `Beneficiaries: shares add up to ${bpsToPct(total)}%. Remove ${bpsToPct(-remainingBps)}%.`);
+    errors.push(remainingBps > 0 ? t("recipients.under", { total: bpsToPct(total), left: bpsToPct(remainingBps) }) : t("recipients.over", { total: bpsToPct(total), over: bpsToPct(-remainingBps) }));
   }
 
   return { recipients: errors.length === 0 ? recipients : [], errors, remainingBps };
 }
 
-/** Short human line for the summary: "60% to 0x12…34, 40% burned". */
+/** Short human line for the summary, in the reader's language: "60% to 0x12…34, 40% burned". */
 export function describeShares(recipients: Recipient[], short: (a: string) => string): string {
-  return recipients.map((r) => `${bpsToPct(r.bps)}% ${isBurnAddress(r.payout) ? "burned" : `to ${short(r.payout)}`}`).join(", ");
+  const t = clientTranslator("launch");
+  return recipients.map((r) => (isBurnAddress(r.payout) ? t("recipients.shareBurned", { pct: bpsToPct(r.bps) }) : t("recipients.shareTo", { pct: bpsToPct(r.bps), address: short(r.payout) }))).join(t("recipients.separator"));
 }

@@ -1,0 +1,19 @@
+{
+  "contract": {
+    "SaltUsed": "This salt was already used. Try again (a fresh salt is generated).",
+    "BadFee": "Fee out of range (max 3%).",
+    "BadTick": "Start price out of range.",
+    "BadSupply": "Supply too large.",
+    "QuoteOrdering": "Token address must sort above the quote. Try again with a new salt.",
+    "NativeQuoteUnsupported": "This chain does not take its native asset as a quote. Price the token in USDC instead.",
+    "NoLiquidity": "Supply too small to seed liquidity.",
+    "UnknownPosition": "Unknown launch.",
+    "BadRecipients": "Beneficiary shares must add up to 100%."
+  },
+  "cancelled": "You cancelled in your wallet.",
+  "slippage": "Price moved more than {percent}%. Try again.",
+  "reverted": "Reverted: {name}",
+  "gas": "Not enough of the gas token (ETH, or USDC on Arc) for this transaction plus gas.",
+  "insufficientLiquidity": "The vault cannot pay out that much right now: most of it is lent out. Try a smaller amount, or try again later.",
+  "unknown": "Something went wrong."
+}

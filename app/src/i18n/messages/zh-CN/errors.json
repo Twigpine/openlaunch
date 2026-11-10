@@ -1,0 +1,19 @@
+{
+  "contract": {
+    "SaltUsed": "此 salt 已被使用。请重试（会生成新的 salt）。",
+    "BadFee": "手续费超出范围（最高 3%）。",
+    "BadTick": "起始价格超出范围。",
+    "BadSupply": "供应量过大。",
+    "QuoteOrdering": "代币地址的排序必须在计价代币之后。请用新的 salt 重试。",
+    "NativeQuoteUnsupported": "此链不接受原生资产作为计价资产。请改用 USDC 为代币计价。",
+    "NoLiquidity": "供应量太小，无法注入初始流动性。",
+    "UnknownPosition": "未知的发行。",
+    "BadRecipients": "受益人份额之和必须为 100%。"
+  },
+  "cancelled": "你已在钱包中取消。",
+  "slippage": "价格变动超过 {percent}%，请重试。",
+  "reverted": "交易已回滚：{name}",
+  "gas": "Gas 代币（ETH，在 Arc 上为 USDC）余额不足，无法支付此交易及 Gas。",
+  "insufficientLiquidity": "金库目前无法支付这么多：大部分资金已被借出。请尝试更小的金额，或稍后再试。",
+  "unknown": "出了点问题。"
+}

@@ -31,7 +31,7 @@ import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage, p
 import { coreQuoteNames } from "./config.ts";
 import { hasDelegatecall, implementationOf1167 } from "./pairProbe.ts";
 
-const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
+const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8").replaceAll("\r\n", "\n");
 const TWIG = "0x6ac18bcf4ede02591d4917452700ea5eaaea13c1";
 const DEAD = "0x000000000000000000000000000000000000dEaD";
 const E18 = 10n ** 18n;

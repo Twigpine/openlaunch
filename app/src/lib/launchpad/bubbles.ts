@@ -111,25 +111,32 @@ export function bubbleRadii(tokens: readonly BubbleToken[], area: number, { min,
   return weights.map((w) => Math.min(max, Math.max(min, k * Math.sqrt(w))));
 }
 
+/**
+ * The words of the line under the title and of the window, in the reader's language: `t` over the
+ * activity.bubbles.summary messages. Each count is a phrase of its own ("3 tokens"), so every language orders and
+ * joins them its own way.
+ */
+export type BubbleWords = (key: "nothing" | "tokens" | "trades" | "launches" | "both" | "inWindow" | "latest" | "minutes" | "hour" | "hours", values?: Record<string, string | number>) => string;
+
 /** "30 minutes", "hour", "3 hours": the window, as it reads after "the last". */
-export function bubbleWindowLabel(windowMs: number): string {
+export function bubbleWindowLabel(windowMs: number, t: BubbleWords): string {
   const minutes = Math.round(windowMs / 60_000);
-  if (minutes < 60) return `${minutes} minutes`;
+  if (minutes < 60) return t("minutes", { count: minutes });
   const hours = Math.round(minutes / 60);
-  return hours === 1 ? "hour" : `${hours} hours`;
+  return hours === 1 ? t("hour") : t("hours", { count: hours });
 }
 
 /**
  * The line under the title. A cut-off seed (the newest events only) never claims the whole window: it says what it
  * holds instead, like the river does.
  */
-export function bubbleSummary(tokens: readonly BubbleToken[], windowMs: number, complete: boolean): string {
-  if (!tokens.length) return "Nothing traded or launched in the last 24 hours";
-  const trades = tokens.reduce((sum, t) => sum + t.buys + t.sells, 0);
-  const launches = tokens.filter((t) => t.launched).length;
-  const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
-  const activity = [trades ? count(trades, "trade", "trades") : null, launches ? count(launches, "launch", "launches") : null].filter(Boolean).join(" and ");
-  return complete
-    ? `${count(tokens.length, "token", "tokens")}, ${activity} in the last ${bubbleWindowLabel(windowMs)}`
-    : `${count(tokens.length, "token", "tokens")} in the latest ${activity}`;
+export function bubbleSummary(tokens: readonly BubbleToken[], windowMs: number, complete: boolean, t: BubbleWords): string {
+  if (!tokens.length) return t("nothing");
+  const trades = tokens.reduce((sum, b) => sum + b.buys + b.sells, 0);
+  const launches = tokens.filter((b) => b.launched).length;
+  const activity = trades && launches
+    ? t("both", { trades: t("trades", { count: trades }), launches: t("launches", { count: launches }) })
+    : trades ? t("trades", { count: trades }) : t("launches", { count: launches });
+  const held = t("tokens", { count: tokens.length });
+  return complete ? t("inWindow", { tokens: held, activity, window: bubbleWindowLabel(windowMs, t) }) : t("latest", { tokens: held, activity });
 }

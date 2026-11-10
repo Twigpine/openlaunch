@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parseXHandle } from "./xHandle.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 const handle = (input: unknown) => {
   const r = parseXHandle(input);
@@ -85,9 +86,12 @@ test("the launch form and the edit sheet accept a link in the X field", () => {
   const launch = readFileSync(new URL("../../components/launchpad/LaunchForm.tsx", import.meta.url), "utf8");
   const edit = readFileSync(new URL("../../components/launchpad/EditTokenSheet.tsx", import.meta.url), "utf8");
   assert.match(launch, /const xParsed = parseXHandle\(x\);/);
-  assert.match(launch, /if \(!xParsed\.ok\) errors\.push\("X: enter a handle or an x\.com link\."\);/);
-  for (const form of [launch, edit]) {
-    assert.match(form, /placeholder="@handle or x\.com link"/);
-    assert.doesNotMatch(form, /placeholder="@handle"/);
-  }
+  // the launch form's words are messages (their English: launch-form.test.ts)
+  assert.match(launch, /if \(!xParsed\.ok\) errors\.push\(t\("token\.xInvalid"\)\);/);
+  assert.match(launch, /placeholder=\{t\("token\.xPlaceholder"\)\}/);
+  // the edit sheet words it in the reader's language; in English it reads as the launch form's
+  assert.match(edit, /placeholder=\{t\("xPlaceholder"\)\}/);
+  assert.equal(en.token.edit.xPlaceholder, en.launch.form.token.xPlaceholder);
+  assert.equal(en.launch.form.token.xPlaceholder, "@handle or x.com link");
+  assert.doesNotMatch(launch + edit, /placeholder="@handle"/);
 });

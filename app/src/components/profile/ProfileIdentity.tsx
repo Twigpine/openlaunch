@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BadgeCheck, PencilLine, UserRound } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { XMark } from "@/components/launchpad/BrandMarks";
 import { shortAddr } from "@/lib/chainPublic";
 import type { PublicProfile } from "@/lib/profiles/server";
@@ -74,6 +75,7 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
   };
 
   const xState = profile?.x_state ?? "none";
+  const t = useTranslations("account.identity");
   return (
     <>
       <div className="flex min-w-0 items-center gap-3">
@@ -92,30 +94,30 @@ export default function ProfileIdentity({ address, avatarClass, labelClass, addr
             </>
           ) : (
             <>
-              <p className={labelClass}>{hidden ? "Profile hidden by a moderator" : "Connected wallet"}</p>
+              <p className={labelClass}>{hidden ? t("hidden") : t("connected")}</p>
               <span className={addressClass} title={address}>{shortAddr(address)}</span>
             </>
           )}
         </div>
         {profile === undefined ? null : profile ? (
           <div className="ml-1 flex shrink-0 flex-wrap items-center gap-1.5">
-            <button type="button" onClick={() => setOpen("edit")} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-[13px] font-medium text-body hover:border-line-strong hover:text-ink"><PencilLine size={14} aria-hidden="true" />Edit</button>
+            <button type="button" onClick={() => setOpen("edit")} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-[13px] font-medium text-body hover:border-line-strong hover:text-ink"><PencilLine size={14} aria-hidden="true" />{t("edit")}</button>
             {xState === "pending" ? (
               // a person is deciding on the code that was posted: nothing to do here until then (Edit still works)
-              <span className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-brand-soft px-3 text-[13px] font-semibold text-brand" title="A person is checking your post. Your ✓ appears once it is approved.">
-                <BadgeCheck size={14} aria-hidden="true" />Being checked
+              <span className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-brand-soft px-3 text-[13px] font-semibold text-brand" title={t("checkingTitle")}>
+                <BadgeCheck size={14} aria-hidden="true" />{t("checking")}
               </span>
             ) : xState !== "verified" ? (
               <button type="button" onClick={() => setOpen(loadCode(address) ? "verify" : "edit")} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-brand-soft px-3 text-[13px] font-semibold text-brand hover:bg-brand hover:text-inverse">
-                {xState === "reverify" ? <><XMark />Verify again</> : <><XMark />Verify with X</>}
+                {xState === "reverify" ? <><XMark />{t("verifyAgain")}</> : <><XMark />{t("verify")}</>}
               </button>
             ) : null}
           </div>
         ) : hidden ? (
           // nothing to create or edit: the profile exists and stays hidden until a moderator looks again
-          <span className="ml-1 shrink-0 text-[12px] text-muted text-pretty" title="Your profile is hidden everywhere, and it can't be edited while it is.">Hidden</span>
+          <span className="ml-1 shrink-0 text-[12px] text-muted text-pretty" title={t("hiddenTitle")}>{t("hiddenShort")}</span>
         ) : (
-          <button type="button" onClick={() => setOpen("edit")} className="ml-1 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-inverse hover:bg-brand-strong"><UserRound size={14} aria-hidden="true" />Create profile</button>
+          <button type="button" onClick={() => setOpen("edit")} className="ml-1 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-inverse hover:bg-brand-strong"><UserRound size={14} aria-hidden="true" />{t("create")}</button>
         )}
       </div>
       {open ? <ProfileSheet address={address} initial={profile ?? null} startOnVerify={open === "verify"} onClose={() => setOpen(null)} onSaved={saved} onDeleted={() => saved(null)} /> : null}

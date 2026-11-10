@@ -5,26 +5,29 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
 import { ArrowUpRight, BookOpen, Bot, ChartCandlestick, ChevronRight, Menu, MessagesSquare, Rocket, Search, X } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { cn } from "@/lib/utils";
 import { isTypingTarget } from "@/lib/command-palette";
 import { heroCtaOnScreen, subscribeHeroCta } from "@/lib/hero-cta";
 import CommandPalette from "./CommandPalette";
 import { Navbar, NavBody, MobileNav, MobileNavHeader, MobileNavMenu } from "./navigation-shell";
 import Mark, { Wordmark } from "./launchpad/Mark";
-import { BRAND_X } from "@/lib/brand";
+import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import ConnectButton from "./ConnectButton";
 import ThemeToggle from "./ThemeToggle";
+import LanguageSwitcher from "./LanguageSwitcher";
 import NotificationSettings from "./NotificationSettings";
 import LivePulse from "./launchpad/LivePulse";
 import { BridgeButton, BridgeProvider } from "./bridge/BridgeProvider";
 
+// labels and hints are messages: header.nav.<key> and header.nav.<key>Hint
 const NAV = [
-  { href: "/", label: "Launchpad", hint: "Live launches, charts and trades", icon: ChartCandlestick },
-  { href: "/feed", label: "Posts", hint: "What people say about tokens", icon: MessagesSquare },
-  { href: "/rules", label: "How it works", hint: "What a launch does and costs", icon: BookOpen },
-  { href: "/agents", label: "Agents", hint: "Launch and trade from an agent", icon: Bot },
+  { href: "/", key: "launchpad", icon: ChartCandlestick },
+  { href: "/feed", key: "posts", icon: MessagesSquare },
+  { href: "/rules", key: "rules", icon: BookOpen },
+  { href: "/agents", key: "agents", icon: Bot },
   // /me is reached from the wallet menu ("Your workspace") and the footer ("Your dashboard")
-];
+] as const;
 
 type Pulse = { visits: number; online: number };
 
@@ -87,8 +90,9 @@ function useShortcutLabel(): string {
  * the launch button, instead of four separate frames. Each tool inside is a borderless 30px button.
  */
 function Rail({ children, className }: { children: React.ReactNode; className?: string }) {
+  const t = useTranslations("header");
   return (
-    <div role="group" aria-label="Tools" className={cn("flex shrink-0 items-center gap-0.5 rounded-full border border-line bg-card p-[2px]", className)}>
+    <div role="group" aria-label={t("tools")} className={cn("flex shrink-0 items-center gap-0.5 rounded-full border border-line bg-card p-[2px]", className)}>
       {children}
     </div>
   );
@@ -100,8 +104,9 @@ function Rail({ children, className }: { children: React.ReactNode; className?: 
  */
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   const shortcut = useShortcutLabel();
+  const t = useTranslations("header");
   return (
-    <button type="button" onClick={onClick} aria-label={`Search tokens and pages (${shortcut})`} title={`Search (${shortcut})`} className="inline-flex h-7.5 min-w-7.5 shrink-0 items-center justify-center rounded-full px-[7px] text-body transition-colors hover:bg-line hover:text-ink motion-reduce:transition-none">
+    <button type="button" onClick={onClick} aria-label={t("search", { shortcut })} title={t("searchTitle", { shortcut })} className="inline-flex h-7.5 min-w-7.5 shrink-0 items-center justify-center rounded-full px-[7px] text-body transition-colors hover:bg-line hover:text-ink motion-reduce:transition-none">
       <Search size={16} aria-hidden />
     </button>
   );
@@ -122,6 +127,7 @@ function useHeroCtaOnScreen(pathname: string) {
 // ── desktop ──────────────────────────────────────────────────────────────────
 
 function Desktop({ visible = false, pulse, isActive, quietCta, onSearch }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; quietCta: boolean; onSearch: () => void }) {
+  const t = useTranslations("header");
   return (
     <NavBody
       visible={visible}
@@ -137,7 +143,7 @@ function Desktop({ visible = false, pulse, isActive, quietCta, onSearch }: { vis
     >
       {/* at rest, the bottom hairline catches a little brand light in the middle */}
       {!visible ? <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-[linear-gradient(90deg,transparent,var(--color-brand),transparent)] opacity-25 dark:opacity-45" /> : null}
-      <Link href="/" className="relative z-20 flex items-center gap-2" aria-label="openlaunch.lol home">
+      <Link href="/" className="relative z-20 flex items-center gap-2" aria-label={t("home", { domain: BRAND_DOMAIN })}>
         <Mark size={24} />
         {/* the wordmark and pulse are the first things to give way when the strip contracts */}
         {!visible ? <Wordmark /> : null}
@@ -158,6 +164,7 @@ function Desktop({ visible = false, pulse, isActive, quietCta, onSearch }: { vis
           <BridgeButton compact />
           <NotificationSettings />
           <ThemeToggle />
+          <LanguageSwitcher />
         </Rail>
         <ConnectButton />
         {/* while the hero's CTA is on screen it owns the one filled blue; this one fills in once that has scrolled away */}
@@ -176,9 +183,10 @@ function Desktop({ visible = false, pulse, isActive, quietCta, onSearch }: { vis
 function NavLinks({ isActive, compact = false }: { isActive: (href: string) => boolean; compact?: boolean }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const reduced = useReducedMotion();
+  const t = useTranslations("header");
   const glide = reduced ? { duration: 0 } : ({ type: "spring", stiffness: 420, damping: 34 } as const);
   return (
-    <nav aria-label="Primary" onMouseLeave={() => setHovered(null)} className="mx-auto hidden items-center gap-0.5 px-2 lg:flex">
+    <nav aria-label={t("primary")} onMouseLeave={() => setHovered(null)} className="mx-auto hidden items-center gap-0.5 px-2 lg:flex">
       {NAV.map((n, i) => {
         const active = isActive(n.href);
         return (
@@ -198,7 +206,7 @@ function NavLinks({ isActive, compact = false }: { isActive: (href: string) => b
                 <span aria-hidden="true" className="absolute -top-2 left-1/2 h-4 w-10 -translate-x-1/2 rounded-full bg-brand/40 blur-md" />
               </motion.span>
             ) : null}
-            <span className="relative z-10">{n.label}</span>
+            <span className="relative z-10">{t(`nav.${n.key}`)}</span>
           </Link>
         );
       })}
@@ -212,6 +220,7 @@ function NavLinks({ isActive, compact = false }: { isActive: (href: string) => b
  * filled blue already owns the screen (the home hero at rest).
  */
 function LaunchCta({ compact = false, block = false, quiet = false, onNavigate }: { compact?: boolean; block?: boolean; quiet?: boolean; onNavigate?: () => void }) {
+  const t = useTranslations("common");
   return (
     <Link
       href="/launch"
@@ -227,12 +236,15 @@ function LaunchCta({ compact = false, block = false, quiet = false, onNavigate }
       <Rocket size={14} strokeWidth={2.2} aria-hidden="true" className="shrink-0 transition-transform duration-300 ease-out group-hover:translate-x-px group-hover:-translate-y-px group-hover:-rotate-12 motion-reduce:transition-none" />
       {/* at lg (1024–1279) the rest-state strip has no room for the long label beside five links; the phone menu has the whole width */}
       {compact ? (
-        "Launch"
+        t("launch")
       ) : block ? (
-        "Launch a token"
+        t("launchToken")
       ) : (
-        // one flex item, so the button's icon gap never lands between "Launch" and "a token"
-        <span>Launch<span className="hidden xl:inline"> a token</span></span>
+        // one flex item, so the button's icon gap never lands inside the label
+        <span>
+          <span className="xl:hidden">{t("launch")}</span>
+          <span className="hidden xl:inline">{t("launchToken")}</span>
+        </span>
       )}
     </Link>
   );
@@ -240,6 +252,7 @@ function LaunchCta({ compact = false, block = false, quiet = false, onNavigate }
 
 /** The official account: a labelled row in the mobile menu (the desktop strip stays uncrowded; the footer carries it). */
 function XLink({ block = false }: { block?: boolean }) {
+  const t = useTranslations("header");
   const href = `https://x.com/${BRAND_X}`;
   const icon = (
     <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" aria-hidden>
@@ -251,13 +264,13 @@ function XLink({ block = false }: { block?: boolean }) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className="min-h-12 px-3 flex items-center gap-3 rounded-xl text-[15px] font-medium text-ink transition-colors hover:bg-line motion-reduce:transition-none">
         <span className="grid w-[17px] shrink-0 place-items-center">{icon}</span>
-        <span>@{BRAND_X} <span className="text-muted">on X</span></span>
+        <span>{t.rich("onX", { handle: BRAND_X, muted: (chunks) => <span className="text-muted">{chunks}</span> })}</span>
         <ArrowUpRight size={15} aria-hidden className="ml-auto text-muted" />
       </a>
     );
   }
   return (
-    <a href={href} target="_blank" rel="noreferrer" aria-label={`@${BRAND_X} on X`} title={`@${BRAND_X} on X`} className="h-9 w-9 inline-flex items-center justify-center rounded-full border border-line bg-card text-body hover:text-ink hover:border-line-strong">
+    <a href={href} target="_blank" rel="noreferrer" aria-label={t("onXLabel", { handle: BRAND_X })} title={t("onXLabel", { handle: BRAND_X })} className="h-9 w-9 inline-flex items-center justify-center rounded-full border border-line bg-card text-body hover:text-ink hover:border-line-strong">
       {icon}
     </a>
   );
@@ -282,6 +295,7 @@ const mobileTool = "h-9 w-9 inline-flex items-center justify-center rounded-full
 
 function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean; onSearch: () => void }) {
   const [open, setOpen] = useState(false);
+  const t = useTranslations("header");
   // MotionConfig's reducedMotion only drops transforms, so the fades below are zeroed by hand, as the menu card's are
   const reduced = useReducedMotion();
   const menuToggle = useRef<HTMLButtonElement>(null);
@@ -306,7 +320,7 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
       >
         <MobileNavHeader>
           <div className="flex items-center gap-2">
-            <Link href="/" className="flex items-center gap-2 py-1" aria-label="openlaunch.lol home" onClick={() => setOpen(false)}>
+            <Link href="/" className="flex items-center gap-2 py-1" aria-label={t("home", { domain: BRAND_DOMAIN })} onClick={() => setOpen(false)}>
               <Mark size={24} />
               <Wordmark />
             </Link>
@@ -320,7 +334,7 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
                 setOpen(false);
                 onSearch();
               }}
-              aria-label="Search tokens and pages"
+              aria-label={t("searchMobile")}
               className={mobileTool}
             >
               <Search size={18} aria-hidden />
@@ -329,7 +343,7 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
               type="button"
               ref={menuToggle}
               onClick={() => setOpen((v) => !v)}
-              aria-label={open ? "Close menu" : "Open menu"}
+              aria-label={open ? t("closeMenu") : t("openMenu")}
               aria-expanded={open}
               aria-controls="mobile-menu"
               className={cn(mobileTool, open ? "bg-line" : "")}
@@ -357,8 +371,8 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
                       <Icon size={17} aria-hidden />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-semibold text-ink">{n.label}</span>
-                      <span className="block truncate text-xs text-muted">{n.hint}</span>
+                      <span className="block text-[15px] font-semibold text-ink">{t(`nav.${n.key}`)}</span>
+                      <span className="block truncate text-xs text-muted">{t(`nav.${n.key}Hint`)}</span>
                     </span>
                     <ChevronRight size={16} aria-hidden className="shrink-0 text-faint" />
                   </Link>
@@ -369,6 +383,7 @@ function Mobile({ visible = false, pulse, isActive, onSearch }: { visible?: bool
             <BridgeButton block onOpen={() => setOpen(false)} />
             <NotificationSettings block />
             <ThemeToggle block />
+            <LanguageSwitcher block />
             <XLink block />
             <div className="mx-2.5 my-2 border-t border-line" aria-hidden />
             <div className="flex flex-col gap-2 px-1">

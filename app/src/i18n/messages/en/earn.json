@@ -1,0 +1,115 @@
+{
+  "rate": "Last 30 days",
+  "rateHint": "Annualised. Variable.",
+  "rateUnavailable": "Rate unavailable right now",
+  "rateTitle": "Share price growth from {from} to {to}, net of the vault's fees",
+  "yourDeposit": "Your deposit",
+  "none": "None",
+  "depositHint": "What it withdraws for now",
+  "deposit": "Deposit",
+  "withdraw": "Withdraw",
+  "card": {
+    "title": "Earn on idle {symbol}",
+    "inWallet": "{symbol} in your wallet",
+    "onChain": "On {chain}",
+    "nothingYet": "Nothing deposited yet",
+    "runBy": "Run by {curator} on {protocol}. Can lose money. No openlaunch fee."
+  },
+  "dialog": {
+    "title": "Earn on {symbol}",
+    "close": "Close",
+    "description": "Lend your {symbol} through a {protocol} vault on Base. Take it out whenever the vault has it free.",
+    "runBy": "Run by {curator}",
+    "noFee": "0 openlaunch fee"
+  },
+  "unconfirmed": {
+    "title": "Sent, not confirmed yet",
+    "deposit": "Your wallet sent the deposit of {amount} {symbol}, but its confirmation could not be read. It may still go through. Do not send it again until this is settled.",
+    "withdraw": "Your wallet sent the withdrawal of {amount} {symbol}, but its confirmation could not be read. It may still go through. Do not send it again until this is settled.",
+    "batch": "It was sent as one batch from your wallet; your wallet’s activity shows whether it went through.",
+    "checking": "Checking…",
+    "checkAgain": "Check again",
+    "keep": "Closing this sheet keeps the check. Reloading the page forgets it, so look at your wallet’s activity before sending again."
+  },
+  "done": {
+    "deposited": "Deposited {amount} {symbol}",
+    "withdrew": "Withdrew {amount} {symbol}",
+    "depositedBody": "Your {symbol} is in {vault} on {chain}. Its value updates as the vault earns.",
+    "withdrewBody": "The {symbol} is back in your wallet on {chain}.",
+    "close": "Done"
+  },
+  "viewTx": "View the transaction",
+  "action": {
+    "connect": "Connect wallet",
+    "preparing": "Checking the vault…",
+    "approving": "Allow exactly {amount} {symbol} in your wallet…",
+    "signing": "Confirm in your wallet…",
+    "sent": "Confirming on {chain}…",
+    "switching": "Confirm the network switch…",
+    "switch": "Switch to {chain}",
+    "paused": "Deposits paused",
+    "allowAndDeposit": "Allow and deposit {amount} {symbol}",
+    "deposit": "Deposit {amount} {symbol}",
+    "withdrawAll": "Withdraw everything",
+    "withdraw": "Withdraw {amount} {symbol}"
+  },
+  "form": {
+    "nothingIn": "Nothing in {vault}",
+    "tabs": "Deposit or withdraw",
+    "youDeposit": "You deposit",
+    "youWithdraw": "You withdraw",
+    "onChain": "{symbol} on {chain}",
+    "readingBalance": "Reading your balance…",
+    "inWallet": "In your wallet: {amount} {symbol}",
+    "readingDeposit": "Reading your deposit…",
+    "deposited": "Deposited: {amount} {symbol}",
+    "max": "Max"
+  },
+  "facts": {
+    "vault": "Vault",
+    "runBy": "Run by",
+    "protocol": "Protocol",
+    "vaultFee": "Vault fee",
+    "vaultFeeValue": "{fee} of interest",
+    "openlaunchFee": "openlaunch fee",
+    "inVault": "In the vault",
+    "network": "Network",
+    "networkValue": "{chain} · gas in ETH"
+  },
+  "notice": {
+    "approval": "The first deposit asks your wallet twice: once to allow the vault exactly this amount, then to deposit it. Smart wallets do both in one step.",
+    "everything": "Withdraws your whole deposit, with the interest earned up to the moment it confirms.",
+    "noGas": "This wallet has no ETH on {chain} to pay network gas.",
+    "unreadable": "Your balances could not be read just now. They refresh on their own."
+  },
+  "disclaimer": "Deposits can lose money. Your {symbol} is lent to borrowers through {protocol}, in markets chosen by {curator}, not by openlaunch. openlaunch never holds your funds, cannot move them and cannot guarantee a withdrawal: the vault pays out from what is not lent at that moment. The rate changes all the time; past rates promise nothing.",
+  "toast": {
+    "deposited": "Deposited {amount} {symbol}",
+    "withdrew": "Withdrew {amount} {symbol}",
+    "into": "Into {vault}",
+    "from": "From {vault}"
+  },
+  "reasons": {
+    "enterAmount": "Enter an amount",
+    "readingBalance": "Reading your balance…",
+    "moreThanBalance": "More than your USDC",
+    "readingDeposit": "Reading your deposit…",
+    "nothingDeposited": "Nothing deposited",
+    "moreThanDeposit": "More than your deposit",
+    "moreThanHeld": "That is more USDC than this wallet holds.",
+    "approvalUnreadable": "The approval's confirmation could not be read. Nothing was deposited; try again (an approval that went through is reused).",
+    "approvalReverted": "The approval reverted on-chain. Nothing was deposited.",
+    "nothingInWallet": "Nothing is deposited from this wallet.",
+    "accountChanged": "Your wallet switched accounts, so this stopped before anything else was sent. Start again from the account you want to use.",
+    "flowStopped": "Stopped: the Earn card closed before the next step.",
+    "notConfirmedYet": "Still no confirmation. It can take a while when the network is busy; check again in a moment, or look at your wallet's activity.",
+    "batchFailed": "Your wallet reports the transaction failed. Nothing moved; check its activity before trying again.",
+    "depositReverted": "The deposit reverted on-chain. Nothing moved; network gas was still charged.",
+    "withdrawalReverted": "The withdrawal reverted on-chain. Nothing moved; network gas was still charged.",
+    "gates": "The vault now restricts who may use it.",
+    "asset": "The vault no longer takes {symbol}.",
+    "performanceFee": "The vault now keeps {fee} of the interest it earns.",
+    "managementFee": "The vault now charges a {fee} yearly management fee.",
+    "paused": "Deposits are paused here: {reason} openlaunch listed this vault without that and has not reviewed the change. Withdrawals stay open."
+  }
+}

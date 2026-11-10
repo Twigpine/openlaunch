@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const panel = read("./BridgeDialog.tsx");
 const provider = read("./BridgeProvider.tsx");
 const header = read("../HeaderNav.tsx");
 const css = read("./BridgeDialog.module.css");
+// the dialog's words live in the bridge messages; the source holds their keys
+const english = JSON.stringify(en.bridge);
+const chinese = messagesFor("zh-CN").bridge;
 
 test("bridge uses bundled official asset marks rather than letter placeholders", () => {
   for (const asset of ["base.svg", "robinhood-black.svg", "robinhood-white.svg", "ethereum.svg", "arc.svg", "usdc.svg"]) {
@@ -34,15 +38,27 @@ test("bridge keeps one lazily loaded controller across desktop/mobile and dismis
 });
 
 test("bridge review names minimum, separate gas, recipient, risk and expiry", () => {
-  for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0 Openlaunch fee"]) assert.ok(panel.includes(content), content);
+  for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0 Openlaunch fee"]) assert.ok(english.includes(content), content);
+  for (const key of ["quote.minimum", "quote.sourceGas", "receivingWallet", "quote.slippage", "form.disclaimer", "quote.expiredNotice", "action.refresh", "noFee"]) assert.ok(panel.includes(`"${key}"`), key);
   assert.match(panel, /reviewing \? b.approvalRequired \? b.approve\(\) : b.confirm\(\) : b.requestQuote\(\)/);
   assert.doesNotMatch(panel, /dangerouslySetInnerHTML|setInterval|sendTransaction/);
+});
+
+test("the risk and fee wording keeps its meaning in Chinese", () => {
+  // third-party protocol, carries risk, not responsible for delays, refunds or losses; nothing stronger than the English
+  assert.match(chinese.form.disclaimer, /第三方协议 Relay/);
+  assert.match(chinese.form.disclaimer, /存在风险/);
+  assert.match(chinese.form.disclaimer, /不对延迟、退款或损失负责/);
+  assert.match(chinese.feeLimit.whyFee, /超过 5% 的报价/);
+  assert.match(chinese.quote.slippage, /^0\.5% 滑点上限/);
+  assert.doesNotMatch(JSON.stringify(chinese), /保证|零风险|无风险|绝对安全|最安全|最佳/);
 });
 
 test("bridge dialog has accessible focus, mobile layout and reduced motion", () => {
   assert.match(panel, /Dialog.Popup[^>]+initialFocus=\{popup\}/);
   assert.match(panel, /finalFocus=\{connecting \? false : restoreFocus\}/);
-  assert.match(panel, /Dialog.Close[^>]+aria-label="Close bridge"/);
+  assert.match(panel, /Dialog.Close[^>]+aria-label=\{t\("close"\)\}/);
+  assert.equal(en.bridge.close, "Close bridge");
   assert.match(panel, /htmlFor="bridge-amount"/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /max-height: calc\(100dvh - 16px\)/);
@@ -64,13 +80,18 @@ test("both quote and transfer recipients expose the full address without hover",
 
 test("bridge selectors expose three networks and label cross-asset conversion and gas", () => {
   assert.match(panel, /BRIDGE_CHAIN_IDS.map/);
-  assert.match(panel, /Select.Trigger[^>]+aria-label=\{`\$\{label\} network`\}/);
+  assert.match(panel, /Select.Trigger[^>]+aria-label=\{t\(from \? "route.fromNetwork" : "route.toNetwork"\)\}/);
+  assert.equal(en.bridge.route.fromNetwork, "From network");
+  assert.equal(en.bridge.route.toNetwork, "To network");
   assert.match(panel, /onChange=\{b.setDestinationChainId\}/);
   assert.match(panel, /onClick=\{b.reverseRoute\}/);
-  assert.match(panel, /Gas in \{BRIDGE_CHAINS\[chain\].symbol\}/);
-  assert.match(panel, /Converted by Relay/);
-  assert.match(panel, /Value change/);
-  assert.doesNotMatch(panel + provider, /Bridge ETH|relayFeeEth|sourceGasEth|Your ETH is on its way/);
+  assert.match(panel, /t\("route.gasIn", \{ symbol: BRIDGE_CHAINS\[chain\].symbol \}\)/);
+  assert.equal(en.bridge.route.gasIn, "Gas in {symbol}");
+  assert.match(panel, /t\("route.converted"\)/);
+  assert.equal(en.bridge.route.converted, "Converted by Relay");
+  assert.match(panel, /t.rich\("quote.valueChange"/);
+  assert.match(en.bridge.quote.valueChange, /^Value change/);
+  assert.doesNotMatch(panel + provider + english, /Bridge ETH|relayFeeEth|sourceGasEth|Your ETH is on its way/);
 });
 
 test("network pickers use themed Base UI lists without native browser menus", () => {
@@ -95,14 +116,20 @@ test("synthetic bridge review is development-only and cannot execute a transacti
 });
 
 test("USDC approval is visibly separate from the bridge and has chain-aware recovery", () => {
-  assert.match(panel, /Approve \$\{nativeAmount\(b.amount\)\} USDC/);
-  assert.match(panel, /Approval alone does not move your funds/);
-  assert.match(panel, /No bridge deposit has been requested/);
-  assert.match(panel, /Review a fresh quote before bridging/);
+  assert.match(panel, /t\("action.approve", \{ amount: nativeAmount\(b.amount\) \}\)/);
+  assert.equal(en.bridge.action.approve, "Approve {amount} USDC");
+  for (const [key, content] of [
+    ["quote.approveFirst", "Approval alone does not move your funds"],
+    ["approval.notice", "No bridge deposit has been requested"],
+    ["form.approvalConfirmed", "Review a fresh quote before bridging"],
+    ["approval.resume", "unspent allowance remains until used or revoked"],
+    ["approval.verifyingDetail", "No wallet request will be made"],
+  ] as const) {
+    assert.ok(panel.includes(`"${key}"`), key);
+    assert.ok(english.includes(content), content);
+  }
   assert.match(panel, /approval\.approvalHash/);
   assert.match(panel, /b.recoverApproval\(hash.trim\(\)\)/);
-  assert.match(panel, /unspent allowance remains until used or revoked/);
-  assert.match(panel, /No wallet request will be made/);
   assert.match(panel, /b.approvalError \|\| b.storageError/);
   assert.match(panel, /approval\.approvalHash \? <button[^>]+onClick=\{b.retryApproval\}/);
   assert.match(panel, /BRIDGE_CHAINS\[approval.chainId\]/);
@@ -116,9 +143,12 @@ test("USDC selectors separate selected token units from native gas and disallow 
   assert.match(panel, /isBridgeAssetSupported\(chain, value\)/);
   assert.match(panel, /formatUnits\(b.balance, inputCurrency.decimals\)/);
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
-  assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
-  assert.match(panel, /USDC on Robinhood is unavailable/);
-  assert.match(panel, /uses additional \{origin.symbol\} for gas/);
+  assert.match(panel, /t\("form.forGas", \{ amount: nativeAmount\(b.nativeBalance\), symbol: origin.symbol \}\)/);
+  assert.equal(en.bridge.form.forGas, "For gas: {amount} {symbol}");
+  assert.match(panel, /t\("route.robinhoodUsdc"\)/);
+  assert.match(en.bridge.route.robinhoodUsdc, /^USDC on Robinhood is unavailable/);
+  assert.match(panel, /t\("quote.approveFirst", \{ amount: nativeAmount\(b.amount\), symbol: origin.symbol \}\)/);
+  assert.match(en.bridge.quote.approveFirst, /uses additional \{symbol\} for gas/);
   assert.match(panel, /const inputCurrency = bridgeTransferInputCurrency\(transfer\)/);
 });
 
@@ -131,8 +161,9 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(hook, /const fresh = \{ requestId, status, sourceMined, observedAt: Date\.now\(\) \};/); // removal re-reads evidence under the lock
   assert.match(hook, /if \(!transferCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
   assert.match(hook, /if \(!approvalCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
-  assert.match(panel, /Keep the Transfer ID below/);
-  assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
+  assert.match(panel, /t\("transfer.discardHelp", \{ network: origin.name \}\)/);
+  assert.match(en.bridge.transfer.discardHelp, /Keep the Transfer ID below/);
+  assert.match(en.bridge.form.disclaimer, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
   assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);
   assert.match(hook, /linkedTimeoutSignal\(signal, 20_000\)/);
   assert.match(hook, /anchorQuoteExpiry\(body, requestedAt\)/);
@@ -155,21 +186,35 @@ test("quotes update without locking typing or automatically submitting wallet ac
   assert.match(panel, /const loading = locked \|\| b.quoteLoading/);
   assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
   assert.match(panel, /if \(loading \|\| b.allowanceLoading \|\| !b.canQuote\) return/);
-  assert.match(panel, /Your quote updates automatically/);
+  assert.match(panel, /t\("feeLimit.hint"\)/);
+  assert.match(en.bridge.feeLimit.hint, /Your quote updates automatically/);
   assert.match(panel, /rejection.reason === "relay-fee"/);
   assert.match(panel, /rejection.relayFeePercent/);
   assert.doesNotMatch(hook, /busy:.*quoting/);
 });
 
+test("the API's English errors read in the reader's language where the dialog shows them", () => {
+  const hook = read("./useBridge.ts");
+  // quote and status failures arrive as the API's own English text
+  assert.match(hook, /typeof data\.error === "string" \? bridgeServiceMessage\(data\.error\)/);
+  assert.match(hook, /typeof body\.error === "string" \? bridgeServiceMessage\(body\.error\)/);
+  // messages raised in handlers and effects are worded then, so no callback or effect re-runs on a language switch
+  assert.match(hook, /messageOf\(error, clientTranslator\("bridge"\)\("errors\.quoteFailed"\)\)/);
+  assert.match(hook, /\}, \[approvalPending, tracked, config, requestKey, quoteSession\]\);/);
+});
+
 test("fee warnings separate the percentage, costs and touch-accessible exact explanation", () => {
   assert.match(panel, /<FeeLimitNotice rejection=\{b.quoteRejection\}/);
   assert.match(panel, /formatFeeWarningPercent\(exactPercent\)/);
-  assert.match(panel, /5% safety limit/);
+  assert.match(panel, /t\("feeLimit.limit"\)/);
+  assert.equal(en.bridge.feeLimit.limit, "5% safety limit");
   assert.match(panel, /role="status" aria-atomic="true"/);
-  assert.match(panel, /<details className=\{styles.feeLimitReason\}>[\s\S]+Why is this blocked\?/);
-  assert.match(panel, /Relay’s fee is \$\{exactPercent\}%/);
-  assert.match(panel, /quote loses \$\{exactPercent\}% in conversion and fees/);
-  assert.match(panel, /Source gas is extra and is not included in this limit/);
+  assert.match(panel, /<details className=\{styles.feeLimitReason\}>[\s\S]+t\("feeLimit.why"\)/);
+  assert.equal(en.bridge.feeLimit.why, "Why is this blocked?");
+  assert.match(panel, /t\(feeTooHigh \? "feeLimit.whyFee" : "feeLimit.whyLoss", \{ percent: exactPercent \}\)/);
+  assert.match(en.bridge.feeLimit.whyFee, /^Relay’s fee is \{percent\}%/);
+  assert.match(en.bridge.feeLimit.whyLoss, /quote loses \{percent\}% in conversion and fees/);
+  for (const why of [en.bridge.feeLimit.whyFee, en.bridge.feeLimit.whyLoss]) assert.match(why, /Source gas is extra and is not included in this limit/);
   assert.match(css, /\.feeLimitHeading \{[^}]*display: grid[^}]*align-items: start/);
   assert.match(css, /\.feeLimitReason summary \{[^}]*min-height: 44px/);
   assert.match(css, /\.feeLimitReason p \{[^}]*overflow-wrap: anywhere/);
@@ -179,9 +224,11 @@ test("pending approvals explain missing/queued transactions and accept a verifie
   const hook = read("./useBridge.ts");
   assert.match(panel, /health\?\.title/);
   assert.match(panel, /needsAttention \? <CircleAlert/);
-  assert.match(panel, /Sped up your approval in the wallet/);
-  assert.doesNotMatch(panel, /has no record of this approval/);
-  assert.match(panel, /discarding this record does not cancel it or fix a queued nonce/);
+  assert.match(panel, /t\("approval.spedUp"\)/);
+  assert.equal(en.bridge.approval.spedUp, "Sped up your approval in the wallet?");
+  assert.doesNotMatch(panel + english, /has no record of this approval/);
+  assert.match(panel, /t\("approval.discardHelp"\)/);
+  assert.match(en.bridge.approval.discardHelp, /discarding this record does not cancel it or fix a queued nonce/);
   assert.match(hook, /recoverApprovalFromEvidence\(current/);
   assert.match(hook, /!canApplyApprovalPoll\(current, observed\)/);
   assert.match(hook, /const health = receipt \? null : await readPendingApprovalHealth/);

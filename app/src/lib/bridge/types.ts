@@ -1,4 +1,5 @@
 import type { Address, Hex } from "viem";
+import { clientTranslator } from "@/i18n/client";
 
 /** Bridge networks do not extend the launch registry. */
 export type BridgeChainId = 8453 | 4663 | 5042;
@@ -29,11 +30,11 @@ export function isBridgeAssetSupported(chainId: BridgeChainId, asset: unknown): 
 }
 export function bridgeCurrency(chainId: BridgeChainId, asset: BridgeAsset | undefined, side: "input" | "output"): BridgeCurrency {
   const symbol = asset ?? defaultBridgeAsset(chainId);
-  if (!isBridgeAssetSupported(chainId, symbol)) throw new Error("This token is not supported on this bridge network.");
+  if (!isBridgeAssetSupported(chainId, symbol)) throw new Error(clientTranslator("bridge")("errors.tokenUnsupported"));
   if (symbol === "ETH") return { address: NATIVE_ADDRESS, symbol, decimals: 18 };
   if (chainId === 8453) return { address: BASE_USDC, symbol, decimals: 6 };
   if (chainId === 5042) return { address: side === "input" ? ARC_USDC : NATIVE_ADDRESS, symbol, decimals: side === "input" ? 6 : 18 };
-  throw new Error("USDC is not verified for this bridge network.");
+  throw new Error(clientTranslator("bridge")("errors.usdcUnverified"));
 }
 
 /** The original Arc journal recorded native (18-decimal) deposits, not ERC-20 units. */

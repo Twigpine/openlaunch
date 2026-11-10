@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en, messagesFor } from "@/i18n/messages";
 
 // Source contracts for the Earn components (like bridge-ui.test.ts): they hold the money-moving rules in place.
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+// Line endings are normalised so the patterns hold on a Windows checkout too.
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const hook = read("./useEarn.ts");
 const card = read("./EarnCard.tsx");
 const dialog = read("./EarnDialog.tsx");
@@ -108,14 +110,26 @@ test("the card shows only while the switch is on, and the sheet loads on first u
 });
 
 test("the copy states the risk and the absence of any openlaunch fee, and makes no promise", () => {
-  assert.match(panel, /Deposits can lose money\./);
-  assert.match(panel, /openlaunch never holds your funds, cannot move them and cannot guarantee a withdrawal/);
-  assert.match(panel, /<dt>openlaunch fee<\/dt><dd>None<\/dd>/);
-  assert.match(dialog, /0 openlaunch fee/);
-  assert.match(card, /Can lose money\. No openlaunch fee\./);
-  for (const src of [card, dialog, panel]) {
+  // the words are messages (earn); the components show them in the reader's language
+  const words = en.earn;
+  const zh = messagesFor("zh-CN").earn;
+  assert.match(panel, /<p id="earn-risk" className=\{styles\.disclaimer\}>\{t\("disclaimer", /);
+  assert.match(words.disclaimer, /^Deposits can lose money\./);
+  assert.match(words.disclaimer, /openlaunch never holds your funds, cannot move them and cannot guarantee a withdrawal/);
+  assert.match(zh.disclaimer, /^存款可能亏损。/);
+  assert.match(zh.disclaimer, /openlaunch 从不持有你的资金，无法转移它们，也无法保证你一定能取出/);
+  assert.match(panel, /<dt>\{t\("facts\.openlaunchFee"\)\}<\/dt><dd>\{t\("none"\)\}<\/dd>/);
+  assert.equal(words.facts.openlaunchFee, "openlaunch fee");
+  assert.equal(words.none, "None");
+  assert.match(dialog, /<span>\{t\("noFee"\)\}<\/span>/);
+  assert.equal(words.dialog.noFee, "0 openlaunch fee");
+  assert.match(card, /\{t\("card\.runBy", /);
+  assert.match(words.card.runBy, /Can lose money\. No openlaunch fee\.$/);
+  assert.match(zh.card.runBy, /可能亏损。openlaunch 不收费。$/);
+  for (const src of [card, dialog, panel, JSON.stringify(words)]) {
     assert.doesNotMatch(src, /Base Earn|Coinbase|high[- ]yield|guaranteed (?:return|yield|rate)|risk[- ]free|\bsafe\b/i);
   }
+  assert.doesNotMatch(JSON.stringify(zh), /保本|保证收益|稳赚|无风险|零风险|高收益|安全/);
 });
 
 test("the review page is development-only", () => {

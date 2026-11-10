@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the phone's Launch pill. The header has no Launch button on a phone (it lives in the menu), so after
@@ -20,7 +21,9 @@ test("it shows only while the hero's own button is mounted and fully off screen,
 
 test("it is one filled link to /launch with a real name, drawn on phones only, under the header and its menu", () => {
   assert.match(pill, /<Link href="\/launch" className=\{styles\.pill\}>/);
-  assert.match(pill, /Launch a token\n\s*<\/Link>/);
+  assert.match(pill, /\{t\("launchToken"\)\}\n\s*<\/Link>/);
+  assert.match(pill, /const t = useTranslations\("common"\);/);
+  assert.equal(en.common.launchToken, "Launch a token");
   assert.match(css, /\.pill \{ position: fixed; z-index: 30;/, "the header is z 40 and its phone menu z 50");
   assert.match(css, /bottom: max\(16px, env\(safe-area-inset-bottom\)\)/);
   assert.match(css, /@media \(min-width: 640px\) \{ \.pill \{ display: none; \} \}/, "from 640px the header carries the button");

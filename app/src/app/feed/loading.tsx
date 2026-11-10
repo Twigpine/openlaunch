@@ -1,14 +1,16 @@
 import { Sk, SkFeedPost } from "@/components/Skeleton";
 import shell from "@/components/sections/SectionShell.module.css";
 import styles from "@/components/sections/CommunityFeed.module.css";
+import { getTranslations } from "@/i18n/server";
 
 /**
  * /feed skeleton. Same shell, intro, two-column grid and post rhythm as FeedPage + CommunityFeed
  * (it borrows their CSS modules, so breakpoints stay in sync) so nothing shifts when the posts arrive.
  */
-export default function Loading() {
+export default async function Loading() {
+  const t = await getTranslations("info");
   return (
-    <main className={shell.page} aria-busy="true" aria-label="Loading posts">
+    <main className={shell.page} aria-busy="true" aria-label={t("loading.posts")}>
       <header className={shell.intro}>
         <Sk className="h-7 w-40 rounded-full" />
         <div className={shell.introRow}>
@@ -23,7 +25,7 @@ export default function Loading() {
         </div>
       </header>
       <div className={styles.layout}>
-        <section className={shell.panel} aria-label="Loading recent community posts">
+        <section className={shell.panel} aria-label={t("loading.recentPosts")}>
           <div className={styles.toolbar}><Sk className="h-4 w-44 max-w-full" /><Sk className="h-11 w-11 rounded-full" /></div>
           <div className={styles.filters}><Sk className="h-[54px] w-60 max-w-full rounded-xl" /><Sk className="h-11 min-w-[180px] flex-1 rounded-xl" /></div>
           <div className={styles.resultLine}><p className="flex h-4 items-center"><Sk className="h-3 w-24" /></p><span className="flex h-4 items-center"><Sk className="h-3 w-36" /></span></div>

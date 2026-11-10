@@ -6,6 +6,7 @@ import { NATIVE, listedQuoteAddresses, quoteInfo, quoteUsdOf } from "./config.ts
 import { MAX_QUOTE_DECIMALS, addressLabel, cleanQuoteSymbol, unlistedQuote, validDecimals } from "./unlisted-quote.ts";
 import { capDisplay } from "./market-cap.ts";
 import { fdvQuote } from "./math.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * The factory takes any ERC-20 as the quote (first seen 2026-09-25: SHEAF on Base). Such a pair is shown
@@ -103,5 +104,6 @@ test("the token page and trade panel mark the pair and refuse to trade unknown d
   assert.match(panel, /const tradable = quote\.decimalsKnown !== false;/);
   assert.match(panel, /if \(!tradable \|\| !address/);
   assert.match(panel, /\{!configured \|\| !tradable \?/);
-  assert.match(panel, /<b>Unlisted pair\.<\/b>/);
+  assert.match(panel, /\{t\.rich\("unlisted", \{/);
+  assert.match(en.trade.panel.unlisted, /^<b>Unlisted pair\.<\/b>/);
 });

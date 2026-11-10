@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createTranslator } from "use-intl/core";
 import type { FeedItem } from "./queries.ts";
 import { BUBBLE_ENOUGH, BUBBLE_HISTORY_MS, BUBBLE_WINDOWS_MS, aggregateBubbles, bubbleLean, bubbleRadii, bubbleSummary, bubbleVolume, bubbleWindow, bubbleWindowLabel, type BubbleToken } from "./bubbles.ts";
+import { messagesFor } from "../../i18n/messages/index.ts";
+
+/** The words of the summary and the window as each reader gets them: use-intl over the site's own messages. */
+const words = (locale: "en" | "zh-CN") => createTranslator({ locale, messages: messagesFor(locale), namespace: "activity.bubbles.summary", timeZone: "UTC" });
+const en = words("en");
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -70,11 +76,20 @@ test("radii: area follows dollars, zero-dollar tokens sit at the small end, and 
 });
 
 test("labels and the summary say what is held, and a cut-off seed never claims the whole window", () => {
-  assert.equal(bubbleWindowLabel(30 * 60_000), "30 minutes");
-  assert.equal(bubbleWindowLabel(60 * 60_000), "hour");
-  assert.equal(bubbleWindowLabel(6 * 3_600_000), "6 hours");
+  assert.equal(bubbleWindowLabel(30 * 60_000, en), "30 minutes");
+  assert.equal(bubbleWindowLabel(60 * 60_000, en), "hour");
+  assert.equal(bubbleWindowLabel(6 * 3_600_000, en), "6 hours");
   const held = aggregateBubbles([swap("0xaa", 1, true, 5), swap("0xaa", 2, false, 5), swap("0xbb", 3, true, 5), launch("0xcc", 4)], NOW, 30 * 60_000);
-  assert.equal(bubbleSummary(held, 30 * 60_000, true), "3 tokens, 3 trades and 1 launch in the last 30 minutes");
-  assert.equal(bubbleSummary(held, 30 * 60_000, false), "3 tokens in the latest 3 trades and 1 launch");
-  assert.equal(bubbleSummary([], 30 * 60_000, true), "Nothing traded or launched in the last 24 hours");
+  assert.equal(bubbleSummary(held, 30 * 60_000, true, en), "3 tokens, 3 trades and 1 launch in the last 30 minutes");
+  assert.equal(bubbleSummary(held, 30 * 60_000, false, en), "3 tokens in the latest 3 trades and 1 launch");
+  assert.equal(bubbleSummary([], 30 * 60_000, true, en), "Nothing traded or launched in the last 24 hours");
+});
+
+test("in Chinese the window and the summary keep the same counts in Chinese word order", () => {
+  const zh = words("zh-CN");
+  assert.equal(bubbleWindowLabel(60 * 60_000, zh), "1 小时");
+  assert.equal(bubbleWindowLabel(6 * 3_600_000, zh), "6 小时");
+  const held = aggregateBubbles([swap("0xaa", 1, true, 5), swap("0xaa", 2, false, 5), swap("0xbb", 3, true, 5), launch("0xcc", 4)], NOW, 30 * 60_000);
+  assert.equal(bubbleSummary(held, 30 * 60_000, true, zh), "最近 30 分钟内有 3 个代币，3 笔交易和 1 次发行");
+  assert.equal(bubbleSummary(held, 30 * 60_000, false, zh), "最新 3 笔交易和 1 次发行涉及 3 个代币");
 });

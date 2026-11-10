@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
+import { useTranslations } from "use-intl";
 import styles from "./BridgeDialog.module.css";
 
 const BridgeDialog = dynamic(() => import("./BridgeDialog"), { ssr: false });
@@ -38,10 +39,11 @@ export function useOpenBridge(): (() => void) | null {
 /** `compact` drops the label (icon only) where the header has no room: the whole desktop strip, resting or floating. */
 export function BridgeButton({ block = false, compact = false, onOpen }: { block?: boolean; compact?: boolean; onOpen?: () => void }) {
   const show = useContext(BridgeContext);
+  const t = useTranslations("header.bridge");
   return (
-    <button type="button" className={`${styles.trigger} ${block ? styles.blockTrigger : ""} ${compact && !block ? styles.compactTrigger : ""}`} aria-label="Bridge funds" aria-haspopup="dialog" title="Bridge between Base, Robinhood and Arc" onClick={() => { show?.(); onOpen?.(); }}>
+    <button type="button" className={`${styles.trigger} ${block ? styles.blockTrigger : ""} ${compact && !block ? styles.compactTrigger : ""}`} aria-label={t("aria")} aria-haspopup="dialog" title={t("title")} onClick={() => { show?.(); onOpen?.(); }}>
       <ArrowLeftRight size={17} strokeWidth={1.8} aria-hidden />
-      <span className={styles.triggerLabel}>Bridge</span>
+      <span className={styles.triggerLabel}>{t("label")}</span>
       {block ? <span className={styles.triggerHint}>Base · Robinhood · Arc</span> : null}
     </button>
   );

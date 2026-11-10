@@ -11,6 +11,7 @@ import { quotePillOf } from "./ogcard.ts";
 import { FILTERS, filterOnChain, isFilter, matchesFilter } from "./search.ts";
 import { TWIG_ADDRESS, TWIG_ADDRESSES, TWIG_LOGO_PATH, gitlawbLinkedUsd, twigUsdFromGitlawb } from "./twig.ts";
 import { cleanQuoteSymbol } from "./unlisted-quote.ts";
+import { en, messagesFor } from "../../i18n/messages/index.ts";
 
 /**
  * TWIG (twig.ts) is an official quote on Base: badged, priced at GITLAWB's USD price (one TWIG unwraps to one GITLAWB),
@@ -118,10 +119,12 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.doesNotMatch(form, /brandQuote|isBrandQuote|Pair with \{/, "no form nudges toward a branded quote: none is offered");
   assert.doesNotMatch(form, /QuoteBrandBadge/, "the form offers no branded quote, so it shows no quote badge (lists, token pages and share cards still do)");
-  assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label="Paired with TWIG" \/>/);
+  assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label=\{t\("page\.pairedWith", \{ symbol: "TWIG" \}\)\} \/>/);
+  assert.equal(en.token.page.pairedWith, "Paired with {symbol}");
   assert.deepEqual(quotePillOf("twig", "TWIG"), { symbol: "TWIG", ticker: "TW", kind: "twig" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /card\.quote\.kind === "twig"/);
-  assert.match(src("../../components/launchpad/TradePanel.tsx"), /quote\.key === "twig"[\s\S]{0,240}Need TWIG\? Wrap GITLAWB 1:1 or buy TWIG at/);
+  assert.match(src("../../components/launchpad/TradePanel.tsx"), /quote\.key === "twig"[\s\S]{0,240}t\.rich\("needTwig"/);
+  assert.match(en.trade.panel.needTwig, /^Need TWIG\? Wrap GITLAWB 1:1 or buy TWIG at <link>/);
 });
 
 test("the published TWIG address is the one in config, everywhere agents read it", () => {
@@ -138,22 +141,31 @@ test("the launch form never offers TWIG or GITLAWB: no option, no nudge, no toke
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.doesNotMatch(form, /"twig"|TwigMark|TWIG_WRAP_URL|wrap\.twigpine\.com/, "nothing in the form can pick, mark or explain TWIG");
   assert.doesNotMatch(form, /"gitlawb"|GitlawbMark|GITLAWB_SITE|gitlawbOrigin|gitlawbUsd|gitlawbLinkedUsd/, "nothing in the form can pick, mark, price or explain GITLAWB");
-  assert.doesNotMatch(form, /Priced in ETH, TWIG|ETH, GITLAWB or a Robinhood/, "no chain card lists TWIG or GITLAWB");
-  assert.match(form, /blurb: "Priced in ETH or a Coinbase tokenized stock\. Gas ≈ cents\."/);
-  assert.match(form, /blurb: "Priced in USDG \(dollars\), ETH or a Robinhood Stock Token\. Gas ≈ cents\."/);
+  // the form's words are messages (launch.form): no chain card, in any language, lists TWIG or GITLAWB
+  for (const locale of ["en", "zh-CN"] as const) assert.doesNotMatch(JSON.stringify(messagesFor(locale).launch.form), /TWIG|GITLAWB/, locale);
+  assert.equal(en.launch.form.chain.blurb.base, "Priced in ETH or a Coinbase tokenized stock. Gas ≈ cents.");
+  assert.equal(en.launch.form.chain.blurb.robinhood, "Priced in USDG (dollars), ETH or a Robinhood Stock Token. Gas ≈ cents.");
+  // the rules' words are messages too (info.rules): the page links the migration, the English says why
   const rules = src("../../app/rules/page.tsx");
-  assert.doesNotMatch(rules, /It is the quote the Base form offers/);
-  assert.doesNotMatch(rules, /pairs your token with ETH, TWIG on Base/);
-  assert.match(rules, /The Base form no longer offers it, ahead of the planned GITLAWB and TWIG token migration \(<a href=\{TWIG_MIGRATE_URL\}/);
-  assert.match(rules, /Launches already paired with TWIG keep their badge, price and trading/);
-  assert.doesNotMatch(rules, /The Robinhood Chain form offers it|ETH, GITLAWB or USDG on Robinhood Chain/);
-  assert.match(rules, /No launch form offers it any more, ahead of the same planned migration; pools already paired with GITLAWB, on either chain, keep their badge, price and trading/);
+  assert.match(rules, /t\.rich\("rules\.know\.twig\.twig", \{ link: \(chunks\) => <a href=\{TWIG_MIGRATE_URL\}/);
+  const { twig, gitlawb } = en.info.rules.know.twig;
+  assert.doesNotMatch(twig, /It is the quote the Base form offers/);
+  assert.doesNotMatch(en.info.rules.launch.steps.market.description, /pairs your token with ETH, TWIG on Base/);
+  assert.match(twig, /The Base form no longer offers it, ahead of the planned GITLAWB and TWIG token migration \(<link>migrate\.twigpine\.com<\/link>\)/);
+  assert.match(twig, /Launches already paired with TWIG keep their badge, price and trading/);
+  assert.doesNotMatch(`${gitlawb} ${en.info.rules.launch.steps.market.description}`, /The Robinhood Chain form offers it|ETH, GITLAWB or USDG on Robinhood Chain/);
+  assert.match(gitlawb, /No launch form offers it any more, ahead of the same planned migration; pools already paired with GITLAWB, on either chain, keep their badge, price and trading/);
+  for (const k of ["twig", "gitlawb"] as const) assert.match(messagesFor("zh-CN").info.rules.know.twig[k], /迁移/, `zh-CN ${k} gives the same reason`);
+  assert.match(messagesFor("zh-CN").info.rules.know.twig.twig, /<link>migrate\.twigpine\.com<\/link>/);
   // every page and doc a person or an agent reads: none may say, in any wording, that a form offers TWIG or GITLAWB
   const said = /quote the (Base )?form offers there|form'?s quote|ETH, TWIG and stocks|besides ETH and TWIG|quote = ETH, TWIG on Base|GITLAWB or USDG on Robinhood|Robinhood Chain form offers it|form (also |still )?offers(?! neither)[^.;]*\b(TWIG|GITLAWB)\b|\b(TWIG|GITLAWB)\b[^.;]*\bthe (Base |Robinhood Chain )?form (also |still )?offers(?! neither)|(?<!no longer |not )offered in (the|a|its) (Base |Robinhood Chain )?(launch )?form[^.;]*\b(TWIG|GITLAWB)\b|\bpick (TWIG|GITLAWB)\b[^.;]*\bform\b/;
   const docs = ["../../../../README.md", "../../../../docs/pairs.md", "../../../../docs/boost.md"];
-  for (const f of ["../../app/agents/page.tsx", "../../app/llms.txt/route.ts", "../../app/rules/page.tsx", "../../app/pairs/page.tsx", "pairs.ts", "pairApply.ts", "../../app/api/quotes/route.ts", ...docs]) {
+  // the agents page and the rules read their English from the info messages, so those are checked as well
+  const messages = ["../../i18n/messages/en/info.json", "../../i18n/messages/en/launch.json"];
+  for (const f of ["../../app/agents/page.tsx", "../../app/llms.txt/route.ts", "../../app/rules/page.tsx", "../../app/pairs/page.tsx", "pairs.ts", "pairApply.ts", "../../app/api/quotes/route.ts", ...messages, ...docs]) {
     assert.doesNotMatch(src(f), said, f);
   }
   // the Base landing page lists stocks beside ETH, as the form does, rather than reading as an ETH-only chain
-  assert.match(src("../../components/launchpad/ChainLanding.tsx"), /\.\.\.\(STOCK_SOURCE\[chain\] \? \["Stocks"\] : \[\]\)/);
+  assert.match(src("../../components/launchpad/ChainLanding.tsx"), /\.\.\.\(STOCK_SOURCE\[chain\] \? \[t\("chain\.stocks"\)\] : \[\]\)/);
+  assert.equal(en.info.chain.stocks, "Stocks");
 });

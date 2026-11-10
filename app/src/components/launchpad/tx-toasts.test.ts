@@ -3,9 +3,14 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { createTranslator } from "use-intl/core";
 import type { FeedItem } from "@/lib/launchpad/queries";
 import * as queueFunctions from "@/lib/launchpad/toast-queue";
 import { fmtQuote } from "@/lib/launchpad/math";
+import { en } from "../../i18n/messages/index.ts";
+
+/** use-intl's useTranslations over the English messages: the words an English reader gets. */
+const useTranslations = (namespace: "activity.toasts") => createTranslator({ locale: "en", messages: en, namespace, timeZone: "UTC" });
 
 type Element = { type: unknown; props: Record<string, unknown>; children: unknown[] };
 const jsx = { createElement: (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): Element => ({ type, props: props ?? {}, children }), Fragment: "fragment" };
@@ -51,6 +56,9 @@ function harness(initial: FeedItem[] = [], enabled = false, initialAt?: number, 
     useState: () => ++hook === 1 ? [state, (update: (current: queueFunctions.ToastQueue) => queueFunctions.ToastQueue) => { state = update(state); }] : [fresh],
     useCallback: (fn: unknown) => push ??= fn,
     useEffect: (setup: () => (() => void) | void, deps: unknown[]) => effects.push({ setup, deps }),
+    // an Effect Event is the latest render's function; the words here never change, so the function itself stands in
+    useEffectEvent: (fn: unknown) => fn,
+    useTranslations,
     window: { addEventListener: (_name: string, fn: (event: unknown) => void) => events.add(fn), removeEventListener: (_name: string, fn: (event: unknown) => void) => events.delete(fn) },
     setTimeout: (fn: () => void, delay: number) => { timers.set(++timerId, { fn, delay }); return timerId; },
     clearTimeout: (id: number) => timers.delete(id),
@@ -84,7 +92,7 @@ function harness(initial: FeedItem[] = [], enabled = false, initialAt?: number, 
 const swap = (id: string, quote_wei: string, quote_decimals: number, quote_symbol: string, is_buy = true): FeedItem => ({ kind: "swap", chain: "base", at: "2026-09-01T00:00:00Z", tx_hash: id, log_index: 7, token: "dusty", name: "Dusty", symbol: "DUSTY", trader: "0xabc", is_buy, is_dev: false, quote_wei, quote_key: quote_decimals === 6 ? "usdg" : "eth", quote_symbol, quote_decimals, usd: null, image_url: null });
 const launch = (id: string): FeedItem => ({ kind: "launch", chain: "base", at: "2026-09-01T00:00:00Z", tx_hash: id, token: id, name: id, symbol: id, launcher: "wallet", lp_fee: 0, quote_key: "eth", image_url: null });
 const invoke = (element: Element, handler: string, ...args: unknown[]) => (element.props[handler] as (...args: unknown[]) => void)(...args);
-const cardBindings = { Link: "Link", TokenAvatar: "TokenAvatar", ArrowDownLeft: "ArrowDownLeft", ArrowUpRight: "ArrowUpRight", Check: "Check", Coins: "Coins", Info: "Info", Plus: "Plus", X: "X", CHAIN_SHORT: { base: "Base", robinhood: "Robinhood" }, TOAST_TTL_MS: queueFunctions.TOAST_TTL_MS };
+const cardBindings = { Link: "Link", TokenAvatar: "TokenAvatar", ArrowDownLeft: "ArrowDownLeft", ArrowUpRight: "ArrowUpRight", Check: "Check", Coins: "Coins", Info: "Info", Plus: "Plus", X: "X", CHAIN_SHORT: { base: "Base", robinhood: "Robinhood" }, TOAST_TTL_MS: queueFunctions.TOAST_TTL_MS, useTranslations };
 
 function textOf(node: unknown): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -260,7 +268,7 @@ test("queue count stays out of live announcements and lifetime track follows pau
   const output = card({ t: { ...active, startedAt: null }, pending: 12, onClose: () => {} });
   const nodes = elements(output);
   const queued = nodes.find((node) => node.props.className === "bb-toast-queued")!;
-  assert.equal(textOf(queued), "12  queued");
+  assert.equal(textOf(queued), "12 queued");
   assert.equal(queued.props["aria-live"], "off");
   const progress = nodes.find((node) => node.props.className === "bb-toast-progress")!;
   assert.equal((progress.props.style as Record<string, unknown>).animationPlayState, "paused");

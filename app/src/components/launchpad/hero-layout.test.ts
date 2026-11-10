@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { HERO } from "./hero-layout.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 /**
  * Source contracts for the home page's first screen: the hero grid and its loading skeleton share their class
@@ -36,11 +37,13 @@ test("the headline is stepped so it stays two lines, and the hero grid has three
 test("the hero has two ways in, and the proofs are chips that are easy to hit", () => {
   // the filled button, and the way in for someone who wants it explained first: the rules guide
   assert.match(hero, /<HeroCtaLink id="hero-cta" href="\/launch"/);
-  assert.match(hero, /<Link href="\/rules#launchpad" aria-label="See how it works" className="group inline-flex min-h-12 /);
-  assert.match(hero, /<span aria-hidden="true" className="hidden truncate sm:inline">See how it works<\/span>/);
+  assert.match(hero, /<Link href="\/rules#launchpad" aria-label=\{t\("seeHowItWorks"\)\} className="group inline-flex min-h-12 /);
+  assert.match(hero, /<span aria-hidden="true" className="hidden truncate sm:inline">\{t\("seeHowItWorks"\)\}<\/span>/);
+  assert.equal(en.hero.seeHowItWorks, "See how it works");
   // phones: both buttons share one row, and below 380px the second is just its tile so the filled one keeps its words
   assert.ok(HERO.actions.split(" ").includes("items-center") && !HERO.actions.split(" ").includes("flex-col"));
-  assert.match(hero, /truncate max-\[379px\]:hidden sm:hidden">How it works</);
+  assert.match(hero, /truncate max-\[379px\]:hidden sm:hidden">\{t\("howItWorks"\)\}</);
+  assert.equal(en.hero.howItWorks, "How it works");
   // larger text: the buttons no longer fit side by side, so the row wraps (the second goes under the first) instead of the
   // filled button shrinking to an icon or the second running off the page; the filled button keeps room for its words
   // From 640px it never wraps (the tablet hero is laid out around one row), so none of this changes there.
@@ -106,25 +109,37 @@ test("short laptop screens get a smaller locker and tighter gaps", () => {
 });
 
 test("the totals strip has five readings in order, with Trades as the big one", () => {
-  const labels = ["Trades", "Tokens launched", "All-time volume", "Fees to recipients", "Platform fee"];
-  const at = labels.map((label) => totals.indexOf(`label="${label}"`));
+  const labels = ["trades", "launched", "volume", "toRecipients", "platformFee"] as const;
+  const at = labels.map((label) => totals.indexOf(`label={tr("${label}")}`));
   assert.ok(at.every((i) => i >= 0), "every reading is there");
   assert.deepEqual([...at].sort((a, b) => a - b), at);
+  assert.deepEqual(labels.map((label) => en.launch.totals[label]), ["Trades", "Tokens launched", "All-time volume", "Fees to recipients", "Platform fee"]);
   assert.equal((totals.match(/<Reading /g) ?? []).length, 5);
-  assert.match(totals, /<Reading lead label="Trades" note="buys and sells, all on-chain"/);
+  assert.match(totals, /<Reading lead label=\{tr\("trades"\)\} note=\{tr\("tradesNote"\)\}/);
+  assert.equal(en.launch.totals.tradesNote, "buys and sells, all on-chain");
   assert.equal((totals.match(/<Reading lead /g) ?? []).length, 1, "one big figure");
-  assert.match(totals, /label="Platform fee" note="to us, on every chain" tone="brand" chars=\{2\}>\$0<\/Reading>/);
-  assert.match(totals, /label="Fees to recipients" note="to the wallets creators chose"[^\n]*tone="up"/);
+  assert.match(totals, /label=\{tr\("platformFee"\)\} note=\{tr\("platformFeeNote"\)\} tone="brand" chars=\{2\}>\$0<\/Reading>/);
+  assert.equal(en.launch.totals.platformFeeNote, "to us, on every chain");
+  assert.match(totals, /label=\{tr\("toRecipients"\)\} note=\{tr\("toRecipientsNote"\)\}[^\n]*tone="up"/);
+  assert.equal(en.launch.totals.toRecipientsNote, "to the wallets creators chose");
   // a valid description list: each reading is a div holding one term and its two descriptions
   assert.match(totals, /<div className=\{[^\n]*\n\s*<dt className=\{styles\.label\}>\{label\}<\/dt>\n\s*<dd [^\n]*<\/dd>\n\s*<dd className=\{styles\.note\}>\{note\}<\/dd>\n\s*<\/div>/);
 });
 
 test("the strip names Robinhood Chain in full, in its notes and in the breakdown", () => {
-  assert.match(totals, /import \{ CHAIN_KEYS, CHAIN_LABELS, chainList \} from "@\/lib\/chainPublic"/);
+  assert.match(totals, /import \{ CHAIN_KEYS, CHAIN_LABELS \} from "@\/lib\/chainPublic"/);
   assert.doesNotMatch(totals, /CHAIN_SHORT/);
-  assert.match(totals, /note=\{`on \$\{chainList\("&", CHAIN_LABELS\)\}`\}/);
-  assert.match(totals, />The numbers across \{chainList\("&", CHAIN_LABELS\)\}</);
-  assert.match(totals, /\{CHAIN_LABELS\[k\]\} launches</);
+  // the full names, joined in the reader's language; English reads as chainList("&") did: "Base, Robinhood Chain & Arc"
+  assert.match(totals, /const names = CHAIN_KEYS\.map\(\(k\) => CHAIN_LABELS\[k\]\);/);
+  assert.match(totals, /tr\("chains", \{ first: names\.slice\(0, -1\)\.join\(tr\("chainSeparator"\)\), last: names\[names\.length - 1\] \}\)/);
+  assert.equal(en.launch.totals.chainSeparator, ", ");
+  assert.equal(en.launch.totals.chains, "{first} & {last}");
+  assert.match(totals, /note=\{tr\("launchedNote", \{ chains \}\)\}/);
+  assert.equal(en.launch.totals.launchedNote, "on {chains}");
+  assert.match(totals, />\{tr\("breakdown", \{ chains \}\)\}</);
+  assert.equal(en.launch.totals.breakdown, "The numbers across {chains}");
+  assert.match(totals, /\{tr\("chainLaunches", \{ chain: CHAIN_LABELS\[k\] \}\)\}</);
+  assert.equal(en.launch.totals.chainLaunches, "{chain} launches");
 });
 
 test("the dollar readings are latched: shown totals change only when something happened on-chain", () => {
@@ -140,9 +155,11 @@ test("the dollar readings are latched: shown totals change only when something h
 });
 
 test("the two dollar figures explain themselves, and the ≈ note is readable without a mouse", () => {
-  assert.match(totals, /usdNote \?\? `\$\{fmtUsd\(v\)\} · \$\{what\} valued at current rates`/);
-  assert.match(totals, /title=\{usdTitle\(t\.volume_usd, "quote volume"\)\}/);
-  assert.match(totals, /title=\{usdTitle\(t\.fees_to_creators_usd, "quote-asset fees"\)\}/, "fees are not volume");
+  assert.match(totals, /usdNote \?\? tr\(what, \{ usd: fmtUsd\(v\) \}\)/);
+  assert.match(totals, /title=\{usdTitle\(t\.volume_usd, "volumeTitle"\)\}/);
+  assert.match(totals, /title=\{usdTitle\(t\.fees_to_creators_usd, "feesTitle"\)\}/, "fees are not volume");
+  assert.equal(en.launch.totals.volumeTitle, "{usd} · quote volume valued at current rates");
+  assert.equal(en.launch.totals.feesTitle, "{usd} · quote-asset fees valued at current rates");
   const details = totals.slice(totals.indexOf("<details"));
   assert.match(details, /\{usdNote \? <p className="[^"]*text-\[11px\][^"]*">≈ \{usdNote\}<\/p> : null\}/);
 });

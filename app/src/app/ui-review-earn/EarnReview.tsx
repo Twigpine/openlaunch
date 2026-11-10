@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { X } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { EarnCardView } from "@/components/earn/EarnCard";
 import { EarnShell } from "@/components/earn/EarnDialog";
 import EarnPanel, { type EarnView } from "@/components/earn/EarnPanel";
@@ -47,10 +48,12 @@ const scenes: { id: string; title: string; view: Partial<EarnView>; snap?: EarnV
 
 /** The sheet drawn in place (no modal), with one scene's synthetic state. */
 function Panel({ view, snap }: { view: EarnView; snap: EarnVaultSnapshot | null }) {
+  // the sheet's own words (EarnDialog), so the review reads in either language like the real sheet
+  const t = useTranslations("earn.dialog");
   return (
     <div className={`${styles.panel} ${styles.static}`}>
-      <EarnShell vault={vault} title={<h2 className={styles.title}>Earn on USDC</h2>} close={<button type="button" className={styles.close} aria-label="Close"><X size={19} aria-hidden /></button>}
-        description={<p className={styles.description}>Lend your USDC through a Morpho vault on Base. Take it out whenever the vault has it free.</p>}>
+      <EarnShell vault={vault} title={<h2 className={styles.title}>{t("title", { symbol: vault.assetSymbol })}</h2>} close={<button type="button" className={styles.close} aria-label={t("close")}><X size={19} aria-hidden /></button>}
+        description={<p className={styles.description}>{t("description", { symbol: vault.assetSymbol, protocol: vault.protocol })}</p>}>
         <EarnPanel view={view} snapshot={snap} onConnect={noop} />
       </EarnShell>
     </div>

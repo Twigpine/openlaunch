@@ -6,7 +6,8 @@
  *   3. client POSTs the edit + nonce + signature                      → server verifies signature, nonce, expiry,
  *                                                                        and that the signer is the on-chain launcher
  */
-import { parseXHandle } from "./xHandle.ts";
+import { parseXHandle, X_HANDLE_ERROR } from "./xHandle.ts";
+import { clientTranslator } from "../../i18n/client.ts";
 
 export const EDIT_TTL_MS = 5 * 60_000;
 export const EDIT_DOMAIN = "openlaunch.lol";
@@ -59,12 +60,17 @@ export function validateEdit(f: Partial<Record<keyof EditFields, unknown>>): { o
   const image_url = url(f.image_url);
   const banner_url = url(f.banner_url);
   const website = url(f.website);
-  if (image_url === null) return { ok: false, error: "image: https URL only" };
-  if (banner_url === null) return { ok: false, error: "banner: https URL only" };
-  if (website === null) return { ok: false, error: "website: https URL only" };
+  if (image_url === null) return invalid("imageHttps");
+  if (banner_url === null) return invalid("bannerHttps");
+  if (website === null) return invalid("websiteHttps");
   const x = parseXHandle(f.x_handle);
-  if (!x.ok) return { ok: false, error: x.error };
+  if (!x.ok) return x.error === X_HANDLE_ERROR ? invalid("xHandle") : { ok: false, error: x.error };
   const x_handle = x.handle;
-  if (/<[a-z!/]/i.test(description)) return { ok: false, error: "description: no HTML" };
+  if (/<[a-z!/]/i.test(description)) return invalid("noHtml");
   return { ok: true, value: { description, image_url, banner_url, website, x_handle } };
+}
+
+/** An edit error in the reader's language, for the edit sheet; on the server (the edit API's answer) it reads in English. */
+function invalid(key: "imageHttps" | "bannerHttps" | "websiteHttps" | "xHandle" | "noHtml"): { ok: false; error: string } {
+  return { ok: false, error: clientTranslator("token")(`edit.errors.${key}`) };
 }

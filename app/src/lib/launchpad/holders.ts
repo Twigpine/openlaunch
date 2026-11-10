@@ -92,16 +92,48 @@ export function creatorActivity(swaps: SwapLite[], launcher: string): { bought: 
   return { bought, sold, sells };
 }
 
-/** One-line verdicts for the panel header, worst first. Facts only, no score. */
-export function trustNotes(p: { holders: number; creatorBps: number; creatorSells: number; sniperBps: number; sniperWallets: number; top10Bps: number; poolBps: number }): { level: "warn" | "info" | "good"; text: string }[] {
-  const out: { level: "warn" | "info" | "good"; text: string }[] = [];
-  if (p.creatorBps >= 2000) out.push({ level: "warn", text: `Creator holds ${fmtShare(p.creatorBps)} of supply` });
-  else if (p.creatorBps > 0) out.push({ level: "info", text: `Creator holds ${fmtShare(p.creatorBps)}` });
-  if (p.creatorSells > 0) out.push({ level: "warn", text: `Creator sold ${p.creatorSells} time${p.creatorSells === 1 ? "" : "s"}` });
-  if (p.sniperBps >= 1000) out.push({ level: "warn", text: `${p.sniperWallets} wallet${p.sniperWallets === 1 ? "" : "s"} sniped ${fmtShare(p.sniperBps)} at launch` });
-  else if (p.sniperWallets > 0) out.push({ level: "info", text: `${p.sniperWallets} early buyer${p.sniperWallets === 1 ? "" : "s"} took ${fmtShare(p.sniperBps)} at launch` });
-  if (p.top10Bps >= 5000) out.push({ level: "warn", text: `Top 10 wallets hold ${fmtShare(p.top10Bps)}` });
-  out.push({ level: "good", text: `${fmtShare(p.poolBps)} of supply sits in the locked pool` });
-  if (out.every((n) => n.level !== "warn")) out.unshift({ level: "good", text: `${p.holders} holder${p.holders === 1 ? "" : "s"}, no red flags` });
+type TrustInput = { holders: number; creatorBps: number; creatorSells: number; sniperBps: number; sniperWallets: number; top10Bps: number; poolBps: number };
+
+/**
+ * A trust note as data: which fact it states, how it reads (warn, info, good) and its figures (`share` is already
+ * formatted). `trustNotes` words these in English for the holders API; the holders panel words them in the reader's language.
+ */
+export type TrustNote = {
+  level: "warn" | "info" | "good";
+  key: "creatorHoldsSupply" | "creatorHolds" | "creatorSold" | "sniped" | "earlyBuyers" | "top10" | "pool" | "clean";
+  count: number;
+  share: string;
+};
+
+/** The panel header's notes, worst first. Facts only, no score; with nothing to flag, `clean` leads. */
+export function trustNoteFacts(p: TrustInput): TrustNote[] {
+  const out: TrustNote[] = [];
+  const note = (level: TrustNote["level"], key: TrustNote["key"], figures: { count?: number; share?: string }) => out.push({ level, key, count: figures.count ?? 0, share: figures.share ?? "" });
+  if (p.creatorBps >= 2000) note("warn", "creatorHoldsSupply", { share: fmtShare(p.creatorBps) });
+  else if (p.creatorBps > 0) note("info", "creatorHolds", { share: fmtShare(p.creatorBps) });
+  if (p.creatorSells > 0) note("warn", "creatorSold", { count: p.creatorSells });
+  if (p.sniperBps >= 1000) note("warn", "sniped", { count: p.sniperWallets, share: fmtShare(p.sniperBps) });
+  else if (p.sniperWallets > 0) note("info", "earlyBuyers", { count: p.sniperWallets, share: fmtShare(p.sniperBps) });
+  if (p.top10Bps >= 5000) note("warn", "top10", { share: fmtShare(p.top10Bps) });
+  note("good", "pool", { share: fmtShare(p.poolBps) });
+  if (out.every((n) => n.level !== "warn")) out.unshift({ level: "good", key: "clean", count: p.holders, share: "" });
   return out;
+}
+
+const s = (n: number) => (n === 1 ? "" : "s");
+/** Each note in English, as the holders API words it. */
+const ENGLISH: Record<TrustNote["key"], (n: TrustNote) => string> = {
+  creatorHoldsSupply: (n) => `Creator holds ${n.share} of supply`,
+  creatorHolds: (n) => `Creator holds ${n.share}`,
+  creatorSold: (n) => `Creator sold ${n.count} time${s(n.count)}`,
+  sniped: (n) => `${n.count} wallet${s(n.count)} sniped ${n.share} at launch`,
+  earlyBuyers: (n) => `${n.count} early buyer${s(n.count)} took ${n.share} at launch`,
+  top10: (n) => `Top 10 wallets hold ${n.share}`,
+  pool: (n) => `${n.share} of supply sits in the locked pool`,
+  clean: (n) => `${n.count} holder${s(n.count)}, no red flags`,
+};
+
+/** One-line verdicts for the panel header, worst first, in English (the holders API's wording). Facts only, no score. */
+export function trustNotes(p: TrustInput): { level: "warn" | "info" | "good"; text: string }[] {
+  return trustNoteFacts(p).map((n) => ({ level: n.level, text: ENGLISH[n.key](n) }));
 }

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { en } from "../i18n/messages/index.ts";
 
 const picker = readFileSync(new URL("./WalletPicker.tsx", import.meta.url), "utf8");
 const button = readFileSync(new URL("./ConnectWallet.tsx", import.meta.url), "utf8");
@@ -45,7 +46,8 @@ test("connect errors are explained in the dialog and never echoed raw", () => {
   // one in-flight request at a time, and the row that is waiting says so
   assert.match(picker, /if \(!connector \|\| isPending\) return/);
   assert.match(picker, /disabled=\{isPending\}/);
-  assert.match(picker, /Waiting for the wallet…/);
+  assert.match(picker, /\{busy \? t\("waiting"\) : choice\.hint\}/);
+  assert.equal(en.account.walletPicker.waiting, "Waiting for the wallet…");
   assert.match(picker, /onSettled: \(\) => setPendingId\(null\)/);
   // a successful connect closes the sheet; the caller unmounts it
   assert.match(picker, /useConnect\(\{ mutation: \{ onSuccess: onClose \} \}\)/);
@@ -53,8 +55,10 @@ test("connect errors are explained in the dialog and never echoed raw", () => {
 
 test("the picker and its button are presentation only: no signing, transactions, storage, or tracking", () => {
   assert.doesNotMatch(picker + button, /signMessage|signTypedData|writeContract|sendTransaction|fetch\(|localStorage|sessionStorage|setInterval\(/);
-  assert.match(picker, /<Sheet title="Connect a wallet" onClose=\{onClose\}>/);
-  assert.match(picker, /Transactions and edits always need your signature/);
+  assert.match(picker, /<Sheet title=\{t\("title"\)\} onClose=\{onClose\}>/);
+  assert.equal(en.account.walletPicker.title, "Connect a wallet");
+  assert.match(picker, /\{t\("footnote"\)\}/);
+  assert.match(en.account.walletPicker.footnote, /Transactions and edits always need your signature/);
   assert.match(button, /aria-haspopup="dialog" aria-expanded=\{open\}/);
   assert.match(button, /\{open \? <WalletPicker onClose=\{\(\) => setOpen\(false\)\} \/> : null\}/);
   // wallet icons are the browser-announced data: URIs, shown decoratively

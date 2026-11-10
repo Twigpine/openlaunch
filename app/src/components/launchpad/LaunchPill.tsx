@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Rocket } from "lucide-react";
+import { useTranslations } from "use-intl";
 import { heroCtaOnScreen, subscribeHeroCta } from "@/lib/hero-cta";
 import styles from "./LaunchPill.module.css";
 
@@ -15,6 +16,7 @@ import styles from "./LaunchPill.module.css";
 export default function LaunchPill() {
   const heroButton = useSyncExternalStore(subscribeHeroCta, heroCtaOnScreen, () => null);
   const [atFooter, setAtFooter] = useState(false);
+  const t = useTranslations("common");
   useEffect(() => {
     const footer = document.getElementById("site-footer");
     if (!footer) return;
@@ -27,7 +29,7 @@ export default function LaunchPill() {
   return (
     <Link href="/launch" className={styles.pill}>
       <span aria-hidden="true" className={styles.tile}><Rocket size={15} strokeWidth={2.2} /></span>
-      Launch a token
+      {t("launchToken")}
     </Link>
   );
 }

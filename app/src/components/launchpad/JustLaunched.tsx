@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useTranslations } from "use-intl";
+import { useAgo } from "@/i18n/useAgo";
 import { MagicCard } from "@/components/vendor/magic-card";
 import TokenAvatar from "./TokenAvatar";
 import { useLive } from "./LiveProvider";
@@ -10,7 +12,6 @@ import type { LaunchRow as L } from "@/lib/launchpad/queries";
 import { ArrowUpRight } from "lucide-react";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
 import { capDisplay } from "@/lib/launchpad/market-cap";
-import { ago } from "@/lib/launchpad/time";
 import { launchKey } from "@/lib/launchpad/list-state";
 import { feedKey } from "@/lib/launchpad/river";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
@@ -34,6 +35,8 @@ export default function JustLaunched({ initial, serverNow }: { initial: L[]; ser
   const [now, setNow] = useState(serverNow);
   const shown = useRef(initial);
   const reduced = useReducedMotion();
+  const t = useTranslations("activity.justLaunched");
+  const { ago } = useAgo();
 
   useEffect(() => {
     const seen = new Set<string>();
@@ -87,14 +90,14 @@ export default function JustLaunched({ initial, serverNow }: { initial: L[]; ser
             <span className="absolute inset-0 animate-ping rounded-full bg-up opacity-50 motion-reduce:hidden" />
             <span className="relative size-2 rounded-full bg-up" />
           </span>
-          Just launched
+          {t("title")}
         </h2>
-        <Link href="/?sort=new#launches" className="inline-flex min-h-8 items-center gap-0.5 text-[11px] font-medium text-muted transition-colors hover:text-ink motion-reduce:transition-none">See all<ArrowUpRight size={12} aria-hidden="true" /></Link>
+        <Link href="/?sort=new#launches" className="inline-flex min-h-8 items-center gap-0.5 text-[11px] font-medium text-muted transition-colors hover:text-ink motion-reduce:transition-none">{t("seeAll")}<ArrowUpRight size={12} aria-hidden="true" /></Link>
       </div>
       {rows.length === 0 ? (
-        <div className="px-4 py-8"><p className="text-sm text-ink">No launches yet.</p><p className="mt-1 text-xs leading-relaxed text-muted">New tokens show here the moment they launch.</p></div>
+        <div className="px-4 py-8"><p className="text-sm text-ink">{t("empty")}</p><p className="mt-1 text-xs leading-relaxed text-muted">{t("emptyHelp")}</p></div>
       ) : (
-        <ol aria-label="Newest launches" className="relative py-1.5">
+        <ol aria-label={t("listLabel")} className="relative py-1.5">
           {/* the log's spine, running behind the logos (each logo's ring cuts it) */}
           <span aria-hidden="true" className="absolute top-9 bottom-9 left-[35px] w-px bg-line" />
           {/* a new launch springs in at the top; rows already on screen just slide down */}
@@ -104,7 +107,7 @@ export default function JustLaunched({ initial, serverNow }: { initial: L[]; ser
             const fresh = now - new Date(l.block_time).getTime() < FRESH_MS;
             return (
               <motion.li key={launchKey(l)} layout={reduced ? false : "position"} initial={reduced ? false : { opacity: 0, scale: 0.96, y: -8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={reduced ? undefined : { opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 34 }}>
-                <Link href={`/t/${l.chain}/${l.token}`} onClick={() => setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url })} title={`${l.name} on ${CHAIN_SHORT[l.chain]}`} className="group flex min-w-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none">
+                <Link href={`/t/${l.chain}/${l.token}`} onClick={() => setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url })} title={t("nameOn", { name: l.name, chain: CHAIN_SHORT[l.chain] })} className="group flex min-w-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ink/[0.03] motion-reduce:transition-none">
                   <span className="relative shrink-0 rounded-[13px] bg-card p-0.5">
                     {/* under ten minutes old: a soft ring says this one is the news */}
                     {fresh ? <span aria-hidden="true" className="absolute inset-0 animate-ping rounded-[13px] ring-2 ring-up/50 motion-reduce:hidden" /> : null}
@@ -114,11 +117,11 @@ export default function JustLaunched({ initial, serverNow }: { initial: L[]; ser
                   <div className="min-w-0 flex-1">
                     <p className="flex min-w-0 items-baseline justify-between gap-2">
                       <span className="truncate text-[13px] font-semibold text-ink">{l.name}</span>
-                      <time dateTime={l.block_time} title={new Date(l.block_time).toUTCString()} className={`shrink-0 font-mono text-[11px] tnum ${fresh ? "text-up" : "text-muted"}`} suppressHydrationWarning>{ago(l.block_time, now)} ago</time>
+                      <time dateTime={l.block_time} title={new Date(l.block_time).toUTCString()} className={`shrink-0 font-mono text-[11px] tnum ${fresh ? "text-up" : "text-muted"}`} suppressHydrationWarning>{ago(l.block_time, now)}</time>
                     </p>
                     <p className="mt-0.5 flex min-w-0 items-baseline justify-between gap-2 text-[11px]">
-                      <span className="truncate text-muted"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span><span className="sr-only">, market cap </span><span className="font-mono tnum">{capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact}</span></span>
-                      <span className={`shrink-0 ${trades ? "text-up" : "text-muted"}`}>{trades ? <><span className="font-mono tnum">{trades}</span> {trades === 1 ? "trade" : "trades"}</> : "No trades yet"}</span>
+                      <span className="truncate text-muted"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span><span className="sr-only">{t("marketCap")}</span><span className="font-mono tnum">{capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact}</span></span>
+                      <span className={`shrink-0 ${trades ? "text-up" : "text-muted"}`}>{trades ? t.rich("trades", { count: trades, n: (chunks) => <span className="font-mono tnum">{chunks}</span> }) : t("noTrades")}</span>
                     </p>
                   </div>
                 </Link>

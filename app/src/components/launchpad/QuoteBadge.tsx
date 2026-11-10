@@ -1,4 +1,6 @@
-import { PAIR_COPY } from "@/lib/launchpad/pairs";
+"use client";
+
+import { useTranslations } from "use-intl";
 import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
 import TwigBadge, { isTwigQuote } from "./TwigBadge";
 
@@ -9,11 +11,12 @@ import TwigBadge, { isTwigQuote } from "./TwigBadge";
  * `collapse` shows the logo alone on phones, keeping the label for screen readers.
  */
 export function CommunityPairBadge({ symbol, logo, size = "sm", className = "", label = symbol, collapse = false }: { symbol: string; logo: string | null; size?: "sm" | "md"; className?: string; label?: string; collapse?: boolean }) {
+  const t = useTranslations("token.badges");
   const px = size === "md" ? 18 : 16;
   return (
     <span
       className={`inline-flex shrink-0 items-center rounded-md border border-line-strong bg-card font-semibold leading-none whitespace-nowrap text-ink ${size === "md" ? "h-6 gap-1.5 pl-[3px] pr-2 text-[11px]" : "h-5 gap-1 pl-[2px] pr-1.5 text-[10px] tracking-wide"} ${collapse ? "max-sm:pr-[2px]" : ""} ${className}`}
-      title={PAIR_COPY.badgeTitle(symbol)}
+      title={t("community", { symbol })}
     >
       {logo ? (
         // eslint-disable-next-line @next/next/no-img-element

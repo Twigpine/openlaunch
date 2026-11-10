@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEAD_ADDR, ZERO_ADDR, applyTransfer, creatorActivity, fmtShare, holderTags, inSniperWindow, isNonHolder, shareBps, sniperSummary, trustNotes } from "./holders.ts";
+import { createTranslator } from "use-intl/core";
+import { DEAD_ADDR, ZERO_ADDR, applyTransfer, creatorActivity, fmtShare, holderTags, inSniperWindow, isNonHolder, shareBps, sniperSummary, trustNoteFacts, trustNotes } from "./holders.ts";
+import { en } from "../../i18n/messages/index.ts";
 
 const PM = "0x498581fF718922c3f8e6A244956aF099B2652b2b";
 const LOCKER = "0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a";
@@ -88,4 +90,19 @@ test("trustNotes: warnings first, facts only, a clean token says so", () => {
   assert.match(bad[1].text, /Creator sold 2 times/);
   assert.match(bad[2].text, /1 wallet sniped 30%/);
   assert.ok(!bad.some((n) => /no red flags/.test(n.text)));
+});
+
+test("trustNoteFacts: the same notes as data, for the panel to word; its English reads as the holders API's", () => {
+  const bad = { holders: 3, creatorBps: 4000, creatorSells: 2, sniperBps: 3000, sniperWallets: 1, top10Bps: 9000, poolBps: 500 };
+  assert.deepEqual(trustNoteFacts(bad).map((n) => n.key), ["creatorHoldsSupply", "creatorSold", "sniped", "top10", "pool"]);
+  assert.deepEqual(trustNoteFacts(bad)[2], { level: "warn", key: "sniped", count: 1, share: "30%" });
+  assert.equal(trustNoteFacts({ ...bad, creatorBps: 100, creatorSells: 0, sniperBps: 200, top10Bps: 1200 })[0].key, "clean");
+  const t = createTranslator({ locale: "en", messages: en, namespace: "token.holders.notes", timeZone: "UTC" });
+  for (const p of [bad, { holders: 1480, creatorBps: 100, creatorSells: 1, sniperBps: 200, sniperWallets: 1200, top10Bps: 1200, poolBps: 8000 }]) {
+    const api = trustNotes(p);
+    trustNoteFacts(p).forEach((n, i) => {
+      assert.equal(n.level, api[i].level);
+      if (n.key !== "clean") assert.equal(t(n.key, { count: n.count, share: n.share }), api[i].text);
+    });
+  }
 });

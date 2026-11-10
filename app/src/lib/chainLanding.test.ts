@@ -4,6 +4,7 @@ import test from "node:test";
 import { CHAIN_KEYS, CHAIN_LABELS } from "./chainKeys.ts";
 import { BRAND_DOMAIN } from "./brand.ts";
 import { CHAIN_LANDING, chainLandingPath } from "./chainLanding.ts";
+import { en, messagesFor } from "../i18n/messages/index.ts";
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 
@@ -26,6 +27,19 @@ test("landing copy fits search snippets and names its chain", () => {
     assert.ok(c.description.length <= 155, `${chain} description too long for the snippet`);
     for (const text of [c.title, c.description, c.heading, c.intro]) assert.ok(text.includes(CHAIN_LABELS[chain]), `${chain}: "${text}" must name the chain`);
     assert.doesNotMatch(JSON.stringify(c), /audited|guaranteed|safe investment|moon|profit|risk.free|best/i);
+  }
+});
+
+test("the landing page shows this copy: in English word for word, in Chinese naming the same chain", () => {
+  const comp = read("../components/launchpad/ChainLanding.tsx");
+  for (const field of ["title", "description", "heading", "intro"]) assert.ok(comp.includes(`t(\`chain.\${chain}.${field}\`)`), `the page reads info.chain.<chain>.${field}`);
+  for (const chain of CHAIN_KEYS) {
+    const { title, description, heading, intro } = CHAIN_LANDING[chain];
+    const english = en.info.chain[chain];
+    assert.deepEqual({ title: english.title, description: english.description, heading: english.heading, intro: english.intro }, { title, description, heading, intro }, `${chain}: the English messages are the copy checked above`);
+    const chinese = messagesFor("zh-CN").info.chain[chain];
+    for (const text of [chinese.title, chinese.description, chinese.heading, chinese.intro]) assert.ok(text.includes(CHAIN_LABELS[chain]), `${chain}: "${text}" must name the chain`);
+    assert.doesNotMatch(JSON.stringify(chinese), /审计|保证|安全投资|暴涨|收益|零风险|无风险|最好|最佳/);
   }
 });
 

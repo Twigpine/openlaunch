@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { clientTranslator } from "@/i18n/client";
 import { parseStoredTransfer, serializeTransfer, transferIsTerminal, type TrackedBridgeTransfer } from "./client";
 
 export const BRIDGE_STORAGE_PREFIX = "openlaunch.bridge.v1:";
@@ -37,7 +38,7 @@ export function createBridgeTransferStore(storage: () => StorageAdapter) {
         update(address, transfer, null);
         return transfer;
       } catch {
-        const message = "Bridge recovery storage is unavailable or unreadable. Enable site storage and reload before starting a transfer.";
+        const message = clientTranslator("bridge")("errors.storageUnreadable");
         update(address, snapshot.transfers[address.toLowerCase()] ?? null, message);
         throw new Error(message);
       }
@@ -50,7 +51,7 @@ export function createBridgeTransferStore(storage: () => StorageAdapter) {
         if (adapter.getItem(bridgeStorageKey(transfer.address)) !== raw) throw new Error("Storage did not retain transfer");
         update(transfer.address, transfer, null);
       } catch {
-        const message = "Could not save bridge recovery details. Keep this page open and check this transfer before trying again.";
+        const message = clientTranslator("bridge")("errors.storageNotSaved");
         update(transfer.address, transfer, message);
         throw new Error(message);
       }
@@ -60,7 +61,7 @@ export function createBridgeTransferStore(storage: () => StorageAdapter) {
         storage().removeItem(bridgeStorageKey(address));
         update(address, null, null);
       } catch {
-        const message = "Could not clear the saved bridge record. Enable site storage and reload before trying again.";
+        const message = clientTranslator("bridge")("errors.storageNotCleared");
         update(address, snapshot.transfers[address.toLowerCase()] ?? null, message);
         throw new Error(message);
       }
