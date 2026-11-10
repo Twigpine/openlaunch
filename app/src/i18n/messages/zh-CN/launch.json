@@ -16,8 +16,8 @@
       "comingSoon": "即将上线。",
       "notConfigured": "此处尚未配置。当前环境缺少合约设置。",
       "blurb": {
-        "base": "以 ETH、TWIG 或 Coinbase 代币化股票计价。Gas 约几美分。",
-        "robinhood": "以 USDG（美元）、ETH、GITLAWB 或 Robinhood Stock Token 计价。Gas 约几美分。",
+        "base": "以 ETH 或 Coinbase 代币化股票计价。Gas 约几美分。",
+        "robinhood": "以 USDG（美元）、ETH 或 Robinhood Stock Token 计价。Gas 约几美分。",
         "arc": "以 USDC（美元）计价。Gas 也用 USDC 支付：每笔交易几美分，发行一次远低于 1 美元。"
       }
     },
@@ -26,13 +26,7 @@
       "label": "计价资产",
       "stock": "股票",
       "paysDollars": "买家用 {symbol} 支付；市值和手续费以美元计。",
-      "paysBrand": "买家用 {symbol} 支付；手续费以 {symbol} 支付，或被销毁。",
-      "paysEth": "买家用 ETH 支付。",
-      "pairTitle": "与 {symbol} 配对，你的代币会在全站带有 {symbol} 徽章",
-      "pair": "与 {symbol} 配对，获得 <badge></badge> 徽章",
-      "priceUnavailable": "暂无价格",
-      "brandTwig": "你的代币会在发行列表、热门、动态信息流、代币页面和分享卡片上带有 <badge></badge> 徽章。TWIG 是 Twigpine 在 Base 上的代币：GITLAWB 的 1:1 包装代币，任何人都可以随时包装或解包，无需费用。没有所有者，没有转账限制。不指定受益人时，手续费会在领取时以 TWIG 形式销毁。按 GITLAWB 的价格计价，价格来自 Base 上的 Uniswap v4 WETH/GITLAWB 资金池。<link>{site} ↗</link>",
-      "brandGitlawb": "你的代币会在发行列表、热门、动态信息流、代币页面和分享卡片上带有 <badge></badge> 徽章。GITLAWB 是 Twigpine 的代币{bridged, select, yes {，通过 LayerZero 从 Base 1:1 跨链到 Robinhood Chain} other {}}：普通的 ERC-20，没有转账限制，没有发行方开关。不指定受益人时，手续费会在领取时以 GITLAWB 形式销毁。价格来自 Base 上的 Uniswap v4 WETH/GITLAWB 资金池。<link>{site} ↗</link>"
+      "paysEth": "买家用 ETH 支付。"
     },
     "stock": {
       "pick": "请选择一只股票为代币计价，或切换计价资产。",
@@ -86,9 +80,7 @@
       "customLabel": "以 {unit} 计的自定义初始市值",
       "noUsd": "{symbol} 在这里没有美元价格：请以 {symbol} 输入初始市值。",
       "opensAt": "开盘完全稀释市值 <b>{cap}</b><muted> · {detail}</muted>。最初的 1 {symbol} 约可买入 <b>{tokens}</b> 个代币，之后价格沿曲线上涨。",
-      "opensAtMillion": "开盘完全稀释市值 <b>{cap}</b><muted> · {detail}</muted>。最初的 1M {symbol} 约可买入 <b>{tokens}</b> 个代币，之后价格沿曲线上涨。",
-      "capInvalid": "初始市值必须是正数。",
-      "brandUnpriced": "{symbol} 目前无法获取价格：请以 {symbol} 输入自定义初始市值，或重新加载。"
+      "capInvalid": "初始市值必须是正数。"
     },
     "split": {
       "address": "受益人 {n} 的地址",

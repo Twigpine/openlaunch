@@ -1,6 +1,6 @@
 # Community pairs
 
-A launch can be paired with any ERC-20: the factory has no allowlist and never will. **Community pairs** are the site's list of community tokens it badges and prices in USD. They are never offered in the launch form, which offers ETH, TWIG and stocks only: a launch paired with a community token is made against the factory by the community's own tools or agents (findSalt with the pair's address, then `launch`). A token that is not on the list still trades; it shows as an "Unlisted pair", with no USD price, and stays out of Trending.
+A launch can be paired with any ERC-20: the factory has no allowlist and never will. **Community pairs** are the site's list of community tokens it badges and prices in USD. They are never offered in the launch form: a launch paired with a community token is made against the factory by the community's own tools or agents (findSalt with the pair's address, then `launch`). A token that is not on the list still trades; it shows as an "Unlisted pair", with no USD price, and stays out of Trending.
 
 Chains: **Base and Robinhood Chain**. The fee is TWIG on Base for a token on either chain, and every pair signature (the applicant's and the admin's) is made on Base.
 

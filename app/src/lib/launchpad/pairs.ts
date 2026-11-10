@@ -6,7 +6,7 @@
  *   The list is the site's, never the contracts'. The factory accepts any ERC-20 as the quote, before and after this
  *   list; a token missing from it shows as an unlisted pair (unlisted-quote.ts). A listing gives a launch paired with it
  *   the community's badge, a USD price read from one named pool and a place in Trending. Never a place in the launch
- *   form: the form offers ETH, TWIG and stocks only, and pairs are launched against the factory by the community's own
+ *   form: the form never offers a community token, and pairs are launched against the factory by the community's own
  *   tools or agents. Every listing, suspension and delisting is written to a public record on the pair's page.
  *
  * A pair is never "official", "verified" or "safe": the badge says Community pair, and the page shows what was checked.
@@ -312,7 +312,7 @@ export const PAIR_COPY = {
   delisted: (symbol: string) => `Its pair, ${symbol}, was delisted. Its launches still trade, as an unlisted pair.`,
   indexTitle: "Community pairs",
   indexLead: "Community tokens that launches are paired with. A listed pair's launches carry its badge and a USD price everywhere on openlaunch. Each is listed after public checks, priced from one named pool, and watched every hour: a pair whose checks fail for a day is suspended. The contracts accept any token as the pair; this list is the site's.",
-  noForm: "The launch form offers ETH, TWIG and stocks only. A launch paired with a community token is made straight against the factory, by the community's own tools or agents.",
+  noForm: "The launch form does not offer community tokens. A launch paired with one is made straight against the factory, by the community's own tools or agents.",
   indexEmpty: "No community pairs yet.",
   applySoon: "Applications to list a token open soon.",
 } as const;

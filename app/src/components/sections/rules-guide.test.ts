@@ -19,7 +19,7 @@ test("the rules guide retains native navigation and visible risk disclosures", (
   }
   assert.equal((page.match(/<details open>/g) ?? []).length, 9); // 4 on season points, 5 before you begin
   for (const key of ["points.intro", "know.intro", "know.price.snipers", "know.quiet.hidden", "know.twig.twig", "know.twig.gitlawb", "know.twig.prices", "know.stocks.securities"]) {
-    assert.ok(page.includes(`t("rules.${key}"`), `the page shows rules.${key}`);
+    assert.ok(page.includes(`t("rules.${key}"`) || page.includes(`t.rich("rules.${key}"`), `the page shows rules.${key}`);
   }
   assert.match(copy, /no cash value, are not a token and not a promise of one/, "points are reputation, said where the rules are");
   assert.match(copy, /quiet launches/);

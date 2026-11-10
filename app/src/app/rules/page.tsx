@@ -8,6 +8,7 @@ import styles from "@/components/sections/RulesGuide.module.css";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
+import { TWIG_MIGRATE_URL } from "@/lib/launchpad/twig";
 import LaunchMachine from "@/components/launchpad/LaunchMachine";
 import { ChainLogo } from "@/components/launchpad/ChainLogo";
 import BoostRulesEntry from "@/components/launchpad/BoostRulesEntry";
@@ -140,7 +141,7 @@ export default async function RulesPage() {
               <details open><summary>{t("rules.know.quiet.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t.rich("rules.know.quiet.ranking", { strong: (chunks) => <strong>{chunks}</strong> })}</p><p>{t("rules.know.quiet.hidden")}</p></div></details>
               {boostEnabled() ? <BoostRulesEntry /> : null}
               <details open><summary>{t("rules.know.change.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.change.answer")}</p></div></details>
-              <details open><summary>{t("rules.know.twig.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.twig.twig")}</p><p>{t("rules.know.twig.gitlawb")}</p><p>{t("rules.know.twig.prices")}</p></div></details>
+              <details open><summary>{t("rules.know.twig.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t.rich("rules.know.twig.twig", { link: (chunks) => <a href={TWIG_MIGRATE_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">{chunks}</a> })}</p><p>{t("rules.know.twig.gitlawb")}</p><p>{t("rules.know.twig.prices")}</p></div></details>
               <details open><summary>{t("rules.know.stocks.question")}<ChevronDown size={17} aria-hidden="true" /></summary><div><p>{t("rules.know.stocks.quotes")}</p><p>{t("rules.know.stocks.securities")}</p></div></details>
             </div>
           </section>

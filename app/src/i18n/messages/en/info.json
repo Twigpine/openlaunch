@@ -32,7 +32,7 @@
         },
         "market": {
           "title": "A market opens",
-          "description": "A Uniswap v4 pool pairs your token with ETH, TWIG on Base, GITLAWB or USDG on Robinhood Chain, a tokenized stock (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDC on Arc. No hook. The pool starts at the market cap you pick.",
+          "description": "A Uniswap v4 pool pairs your token with ETH, USDG on Robinhood Chain, a tokenized stock (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDC on Arc. No hook. The pool starts at the market cap you pick.",
           "label": "Uniswap pool"
         },
         "lock": {
@@ -134,8 +134,8 @@
       },
       "twig": {
         "question": "What is a TWIG- or GITLAWB-quoted pool?",
-        "twig": "TWIG is Twigpine's token on Base: a 1:1 wrapper of GITLAWB. Anyone can wrap GITLAWB into TWIG, or unwrap it back, at any time with no fee, and every TWIG is backed by one GITLAWB held in its contract, which has no owner and no transfer restrictions. It is the quote the Base form offers: pick it and buyers pay in TWIG; any trading fee is paid in TWIG to the beneficiaries named at launch (by their shares) when it is collected, and a launch that names none has its TWIG fees burned when they are collected.",
-        "gitlawb": "GITLAWB is Twigpine's token on Base, bridged 1:1 to Robinhood Chain over LayerZero (one supply, two chains): an ordinary ERC-20 with no transfer restrictions and no issuer switch. The Robinhood Chain form offers it; on Base, pools already paired with GITLAWB keep their badge and price. Fees work the same way: paid in GITLAWB when collected, and a launch that names no beneficiary has its GITLAWB fees burned when they are collected.",
+        "twig": "TWIG is Twigpine's token on Base: a 1:1 wrapper of GITLAWB. Anyone can wrap GITLAWB into TWIG, or unwrap it back, at any time with no fee, and every TWIG is backed by one GITLAWB held in its contract, which has no owner and no transfer restrictions. The Base form no longer offers it, ahead of the planned GITLAWB and TWIG token migration (<link>migrate.twigpine.com</link>). Launches already paired with TWIG keep their badge, price and trading: buyers pay in TWIG; any trading fee is paid in TWIG to the beneficiaries named at launch (by their shares) when it is collected, and a launch that names none has its TWIG fees burned when they are collected.",
+        "gitlawb": "GITLAWB is Twigpine's token on Base, bridged 1:1 to Robinhood Chain over LayerZero (one supply, two chains): an ordinary ERC-20 with no transfer restrictions and no issuer switch. No launch form offers it any more, ahead of the same planned migration; pools already paired with GITLAWB, on either chain, keep their badge, price and trading. Fees work the same way: paid in GITLAWB when collected, and a launch that names no beneficiary has its GITLAWB fees burned when they are collected.",
         "prices": "Dollar figures for both come from the Uniswap v4 WETH/GITLAWB pool price on Base, cross-checked against a 30-minute on-chain average, and ETH/USD; one TWIG counts as one GITLAWB, since it unwraps to one. They are for display and sorting only; nothing on-chain depends on them."
       },
       "stocks": {
@@ -257,7 +257,7 @@
       "exampleTitle": "Launch on Base",
       "exampleNote": "Example only. Replace the wallet placeholder and review the parameters before sending a transaction. Never share your private key.",
       "parameters": "Parameters, without the guesswork",
-      "quote": "ETH uses address zero. For TWIG on Base (the quote the form offers there) use <code>{twig}</code>. For GITLAWB use <code>{gitlawbBase}</code> on Base (still recognised, badged and priced) or <code>{gitlawbRobinhood}</code> on Robinhood Chain; for USDG on Robinhood Chain, <code>{usdg}</code>. For any ERC-20 quote call <code>findSalt(...)</code> first so the token address sorts above the quote.",
+      "quote": "ETH uses address zero. For USDG on Robinhood Chain use <code>{usdg}</code>. TWIG (<code>{twig}</code>, Base) and GITLAWB (<code>{gitlawbBase}</code> on Base, <code>{gitlawbRobinhood}</code> on Robinhood Chain) are still recognised, badged and priced. No form offers them now. GITLAWB left the Base form when TWIG took its place; then TWIG left the Base form and GITLAWB the Robinhood Chain form, ahead of the planned token migration. For any ERC-20 quote call <code>findSalt(...)</code> first so the token address sorts above the quote.",
       "supply": "<code>0</code> means the default <code>1B</code> supply.",
       "startTick": "Sets the opening market cap. A multiple of <code>200</code>; <code>184200 ≈ 10 ETH</code> FDV for <code>1B</code> supply.",
       "lpFee": "In pips: <code>0</code>, <code>10000 = 1%</code>, or <code>30000 = 3%</code>.",
@@ -377,6 +377,7 @@
     "gas": "You pay {chain} gas in {gas}, nothing else.",
     "quotes": "Quote assets",
     "quotesNote": "What the pool trades against, picked at launch.",
+    "stocks": "Stocks",
     "launches": "Launches",
     "launchesNote": "Tokens launched on {chain} so far.",
     "chainId": "Chain ID",

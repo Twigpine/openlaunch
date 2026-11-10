@@ -135,7 +135,7 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
   assert.equal(copy.stock.coinbase.badge, "Coinbase stock");
   assert.equal(copy.stock.robinhood.badge, "Robinhood stock");
   // a chain without a stock registry (Arc) says so in the copy table and gets no Stock quote button at all
-  assert.match(source, /arc: \{[^}]*stock: null,/);
+  assert.match(source, /arc: \{[^}]*stock: null\b/);
   assert.match(source, /\.\.\.\(STOCK_SOURCE\[chain\] \? \[\{ key: "stock" as const, label: t\("quote\.stock"\) \}\] : \[\]\)/);
   assert.equal(copy.quote.stock, "Stock");
   assert.match(source, /aria-label=\{t\("stock\.clear"\)\}/);
@@ -254,11 +254,12 @@ test("the form's words are messages, and the English ones read as the form alway
   assert.equal(copy.token.symbolInvalid, "Symbol: use 1–10 English letters (A–Z) or digits (0–9).");
   assert.equal(copy.token.xInvalid, "X: enter a handle or an x.com link.");
   assert.equal(copy.token.xPlaceholder, "@handle or x.com link");
-  // the TWIG / GITLAWB nudge carries the quote's badge inside its sentence, so the badge sits where each language puts it
-  assert.equal(copy.quote.pair, "Pair with {symbol}, get the <badge></badge> badge");
-  assert.match(source, /t\.rich\(quote\.key === "twig" \? "quote\.brandTwig" : "quote\.brandGitlawb", \{/);
-  assert.match(copy.quote.brandGitlawb, /^Your token carries the <badge><\/badge> badge on the launch list, trending, the activity feed, its page and its share card\. GITLAWB is Twigpine's token\{bridged, select, yes \{, bridged 1:1 from Base to Robinhood Chain over LayerZero\} other \{\}\}: /);
-  assert.match(source, /robinhood: \{ stock: "robinhood", bridgedGitlawb: true \}/);
+  // each chain card names the quotes its form offers: TWIG and GITLAWB are not among them (twig.test.ts says why)
+  assert.equal(copy.chain.blurb.base, "Priced in ETH or a Coinbase tokenized stock. Gas ≈ cents.");
+  assert.equal(copy.chain.blurb.robinhood, "Priced in USDG (dollars), ETH or a Robinhood Stock Token. Gas ≈ cents.");
+  assert.equal(copy.quote.paysEth, "Buyers pay with ETH.");
+  assert.equal(copy.price.opensAt, "Opens at <b>{cap}</b><muted> · {detail}</muted> fully diluted. The first {symbol} buys about <b>{tokens}</b> tokens, then the price climbs along the curve.");
+  for (const locale of ["en", "zh-CN"] as const) assert.doesNotMatch(JSON.stringify(messagesFor(locale).launch.form), /TWIG|GITLAWB/, locale);
   // what the launch does, step by step, and the one-paragraph summary; the buy sentence follows only when there is a buy
   assert.equal(copy.launch.summary, "One transaction on {chain}: deploys the token, creates the Uniswap v4 pool ({quote} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents. Nothing is refundable and nothing can be edited afterwards.");
   assert.equal(copy.launch.summaryBuy, `${copy.launch.summary} Then a second transaction buys {amount} of your token; if you reject it, the launch still stands.`);

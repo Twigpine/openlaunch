@@ -16,8 +16,8 @@
       "comingSoon": "Coming soon.",
       "notConfigured": "Not configured here. Contract settings are missing in this environment.",
       "blurb": {
-        "base": "Priced in ETH, TWIG or a Coinbase tokenized stock. Gas ≈ cents.",
-        "robinhood": "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents.",
+        "base": "Priced in ETH or a Coinbase tokenized stock. Gas ≈ cents.",
+        "robinhood": "Priced in USDG (dollars), ETH or a Robinhood Stock Token. Gas ≈ cents.",
         "arc": "Priced in USDC (dollars). Gas is paid in USDC too: cents per trade, well under a dollar to launch."
       }
     },
@@ -26,13 +26,7 @@
       "label": "Quote asset",
       "stock": "Stock",
       "paysDollars": "Buyers pay with {symbol}; market cap and fees are in dollars.",
-      "paysBrand": "Buyers pay with {symbol}; fees are paid in {symbol}, or burned.",
-      "paysEth": "Buyers pay with ETH.",
-      "pairTitle": "Pair with {symbol} and your token carries the {symbol} badge everywhere on the site",
-      "pair": "Pair with {symbol}, get the <badge></badge> badge",
-      "priceUnavailable": "price unavailable",
-      "brandTwig": "Your token carries the <badge></badge> badge on the launch list, trending, the activity feed, its page and its share card. TWIG is Twigpine's token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap any time, with no fee. No owner, no transfer restrictions. Name no beneficiary and the fees are burned as TWIG when collected. Priced at GITLAWB's price, from the Uniswap v4 WETH/GITLAWB pool on Base. <link>{site} ↗</link>",
-      "brandGitlawb": "Your token carries the <badge></badge> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Twigpine's token{bridged, select, yes {, bridged 1:1 from Base to Robinhood Chain over LayerZero} other {}}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and the fees are burned as GITLAWB when collected. Price from the Uniswap v4 WETH/GITLAWB pool on Base. <link>{site} ↗</link>"
+      "paysEth": "Buyers pay with ETH."
     },
     "stock": {
       "pick": "Pick a stock to price the token in, or switch the quote.",
@@ -86,9 +80,7 @@
       "customLabel": "custom starting market cap in {unit}",
       "noUsd": "{symbol} has no USD price here: enter the starting market cap in {symbol}.",
       "opensAt": "Opens at <b>{cap}</b><muted> · {detail}</muted> fully diluted. The first {symbol} buys about <b>{tokens}</b> tokens, then the price climbs along the curve.",
-      "opensAtMillion": "Opens at <b>{cap}</b><muted> · {detail}</muted> fully diluted. The first 1M {symbol} buys about <b>{tokens}</b> tokens, then the price climbs along the curve.",
-      "capInvalid": "Starting market cap must be a positive number.",
-      "brandUnpriced": "{symbol} price unavailable right now: enter a custom starting market cap in {symbol}, or reload."
+      "capInvalid": "Starting market cap must be a positive number."
     },
     "split": {
       "address": "beneficiary {n} address",

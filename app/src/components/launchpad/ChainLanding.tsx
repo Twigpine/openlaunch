@@ -12,7 +12,7 @@ import shell from "@/components/sections/SectionShell.module.css";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, EXPLORERS, explorerAddress, type ChainKey } from "@/lib/chainPublic";
 import { BRAND } from "@/lib/brand";
 import { CHAIN_LANDING, chainLandingPath } from "@/lib/chainLanding";
-import { hasChainPage, launchpad } from "@/lib/launchpad/config";
+import { STOCK_SOURCE, hasChainPage, launchpad } from "@/lib/launchpad/config";
 import { getLaunchTotalsForRequest, listLaunchesPage } from "@/lib/launchpad/queries";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
@@ -62,7 +62,7 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
         <h2 id="facts-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">{t("chain.glance", { chain: label })}</h2>
         <dl className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Fact term={t("chain.platformFee")} value="$0" note={t("chain.gas", { chain: label, gas: CHAIN_LANDING[chain].gas })} />
-          <Fact term={t("chain.quotes")} value={lp.quotes.map((q) => q.symbol).join(" · ")} note={t("chain.quotesNote")} />
+          <Fact term={t("chain.quotes")} value={[...lp.quotes.map((q) => q.symbol), ...(STOCK_SOURCE[chain] ? [t("chain.stocks")] : [])].join(" · ")} note={t("chain.quotesNote")} />
           <Fact term={t("chain.launches")} value={launches.toLocaleString("en-US")} note={t("chain.launchesNote", { chain: label })} />
           <Fact term={t("chain.chainId")} value={String(CHAINS[chain].id)} note={t("chain.liquidity", { chain: label })} />
         </dl>

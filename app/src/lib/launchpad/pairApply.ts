@@ -169,7 +169,7 @@ export function buildPairReviewMessage(p: { decision: PairReviewDecision; id: nu
 export const PAIR_APPLY_COPY = {
   title: "List your token as a community pair",
   lead: "Launches paired with your community's token carry its badge and a USD price everywhere on openlaunch, and reach Trending. Check your token here for free, apply, and a person reviews it.",
-  whatYouGet: "A listing gives launches paired with your token its badge, a USD price and a place in Trending, plus a page for the pair. It does not add your token to the launch form (ETH, TWIG and stocks only): your community launches against the factory with its own tools or agents.",
+  whatYouGet: "A listing gives launches paired with your token its badge, a USD price and a place in Trending, plus a page for the pair. It does not add your token to the launch form: your community launches against the factory with its own tools or agents.",
   feeRule: (usd: number) => `The fee is $${usd} in TWIG on Base, sent to 0x…dEaD, whichever chain the token is on. It pays for a review, not a listing, and it cannot be refunded: it is burned. It covers up to 3 reviews within 60 days.`,
   precheckFirst: "The fee can only be sent once the free check passes, so a token that cannot be listed never costs anything.",
   profileNeeded: "Applying needs an openlaunch profile with a verified X account (from your profile page).",

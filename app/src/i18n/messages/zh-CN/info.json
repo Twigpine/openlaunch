@@ -32,7 +32,7 @@
         },
         "market": {
           "title": "市场开启",
-          "description": "一个 Uniswap v4 资金池把你的代币与以下资产之一配对：ETH、Base 上的 TWIG、Robinhood Chain 上的 GITLAWB 或 USDG、一种代币化股票（Base 上的 Coinbase 股票，Robinhood Chain 上的 Robinhood Stock Tokens），或 Arc 上的 USDC。不使用 Hook。资金池从你选定的市值起步。",
+          "description": "一个 Uniswap v4 资金池把你的代币与以下资产之一配对：ETH、Robinhood Chain 上的 USDG、一种代币化股票（Base 上的 Coinbase 股票，Robinhood Chain 上的 Robinhood Stock Tokens），或 Arc 上的 USDC。不使用 Hook。资金池从你选定的市值起步。",
           "label": "Uniswap 资金池"
         },
         "lock": {
@@ -134,8 +134,8 @@
       },
       "twig": {
         "question": "什么是以 TWIG 或 GITLAWB 计价的资金池？",
-        "twig": "TWIG 是 Twigpine 在 Base 上的代币：GITLAWB 的 1:1 包装代币。任何人都可以随时免费把 GITLAWB 包装成 TWIG，或解包换回；每个 TWIG 都由其合约中持有的一个 GITLAWB 支持，该合约没有所有者，也没有转账限制。它是 Base 发行表单提供的计价资产：选择它，买家就用 TWIG 支付；任何交易手续费在领取时以 TWIG 按份额支付给发行时指定的受益人；没有指定受益人的发行，其 TWIG 手续费在领取时被销毁。",
-        "gitlawb": "GITLAWB 是 Twigpine 在 Base 上的代币，通过 LayerZero 1:1 跨链到 Robinhood Chain（同一份供应量，两条链）：一个普通的 ERC-20，没有转账限制，也没有发行方开关。Robinhood Chain 的发行表单提供它；在 Base 上，已经与 GITLAWB 配对的资金池会保留其徽章和价格。手续费规则相同：领取时以 GITLAWB 支付；没有指定受益人的发行，其 GITLAWB 手续费在领取时被销毁。",
+        "twig": "TWIG 是 Twigpine 在 Base 上的代币：GITLAWB 的 1:1 包装代币。任何人都可以随时免费把 GITLAWB 包装成 TWIG，或解包换回；每个 TWIG 都由其合约中持有的一个 GITLAWB 支持，该合约没有所有者，也没有转账限制。在计划中的 GITLAWB 与 TWIG 代币迁移（<link>migrate.twigpine.com</link>）之前，Base 发行表单已不再提供它。已经与 TWIG 配对的发行会保留其徽章、价格和交易：买家用 TWIG 支付；任何交易手续费在领取时以 TWIG 按份额支付给发行时指定的受益人；没有指定受益人的发行，其 TWIG 手续费在领取时被销毁。",
+        "gitlawb": "GITLAWB 是 Twigpine 在 Base 上的代币，通过 LayerZero 1:1 跨链到 Robinhood Chain（同一份供应量，两条链）：一个普通的 ERC-20，没有转账限制，也没有发行方开关。在同一次计划中的迁移之前，所有发行表单都已不再提供它；已经与 GITLAWB 配对的资金池，无论在哪条链上，都会保留其徽章、价格和交易。手续费规则相同：领取时以 GITLAWB 支付；没有指定受益人的发行，其 GITLAWB 手续费在领取时被销毁。",
         "prices": "两者的美元数字都来自 Base 上 Uniswap v4 WETH/GITLAWB 资金池的价格（并与 30 分钟链上均价交叉核对）以及 ETH/USD；一个 TWIG 按一个 GITLAWB 计算，因为它可以解包为一个 GITLAWB。这些数字仅用于展示和排序；链上没有任何东西依赖它们。"
       },
       "stocks": {
@@ -257,7 +257,7 @@
       "exampleTitle": "在 Base 上发行",
       "exampleNote": "仅为示例。发送交易前，请替换钱包占位符并检查参数。切勿泄露你的私钥。",
       "parameters": "参数说明，不必猜测",
-      "quote": "ETH 使用零地址。Base 上的 TWIG（那里的表单提供的计价资产）使用 <code>{twig}</code>。GITLAWB 在 Base 上使用 <code>{gitlawbBase}</code>（仍会被识别、显示徽章并定价），在 Robinhood Chain 上使用 <code>{gitlawbRobinhood}</code>；Robinhood Chain 上的 USDG 使用 <code>{usdg}</code>。任何 ERC-20 计价资产都要先调用 <code>findSalt(...)</code>，让代币地址排在计价资产之上。",
+      "quote": "ETH 使用零地址。Robinhood Chain 上的 USDG 使用 <code>{usdg}</code>。TWIG（<code>{twig}</code>，Base）和 GITLAWB（Base 上为 <code>{gitlawbBase}</code>，Robinhood Chain 上为 <code>{gitlawbRobinhood}</code>）仍会被识别、显示徽章并定价。现在没有任何表单提供它们。TWIG 取代 GITLAWB 后，GITLAWB 离开了 Base 表单；之后，在计划中的代币迁移之前，TWIG 离开了 Base 表单，GITLAWB 也离开了 Robinhood Chain 表单。任何 ERC-20 计价资产都要先调用 <code>findSalt(...)</code>，让代币地址排在计价资产之上。",
       "supply": "<code>0</code> 表示使用默认的 <code>1B</code> 供应量。",
       "startTick": "设置开盘市值。取值为 <code>200</code> 的倍数；对于 <code>1B</code> 供应量，<code>184200 ≈ 10 ETH</code> FDV。",
       "lpFee": "单位为 pips：<code>0</code>、<code>10000 = 1%</code> 或 <code>30000 = 3%</code>。",
@@ -377,6 +377,7 @@
     "gas": "你用 {gas} 支付 {chain} 的 Gas，没有其他费用。",
     "quotes": "计价资产",
     "quotesNote": "资金池的交易对资产，在发行时选定。",
+    "stocks": "股票",
     "launches": "发行数",
     "launchesNote": "迄今在 {chain} 上发行的代币。",
     "chainId": "链 ID",
