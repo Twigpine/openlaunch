@@ -21,6 +21,7 @@ import { collectNonDust } from "./feed-dust";
 import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, tapeOrNone, type Pip } from "./trending-live";
 import { launchKey } from "./list-state";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
+import { UNPRICED_SWAPS_SQL, missingNow, tradeTimeUsd } from "./trade-time-usd";
 import type { RawCandle } from "./candles";
 import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSearchHitByHolders, type LaunchFilter } from "./search";
 
@@ -196,10 +197,12 @@ function quoteUsd(q: Quote, ethUsd: number | null): number | null {
 }
 
 /** A launch row as the app uses it: indexer-only bigint columns dropped (JSON-safe), price, FDV and USD figures worked out. */
-function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null): LaunchRow {
-  // drop indexer-only bigint columns so the row is JSON-safe
+/** Columns a row carries for the trade-time USD figures (trade-time-usd.ts); read here, never passed on as they are. */
+type TradeTimeCols = { volume_usd?: number | null; fees_collected_usd?: number | null; fees_burned_usd?: number | null; volume_quote_unpriced?: string | null };
+function shape(raw: Raw & TradeTimeCols & { last_swap_block?: bigint; last_swap_log?: number; log_index?: number; holders_synced_block?: bigint | null }, ethUsd: number | null): LaunchRow {
+  // drop indexer-only bigint columns so the row is JSON-safe, and the stored trade-time sums (volume_usd below is computed from them)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { last_swap_block, last_swap_log, log_index, holders_synced_block, ...r } = raw;
+  const { last_swap_block, last_swap_log, log_index, holders_synced_block, volume_usd: storedVolumeUsd, fees_collected_usd, fees_burned_usd, volume_quote_unpriced, ...r } = raw;
   const chain = chainKeyOf(r.chain_id) ?? DEFAULT_CHAIN;
   const q = quoteInfo(chain, r.quote);
   const supply = BigInt(r.supply);
@@ -240,7 +243,8 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
     quote_usd: qu,
     price_usd: qu === null ? null : price * qu,
     fdv_usd: qu === null ? null : fdv * qu,
-    volume_usd: usd(r.volume_quote),
+    // all-time volume at each trade's own hour; trades with no stored value (no price history) at today's price
+    volume_usd: tradeTimeUsd(storedVolumeUsd, volume_quote_unpriced, q.decimals, qu),
     volume_1h_usd: usd(String(r.volume_1h ?? "0")),
     volume_24h_usd: usd(String(r.volume_24h ?? "0")),
   };
@@ -256,9 +260,11 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
 const OUTSIDE = `s.trader <> l.launcher AND s.block_number > l.block_number + ${SNIPER_BLOCKS}`;
 const HOUR = `s.block_time > now() - interval '1 hour'`;
 export const SELECT = `SELECT l.*, m.description, m.image_url, m.banner_url, m.website, m.x_handle,
-  w.n1 AS trades_1h, w.t1 AS traders_1h, w.t1_ex AS traders_1h_ex, w.v1 AS volume_1h, w.n24 AS trades_24h, w.t24_ex AS traders_24h_ex, w.v24 AS volume_24h, w.last_outside_at AS last_outside_trade_at
+  w.n1 AS trades_1h, w.t1 AS traders_1h, w.t1_ex AS traders_1h_ex, w.v1 AS volume_1h, w.n24 AS trades_24h, w.t24_ex AS traders_24h_ex, w.v24 AS volume_24h, w.last_outside_at AS last_outside_trade_at,
+  COALESCE(u.uq, 0)::text AS volume_quote_unpriced
   FROM bb_launches l
   LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token
+  LEFT JOIN (${UNPRICED_SWAPS_SQL}) u ON u.chain_id = l.chain_id AND u.token = l.token
   LEFT JOIN LATERAL (
     SELECT count(*) FILTER (WHERE ${HOUR})::int AS n1, count(DISTINCT s.trader) FILTER (WHERE ${HOUR})::int AS t1,
            count(DISTINCT s.trader) FILTER (WHERE ${HOUR} AND ${OUTSIDE})::int AS t1_ex, COALESCE(sum(abs(amount0)) FILTER (WHERE ${HOUR}), 0)::text AS v1,
@@ -358,7 +364,11 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const pairDecCase = pairDec.length ? pairDec.map((p) => db`WHEN (l.chain_id = ${chainIdOf(p.chain)} AND l.quote = ${p.address}) THEN ${p.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const qd = db`(CASE ${stableDecCase} ${decCase} ${pairDecCase} ELSE 18 END)`;
   const volCol = db.unsafe(VOLUME_COLUMN_SQL[win]);
-  const volUsd = db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
+  // the all-time window ranks by trade-time USD (each trade at its own hour, trades with no stored value at today's price, as
+  // shape() shows it); 1h and 24h stay quote volume at today's price, where every trade is priced live anyway
+  const volUsd = win === "all"
+    ? db`(l.volume_usd + COALESCE(u.uq, 0) / power(10, ${qd}) * ${usdPerUnit})`
+    : db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
   // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
   const mcapUsd = db`((1.0 / (power(1.0001, COALESCE(l.tick, l.start_tick)::double precision) * power(10, ${qd} - 18))) * (l.supply / 1e18) * ${usdPerUnit})`;
   const newest = db`l.block_time DESC, l.chain_id DESC, l.block_number DESC`;
@@ -560,11 +570,22 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
   if (!db) return empty();
   await withStocks();
   const [rows, [boosted]] = await Promise.all([
-    db<{ chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string }[]>`
-    SELECT chain_id, quote, count(*)::bigint AS launches, COALESCE(sum(buys + sells), 0)::bigint AS trades,
-           COALESCE(sum(volume_quote), 0)::text AS volume, COALESCE(sum(fees_quote_burned), 0)::text AS burned,
-           COALESCE(sum(fees_quote_collected - fees_quote_burned), 0)::text AS creators
-      FROM bb_launches GROUP BY chain_id, quote`,
+    db<{ chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string; volume_usd: number; collected_usd: number; burned_usd: number; volume_unpriced: string; collected_unpriced: string; burned_unpriced: string }[]>`
+    SELECT l.chain_id, l.quote, count(*)::bigint AS launches, COALESCE(sum(l.buys + l.sells), 0)::bigint AS trades,
+           COALESCE(sum(l.volume_quote), 0)::text AS volume, COALESCE(sum(l.fees_quote_burned), 0)::text AS burned,
+           COALESCE(sum(l.fees_quote_collected - l.fees_quote_burned), 0)::text AS creators,
+           -- trade-time USD (trade-time-usd.ts): the stored sums, and the raw amounts with no stored value
+           COALESCE(sum(l.volume_usd), 0)::float8 AS volume_usd, COALESCE(sum(l.fees_collected_usd), 0)::float8 AS collected_usd,
+           COALESCE(sum(l.fees_burned_usd), 0)::float8 AS burned_usd, COALESCE(sum(u.uq), 0)::text AS volume_unpriced,
+           COALESCE(sum(uf.collected), 0)::text AS collected_unpriced, COALESCE(sum(uf.burned), 0)::text AS burned_unpriced
+      FROM bb_launches l
+      LEFT JOIN (SELECT chain_id, token, sum(abs(amount0)) AS uq FROM bb_launch_swaps WHERE usd IS NULL GROUP BY chain_id, token) u ON u.chain_id = l.chain_id AND u.token = l.token
+      LEFT JOIN (SELECT f.chain_id, f.token, sum(f.quote_amount) FILTER (WHERE f.kind = 'collected') AS collected,
+                        sum(f.amount) FILTER (WHERE f.kind = 'burned') AS burned
+                   FROM bb_launch_fee_events f JOIN bb_launches fl ON fl.chain_id = f.chain_id AND fl.token = f.token
+                  WHERE f.usd IS NULL AND (f.kind = 'collected' OR (f.kind = 'burned' AND f.currency = fl.quote))
+                  GROUP BY f.chain_id, f.token) uf ON uf.chain_id = l.chain_id AND uf.token = l.token
+     GROUP BY l.chain_id, l.quote`,
     // boosts are TWIG sent to 0x…dEaD too (boost.ts): they join the TWIG burned figure while the switch is on, and
     // nothing else reads them here. Only boosts that name a launch count (the lane's own join), so a stray burn whose
     // last digits name nothing is never called a boost. Display only: a failed read counts none rather than taking
@@ -586,15 +607,19 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     if (!chain) continue;
     const q = quoteInfo(chain, r.quote);
     const usd = quoteUsd(q, ethUsd);
-    const qu = usd ?? 0;
-    // a quote that normally prices (ETH, HYPE, GITLAWB, TWIG, a stock with a feed) but has no price this instant → the USD sums undercount;
-    // an unlisted ERC-20 (key "other") and a stock without a feed are unpriced by design and are left out of the USD figures silently, as always
-    if (usd === null && hasPriceSource(q) && (BigInt(r.volume) > 0n || BigInt(r.burned) > 0n || BigInt(r.creators) > 0n)) t.usd_partial = true;
+    // trade-time USD: every trade and fee at its own hour (stored), the ones with no stored value (no price history) at
+    // today's price. Only that last part can be missing: a quote that normally prices but has no price this instant → the
+    // USD sums undercount; an unlisted ERC-20 (key "other") and a stock without a feed are unpriced by design and are left
+    // out of the USD figures silently, as always
+    const priced = hasPriceSource(q);
+    if (missingNow(r.volume_unpriced, usd, priced) || missingNow(r.collected_unpriced, usd, priced) || missingNow(r.burned_unpriced, usd, priced)) t.usd_partial = true;
+    const collectedUsd = tradeTimeUsd(r.collected_usd, r.collected_unpriced, q.decimals, usd) ?? 0;
+    const burnedUsd = tradeTimeUsd(r.burned_usd, r.burned_unpriced, q.decimals, usd) ?? 0;
     t.launches += Number(r.launches);
     t.trades += Number(r.trades);
-    t.volume_usd += units(r.volume, q.decimals) * qu;
-    t.fees_burned_usd += units(r.burned, q.decimals) * qu;
-    t.fees_to_creators_usd += units(r.creators, q.decimals) * qu;
+    t.volume_usd += tradeTimeUsd(r.volume_usd, r.volume_unpriced, q.decimals, usd) ?? 0;
+    t.fees_burned_usd += burnedUsd;
+    t.fees_to_creators_usd += collectedUsd - burnedUsd;
     const bc = t.by_chain[chain];
     bc.launches += Number(r.launches);
     bc.trades += Number(r.trades);
