@@ -624,3 +624,27 @@ CREATE TABLE IF NOT EXISTS bb_admin_sessions (
   revoked_at   timestamptz
 );
 CREATE INDEX IF NOT EXISTS bb_admin_sessions_wallet_idx ON bb_admin_sessions (wallet, created_at DESC);
+
+-- ── trade-time USD (2026-11-10, lib/launchpad/usd-history.ts) ───────────────
+-- Every trade's and fee's USD value at the time it happened, instead of its quote volume at today's price. One USD price
+-- per quote per UTC hour: the live price the indexer saw during that hour (source 'live', updated until the hour ends,
+-- never replaced afterwards), or a historical close filled in by scripts/usd-backfill.ts ('coinbase', 'geckoterminal',
+-- 'fixed'). `decimals` is the quote's, so a raw amount converts without a second lookup.
+CREATE TABLE IF NOT EXISTS bb_quote_usd_hourly (
+  chain_id   integer NOT NULL,
+  quote      text NOT NULL,                                 -- lowercase; 0x000… = the chain's native asset
+  hour       timestamptz NOT NULL,                          -- start of the UTC hour
+  usd        double precision NOT NULL CHECK (usd > 0),     -- per whole quote unit
+  decimals   integer NOT NULL CHECK (decimals BETWEEN 0 AND 36),
+  source     text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain_id, quote, hour)
+);
+-- the value at the trade's own hour, fixed once written; NULL = no price for that hour yet (the backfill fills it)
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS usd double precision;
+-- quote side only, as the USD fee totals always were: 'collected' (quote_amount) and a 'burned' row in the launch's quote
+ALTER TABLE bb_launch_fee_events ADD COLUMN IF NOT EXISTS usd double precision;
+-- each launch's sums of those values, added to in the event's own transaction and recomputed by the backfill
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS volume_usd double precision NOT NULL DEFAULT 0;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fees_collected_usd double precision NOT NULL DEFAULT 0;
+ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fees_burned_usd double precision NOT NULL DEFAULT 0;
