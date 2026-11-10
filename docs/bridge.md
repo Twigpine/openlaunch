@@ -55,6 +55,13 @@ These tests never connect a wallet or submit a transaction.
 
 `/ui-review-bridge` is a development-only visual fixture with disconnected, quote, quoting, high-fee, expired, error, pending, success, uncertain and refund states, plus approval/recovery states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
 
+### Relay router v3.2 (2026-11-10)
+
+- Relay made its v3.2 router (`0x0729e2a4716d9f7dd17858d5d504426d228697f7`) the default on 2026-10-26: Get Chains reports it as `contracts.erc20Router` and every order names it in `extraData`. Only v3 (`0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f`) was pinned, so from that day every quote was refused as unverifiable and the bridge could not be used. Nothing was sent: the check fails closed.
+- Both routers are now allowed, as Relay's [contract addresses](https://docs.relay.link/references/api/api_resources/contract-addresses) page asks of integrators who pin them: the chain catalogue, the order's output and both refunds must each name one of the two. The depository, the deposit calldata and every other check are unchanged.
+- After the change all ten directed routes passed the read-only live tests again. No wallet signed anything.
+- The live tests are opt-in, so nothing noticed the outage for two weeks. A scheduled run of `relay.live.test.ts` would have; that is a workflow change, which belongs to the maintainers.
+
 ### Wallet test findings (2026-09-16)
 
 - Approval recovery now distinguishes a transaction missing from the queried node, an earlier nonce blocking it, a fee cap below the current base fee, and an RPC outage. These are advisory observations, never permission to resubmit or proof that a missing transaction failed. A fresh matching receipt and allowance are still required.

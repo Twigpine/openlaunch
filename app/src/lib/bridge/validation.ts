@@ -6,7 +6,15 @@ import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
 export const RELAY_DEPOSITORY = "0x4cd00e387622c35bddb9b4c962c136462338bc31";
-const RELAY_ROUTER = "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f";
+// Relay's execution routers on Base, Robinhood Chain and Arc (the "Cancun" column of its contract-versions table,
+// docs.relay.link/references/api/api_resources/contract-addresses): v3.2 first, then v3. Relay made v3.2 the default on
+// 2026-10-26 and keeps both live through the transition, telling integrators who pin addresses to allow both. A router
+// Relay publishes later is rejected until it is added here: every quote then fails closed, which the opt-in live tests
+// (relay.live.test.ts) show at once.
+export const RELAY_ROUTERS = ["0x0729e2a4716d9f7dd17858d5d504426d228697f7", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f"] as const;
+const isRelayRouter = (value: unknown) => RELAY_ROUTERS.some((router) => sameAddress(value, router));
+/** An order names its router as one ABI word in extraData: twelve zero bytes, then the address. */
+const isRelayRouterWord = (value: unknown) => RELAY_ROUTERS.some((router) => sameAddress(value, `0x${router.slice(2).padStart(64, "0")}`));
 export const DEPOSIT_ABI = parseAbi(["function depositNative(address depositor, bytes32 id) payable"]);
 export const ERC20_DEPOSIT_ABI = parseAbi(["function depositErc20(address depositor, address token, uint256 amount, bytes32 id)"]);
 export const APPROVAL_ABI = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
@@ -82,7 +90,7 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
     ensure(chain.vmType === "evm" && chain.disabled === false && chain.depositEnabled === true && chain.blockProductionLagging !== true);
     ensure(v2.chainId === BRIDGE_CHAINS[id].key && sameAddress(v2.depository, RELAY_DEPOSITORY));
     ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === NATIVE_SYMBOLS[id] && currency.supportsBridging === true);
-    ensure(sameAddress(contracts.erc20Router, RELAY_ROUTER));
+    ensure(isRelayRouter(contracts.erc20Router));
     return chain;
   });
   const solvers = list(selected.find((chain) => chain.id === 8453)!.solverAddresses);
@@ -111,8 +119,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   ensure(payment.chainId === source && sameAddress(payment.currency, inputCurrency.address) && uint(payment.amount, true) === input.amount && payment.weight === "1");
   const output = object(order.output);
   ensure(output.chainId === destination && list(output.calls, 0) && list(order.fees, 0));
-  const routerData = `0x${RELAY_ROUTER.slice(2).padStart(64, "0")}`;
-  ensure(sameAddress(output.extraData, routerData));
+  ensure(isRelayRouterWord(output.extraData));
   ensure(typeof output.deadline === "number" && Number.isSafeInteger(output.deadline));
   const expiresAt = Math.min(now + QUOTE_TTL_MS, output.deadline * 1000 - DEADLINE_MARGIN_MS);
   ensure(expiresAt >= now + 5_000);
@@ -129,7 +136,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   for (const refund of refunds) {
     ensure((refund.chainId === source || refund.chainId === destination) && sameAddress(refund.recipient, input.address));
     const refundCurrency = refund.chainId === source ? inputCurrency.address : outputCurrency.address;
-    ensure(sameAddress(refund.currency, refundCurrency) && uint(refund.minimumAmount) === "0" && refund.deadline === output.deadline && sameAddress(refund.extraData, routerData));
+    ensure(sameAddress(refund.currency, refundCurrency) && uint(refund.minimumAmount) === "0" && refund.deadline === output.deadline && isRelayRouterWord(refund.extraData));
   }
   const paymentDetails = object(protocol.paymentDetails);
   ensure(paymentDetails.chainId === source && sameAddress(paymentDetails.depository, RELAY_DEPOSITORY) && sameAddress(paymentDetails.currency, inputCurrency.address) && uint(paymentDetails.amount) === input.amount);

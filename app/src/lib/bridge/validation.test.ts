@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getOrderId, type Order } from "./relay-order.ts";
 import { encodeFunctionData, zeroAddress } from "viem";
-import { BridgeApiError, DEPOSIT_ABI, QUOTE_TTL_MS, parseBridgeRequest, parseRelayStatus, validateRelayChains, validateRelayQuote } from "./validation.ts";
+import { BridgeApiError, DEPOSIT_ABI, QUOTE_TTL_MS, RELAY_ROUTERS, parseBridgeRequest, parseRelayStatus, validateRelayChains, validateRelayQuote } from "./validation.ts";
 import { FIXTURE_ADDRESS, FIXTURE_INPUT, FIXTURE_NOW, FIXTURE_ORDER_ID, FIXTURE_REQUEST_ID, relayChainsFixture, relayQuoteFixture } from "./relay.fixture.ts";
 
 const metadata = () => validateRelayChains(relayChainsFixture());
@@ -92,6 +92,54 @@ test("canonical metadata rejects a changed depository, missing or disabled chain
     assert.throws(() => validateRelayChains(fixture), BridgeApiError);
   }
   assert.throws(() => validateRelayChains({ chains: [relayChainsFixture().chains[0]] }), BridgeApiError);
+});
+
+// Relay made its v3.2 router the default on 2026-10-26 and keeps v3 live through the transition. While only v3 was
+// pinned, every live quote was refused; the captured fixture above still names v3, so both are covered here.
+const routerWord = (router: string) => `0x${router.slice(2).padStart(64, "0")}`;
+function quoteWithRouters(output: string, refunds: [string, string] = [output, output]) {
+  const fixture = relayQuoteFixture();
+  const order = fixture.protocol.v2.orderData;
+  order.output.extraData = routerWord(output);
+  order.inputs[0].refunds.forEach((refund, i) => { refund.extraData = routerWord(refunds[i]); });
+  rebind(fixture);
+  return fixture;
+}
+function chainsWithRouter(router: string, only?: number) {
+  const fixture = relayChainsFixture();
+  fixture.chains.forEach((chain, i) => { if (only === undefined || only === i) chain.contracts.erc20Router = router; });
+  return fixture;
+}
+
+test("Relay's v3.2 router is accepted in the chain catalogue and in the order, and v3 still is", () => {
+  const [v32, v3] = RELAY_ROUTERS;
+  assert.equal(v32, "0x0729e2a4716d9f7dd17858d5d504426d228697f7");
+  assert.equal(v3, "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f");
+  for (const router of RELAY_ROUTERS) {
+    const chains = validateRelayChains(chainsWithRouter(router));
+    assert.equal(validateRelayQuote(quoteWithRouters(router), FIXTURE_INPUT, chains, FIXTURE_NOW).amountOut, "9987669548275956", router);
+    // checksummed or upper-case spellings of the same address are the same router
+    assert.doesNotThrow(() => validateRelayChains(chainsWithRouter(`0x${router.slice(2).toUpperCase()}`)), router);
+  }
+  // mid-transition a catalogue or an order may name both: each one is Relay's, so neither is refused
+  assert.doesNotThrow(() => validateRelayChains(chainsWithRouter(v3, 1)));
+  assert.doesNotThrow(() => validate(quoteWithRouters(v32, [v3, v32])));
+});
+
+test("a router Relay never published is refused wherever it appears", () => {
+  const unknown = "0x1111111111111111111111111111111111111111";
+  for (const index of [0, 1]) assert.throws(() => validateRelayChains(chainsWithRouter(unknown, index)), BridgeApiError, `chain ${index}`);
+  const [v32] = RELAY_ROUTERS;
+  assert.throws(() => validate(quoteWithRouters(unknown)), BridgeApiError, "output");
+  assert.throws(() => validate(quoteWithRouters(v32, [unknown, v32])), BridgeApiError, "source refund");
+  assert.throws(() => validate(quoteWithRouters(v32, [v32, unknown])), BridgeApiError, "destination refund");
+  // the address alone is not the word an order carries, and extra bytes around it do not pass either
+  for (const extraData of [v32, `${routerWord(v32)}00`, `0x${"0".repeat(22)}11${v32.slice(2)}`]) {
+    const fixture = relayQuoteFixture();
+    fixture.protocol.v2.orderData.output.extraData = extraData;
+    rebind(fixture);
+    assert.throws(() => validate(fixture), BridgeApiError, extraData);
+  }
 });
 
 test("status distinguishes refunds and delays and accepts waiting before hashes exist", () => {
