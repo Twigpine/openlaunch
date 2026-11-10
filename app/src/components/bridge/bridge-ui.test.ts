@@ -29,8 +29,64 @@ test("bridge keeps one lazily loaded controller across desktop/mobile and dismis
   assert.match(header, /<BridgeButton compact \/>/);
   assert.match(header, /<BridgeButton block onOpen=\{\(\) => setOpen\(false\)\} \/>/);
   assert.match(provider, /dynamic\(\(\) => import\("\.\/BridgeDialog"\)/);
-  assert.match(provider, /activated \? <BridgeDialog/);
+  // mounted on first use or when the /bridge page registers its slot, and kept mounted after either
+  assert.match(provider, /activated \|\| slot\.node \? <BridgeDialog open=\{open\} onOpenChange=\{setOpen\} restoreFocus=\{restoreFocus\} slot=\{slot\.node\} link=\{slot\.link\} \/>/);
   assert.doesNotMatch(provider, /open \? <BridgeDialog/);
+});
+
+test("the /bridge page shows the same controller's panel instead of starting a second one", () => {
+  const page = read("../../app/bridge/page.tsx");
+  const slot = read("./BridgePageSlot.tsx");
+  const store = read("./bridge-slot.ts");
+  // the page only registers an element; nothing in it or its slot runs the bridge hook
+  assert.match(page, /<BridgePageSlot link=\{link\} \/>/);
+  assert.match(page, /const link = parseBridgeLink\(await searchParams\);/);
+  assert.doesNotMatch(page + slot + store, /useBridge|BridgeDialog|sendTransaction/);
+  assert.match(slot, /bridgeSlot\.mount\(node, link\)/);
+  assert.match(store, /return \(\) => \{ if \(current\.node === node\)/, "a stale page cannot withdraw a newer page's slot");
+  assert.equal((panel.match(/useBridge\(/g) ?? []).length, 1, "one hook call serves the dialog and the page");
+  assert.match(panel, /const bridge = useBridge\(open \|\| onPage\);/);
+  assert.match(panel, /onPage \? createPortal\(<section className=\{signal\.pagePanel\} aria-label="Bridge">\{content\}\{footer\}<\/section>, slot\) : null/);
+  assert.match(panel, /<Dialog\.Root open=\{open && !onPage\}/, "the dialog never opens over the page's own panel");
+  assert.match(provider, /if \(slot\.node && open\) setOpen\(false\);/);
+  assert.match(provider, /page\.querySelector<HTMLElement>\("#bridge-amount"\)\?\.focus/);
+  // a link preselects through the pickers' guarded setters, once, and carries no amount
+  assert.match(panel, /if \(!link \|\| appliedLink\.current === linkKey\) return;/);
+  assert.match(panel, /bridge\.setOriginChainId\(link\.originChainId\);\s+bridge\.setDestinationChainId\(link\.destinationChainId\);/);
+  assert.doesNotMatch(panel, /link\.amount|bridge\.setAmount\(link/);
+});
+
+test("the signal board is decorative and sliding confirms the deposit only", () => {
+  const board = read("./SignalBoard.tsx");
+  const slide = read("./SlideConfirm.tsx");
+  const signalCss = read("./Signal.module.css");
+  // the board says nothing a screen reader needs: the panel's own status text carries it
+  assert.match(board, /<div className=\{styles\.board\} aria-hidden="true">/);
+  assert.match(board, /window\.matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches/);
+  assert.match(board, /if \(still\) paint\(started\);\s+else frame = requestAnimationFrame\(loop\);/);
+  assert.match(board, /return \(\) => \{ cancelAnimationFrame\(frame\); observer\.disconnect\(\); \};/);
+  assert.match(board, /observer\.observe\(rule\);/, "sizing the canvas never re-triggers its own observer");
+  assert.doesNotMatch(board + slide, /setInterval|sendTransaction|useBridge/);
+  assert.equal((panel.match(/<SignalBoard /g) ?? []).length, 3, "form, approval and transfer views");
+  // the slide appears for the deposit alone, and runs the very same guarded path as the button
+  assert.match(panel, /const slideReady = !!b\.address && reviewing && !b\.approvalRequired && !loading && !b\.allowanceLoading;/);
+  assert.match(panel, /\{slideReady \? <SlideConfirm key=\{b\.quote!\.requestId\}[^\n]+onConfirm=\{submit\} \/> : null\}/);
+  assert.match(panel, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); submit\(\); \}\}/);
+  assert.match(panel, /<button type="submit" className=\{slideReady \? styles\.secondary : styles\.primary\}/, "the ordinary button never goes away");
+  assert.equal((panel.match(/b\.confirm\(\)/g) ?? []).length, 1);
+  assert.equal((panel.match(/b\.approve\(\)/g) ?? []).length, 1);
+  // only a release or Enter at the end confirms, read from the live drag, never from movement
+  assert.match(slide, /if \(slideRelease\(at\) === "confirm"\) \{ place\(1\); onConfirm\(\); return; \}/);
+  assert.match(slide, /if \(next\.confirm\) onConfirm\(\);/);
+  assert.equal((slide.match(/onConfirm\(\)/g) ?? []).length, 2);
+  assert.doesNotMatch(slide.slice(slide.indexOf("function move"), slide.indexOf("function up")), /onConfirm/);
+  assert.match(slide, /role="slider" tabIndex=\{0\} aria-label=\{label\} aria-valuemin=\{0\} aria-valuemax=\{100\}/);
+  assert.match(slide, /<p className=\{styles\.slideHint\} aria-live="polite">/);
+  assert.match(signalCss, /\.slideTrack \{[^}]*touch-action: none/);
+  assert.match(signalCss, /prefers-reduced-motion: reduce[\s\S]+\.caption span \{ animation: none; \}/);
+  assert.match(signalCss, /\.coin:focus-visible/);
+  // the dot face loads with the panel only
+  assert.match(read("./dot-font.ts"), /Doto\(\{ subsets: \["latin"\], axes: \["ROND"\], variable: "--font-dots", display: "swap", preload: false \}\)/);
 });
 
 test("bridge review names minimum, separate gas, recipient, risk and expiry", () => {
@@ -156,7 +212,7 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
 
 test("quotes update without locking typing or automatically submitting wallet actions", () => {
   const hook = read("./useBridge.ts");
-  assert.match(panel, /useBridge\(open\)/);
+  assert.match(panel, /useBridge\(open \|\| onPage\)/);
   assert.match(hook, /autoQuoteEnabled = open && !!request && !sending && !approvalSending && !approvalPending && !tracked/);
   assert.match(hook, /quoteSession.schedule\(\(\) => \{ void requestQuote\(\); \}\)/);
   assert.match(hook, /\[autoQuoteEnabled, amount, walletChainId, requestQuote, quoteSession\]/);

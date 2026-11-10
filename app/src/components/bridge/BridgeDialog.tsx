@@ -1,19 +1,27 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
+import Link from "next/link";
 import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
 import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
 import { BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
+import { bridgeLinkKey, type BridgeLink } from "@/lib/bridge/link";
+import { signalCaption, signalMode } from "@/lib/bridge/signal";
 import { formatFeeWarningPercent } from "@/lib/bridge/fee-display";
 import { shortAddr } from "@/lib/chainPublic";
 import WalletPicker from "../WalletPicker";
 import WalletAvatar from "../WalletAvatar";
 import useBridge from "./useBridge";
+import SignalBoard from "./SignalBoard";
+import SlideConfirm from "./SlideConfirm";
+import { dotFont } from "./dot-font";
 import styles from "./BridgeDialog.module.css";
+import signal from "./Signal.module.css";
 
 type Bridge = ReturnType<typeof useBridge>;
 // Money leaves from any network, funding ones included, but arrives only on a launch chain.
@@ -158,24 +166,55 @@ function FeeLimitNotice({ rejection, inputSymbol, gasSymbol }: { rejection: Brid
   </section>;
 }
 
-export default function BridgeDialog({ open, onOpenChange, restoreFocus }: {
+/**
+ * The bridge's one controller. It shows the panel as the header dialog, or, when the /bridge page has registered its
+ * slot (bridge-slot.ts), inside that page instead: the same hook either way, so a transfer is quoted, sent and tracked
+ * once. `link` is the page's shareable route (lib/bridge/link.ts); it only preselects networks and tokens.
+ */
+export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = null, link = null }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   restoreFocus: () => HTMLElement | null;
+  slot?: HTMLElement | null;
+  link?: BridgeLink | null;
 }) {
-  const bridge = useBridge(open);
+  const onPage = slot !== null;
+  const bridge = useBridge(open || onPage);
   const popup = useRef<HTMLDivElement>(null);
   const [connecting, setConnecting] = useState(false);
   const transferring = bridge.tracked !== null;
+  const linkKey = bridgeLinkKey(link);
+  const appliedLink = useRef("");
+
+  // Each link is applied once, through the same guarded setters the pickers use: they refuse while an approval or a
+  // transfer is in progress, so a link can never move a route out from under one.
+  useEffect(() => {
+    if (!link || appliedLink.current === linkKey) return;
+    appliedLink.current = linkKey;
+    bridge.setOriginChainId(link.originChainId);
+    bridge.setDestinationChainId(link.destinationChainId);
+    if (link.originAsset) bridge.setOriginAsset(link.originAsset);
+    if (link.destinationAsset) bridge.setDestinationAsset(link.destinationAsset);
+  }, [bridge, link, linkKey]);
 
   function connect() {
-    onOpenChange(false);
+    if (!onPage) onOpenChange(false);
     setConnecting(true);
   }
 
+  const footer = (
+    <div className={styles.footer}>
+      <a href="https://relay.link" target="_blank" rel="noreferrer">Powered by Relay <ArrowUpRight size={12} aria-hidden /></a>
+      {onPage ? null : <Link href="/bridge" onClick={() => onOpenChange(false)}>Open full page</Link>}
+      <span>0 Openlaunch fee</span>
+    </div>
+  );
+  const content = transferring ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={connect} />;
+
   return (
     <>
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      {onPage ? createPortal(<section className={signal.pagePanel} aria-label="Bridge">{content}{footer}</section>, slot) : null}
+      <Dialog.Root open={open && !onPage} onOpenChange={onOpenChange}>
         <Dialog.Portal>
           <Dialog.Backdrop className={styles.backdrop} />
           <Dialog.Popup ref={popup} initialFocus={popup} finalFocus={connecting ? false : restoreFocus} className={styles.panel} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}>
@@ -184,15 +223,12 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus }: {
               <Dialog.Close className={styles.close} aria-label="Close bridge"><X size={19} aria-hidden /></Dialog.Close>
             </div>
             <Dialog.Description className={styles.description}>{transferring ? "Your transfer, from departure to arrival." : "Same wallet. A new network."}</Dialog.Description>
-            {transferring ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={connect} />}
-            <div className={styles.footer}>
-              <a href="https://relay.link" target="_blank" rel="noreferrer">Powered by Relay <ArrowUpRight size={12} aria-hidden /></a>
-              <span>0 Openlaunch fee</span>
-            </div>
+            {content}
+            {footer}
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-      {connecting ? <WalletPicker onClose={() => { setConnecting(false); onOpenChange(true); }} /> : null}
+      {connecting ? <WalletPicker onClose={() => { setConnecting(false); if (!onPage) onOpenChange(true); }} /> : null}
     </>
   );
 }
@@ -219,14 +255,20 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
     : reviewing && b.approvalRequired ? `Approve ${nativeAmount(b.amount)} ${inputCurrency.symbol}`
     : reviewing ? `Bridge to ${destination.name}` : b.quoteError ? "Retry quote" : !b.canQuote ? "Enter an amount" : "Get quote";
   const error = (!b.quoteRejection && b.quoteError) || b.error || b.storageError || b.approvalError;
+  const mode = signalMode({ phase: b.phase, tracked: false, approvalActive: b.approvalBusy, quoteLoading: b.quoteLoading, reviewing, quoteExpired: needsRefresh, blocked: !!b.quoteRejection || !!b.quoteError });
+  // the deposit, and only the deposit, can also be confirmed by sliding: never an approval, a quote or a refresh
+  const slideReady = !!b.address && reviewing && !b.approvalRequired && !loading && !b.allowanceLoading;
+
+  // the button and the slide share this one path, with the same guards
+  function submit() {
+    if (!b.address) { connect(); return; }
+    if (loading || b.allowanceLoading || !b.canQuote) return;
+    void (reviewing ? b.approvalRequired ? b.approve() : b.confirm() : b.requestQuote());
+  }
 
   return (
-    <form onSubmit={(event) => {
-      event.preventDefault();
-      if (!b.address) { connect(); return; }
-      if (loading || b.allowanceLoading || !b.canQuote) return;
-      void (reviewing ? b.approvalRequired ? b.approve() : b.confirm() : b.requestQuote());
-    }}>
+    <form className={dotFont.variable} onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <SignalBoard from={b.originChainId} to={b.destinationChainId} mode={mode} caption={signalCaption(mode, destination.name)} />
       <div className={styles.route}>
         <NetworkSelect label="From" chain={b.originChainId} disabled={locked} onChange={b.setOriginChainId} />
         <button type="button" className={styles.reverse} aria-label={b.canReverse ? `Reverse route: ${destination.name} to ${origin.name}` : `${origin.name} only sends funds here`} title={b.canReverse ? undefined : `${origin.name} only sends funds here`} disabled={locked || !b.canReverse} onClick={b.reverseRoute}><ArrowLeftRight size={18} aria-hidden /></button>
@@ -271,7 +313,8 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
 
       {b.address ? <Recipient address={b.address} /> : null}
       {error ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{error}</span></p> : null}
-      <button type="submit" className={styles.primary} disabled={loading || b.allowanceLoading || (!!b.address && !b.canQuote)}>
+      {slideReady ? <SlideConfirm key={b.quote!.requestId} label={`Slide to bridge to ${destination.name}`} front={<AssetMark asset={inputCurrency.symbol} size={26} />} back={convertsAsset ? <AssetMark asset={outputCurrency.symbol} size={26} /> : null} onConfirm={submit} /> : null}
+      <button type="submit" className={slideReady ? styles.secondary : styles.primary} disabled={loading || b.allowanceLoading || (!!b.address && !b.canQuote)}>
         {loading ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : !b.address ? <Wallet size={17} aria-hidden /> : null}
         {b.address ? label : "Connect wallet"}
         {!loading && b.address ? <ArrowRight size={17} aria-hidden /> : null}
@@ -291,7 +334,9 @@ function ApprovalProgress({ bridge: b }: { bridge: Bridge }) {
   const needsAttention = uncertain || (!!health && health.kind !== "waiting");
   const [hash, setHash] = useState("");
   const [verifying, setVerifying] = useState(false);
-  return <div className={styles.transfer}>
+  const mode = needsAttention ? "attention" : "approval";
+  return <div className={`${styles.transfer} ${dotFont.variable}`}>
+    <SignalBoard from={approval.chainId} to={null} mode={mode} caption={signalCaption(mode, approvalChain.name)} />
     <div className={styles.transferRoute}><NetworkMark chain={approval.chainId} /><span>{approvalSymbol} approval on {approvalChain.name}</span></div>
     <div className={styles.statusHeading} role="status">
       <span className={styles.statusIcon}>{needsAttention ? <CircleAlert size={26} aria-hidden /> : <LoaderCircle size={26} className={styles.spinner} aria-hidden />}</span>
@@ -338,8 +383,11 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
   const title = success ? `Arrived on ${destination.name}` : refund ? "Relay reports a refund" : reverted ? "The deposit reverted" : failed ? "Transfer needs attention" : uncertain ? "Checking your transfer" : waitingForWallet ? "Check your wallet" : "Your transfer is on its way";
   const detail = success ? `Relay has confirmed ${outputCurrency.symbol} delivery to your receiving wallet.` : refund ? "Check your wallets on both networks and Relay’s transfer details before trying again." : reverted ? `The source network rejected the deposit. Your ${inputCurrency.symbol} was not bridged; network gas was still charged.` : failed ? "Relay couldn’t complete this transfer. Check the transfer details for recovery before sending again." : uncertain ? "The wallet response was interrupted. Don’t send again while we check whether your deposit was submitted." : waitingForWallet ? "Review the network, amount and transaction in your wallet. Nothing moves without your confirmation." : "You can close this panel. Reopen Bridge with this wallet to check its status.";
 
+  const mode = signalMode({ phase: b.phase, tracked: true, approvalActive: false, quoteLoading: false, reviewing: false, quoteExpired: false, blocked: false });
+
   return (
-    <div className={styles.transfer}>
+    <div className={`${styles.transfer} ${dotFont.variable}`}>
+      <SignalBoard from={transfer.originChainId} to={transfer.destinationChainId} mode={mode} caption={signalCaption(mode, destination.name)} />
       <div className={styles.transferRoute}><NetworkMark chain={transfer.originChainId} /><span>{origin.name}</span><ArrowRight size={16} aria-hidden /><NetworkMark chain={transfer.destinationChainId} /><span>{destination.name}</span></div>
       <div className={styles.statusHeading} role="status">
         <span className={`${styles.statusIcon} ${success ? styles.success : ""}`}>{success ? <Check size={26} aria-hidden /> : terminal || uncertain ? <CircleAlert size={26} aria-hidden /> : <LoaderCircle size={26} className={styles.spinner} aria-hidden />}</span>

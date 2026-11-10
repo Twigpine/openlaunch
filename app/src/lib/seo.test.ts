@@ -41,7 +41,7 @@ test("isCanonicalTokenPath rejects bad chains and addresses", () => {
 
 test("static sitemap covers every indexable route and skips /admin and /me", () => {
   const paths = STATIC_SITEMAP_ROUTES.map((r) => r.path);
-  for (const p of ["/", "/launch", "/base", "/robinhood", "/arc", "/feed", "/rules", "/about", "/agents"]) {
+  for (const p of ["/", "/launch", "/base", "/robinhood", "/arc", "/feed", "/rules", "/about", "/agents", "/bridge"]) {
     assert.ok(paths.includes(p), `missing ${p}`);
   }
   assert.ok(!paths.includes("/admin"), "/admin must stay out of the sitemap");

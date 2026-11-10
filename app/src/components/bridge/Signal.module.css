@@ -1,0 +1,46 @@
+/* The bridge's "signal" pieces: the LED board, the slide-to-confirm rail and the full-page panel.
+   The board is a dark object in both themes (an LED strip is not a light-mode surface), so its plate and lights are
+   literal colours; everything around it follows the site tokens. */
+
+.board { margin-bottom: 18px; padding: 10px 10px 8px; border: 1px solid #1c1f27; border-radius: 14px; background: #050608; }
+.boardRuler { display: block; height: 0; }
+.boardCanvas { display: block; width: 100%; }
+.caption { margin: 6px 2px 0; min-height: 20px; overflow: hidden; color: #6d9dff; font-family: var(--font-dots), var(--font-mono); font-variation-settings: "ROND" 100; font-size: 13px; font-weight: 800; line-height: 20px; text-align: center; white-space: nowrap; }
+.caption[data-mode="idle"], .caption[data-mode="expired"] { color: #7b8494; }
+.caption[data-mode="arrived"] { color: #3ddc97; }
+.caption[data-mode="refund"], .caption[data-mode="attention"], .caption[data-mode="blocked"] { color: #fbbf24; }
+.caption span { display: inline-block; animation: roll 360ms cubic-bezier(.16, 1, .3, 1) both; }
+@keyframes roll { from { opacity: 0; transform: translateY(105%); } to { opacity: 1; transform: none; } }
+
+.slide { margin-top: 4px; }
+.slideTrack { position: relative; height: 64px; border: 1px solid var(--color-line-strong); border-radius: 32px; background: var(--color-paper); touch-action: none; user-select: none; -webkit-user-select: none; }
+.slideTrack[data-armed] { border-color: var(--color-brand); }
+.slideFill { position: absolute; inset: 0 auto 0 0; border-radius: 32px; background: linear-gradient(90deg, var(--color-brand-soft), color-mix(in srgb, var(--color-brand) 55%, var(--color-brand-soft))); }
+.slideFill[data-settle] { transition: width 420ms cubic-bezier(.34, 1.4, .64, 1); }
+.slideLabel { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding-left: 58px; color: var(--color-body); font-size: 14px; font-weight: 600; pointer-events: none; }
+.coin { position: absolute; top: 5px; left: 6px; z-index: 1; width: 52px; height: 52px; border-radius: 50%; cursor: grab; perspective: 360px; }
+.coin[data-dragging] { cursor: grabbing; }
+.coin[data-settle] { transition: transform 420ms cubic-bezier(.34, 1.4, .64, 1); }
+.coin:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+.coinBody { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; }
+.coin[data-settle] .coinBody { transition: transform 420ms cubic-bezier(.34, 1.4, .64, 1); }
+.coinFace { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 50%; backface-visibility: hidden; background: conic-gradient(from var(--sheen, 20deg), #f3f6fb, #8b96ad, #ffffff, #69738a, #dfe5ef, #9aa5bb, #f3f6fb); box-shadow: inset 0 0 0 2px rgb(255 255 255 / .6), 0 4px 14px rgb(0 0 0 / .35); color: #1a2030; }
+.coinFace::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #0c0e13; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .18); }
+.coinFace > * { position: relative; color: #e8ecf4; }
+.coinBack { transform: rotateY(180deg); }
+.slideHint { margin: 8px 2px 0; min-height: 18px; color: var(--color-muted); font-size: 12px; line-height: 1.5; }
+
+/* the full-page panel, rendered into /bridge by the header's controller */
+.pageSlot { min-width: 0; scroll-margin-top: 104px; }
+.pageSlotWaiting { display: grid; place-items: center; min-height: 420px; border: 1px solid var(--color-line); border-radius: 20px; background: var(--color-card); color: var(--color-muted); font-size: 13px; }
+.pageSlotWaiting:not(:only-child) { display: none; }
+.pagePanel { min-width: 0; padding: 24px 26px 18px; border: 1px solid var(--color-line); border-radius: 20px; background: var(--color-card); color: var(--color-ink); }
+
+@media (max-width: 520px) {
+  .pagePanel { padding: 20px 18px 16px; border-radius: 18px; }
+  .slideLabel { font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caption span { animation: none; }
+  .slideFill[data-settle], .coin[data-settle], .coin[data-settle] .coinBody { transition: none; }
+}

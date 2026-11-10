@@ -26,6 +26,7 @@ test("every indexable page declares its own canonical path and share card", () =
     ["./feed/page.tsx", "/feed"],
     ["./agents/page.tsx", "/agents"],
     ["./about/page.tsx", "/about"],
+    ["./bridge/page.tsx", "/bridge"],
   ];
   for (const [file, path] of pages) {
     const src = read(file);

@@ -1,0 +1,27 @@
+/* /bridge: the panel on the left at a comfortable reading width, the facts beside it; one column on small screens with the panel first. */
+.layout { display: grid; grid-template-columns: minmax(0, 520px) minmax(0, 1fr); align-items: start; gap: 40px 56px; }
+.facts { display: grid; gap: 32px; min-width: 0; padding-top: 6px; }
+.facts h2 { margin: 0 0 12px; color: var(--color-ink); font-size: 17px; font-weight: 650; letter-spacing: -.02em; line-height: 1.3; }
+
+.networks { display: grid; margin: 0; }
+.networks div { display: grid; grid-template-columns: minmax(96px, 132px) minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--color-line); font-size: 14px; line-height: 1.5; }
+.networks div:last-child { border-bottom: 1px solid var(--color-line); }
+.networks dt { color: var(--color-ink); font-weight: 600; }
+.networks dd { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin: 0; color: var(--color-body); }
+.networks dd span { color: var(--color-muted); font-size: 13px; }
+
+/* a real sequence: each step happens after the one before it */
+.steps { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 26px minmax(0, 1fr); column-gap: 12px; counter-increment: step; font-size: 14px; line-height: 1.6; }
+.steps li::before { content: counter(step); grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--color-line-strong); border-radius: 50%; color: var(--color-ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.steps strong { color: var(--color-ink); font-weight: 600; }
+.steps span { color: var(--color-body); }
+
+.points { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; color: var(--color-body); font-size: 14px; line-height: 1.6; }
+.points li { position: relative; padding-left: 16px; }
+.points li::before { content: ""; position: absolute; left: 0; top: .68em; width: 5px; height: 5px; border-radius: 50%; background: var(--color-line-strong); }
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout > :first-child { max-width: 560px; }
+}

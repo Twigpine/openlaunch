@@ -1,19 +1,29 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowLeftRight } from "lucide-react";
+import { bridgeSlot } from "./bridge-slot";
 import styles from "./BridgeDialog.module.css";
 
 const BridgeDialog = dynamic(() => import("./BridgeDialog"), { ssr: false });
 const BridgeContext = createContext<(() => void) | null>(null);
 
-/** Mounted once for both navigation variants; closing the panel does not stop tracking. */
+/** Mounted once for both navigation variants and for the /bridge page; closing the panel does not stop tracking. */
 export function BridgeProvider({ children }: { children: React.ReactNode }) {
   const [activated, setActivated] = useState(false);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLElement | null>(null);
+  // the /bridge page's slot: while it exists the panel lives in the page, and the dialog stays shut
+  const slot = useSyncExternalStore(bridgeSlot.subscribe, bridgeSlot.getSnapshot, bridgeSlot.getServerSnapshot);
+  if (slot.node && open) setOpen(false);
   const show = useCallback(() => {
+    const page = bridgeSlot.getSnapshot().node;
+    if (page) {
+      page.scrollIntoView({ block: "nearest" });
+      page.querySelector<HTMLElement>("#bridge-amount")?.focus({ preventScroll: true });
+      return;
+    }
     trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setActivated(true);
     setOpen(true);
@@ -25,7 +35,7 @@ export function BridgeProvider({ children }: { children: React.ReactNode }) {
   return (
     <BridgeContext.Provider value={show}>
       {children}
-      {activated ? <BridgeDialog open={open} onOpenChange={setOpen} restoreFocus={restoreFocus} /> : null}
+      {activated || slot.node ? <BridgeDialog open={open} onOpenChange={setOpen} restoreFocus={restoreFocus} slot={slot.node} link={slot.link} /> : null}
     </BridgeContext.Provider>
   );
 }
