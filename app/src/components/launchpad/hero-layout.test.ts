@@ -141,7 +141,7 @@ test("the dollar readings are latched: shown totals change only when something h
 
 test("the two dollar figures explain themselves, and the ≈ note is readable without a mouse", () => {
   // trade-time USD: each figure says it is valued at the hour each trade happened, and names the part that is not
-  assert.match(totals, /usdNote \?\? `\$\{fmtUsd\(v\)\} · \$\{what\}, each valued in USD at the hour it happened \(stock and community-pair trades before Nov 10, 2026 at today's rate\)`/);
+  assert.match(totals, /usdNote \?\? `\$\{fmtUsd\(v\)\} · \$\{what\}, each valued in USD at the hour it happened \(community-pair trades, and any without a recorded value, at today's rate\)`/);
   assert.doesNotMatch(totals, /valued at current rates/);
   assert.match(totals, /title=\{usdTitle\(t\.volume_usd, "quote volume"\)\}/);
   assert.match(totals, /title=\{usdTitle\(t\.fees_to_creators_usd, "quote-asset fees"\)\}/, "fees are not volume");

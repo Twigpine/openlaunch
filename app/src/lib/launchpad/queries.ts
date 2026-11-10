@@ -21,7 +21,7 @@ import { collectNonDust } from "./feed-dust";
 import { PIPS_LEADER, PIPS_RUNNER, pipFromSwapRow, tapeOrNone, type Pip } from "./trending-live";
 import { launchKey } from "./list-state";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
-import { UNPRICED_SWAPS_SQL, missingNow, tradeTimeUsd } from "./trade-time-usd";
+import { UNPRICED_LATERAL_SQL, launchVolumeUsd, missingNow, tradeTimeUsd } from "./trade-time-usd";
 import type { RawCandle } from "./candles";
 import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, compareSearchHitByHolders, type LaunchFilter } from "./search";
 
@@ -244,7 +244,7 @@ function shape(raw: Raw & TradeTimeCols & { last_swap_block?: bigint; last_swap_
     price_usd: qu === null ? null : price * qu,
     fdv_usd: qu === null ? null : fdv * qu,
     // all-time volume at each trade's own hour; trades with no stored value (no price history) at today's price
-    volume_usd: tradeTimeUsd(storedVolumeUsd, volume_quote_unpriced, q.decimals, qu),
+    volume_usd: launchVolumeUsd(storedVolumeUsd, volume_quote_unpriced, q.decimals, qu),
     volume_1h_usd: usd(String(r.volume_1h ?? "0")),
     volume_24h_usd: usd(String(r.volume_24h ?? "0")),
   };
@@ -264,14 +264,14 @@ export const SELECT = `SELECT l.*, m.description, m.image_url, m.banner_url, m.w
   COALESCE(u.uq, 0)::text AS volume_quote_unpriced
   FROM bb_launches l
   LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token
-  LEFT JOIN (${UNPRICED_SWAPS_SQL}) u ON u.chain_id = l.chain_id AND u.token = l.token
   LEFT JOIN LATERAL (
     SELECT count(*) FILTER (WHERE ${HOUR})::int AS n1, count(DISTINCT s.trader) FILTER (WHERE ${HOUR})::int AS t1,
            count(DISTINCT s.trader) FILTER (WHERE ${HOUR} AND ${OUTSIDE})::int AS t1_ex, COALESCE(sum(abs(amount0)) FILTER (WHERE ${HOUR}), 0)::text AS v1,
            count(*)::int AS n24, count(DISTINCT s.trader) FILTER (WHERE ${OUTSIDE})::int AS t24_ex, COALESCE(sum(abs(amount0)), 0)::text AS v24,
            max(s.block_time) FILTER (WHERE ${OUTSIDE}) AS last_outside_at
       FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token AND s.block_time > now() - interval '${LIVE_WINDOW_HOURS} hours'
-  ) w ON true`;
+  ) w ON true
+  LEFT JOIN LATERAL (${UNPRICED_LATERAL_SQL}) u ON true`;
 
 export type LaunchSort = "live" | "new" | "mcap" | "volume" | "gainers" | "holders";
 export type VolumeWindow = "1h" | "24h" | "all";
@@ -858,12 +858,12 @@ export async function getTrending(ethUsd: number | null = null): Promise<Trendin
  * an outside pool; the lists show them): decimals and USD per whole quote unit, null = unpriced. For the indexer's hourly
  * live capture (usdLedger.ts), which is what prices each trade at its own hour.
  */
-export async function quoteUsdNow(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { decimals: number; decimalsKnown: boolean; usd: number | null }> {
+export async function quoteUsdNow(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: Quote["key"]; decimals: number; decimalsKnown: boolean; usd: number | null }> {
   await withStocks();
   const snap = priceState();
   return (chain, quote) => {
     const q = quoteInfo(chain, quote, snap);
-    return { decimals: q.decimals, decimalsKnown: q.decimalsKnown !== false, usd: quoteUsd(q, ethUsd) };
+    return { key: q.key, decimals: q.decimals, decimalsKnown: q.decimalsKnown !== false, usd: quoteUsd(q, ethUsd) };
   };
 }
 

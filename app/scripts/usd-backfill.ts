@@ -34,11 +34,19 @@ const out = args.get("out") || `usd-backfill.${mode}.sql`;
 const UA = { "user-agent": "openlaunch-usd-backfill" };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** GET/POST JSON with retries on 429, 5xx, network errors and timeouts (a transient reset must not abort a minutes-long run). */
 async function getJson(url: string, init?: RequestInit, tries = 4): Promise<unknown> {
   for (let i = 0; ; i++) {
-    const res = await fetch(url, { ...init, headers: { ...UA, ...(init?.headers ?? {}) }, signal: AbortSignal.timeout(20_000) });
-    if (res.ok) return res.json();
-    if (i + 1 >= tries || (res.status !== 429 && res.status < 500)) throw new Error(`${url.split("?")[0]}: HTTP ${res.status}`);
+    let status: number | null = null;
+    try {
+      const res = await fetch(url, { ...init, headers: { ...UA, ...(init?.headers ?? {}) }, signal: AbortSignal.timeout(20_000) });
+      if (res.ok) return await res.json();
+      status = res.status;
+      if (status !== 429 && status < 500) throw Object.assign(new Error(`${url.split("?")[0]}: HTTP ${status}`), { final: true });
+    } catch (err) {
+      if ((err as { final?: boolean }).final || i + 1 >= tries) throw err;
+    }
+    if (i + 1 >= tries) throw new Error(`${url.split("?")[0]}: HTTP ${status}`);
     await sleep(2_000 * (i + 1));
   }
 }

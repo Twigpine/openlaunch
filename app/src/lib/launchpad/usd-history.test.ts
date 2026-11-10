@@ -112,22 +112,33 @@ test("a dry run writes nothing: it reports and rolls back", () => {
   // the ledger fill never replaces an hour the indexer captured live
   assert.match(s, /INSERT INTO bb_quote_usd_hourly \(chain_id, quote, hour, usd, decimals, source\)[\s\S]*?ON CONFLICT \(chain_id, quote, hour\) DO NOTHING;/);
   assert.match(s, /\('ETH-USD', '2026-09-06T00:00:00\.000Z', 2490\.40000000000, 'coinbase'\)/);
+  // community pairs are never stored: the report counts them as unpriced, whatever an earlier version captured
+  assert.equal(s.match(/CASE WHEN EXISTS \(SELECT 1 FROM bb_pairs pr WHERE pr\.chain_id = l\.chain_id AND pr\.address = l\.quote\) THEN NULL/g)?.length, 3, "per-quote report, total, fees");
 });
 
-test("apply prices only rows with no USD yet, at their own hour, then recomputes totals under the rebuild script's locks", () => {
+test("apply is ONE transaction: under the rebuild script's locks it clears pair values, prices rows with no USD yet at their own hour, recomputes totals", () => {
   const s = sql("apply");
-  const updates = s.match(/UPDATE bb_launch_(swaps|fee_events) [\s\S]*?;/g) ?? [];
-  assert.equal(updates.length, 3, "trades, collected fees, burned fees");
-  for (const u of updates) {
+  assert.equal(s.match(/^BEGIN;$/gm)?.length, 1);
+  assert.equal(s.match(/^COMMIT;$/gm)?.length, 1, "no reader ever sees rows priced but not yet in the stored sums");
+  const lockAt = s.indexOf("LOCK TABLE bb_launch_swaps IN SHARE MODE");
+  assert.match(s, /LOCK TABLE bb_launch_fee_events IN SHARE MODE;\nLOCK TABLE bb_launches IN EXCLUSIVE MODE;/);
+  const writes = [...s.matchAll(/^(UPDATE bb_launch_swaps|UPDATE bb_launch_fee_events|UPDATE bb_launches|DELETE FROM bb_quote_usd_hourly)\b/gm)];
+  assert.equal(writes.length, 7, "2 pair clears, 1 pair ledger delete, 3 pricing updates, 1 recompute");
+  for (const w of writes) assert.ok(w.index! > lockAt, `${w[1]} runs under the locks`);
+  const pricing = s.match(/^UPDATE bb_launch_(swaps|fee_events) \w SET usd = (?!NULL)[\s\S]*?;/gm) ?? [];
+  assert.equal(pricing.length, 3, "trades, collected fees, burned fees");
+  for (const u of pricing) {
     assert.match(u, /\.usd IS NULL/, "never re-prices a row that has a value");
     assert.match(u, /p\.hour = to_timestamp\(floor\(extract\(epoch FROM [sf]\.block_time\) \/ 3600\) \* 3600\)/, "its own hour");
   }
-  assert.match(updates[2], /f\.kind = 'burned' AND f\.currency = l\.quote/, "a burn of the launched token is never priced as the quote");
-  const lockAt = s.indexOf("LOCK TABLE bb_launch_swaps IN SHARE MODE");
-  const recomputeAt = s.indexOf("UPDATE bb_launches l SET");
-  assert.ok(lockAt > 0 && recomputeAt > lockAt, "the totals are recomputed only under the locks");
-  assert.match(s, /LOCK TABLE bb_launches IN EXCLUSIVE MODE/);
-  assert.equal(s.match(/^COMMIT;$/gm)?.length, 2);
+  assert.match(pricing[2], /f\.kind = 'burned' AND f\.currency = l\.quote/, "a burn of the launched token is never priced as the quote");
+  // community pairs: their stored values and ledger rows go, before anything is priced
+  const clears = s.match(/^UPDATE bb_launch_(swaps|fee_events) \w SET usd = NULL[\s\S]*?;/gm) ?? [];
+  assert.equal(clears.length, 2);
+  for (const c of clears) assert.match(c, /usd IS NOT NULL[\s\S]*EXISTS \(SELECT 1 FROM bb_pairs pr WHERE pr\.chain_id = l\.chain_id AND pr\.address = l\.quote\)/);
+  assert.match(s, /DELETE FROM bb_quote_usd_hourly h WHERE EXISTS \(SELECT 1 FROM bb_pairs pr WHERE pr\.chain_id = h\.chain_id AND pr\.address = h\.quote\);/);
+  assert.ok(s.indexOf("SET usd = NULL") < s.indexOf("SET usd = abs("), "pairs are cleared before pricing (so they are never re-priced)");
+  assert.ok(s.indexOf("UPDATE bb_launches l SET") > s.lastIndexOf("SET usd = f.amount"), "totals are recomputed after every row is priced");
   assert.match(s, /AFTER APPLY/);
 });
 
@@ -147,11 +158,29 @@ test("the indexer prices each trade and fee at its own hour, in the same transac
   const fee = src.slice(src.indexOf("async function applyFeeIn("), src.indexOf("async function poolMaps("));
   assert.match(fee, /'collected'[\s\S]*FROM bb_quote_usd_hourly p[\s\S]*fees_collected_usd = fees_collected_usd \+ \$\{usd\}::float8/);
   assert.match(fee, /const priceIn = cur === info\.quote \? cur : "";[\s\S]*p\.quote = \$\{priceIn\}[\s\S]*fees_burned_usd = fees_burned_usd \+ \$\{usd\}::float8/);
-  // this hour's live prices are captured before any trade in the range is priced, on both ingestion paths
-  for (const fn of ["async function applyRange(", "export async function applyLaunchTx("]) {
-    const body = src.slice(src.indexOf(fn), src.indexOf(fn) + 4000);
-    const capture = body.indexOf("await captureLiveUsd(db, chain, tokenQuote.values())");
-    const swaps = body.indexOf("applySwap(db, chain,");
-    assert.ok(capture > 0 && swaps > capture, `${fn}: capture before swaps`);
-  }
+  // the poller captures this hour's live prices before any trade in its range is priced
+  const range = src.slice(src.indexOf("async function applyRange("), src.indexOf("async function applyRange(") + 4000);
+  const capture = range.indexOf("await captureLiveUsd(db, chain, tokenQuote.values())");
+  assert.ok(capture > 0 && range.indexOf("applySwap(db, chain,") > capture, "applyRange: capture before swaps");
+  // the receipt path (the user is waiting) never fetches prices: the poller's heal pass prices what it could not
+  const receipt = src.slice(src.indexOf("export async function applyLaunchTx("));
+  assert.doesNotMatch(receipt, /captureLiveUsd\(/);
+  const run = src.slice(src.indexOf("async function run(chain: ChainKey)"), src.indexOf("export async function applyLaunchTx("));
+  assert.match(run, /await healUnpricedUsd\(db, chain\);\n\s*return \{ status: "synced"/, "the heal pass runs after every sync, outside the chunk loop");
+});
+
+test("the live capture never stores a community pair (or an unlisted token); the heal pass skips pairs and changes each row once", async () => {
+  const { capturable } = await import("./usdLedger.ts");
+  for (const key of ["eth", "hype", "usdc", "usdg", "gitlawb", "twig", "stock"]) assert.equal(capturable(key), true, key);
+  assert.equal(capturable("pair"), false, "an outside pool can be pushed for a minute, and a delisted pair must show no USD");
+  assert.equal(capturable("other"), false);
+  const led = readFileSync(path.join(process.cwd(), "src/lib/launchpad/usdLedger.ts"), "utf8");
+  assert.match(led, /return capturable\(p\.key\) && p\.usd !== null/);
+  const heal = led.slice(led.indexOf("export async function healUnpricedUsd("));
+  assert.equal(heal.match(/AND NOT EXISTS \(SELECT 1 FROM bb_pairs pr WHERE pr\.chain_id = l\.chain_id AND pr\.address = l\.quote\)/g)?.length, 2, "trades and fees");
+  // only rows whose own hour has a price are picked, each re-tested inside the UPDATE, and the totals move by what was priced
+  assert.match(heal, /JOIN bb_quote_usd_hourly p ON p\.chain_id = s\.chain_id AND p\.quote = l\.quote AND p\.hour = \$\{db\.unsafe\(hourSql\("s\.block_time"\)\)\}/);
+  assert.match(heal, /UPDATE bb_launch_swaps s SET usd = t\.v FROM todo t\s+WHERE s\.chain_id = t\.chain_id AND s\.tx_hash = t\.tx_hash AND s\.log_index = t\.log_index AND s\.usd IS NULL/);
+  assert.match(heal, /UPDATE bb_launches l SET volume_usd = l\.volume_usd \+ x\.v\s+FROM \(SELECT chain_id, token, sum\(usd\) AS v FROM priced GROUP BY chain_id, token\) x/);
+  assert.match(heal, /f\.kind = 'collected' OR \(f\.kind = 'burned' AND f\.currency = l\.quote\)/);
 });

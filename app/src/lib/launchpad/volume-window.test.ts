@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { SELECT, VOLUME_COLUMN_SQL, VOLUME_WINDOWS } from "./queries.ts";
-import { UNPRICED_SWAPS_SQL } from "./trade-time-usd.ts";
+import { UNPRICED_LATERAL_SQL } from "./trade-time-usd.ts";
 
 /**
  * The Volume sort orders by a column per window. The window volumes live on the lateral subquery aliased `w`
@@ -11,8 +11,8 @@ import { UNPRICED_SWAPS_SQL } from "./trade-time-usd.ts";
 const lateral = SELECT.slice(SELECT.indexOf("LEFT JOIN LATERAL ("), SELECT.lastIndexOf(") w ON"));
 const wColumns = new Set([...lateral.matchAll(/\bAS (\w+)/g)].map((m) => m[1]));
 // aliases visible to the ORDER BY (the lateral's own inner alias is not): "FROM bb_launches l", "JOIN bb_launch_meta m", "LATERAL (...) w"
-// "LEFT JOIN (<unpriced swaps>) u" is the trade-time USD join (trade-time-usd.ts); its inner FROM is not an alias of the outer query
-const definedAliases = new Set([...SELECT.replace(lateral, "LATERAL (...").replace(UNPRICED_SWAPS_SQL, "...").matchAll(/\b(?:FROM|JOIN) bb_\w+ (\w+)|\) (\w+) ON/g)].map((m) => m[1] ?? m[2]));
+// "LEFT JOIN LATERAL (<unpriced swaps of this launch>) u" is the trade-time USD join (trade-time-usd.ts); its inner FROM is not an alias of the outer query
+const definedAliases = new Set([...SELECT.replace(lateral, "LATERAL (...").replace(UNPRICED_LATERAL_SQL, "...").matchAll(/\b(?:FROM|JOIN) bb_\w+ (\w+)|\) (\w+) ON/g)].map((m) => m[1] ?? m[2]));
 
 test("the lateral subquery is still aliased w and carries the window volumes", () => {
   assert.ok(SELECT.includes(") w ON true"));
