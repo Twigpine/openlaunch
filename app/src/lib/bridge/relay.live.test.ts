@@ -7,7 +7,7 @@ import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS,
 
 // Explicit opt-in. This only requests quotes/status using a public dummy address;
 // it never connects a wallet, signs, or submits a transaction.
-// Every source (the launch chains and the funding networks) into every launch chain: forty-six routes.
+// Every source (the launch chains and the funding networks) into every launch chain: sixty-two routes.
 for (const originChainId of BRIDGE_CHAIN_IDS) for (const destinationChainId of BRIDGE_DESTINATION_IDS) {
   if (originChainId === destinationChainId) continue;
   for (const originAsset of BRIDGE_ASSETS[originChainId]) for (const destinationAsset of BRIDGE_ASSETS[destinationChainId]) {

@@ -25,7 +25,7 @@ const MAX_FORWARD_FEE = 5_000_000n;
 /** Gas a forwarded burn uses on the source network, for the estimate shown before the wallet is asked (~150k observed). */
 export const CCTP_BURN_GAS = 220_000n;
 /** Seconds to arrival: Fast attestation (about 8 s on the rollups, 20 s on Ethereum, 0.5 s on Arc) plus Circle's forward. */
-const CCTP_SECONDS: Record<BridgeChainId, number> = { 8453: 25, 42161: 25, 10: 25, 1: 40, 5042: 15, 4663: 0 };
+const CCTP_SECONDS: Record<BridgeChainId, number> = { 8453: 25, 42161: 25, 10: 25, 1: 40, 5042: 15, 4663: 0, 99901: 0 };
 
 // Circle allows 40 requests a second per IP and blocks for five minutes past that. Every caller here shares one budget
 // well under it, and answers are reused briefly, so many open panels can never get the server blocked.

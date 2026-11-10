@@ -5,7 +5,7 @@ import { CHAINS, CHAIN_KEYS, SITE_URL } from "../chainPublic";
 import { BRIDGE_FUNDING_WALLET_CHAINS, BRIDGE_WALLET_CHAINS, bridgeFundingRpc } from "./chains";
 import { BRIDGE_CHAIN_IDS, BRIDGE_CHAINS } from "./types";
 
-test("every bridge source has a matching wallet chain, and Arc is the registry's own chain", () => {
+test("every bridge source has a matching wallet chain, and Arc and Elysium are the registry's own chains", () => {
   for (const id of BRIDGE_CHAIN_IDS) {
     const walletChain = BRIDGE_WALLET_CHAINS[id];
     assert.equal(walletChain.id, id);
@@ -13,8 +13,13 @@ test("every bridge source has a matching wallet chain, and Arc is the registry's
     assert.equal(walletChain.nativeCurrency.decimals, 18);
     assert.ok(walletChain.rpcUrls.default.http.length > 0);
   }
-  // Elysium is a launchpad chain but not (yet) a bridge source: Relay serves it, the bridge dialog does not offer it
+  // every launchpad chain is a bridge network, and the bridge reuses its wallet chain
   assert.deepEqual(CHAIN_KEYS, ["base", "robinhood", "arc", "elysium"]);
+  for (const key of CHAIN_KEYS) assert.equal(BRIDGE_WALLET_CHAINS[CHAINS[key].id as keyof typeof BRIDGE_WALLET_CHAINS], CHAINS[key]);
+  const elysium = BRIDGE_WALLET_CHAINS[99901];
+  assert.equal(elysium.nativeCurrency.symbol, "HYPE");
+  assert.equal(elysium.rpcUrls.default.http[0], "https://rpc.elysium.kinetiq.xyz");
+  assert.equal(BRIDGE_CHAINS[99901].explorer, elysium.blockExplorers?.default.url);
   const arc = BRIDGE_WALLET_CHAINS[5042];
   assert.equal(arc, CHAINS.arc, "one Arc definition, shared by the launchpad and the bridge");
   assert.equal(arc.rpcUrls.default.http[0], "https://rpc.mainnet.arc.io");

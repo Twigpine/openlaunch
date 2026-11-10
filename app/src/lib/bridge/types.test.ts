@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatUnits, zeroAddress } from "viem";
-import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAIN_IDS, BRIDGE_CHAINS, ROBINHOOD_USDG, bridgeCurrency, bridgeFeePercent, bridgeTokenAsset, bridgeTransferInputCurrency, defaultBridgeAsset, isBridgeAssetSupported, isDollarAsset } from "./types";
+import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, BRIDGE_ASSET_NAMES, BRIDGE_CHAIN_IDS, BRIDGE_CHAINS, BRIDGE_DESTINATION_IDS, ELYSIUM_USDC, ROBINHOOD_USDG, bridgeCurrency, bridgeCurrencyAsset, bridgeFeePercent, bridgeTokenAsset, bridgeTokens, bridgeTransferInputCurrency, bridgesNativeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeDestination, isDollarAsset } from "./types";
 import { launchpad } from "../launchpad/config";
 
 test("bridge assets are chain-scoped and never inferred from a symbol alone", () => {
@@ -38,10 +38,12 @@ test("Robinhood USDG is the launch form's own six-decimal contract in both direc
   assert.equal(bridgeCurrency(4663, "USDG", "input").decimals, 6);
 });
 
-test("every chain keeps its gas token as the default and has at most one ERC-20", () => {
-  assert.deepEqual(BRIDGE_CHAIN_IDS.map(bridgeTokenAsset), ["USDC", "USDG", "USDC", "USDC", "USDC", "USDC"]);
+test("every chain keeps its gas token as the default where the bridge carries it, and has at most one ERC-20", () => {
+  assert.deepEqual(BRIDGE_CHAIN_IDS.map(bridgeTokenAsset), ["USDC", "USDG", "USDC", "USDC", "USDC", "USDC", "USDC"]);
+  // Elysium alone has a gas token the bridge does not carry
+  assert.deepEqual(BRIDGE_CHAIN_IDS.filter((chain) => !bridgesNativeCurrency(chain)), [99901]);
   for (const chain of BRIDGE_CHAIN_IDS) {
-    assert.equal(defaultBridgeAsset(chain), BRIDGE_CHAINS[chain].symbol);
+    assert.equal(defaultBridgeAsset(chain), bridgesNativeCurrency(chain) ? BRIDGE_CHAINS[chain].symbol : bridgeTokenAsset(chain));
     assert.ok(isBridgeAssetSupported(chain, defaultBridgeAsset(chain)), String(chain));
     // approvals are journaled per chain (approval.ts), so a second ERC-20 on one chain would be ambiguous there
     const tokens = BRIDGE_ASSETS[chain].filter((asset) => bridgeCurrency(chain, asset, "input").address !== zeroAddress);
@@ -50,6 +52,24 @@ test("every chain keeps its gas token as the default and has at most one ERC-20"
   }
   assert.deepEqual(["ETH", "USDC", "USDG"].map((asset) => isDollarAsset(asset as "ETH")), [false, true, true]);
   assert.equal(BRIDGE_ASSET_NAMES.USDG, "Global Dollar");
+});
+
+test("Elysium is a launch chain that carries its USDC both ways and never HYPE", () => {
+  assert.ok(isBridgeDestination(99901) && (BRIDGE_DESTINATION_IDS as readonly number[]).includes(99901));
+  assert.deepEqual(BRIDGE_ASSETS[99901], ["USDC"]);
+  assert.equal(defaultBridgeAsset(99901), "USDC");
+  for (const side of ["input", "output"] as const) {
+    assert.deepEqual(bridgeCurrency(99901, "USDC", side), { address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 });
+    assert.deepEqual(bridgeCurrency(99901, undefined, side), { address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 });
+  }
+  for (const asset of ["HYPE", "ETH", "USDG"]) assert.equal(isBridgeAssetSupported(99901, asset), false, asset);
+  assert.throws(() => bridgeCurrency(99901, "ETH", "output"), /not supported/);
+  assert.equal(bridgeCurrencyAsset(99901, zeroAddress), null, "native HYPE is gas, not a bridge asset");
+  assert.deepEqual(bridgeCurrencyAsset(99901, ELYSIUM_USDC.toLowerCase()), { asset: "USDC", decimals: 6 });
+  assert.equal(bridgeCurrencyAsset(8453, ELYSIUM_USDC), null);
+  assert.deepEqual(bridgeTokens(99901), [{ address: ELYSIUM_USDC, symbol: "USDC", decimals: 6 }]);
+  assert.deepEqual(bridgeTokens(5042), [{ address: ARC_USDC, symbol: "USDC", decimals: 6 }], "Arc's native USDC output is not a token");
+  assert.equal(BRIDGE_CHAINS[99901].symbol, "HYPE");
 });
 
 test("Base USDC uses the same six-decimal contract in both directions", () => {

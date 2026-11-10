@@ -1,21 +1,23 @@
 import type { Address, Hex } from "viem";
 
 /**
- * Bridge networks do not extend the launch registry. Base, Robinhood Chain and Arc are where tokens launch, so funds
- * move between them both ways. Ethereum, Arbitrum and Optimism are funding sources only: money arrives from them and
- * never leaves to them. `key` is Relay's protocol.v2 name for the chain, checked against GET /chains on every quote.
+ * Bridge networks do not extend the launch registry. Base, Robinhood Chain, Arc and Elysium are where tokens launch, so
+ * funds move between them both ways. Ethereum, Arbitrum and Optimism are funding sources only: money arrives from them
+ * and never leaves to them. `key` is Relay's protocol.v2 name for the chain, checked against GET /chains on every quote.
+ * `symbol` is the chain's native gas currency, which is not always an asset the bridge carries (Elysium's HYPE).
  */
-export type BridgeChainId = 8453 | 4663 | 5042 | 1 | 42161 | 10;
+export type BridgeChainId = 8453 | 4663 | 5042 | 99901 | 1 | 42161 | 10;
 export const BRIDGE_CHAINS = {
   8453: { name: "Base", key: "base", explorer: "https://basescan.org", symbol: "ETH", decimals: 18 },
   4663: { name: "Robinhood", key: "robinhood", explorer: "https://robinhoodchain.blockscout.com", symbol: "ETH", decimals: 18 },
   5042: { name: "Arc", key: "arc", explorer: "https://explorer.arc.io", symbol: "USDC", decimals: 18 },
+  99901: { name: "Elysium", key: "elysium", explorer: "https://elysium.kinetiq.xyz/explorer", symbol: "HYPE", decimals: 18 },
   1: { name: "Ethereum", key: "ethereum", explorer: "https://etherscan.io", symbol: "ETH", decimals: 18 },
   42161: { name: "Arbitrum", key: "arbitrum", explorer: "https://arbiscan.io", symbol: "ETH", decimals: 18 },
   10: { name: "Optimism", key: "optimism", explorer: "https://optimistic.etherscan.io", symbol: "ETH", decimals: 18 },
 } as const;
 /** Networks a transfer can arrive on: the launch chains. */
-export const BRIDGE_DESTINATION_IDS = [8453, 4663, 5042] as const;
+export const BRIDGE_DESTINATION_IDS = [8453, 4663, 5042, 99901] as const;
 /** Networks that only fund the launch chains. */
 export const BRIDGE_FUNDING_IDS = [1, 42161, 10] as const;
 /** Every network a transfer can leave from, in picker order. */
@@ -34,6 +36,11 @@ export const ROBINHOOD_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" as co
 export const ETHEREUM_USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
 export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
 export const OPTIMISM_USDC = "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" as const;
+// USDC on Elysium: the contract the launch form quotes there (lib/launchpad/config.ts), symbol and name USDC, six
+// decimals, checked on-chain, and the one ERC-20 Relay lists as bridgeable on Elysium. Elysium has no Circle CCTP domain,
+// so this USDC moves through Relay alone. HYPE, the gas currency, is not carried: Relay does not bridge it as a native
+// currency, and its HYPE routes need a different deposit flow and refund (docs/bridge.md, "Elysium").
+export const ELYSIUM_USDC = "0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65" as const;
 export type BridgeAsset = "ETH" | "USDC" | "USDG";
 export type BridgeCurrency = { address: Address; symbol: BridgeAsset; decimals: 6 | 18 };
 const NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
@@ -44,6 +51,7 @@ const bothWays = (currency: BridgeCurrency) => ({ input: currency, output: curre
  * Every asset the bridge moves, per chain, as the wallet sends it (input) and as it arrives (output). Only assets
  * whose identity has been independently verified belong here; a chain's first entry is listed first in its picker.
  * The two sides differ on Arc alone, where USDC is sent through its ERC-20 interface and arrives as the native balance.
+ * Elysium carries USDC only, as an ERC-20 both ways; its native HYPE is gas, never a bridge asset.
  * A chain has at most one ERC-20 here: approvals are journaled per chain (approval.ts), so a second one needs that
  * journal to carry the token first.
  */
@@ -51,6 +59,7 @@ const CURRENCIES: Record<BridgeChainId, Partial<Record<BridgeAsset, { input: Bri
   8453: { ETH: bothWays(native("ETH")), USDC: bothWays(token(BASE_USDC, "USDC")) },
   4663: { ETH: bothWays(native("ETH")), USDG: bothWays(token(ROBINHOOD_USDG, "USDG")) },
   5042: { USDC: { input: token(ARC_USDC, "USDC"), output: native("USDC") } },
+  99901: { USDC: bothWays(token(ELYSIUM_USDC, "USDC")) },
   // funding networks: only the input side is ever used, since nothing is sent to them
   1: { ETH: bothWays(native("ETH")), USDC: bothWays(token(ETHEREUM_USDC, "USDC")) },
   42161: { ETH: bothWays(native("ETH")), USDC: bothWays(token(ARBITRUM_USDC, "USDC")) },
@@ -59,8 +68,21 @@ const CURRENCIES: Record<BridgeChainId, Partial<Record<BridgeAsset, { input: Bri
 export const BRIDGE_ASSETS = Object.fromEntries(BRIDGE_CHAIN_IDS.map((id) => [id, Object.keys(CURRENCIES[id]) as BridgeAsset[]])) as unknown as Record<BridgeChainId, readonly BridgeAsset[]>;
 /** What each asset is called in full, for pickers and screen readers. */
 export const BRIDGE_ASSET_NAMES: Record<BridgeAsset, string> = { ETH: "Ether", USDC: "USD Coin", USDG: "Global Dollar" };
+/** A chain's first bridge asset: its native currency where the bridge carries it, otherwise its one token. */
 export function defaultBridgeAsset(chainId: BridgeChainId): BridgeAsset {
-  return BRIDGE_CHAINS[chainId].symbol;
+  return BRIDGE_ASSETS[chainId][0];
+}
+/** Whether the bridge carries this chain's native currency at all, on either side (false on Elysium). */
+export function bridgesNativeCurrency(chainId: BridgeChainId): boolean {
+  return BRIDGE_ASSETS[chainId].some((asset) => [CURRENCIES[chainId][asset]!.input, CURRENCIES[chainId][asset]!.output].some((currency) => currency.address === NATIVE_ADDRESS));
+}
+/** The ERC-20s the bridge carries on a chain, from either side, for checking Relay's own chain listing. */
+export function bridgeTokens(chainId: BridgeChainId): BridgeCurrency[] {
+  const seen = new Map<string, BridgeCurrency>();
+  for (const asset of BRIDGE_ASSETS[chainId]) for (const currency of [CURRENCIES[chainId][asset]!.input, CURRENCIES[chainId][asset]!.output]) {
+    if (currency.address !== NATIVE_ADDRESS) seen.set(currency.address.toLowerCase(), { ...currency });
+  }
+  return [...seen.values()];
 }
 export function isBridgeAssetSupported(chainId: BridgeChainId, asset: unknown): asset is BridgeAsset {
   return typeof asset === "string" && BRIDGE_ASSETS[chainId].includes(asset as BridgeAsset);

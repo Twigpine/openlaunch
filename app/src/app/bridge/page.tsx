@@ -17,7 +17,7 @@ import styles from "./bridge.module.css";
 export const metadata: Metadata = pageMetadata({
   path: "/bridge",
   title: "Bridge",
-  description: "Move ETH and dollars between Base, Robinhood Chain and Arc, or fund them from Ethereum, Arbitrum and Optimism. Same wallet, no openlaunch fee.",
+  description: "Move ETH and dollars between Base, Robinhood Chain, Arc and Elysium, or fund them from Ethereum, Arbitrum and Optimism. Same wallet, no openlaunch fee.",
 });
 
 const STEPS = [
@@ -35,7 +35,7 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
         eyebrow="Bridge"
         icon={<ArrowLeftRight />}
         title="Move funds to where you launch"
-        description="Send ETH and dollars between Base, Robinhood Chain and Arc, or bring them in from Ethereum, Arbitrum and Optimism. They arrive at the same wallet address. openlaunch charges nothing for it."
+        description="Send ETH and dollars between Base, Robinhood Chain, Arc and Elysium, or bring them in from Ethereum, Arbitrum and Optimism. They arrive at the same wallet address. openlaunch charges nothing for it."
       />
       <div className={styles.layout}>
         <BridgePageSlot link={link} />
@@ -66,6 +66,7 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
           <section aria-labelledby="bridge-know">
             <h2 id="bridge-know">Good to know</h2>
             <ul className={styles.points}>
+              <li>On Elysium the bridge carries USDC only. Its gas token, HYPE, is not bridged, so keep some HYPE there to use or send what arrives.</li>
               <li>Funds go from your wallet to Relay&apos;s deposit contract, or to Circle&apos;s transfer contract on a Circle route. They never pass through an openlaunch wallet or contract.</li>
               <li>Relay and Circle are third parties. openlaunch operates neither and cannot reverse a transfer.</li>
               <li>A transfer is saved in this browser while it is in progress. Reopen the bridge with the same wallet to pick it up.</li>

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, type Address, type Hex } from "viem";
 import { APPROVAL_DISCARD_AFTER_MS, APPROVAL_STORAGE_PREFIX, ARC_APPROVAL_CHAIN_ID, ARC_USDC, EXACT_APPROVAL_ABI, RELAY_APPROVAL_SPENDER, USDC_APPROVAL_EVENT, approvalBlocksSubmission, approvalCanDiscard, approvalRequestKey, approvalStorageKey, createApprovalStore, exactApprovalTransaction, hasMatchingApprovalEvent, isMatchingApprovalTransaction, parseStoredApproval, reconcileApproval, serializeApproval, submitExactApproval, validateApprovalMetadata, type ApprovalDependencies, type ApprovalRequest, type TrackedApproval } from "./approval";
-import { BASE_USDC, ROBINHOOD_USDG } from "./types";
+import { BASE_USDC, ELYSIUM_USDC, ROBINHOOD_USDG } from "./types";
 import { canApplyApprovalPoll, CCTP_APPROVAL_SPENDER, recoverApprovalFromEvidence } from "./approval";
 import { CCTP_TOKEN_MESSENGER } from "./cctp";
 
@@ -89,6 +89,11 @@ test("Base approvals pin Base USDC and retain independent chain identity", () =>
   assert.equal(exactApprovalTransaction({ ...request, chainId: 4663 }).to, ROBINHOOD_USDG);
   assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 4663));
   assert.throws(() => validateApprovalMetadata({ token: ROBINHOOD_USDG, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
+  // Elysium approves its own USDC, and only on Elysium
+  assert.equal(exactApprovalTransaction({ ...request, chainId: 99901 }).to, ELYSIUM_USDC);
+  assert.deepEqual(validateApprovalMetadata({ token: ELYSIUM_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 99901), { ...request, chainId: 99901 });
+  assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 99901));
+  assert.throws(() => validateApprovalMetadata({ token: ELYSIUM_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
   const unlimited = ((1n << 256n) - 1n).toString();
   assert.throws(() => exactApprovalTransaction({ ...request, amount: unlimited }));
   assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: unlimited }, ADDRESS, 8453));

@@ -1,6 +1,6 @@
 import { encodeFunctionData, zeroAddress } from "viem";
 import { getOrderId, type Order } from "./relay-order";
-import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
+import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, bridgeTokens, bridgesNativeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
 import { APPROVAL_ABI, DEPOSIT_ABI, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY } from "./validation";
 
 // Compact, read-only mainnet quote captured with Relay's public example account.
@@ -17,7 +17,9 @@ export function relayChainsFixture() {
   return { chains: BRIDGE_CHAIN_IDS.map((id) => ({
     id, vmType: "evm", disabled: false, depositEnabled: true, blockProductionLagging: false,
     protocol: { v2: { chainId: BRIDGE_CHAINS[id].key, depository: RELAY_DEPOSITORY } },
-    currency: { address: zeroAddress, symbol: BRIDGE_CHAINS[id].symbol, decimals: 18, supportsBridging: true },
+    // as Relay lists them: Elysium's native HYPE is not bridgeable there, only its USDC
+    currency: { address: zeroAddress, symbol: BRIDGE_CHAINS[id].symbol as string, decimals: 18, supportsBridging: bridgesNativeCurrency(id) },
+    erc20Currencies: bridgeTokens(id).map((token) => ({ address: token.address.toLowerCase(), symbol: token.symbol as string, decimals: token.decimals as number, supportsBridging: true })),
     contracts: { erc20Router: router }, solverAddresses: ["0xf70da97812cb96acdf810712aa562db8dfa3dbef"],
   })) };
 }

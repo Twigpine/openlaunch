@@ -1,7 +1,7 @@
 import "server-only";
 import { getOrderId, type Order } from "./relay-order";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, zeroAddress, type Hex } from "viem";
-import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, bridgeTokens, bridgesNativeCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
@@ -89,7 +89,13 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
     const contracts = object(chain.contracts);
     ensure(chain.vmType === "evm" && chain.disabled === false && chain.depositEnabled === true && chain.blockProductionLagging !== true);
     ensure(v2.chainId === BRIDGE_CHAINS[id].key && sameAddress(v2.depository, RELAY_DEPOSITORY));
-    ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === BRIDGE_CHAINS[id].symbol && currency.supportsBridging === true);
+    ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === BRIDGE_CHAINS[id].symbol);
+    if (bridgesNativeCurrency(id)) ensure(currency.supportsBridging === true);
+    else {
+      // Elysium: Relay does not bridge HYPE as a native currency, so the chain stands or falls on its listed USDC instead
+      const listed = list(chain.erc20Currencies).map(object);
+      for (const token of bridgeTokens(id)) ensure(listed.some((entry) => sameAddress(entry.address, token.address) && entry.symbol === token.symbol && entry.decimals === token.decimals && entry.supportsBridging === true));
+    }
     ensure(isRelayRouter(contracts.erc20Router));
     return chain;
   });
@@ -98,7 +104,7 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
   return { vmTypes: Object.fromEntries(required.map((id) => [BRIDGE_CHAINS[id].key, "ethereum-vm" as const])), solverAddresses: solvers as string[] };
 }
 
-/** Implements Relay's protocol.v2 input validation for the allowlisted assets (types.ts): ETH, USDC and USDG. */
+/** Implements Relay's protocol.v2 input validation for the allowlisted assets (types.ts): ETH, USDC and USDG. Gas is always the origin's native currency, which on Elysium is HYPE. */
 export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, chains: RelayChainMetadata, now = Date.now()): BridgeQuote {
   const quote = object(value);
   const protocol = object(object(quote.protocol).v2);
@@ -172,7 +178,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
 
   const details = object(quote.details);
   ensure(sameAddress(details.sender, input.address) && sameAddress(details.recipient, input.address));
-  const checkCurrency = (value: unknown, chainId: BridgeChainId, amount: string, expected: BridgeCurrency) => {
+  const checkCurrency = (value: unknown, chainId: BridgeChainId, amount: string, expected: Pick<BridgeCurrency, "address" | "decimals"> & { symbol: string }) => {
     const money = object(value);
     const currency = object(money.currency);
     ensure(currency.chainId === chainId && sameAddress(currency.address, expected.address) && currency.decimals === expected.decimals && currency.symbol === expected.symbol && uint(money.amount) === amount);

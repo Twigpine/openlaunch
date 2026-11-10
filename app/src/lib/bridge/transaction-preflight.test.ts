@@ -159,9 +159,9 @@ function depositScenario(q: BridgeQuote, pending: number, latest: number) {
   return { deps, events };
 }
 
-test("all forty-six supported deposit routes block queued nonces before journaling or sending", async () => {
+test("all sixty-two supported deposit routes block queued nonces before journaling or sending", async () => {
   let routes = 0;
-  // sixteen between the launch chains, thirty from the funding networks (two assets each to five launch-chain assets)
+  // twenty-six between the launch chains, thirty-six from the funding networks (two assets each to six launch-chain assets)
   for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
     if (origin === destination) continue;
     for (const originAsset of BRIDGE_ASSETS[origin]) for (const destinationAsset of BRIDGE_ASSETS[destination]) {
@@ -172,7 +172,7 @@ test("all forty-six supported deposit routes block queued nonces before journali
       routes++;
     }
   }
-  assert.equal(routes, 46);
+  assert.equal(routes, 62);
 });
 
 test("clear queues preserve explicit approval and deposit submission order", async () => {

@@ -19,6 +19,7 @@ test("every bridge network has a board code the dot letters can spell, and its o
     assert.equal(SIGNAL_COLORS[id].length, 3);
   }
   assert.equal(new Set(BRIDGE_CHAIN_IDS.map((id) => SIGNAL_CODES[id])).size, BRIDGE_CHAIN_IDS.length, "no two networks share a code");
+  assert.equal(SIGNAL_CODES[99901], "ELYS");
   assert.throws(() => glyphCells("XYZ"), /no letter/);
 });
 
@@ -131,6 +132,9 @@ test("a bridge link preselects a valid route and is ignored whole when anything 
   // `from` defaults to Base, or Ethereum when Base is the destination
   assert.deepEqual(parseBridgeLink({ to: "arc" }), { originChainId: 8453, destinationChainId: 5042 });
   assert.deepEqual(parseBridgeLink({ to: "base" }), { originChainId: 1, destinationChainId: 8453 });
+  assert.deepEqual(parseBridgeLink({ from: "elysium", to: "base", asset: "USDC", toAsset: "ETH" }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "ETH" });
+  assert.deepEqual(parseBridgeLink({ to: "elysium" }), { originChainId: 8453, destinationChainId: 99901 });
+  for (const query of [{ to: "elysium", toAsset: "HYPE" }, { from: "elysium", to: "base", asset: "HYPE" }, { from: "elysium", to: "ethereum" }]) assert.equal(parseBridgeLink(query), null, JSON.stringify(query));
   for (const query of [
     {}, { from: "base" }, { to: "ethereum" }, { from: "base", to: "arbitrum" }, { from: "base", to: "base" }, { from: "polygon", to: "base" },
     { from: "base", to: "robinhood", toAsset: "USDC" }, { from: "arc", to: "base", asset: "ETH" }, { from: "base", to: "arc", asset: "usdc" },

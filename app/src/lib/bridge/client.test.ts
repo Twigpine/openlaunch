@@ -68,10 +68,12 @@ test("amount parsing preserves integer precision and never rounds extra decimal 
 
 test("every route uses the input currency precision, never native decimals for Arc ERC20, and never ends on a funding network", () => {
   for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_CHAIN_IDS) {
-    const request = bridgeRequest(ADDRESS, origin, origin === 5042 ? "1.000001" : "1.000000000000000001", destination);
+    // Arc and Elysium send six-decimal USDC by default, everything else 18-decimal ETH
+    const six = origin === 5042 || origin === 99901;
+    const request = bridgeRequest(ADDRESS, origin, six ? "1.000001" : "1.000000000000000001", destination);
     if (origin === destination || isBridgeFundingChain(destination)) assert.equal(request, null);
     else {
-      assert.equal(request?.amount, origin === 5042 ? "1000001" : "1000000000000000001");
+      assert.equal(request?.amount, six ? "1000001" : "1000000000000000001");
       assert.equal(request?.destinationChainId, destination);
     }
   }
@@ -98,7 +100,7 @@ test("funding networks send but never receive: no reverse, no destination, and a
   for (const origin of BRIDGE_FUNDING_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
     const usdc = bridgeRequest(ADDRESS, origin, "10.5", destination, "USDC", destination === 4663 ? "USDG" : "USDC");
     assert.equal(usdc?.amount, "10500000");
-    const eth = bridgeRequest(ADDRESS, origin, "0.01", destination, "ETH", destination === 5042 ? "USDC" : "ETH");
+    const eth = bridgeRequest(ADDRESS, origin, "0.01", destination, "ETH", destination === 5042 || destination === 99901 ? "USDC" : "ETH");
     assert.equal(eth?.amount, "10000000000000000");
   }
 });

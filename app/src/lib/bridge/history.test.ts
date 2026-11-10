@@ -5,7 +5,7 @@ import type { TrackedBridgeTransfer } from "./client.ts";
 import { BRIDGE_HISTORY_LIMIT, combineHistory, formatHistoryAmount, historyFromTransfer, historyReceived, historyStatus, mergeHistory, parseHistoryEntry, parseHistoryLedger, parseRelayHistory, relayHistoryEntry, serializeHistoryLedger, upsertHistory, validateHistoryResponse, type BridgeHistoryEntry } from "./history.ts";
 import { bridgeHistoryKey, createBridgeHistoryStore } from "./history-store.ts";
 import { BRIDGE_HISTORY_TTL_MS, BRIDGE_HISTORY_UPSTREAM_PER_MINUTE, getBridgeHistory } from "./relay.ts";
-import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, ROBINHOOD_USDG, bridgeCurrencyAsset } from "./types.ts";
+import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, ELYSIUM_USDC, ROBINHOOD_USDG, bridgeCurrencyAsset } from "./types.ts";
 import { GET } from "../../app/api/bridge/history/route.ts";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as Address;
@@ -141,6 +141,14 @@ test("Relay's records become rows only for this wallet, on this bridge's network
     ["no route at all", relayRequest({ data: {} })],
   ] as const) assert.equal(relayHistoryEntry(request, WALLET), null, label);
   assert.ok(bridgeCurrencyAsset(5042, ARC_USDC)?.decimals === 6 && bridgeCurrencyAsset(5042, NATIVE)?.decimals === 18);
+  // Elysium's USDC reads both ways; a record that names its native HYPE is not this bridge's
+  const elysiumRequest = relayRequest({}, { from: currency(99901, ELYSIUM_USDC.toLowerCase(), 6, "25000000") });
+  elysiumRequest.data.inTxs = [{ txHash: hash(2), chainId: 99901, status: "success" }];
+  const fromElysium = relayHistoryEntry(elysiumRequest, WALLET);
+  assert.deepEqual([fromElysium?.originChainId, fromElysium?.originAsset, fromElysium?.inDecimals], [99901, "USDC", 6]);
+  const toElysium = relayHistoryEntry(relayRequest({}, { to: currency(99901, ELYSIUM_USDC, 6, "24970000"), actualTo: currency(99901, ELYSIUM_USDC, 6, "24975000") }), WALLET);
+  assert.deepEqual([toElysium?.destinationChainId, toElysium?.destinationAsset, toElysium?.amountOut], [99901, "USDC", "24975000"]);
+  assert.equal(relayHistoryEntry(relayRequest({}, { to: currency(99901, NATIVE, 18, "1000000000000000000"), actualTo: currency(99901, NATIVE, 18, "1000000000000000000") }), WALLET), null);
 
   assert.equal(parseRelayHistory({ requests: [relayRequest(), relayRequest({ id: hash(7), user: OTHER, sender: OTHER })], continuation: "x" }, WALLET).length, 1);
   assert.throws(() => parseRelayHistory({ data: [] }, WALLET));

@@ -9,7 +9,7 @@ const header = read("../HeaderNav.tsx");
 const css = read("./BridgeDialog.module.css");
 
 test("bridge uses bundled official asset marks rather than letter placeholders", () => {
-  for (const asset of ["base.svg", "robinhood-black.svg", "robinhood-white.svg", "ethereum.svg", "arc.svg", "usdc.svg"]) {
+  for (const asset of ["base.svg", "robinhood-black.svg", "robinhood-white.svg", "ethereum.svg", "arc.svg", "arbitrum.svg", "optimism.svg", "usdc.svg"]) {
     assert.ok(panel.includes(`/brand/${asset}`), asset);
     const svg = read(`../../../public/brand/${asset}`);
     assert.match(svg, /<svg\b/);
@@ -70,9 +70,12 @@ test("the signal board is decorative and sliding confirms the deposit only", () 
   assert.equal((panel.match(/<SignalBoard /g) ?? []).length, 3, "form, approval and transfer views");
   // the slide appears for the deposit alone, and runs the very same guarded path as the button
   assert.match(panel, /const slideReady = !!b\.address && reviewing && !b\.approvalRequired && !loading && !b\.allowanceLoading;/);
-  assert.match(panel, /\{slideReady \? <SlideConfirm key=\{b\.quote!\.requestId\}[^\n]+onConfirm=\{submit\} \/> : null\}/);
-  assert.match(panel, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); submit\(\); \}\}/);
-  assert.match(panel, /<button type="submit" className=\{slideReady \? styles\.secondary : styles\.primary\}/, "the ordinary button never goes away");
+  assert.match(panel, /\{slideReady \? <SlideConfirm key=\{b\.quote!\.requestId\}[^\n]+onConfirm=\{runPrimaryAction\} \/> : null\}/);
+  const formSubmit = panel.match(/<form className=\{dotFont\.variable\} onSubmit=\{\(event\) => \{([\s\S]*?)\}\}>/)?.[1] ?? "";
+  assert.match(formSubmit, /event\.preventDefault\(\);/);
+  assert.match(formSubmit, /if \(b\.address && !actionDisabled && !reviewing\) void b\.requestQuote\(\);/);
+  assert.doesNotMatch(formSubmit, /runPrimaryAction|\.approve\(|\.confirm\(|connect\(/, "implicit submission can only request a quote");
+  assert.match(panel, /<button type="button" className=\{slideReady \? styles\.secondary : styles\.primary\} disabled=\{actionDisabled\} onClick=\{runPrimaryAction\}/, "the ordinary button never goes away");
   assert.equal((panel.match(/b\.confirm\(\)/g) ?? []).length, 1);
   assert.equal((panel.match(/b\.approve\(\)/g) ?? []).length, 1);
   // only a release or Enter at the end confirms, read from the live drag, never from movement
@@ -183,6 +186,10 @@ test("USDC selectors separate selected token units from native gas and disallow 
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
   assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
   assert.match(panel, /USDC on Robinhood is unavailable: its routes do not pass our current safety checks\. ETH and USDG are available\./);
+  // Elysium carries USDC only, and says its gas is HYPE, which the bridge does not carry
+  assert.ok(panel.includes(`{b.originChainId === 99901 || b.destinationChainId === 99901 ? <p className={styles.routeNotice}>Only USDC moves to and from Elysium. Gas there is HYPE, which this bridge does not carry, so keep some HYPE on Elysium to use or send your USDC.</p> : null}`));
+  assert.ok(panel.includes('if (chain === 99901) return <span className={`${styles.networkMark} ${styles.elysiumMark}`} aria-hidden><Image src="/brand/elysium.png"'));
+  assert.ok(css.includes(".elysiumMark img { border-radius: 7px; }"));
   // each asset is named in full, and says which token pays its chain's gas
   assert.match(panel, /\{BRIDGE_ASSET_NAMES\[value\]\} · \{value === BRIDGE_CHAINS\[chain\]\.symbol \? "Gas token" : `Gas in \$\{BRIDGE_CHAINS\[chain\]\.symbol\}`\}/);
   assert.match(panel, /if \(asset === "USDG"\) return <CircleDollarSign/, "USDG has no bundled logo, so it never borrows USDC's or Ether's");

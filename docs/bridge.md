@@ -1,11 +1,11 @@
-# Base, Robinhood and Arc bridge (funded from Ethereum, Arbitrum and Optimism)
+# Base, Robinhood, Arc and Elysium bridge (funded from Ethereum, Arbitrum and Optimism)
 
-The header's **Bridge** action opens a focused funding panel without leaving the current token or launch page; `/bridge` shows the same panel as a page. It moves funds between Base (8453), Robinhood Chain (4663), and Arc mainnet (5042), and into them from Ethereum (1), Arbitrum (42161) and Optimism (10), always to the same connected wallet address. The three funding networks send only: nothing is ever bridged to them. Base sends/receives ETH or official USDC; Robinhood sends/receives ETH or USDG (Global Dollar, the chain's main stablecoin and the launch form's default quote there). Arc receives native USDC and sends USDC through its ERC-20 interface. Ethereum, Arbitrum and Optimism send ETH or Circle's native USDC. Relay converts between ETH, USDC and USDG at the reviewed quote. This does not add launched tokens or GITLAWB, change the launch-chain registry, or deploy contracts.
+The header's **Bridge** action opens a focused funding panel without leaving the current token or launch page; `/bridge` shows the same panel as a page. It moves funds between Base (8453), Robinhood Chain (4663), Arc mainnet (5042) and Elysium (99901), and into them from Ethereum (1), Arbitrum (42161) and Optimism (10), always to the same connected wallet address. The three funding networks send only: nothing is ever bridged to them. Base sends/receives ETH or official USDC; Robinhood sends/receives ETH or USDG (Global Dollar, the chain's main stablecoin and the launch form's default quote there). Arc receives native USDC and sends USDC through its ERC-20 interface. Elysium sends and receives its USDC only; HYPE, its gas token, is not bridged. Ethereum, Arbitrum and Optimism send ETH or Circle's native USDC. Relay converts between ETH, USDC and USDG at the reviewed quote. This does not add launched tokens or GITLAWB, change the launch-chain registry, or deploy contracts.
 
 ## Integration
 
 - Relay supplies quotes and transfer status. For USDC to USDC into Base or Arc, Circle CCTP is quoted alongside and used when it delivers more (see Circle CCTP below). Openlaunch charges no application fee; the provider fee and source-network gas still cost money.
-- `POST /api/bridge/quote` accepts `{ address, originChainId, destinationChainId, originAsset, destinationAsset, amount }`. Asset choices are allowlisted `ETH`, `USDC` or `USDG` for that chain, never arbitrary addresses. Omitted asset fields retain legacy defaults: Base/Robinhood ETH, Arc USDC. The integer amount uses 18 decimals for ETH inputs and **6 decimals for USDC and USDG inputs**. Outputs use 6 decimals for Base USDC and Robinhood USDG, 18 for ETH or Arc native USDC. `GET /api/bridge/status?requestId=…` returns normalized provider state and transaction hashes.
+- `POST /api/bridge/quote` accepts `{ address, originChainId, destinationChainId, originAsset, destinationAsset, amount }`. Asset choices are allowlisted `ETH`, `USDC` or `USDG` for that chain, never arbitrary addresses. Omitted asset fields retain legacy defaults: Base/Robinhood ETH, Arc USDC, Elysium USDC. The integer amount uses 18 decimals for ETH inputs and **6 decimals for USDC and USDG inputs**. Outputs use 6 decimals for Base USDC, Robinhood USDG and Elysium USDC, 18 for ETH or Arc native USDC. `GET /api/bridge/status?requestId=…` returns normalized provider state and transaction hashes.
 - Base USDC is Circle's `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. Its ERC-20 balance and allowance are checked separately from native ETH gas. An approval and deposit both require an ETH reserve; a USDC balance cannot pay Base gas. The picker, fee labels, quote identity and recovery journal all retain the selected asset.
 - Requests use a fixed upstream, timeout and streamed body-size bounds, existing per-IP limits, and private/no-store caching. The API does not need a wallet signature. Relay quotes/status stay server-side. Arc balance, allowance, gas and receipt reads go through the same-origin `/api/rpc?chain=arc` proxy (upstream `ARC_RPC_URL`, else the official public node), so the CSP gains no third-party origin and script restrictions are unchanged. The funding networks read the same way through `/api/rpc?chain=ethereum|arbitrum|optimism` (upstreams `ETHEREUM_RPC_URL`, `ARBITRUM_RPC_URL`, `OPTIMISM_RPC_URL`, else publicnode for Ethereum and the official Arbitrum and Optimism nodes), with the same read-only allowlist and per-IP budget. Public Base and Arc nodes rate-limit a single quote's burst of reads; the proxy turns rate-limit and malformed replies into HTTP 429/502 so viem retries them, and production should point `BASE_RPC_URL` and `ARC_RPC_URL` at keyed providers.
 - Arc's native USDC (18 decimals) and ERC-20 interface `0x3600000000000000000000000000000000000000` (6 decimals) share one balance but are **not interchangeable transfer interfaces**. Input parsing, deposit verification and recovery distinguish them. Gas budgeting converts the USDC input into native units and leaves a reserve for network fees.
@@ -32,7 +32,7 @@ An interrupted wallet response is **uncertain**, not failed. The app must not si
 
 ## Limits and rollout
 
-- Three launch networks both ways and three funding networks one way, same-wallet recipient only. ETH on Base/Robinhood, USDC on Base/Arc, USDG on Robinhood, and ETH or native USDC from Ethereum/Arbitrum/Optimism. No arbitrary tokens, recipients, unlimited allowances, deposits from exchanges, custom swap calls, bridged USDC.e, or other networks.
+- Four launch networks both ways and three funding networks one way, same-wallet recipient only. ETH on Base/Robinhood, USDC on Base/Arc/Elysium, USDG on Robinhood, and ETH or native USDC from Ethereum/Arbitrum/Optimism. No arbitrary tokens, recipients, unlimited allowances, deposits from exchanges, custom swap calls, bridged USDC.e, HYPE, or other networks.
 - Robinhood USDC remains unavailable. On 2026-09-16, the official canonical gateway mapped Ethereum USDC to bridged `0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8` (6 decimals); this is not Circle-native issuance. Read-only Relay probes at 25 USDC returned roughly 21% loss outbound, while inbound routes were rejected for roughly 92% swap impact. Outbound responses required an approval-proxy/swap flow, not our validated direct deposit. Do not enable this asset or loosen safeguards without fresh route validation and separately reviewed support. USDG is offered as its own named asset, never as a silent stand-in for USDC.
 - Relay is a third-party bridge protocol. Its availability, liquidity, estimates and settlement are not guaranteed by Openlaunch. Provider response changes fail closed until reviewed.
 - Funds never pass through an Openlaunch wallet or new Openlaunch contract.
@@ -54,6 +54,33 @@ npx tsx --conditions=react-server --tsconfig tsconfig.test.json --test src/lib/b
 These tests never connect a wallet or submit a transaction.
 
 `/ui-review-bridge` is a development-only visual fixture with disconnected, quote, quoting, high-fee, expired, error, pending, success, uncertain and refund states, plus approval/recovery states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
+
+### Elysium (2026-11-10)
+
+Elysium (99901, gas in HYPE) is the fourth launch chain, so the bridge now sends from and delivers to it like Base, Robinhood and Arc. It carries one asset there: USDC `0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65` (symbol and name USDC, 6 decimals, checked on-chain), the same contract the launch form quotes. It moves through Relay alone, since Elysium has no Circle CCTP domain. With Elysium, the bridge has sixty-two routes: twenty-six between the launch chains and thirty-six from the funding networks.
+
+- **HYPE is not carried.** Relay's chain listing marks HYPE as not bridgeable. Read-only probes on 2026-11-10 showed why its routes need their own design:
+  - Quotes into HYPE refund on Elysium in USDC, not HYPE. The validator requires a destination refund in the output currency, so these quotes fail closed. Arc USDC to HYPE also guaranteed less than 99.5% of its own estimate.
+  - Quotes out of HYPE take payment in USDC through Relay's router (`0x0729…97f7`) with a different call, not the depository deposit this bridge verifies.
+- **Chain check.** For every other chain, Relay must still list the native currency as bridgeable. Elysium is the one chain whose native currency the bridge never sends or receives. There, the check instead requires Relay to list exactly this USDC (address, symbol and decimals) as bridgeable, beside the usual depository, router, status and VM checks. A Base or Robinhood listing with its native currency not bridgeable still fails. The quote checks are unchanged: exact currencies both ways, refunds in those currencies on both chains, gas paid in the origin's native currency (HYPE when sending from Elysium), and an exact approval of Elysium USDC to the pinned depository.
+- **Gas.** Sending from Elysium needs HYPE, which the panel shows as "For gas". A route notice and the /bridge page say HYPE is not bridged and that some is needed on Elysium to use or send the USDC. Bridge, then buy reads the HYPE balance on Elysium and suggests Elysium USDC as a source only beside some HYPE. It does not offer to bridge for a buy paid in HYPE.
+- **Launch gate.** The bridge offers Elysium whether or not its launch factory is configured, so funds can be moved there before its first launch.
+- **Live cost** (read-only, 25 USDC or USDG, or 0.01 ETH; 2026-11-10). All sixteen Elysium routes passed the server validator:
+
+| Route | Receives | Cost |
+|---|---|---|
+| Base, Ethereum, Arbitrum or Optimism USDC to Elysium | 24.9718 USDC | 0.11% |
+| Robinhood USDG to Elysium | 24.9628 USDC | 0.13% |
+| Arc USDC to Elysium | 24.9618 USDC | 0.15% |
+| ETH from Base, Robinhood, Ethereum, Arbitrum or Optimism to Elysium | 20.59 to 20.61 USDC | 0.21% to 0.30% (Relay's estimate) |
+| Elysium to Base USDC | 24.6642 USDC | 1.34% |
+| Elysium to Arc USDC | 24.6620 USDC | 1.35% |
+| Elysium to Robinhood USDG | 24.6533 USDG | 1.36% |
+| Elysium to Base or Robinhood ETH | 0.011893 ETH | 1.76% (Relay's estimate) |
+
+  Cost is Relay's fee as a share of what is sent, or Relay's own total estimate where ETH converts. Leaving Elysium costs more than ten times as much as arriving. Sending from Elysium also took about 0.000043 HYPE in gas.
+- **Not built.** HYPE routes in either direction, including a gas top-up that delivers some HYPE with the USDC.
+- **Verification.** Tests cover the registry, Relay's Elysium listing (and every way it can be wrong), each Elysium route, refunds and outputs in HYPE (both refused), HYPE gas, approvals, history rows, links, the signal board and the bridge-then-buy source rule. No wallet signed anything. A small real transfer each way is still needed before this is described as exercised.
 
 ### Circle CCTP (2026-11-10)
 

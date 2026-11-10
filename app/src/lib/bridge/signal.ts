@@ -8,13 +8,14 @@ import type { BridgeChainId } from "./types";
  */
 
 /** Board spellings. Five-by-seven letters, so every code must use only the letters in GLYPHS. */
-export const SIGNAL_CODES: Record<BridgeChainId, string> = { 8453: "BASE", 4663: "HOOD", 5042: "ARC", 1: "ETH", 42161: "ARB", 10: "OP" };
+export const SIGNAL_CODES: Record<BridgeChainId, string> = { 8453: "BASE", 4663: "HOOD", 5042: "ARC", 99901: "ELYS", 1: "ETH", 42161: "ARB", 10: "OP" };
 
 /** Light colours per network, chosen to read on the board's dark plate (not brand-exact). */
 export const SIGNAL_COLORS: Record<BridgeChainId, readonly [number, number, number]> = {
   8453: [61, 124, 255],
   4663: [204, 255, 0],
   5042: [196, 208, 226],
+  99901: [151, 252, 228], // HYPE's mint
   1: [136, 154, 255],
   42161: [18, 170, 255],
   10: [255, 72, 92],
@@ -34,10 +35,12 @@ const GLYPHS: Record<string, readonly string[]> = {
   D: ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
   E: ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
   H: ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  L: ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
   O: [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
   P: ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
   R: ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
   S: [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+  Y: ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
   T: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
 };
 

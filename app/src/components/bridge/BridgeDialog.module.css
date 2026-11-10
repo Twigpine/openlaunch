@@ -32,7 +32,6 @@
 .networkMenuTitle { margin: 0; padding: 8px 10px 10px; color: var(--color-body); font-size: 12px; font-weight: 500; }
 .networkList { display: grid; gap: 3px; }
 .networkGroupLabel { margin: 0; padding: 12px 10px 6px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 12px; font-weight: 500; }
-.letterMark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--mark-fill); box-shadow: 0 0 0 1.5px var(--mark-ring); color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .02em; }
 .walletHint { display: block; width: 100%; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--color-line-strong); border-radius: 10px; color: var(--color-body); font-size: 12px; text-align: left; cursor: pointer; transition: color 160ms, background 160ms; }
 .walletHint:not(:disabled):hover { color: var(--color-ink); background: var(--color-paper); }
 .walletHint:disabled { cursor: default; opacity: .6; }
@@ -47,6 +46,8 @@
 .networkMark { display: inline-flex; flex: 0 0 30px; align-items: center; justify-content: center; height: 30px; width: 30px; }
 .networkMark img { display: block; flex-shrink: 0; object-fit: contain; }
 .arcMark { background: var(--color-scrim); border-radius: 7px; }
+.arbitrumMark { background: #f1f5ff; border-radius: 7px; }
+.elysiumMark img { border-radius: 7px; }
 .networkMark .darkLogo { display: none; }
 :global(.dark) .networkMark .lightLogo { display: none; }
 :global(.dark) .networkMark .darkLogo { display: block; }
