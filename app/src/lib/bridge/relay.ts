@@ -116,6 +116,7 @@ export async function getBridgeHistory(address: string, fetcher: Fetcher = fetch
     if (budget.used >= BRIDGE_HISTORY_UPSTREAM_PER_MINUTE) throw new BridgeApiError("Relay history is busy. Please try again shortly.", 429);
     budget.used++;
   } else historyBudget.set(fetcher, { at, used: 1 });
+  // Ask for in-flight transfers too. The parser drops requests without a chain-matched transaction hash.
   const query = new URLSearchParams({ user: wallet, limit: "50", includePendingRequests: "true", sortBy: "createdAt", sortDirection: "desc" });
   const value = relayJson(`/requests/v3?${query}`, { method: "GET" }, 1_000_000, fetcher).then(
     (body): BridgeHistoryResponse => ({ relay: "on", transfers: parseRelayHistory(body, wallet) }),

@@ -27,15 +27,16 @@ export const CCTP_BURN_GAS = 220_000n;
 /** Seconds to arrival: Fast attestation (about 8 s on the rollups, 20 s on Ethereum, 0.5 s on Arc) plus Circle's forward. */
 const CCTP_SECONDS: Record<BridgeChainId, number> = { 8453: 25, 42161: 25, 10: 25, 1: 40, 5042: 15, 4663: 0, 99901: 0 };
 
-// Circle allows 40 requests a second per IP and blocks for five minutes past that. Every caller here shares one budget
-// well under it, and answers are reused briefly, so many open panels can never get the server blocked.
+// Circle blocks requests for five minutes above 40 per second. All Circle endpoints share rolling budgets within
+// this process. Keep headroom for other workers sharing the same egress IP.
+export const CCTP_UPSTREAM_PER_SECOND = 15;
 export const CCTP_UPSTREAM_PER_MINUTE = 600;
 const FEES_TTL_MS = 30_000;
 const ALLOWANCE_TTL_MS = 15_000;
 const STATUS_TTL_MS = 5_000;
 type Cached<T> = { at: number; value: Promise<T> };
 const caches = new WeakMap<Fetcher, Map<string, Cached<unknown>>>();
-const budgets = new WeakMap<Fetcher, { at: number; used: number }>();
+const budgets = new WeakMap<Fetcher, number[]>();
 
 function ensure(condition: unknown, message = "Circle returned an unreadable answer."): asserts condition {
   if (!condition) throw new BridgeApiError(message, 502);
@@ -53,11 +54,16 @@ function decimal(value: unknown, decimals: number): bigint {
 }
 
 function spend(fetcher: Fetcher, at: number) {
-  const budget = budgets.get(fetcher);
-  if (budget && at - budget.at < 60_000 && at >= budget.at) {
-    if (budget.used >= CCTP_UPSTREAM_PER_MINUTE) throw new BridgeApiError("Circle is busy. Please try again shortly.", 429);
-    budget.used++;
-  } else budgets.set(fetcher, { at, used: 1 });
+  const previous = budgets.get(fetcher) ?? [];
+  // A backward clock adjustment must not open a fresh window.
+  const now = Math.max(at, previous.at(-1) ?? at);
+  const recent = previous.filter((sentAt) => now - sentAt < 60_000);
+  const burst = recent.filter((sentAt) => now - sentAt < 1_000).length;
+  if (recent.length >= CCTP_UPSTREAM_PER_MINUTE || burst >= CCTP_UPSTREAM_PER_SECOND) {
+    throw new BridgeApiError("Circle is busy. Please try again shortly.", 429);
+  }
+  recent.push(now);
+  budgets.set(fetcher, recent);
 }
 
 /** One reused answer per key for `ttl`; a failure is never kept, so the next caller asks again. */

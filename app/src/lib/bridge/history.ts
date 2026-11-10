@@ -1,4 +1,4 @@
-import { formatUnits, type Address, type Hex } from "viem";
+import { formatUnits, zeroHash, type Address, type Hex } from "viem";
 import type { TrackedBridgeTransfer } from "./client";
 import { bridgeCurrency, bridgeCurrencyAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, type BridgeAsset, type BridgeChainId, type BridgeDestinationId, type BridgeStatus } from "./types";
 
@@ -167,13 +167,13 @@ function relayAmount(value: unknown): RelayAmount | null {
 
 function relayHashes(value: unknown, chainId: BridgeChainId): Hex[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((tx): tx is { txHash: Hex } => isObject(tx) && tx.chainId === chainId && isHash(tx.txHash)).map((tx) => tx.txHash).slice(0, 50);
+  return value.filter((tx): tx is { txHash: Hex } => isObject(tx) && tx.chainId === chainId && isHash(tx.txHash) && tx.txHash !== zeroHash).map((tx) => tx.txHash).slice(0, 50);
 }
 
 /**
  * One request from GET /requests/v3, or null when it is not a transfer this bridge could have made for `wallet`:
- * another wallet, a network or token outside the bridge, or a shape we cannot read. Field names follow Relay's
- * published schema (api.relay.link/documentation/json); none are marked required there, so every one is checked.
+ * another wallet, a network or token outside the bridge, a request with no transaction, or a shape we cannot read.
+ * Field names follow Relay's published schema (api.relay.link/documentation/json); none are marked required there.
  */
 export function relayHistoryEntry(value: unknown, wallet: string): BridgeHistoryEntry | null {
   if (!isObject(value) || !isHash(value.id) || !STATUSES.includes(value.status as BridgeHistoryStatus) || value.status === "uncertain") return null;
@@ -193,11 +193,15 @@ export function relayHistoryEntry(value: unknown, wallet: string): BridgeHistory
   if (received && expected && (received.chainId !== expected.chainId || received.asset !== expected.asset)) return null;
   const createdAt = typeof value.createdAt === "string" ? Date.parse(value.createdAt) : Number.NaN;
   if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
+  const sourceHash = relayHashes(data.inTxs, sent.chainId)[0] ?? null;
+  const destinationHashes = relayHashes(data.outTxs, out.chainId);
+  // Public wallet history can include submitted transfers in flight. Keep quote-only requests private.
+  if (sourceHash === null && destinationHashes.length === 0) return null;
   return parseHistoryEntry({
     requestId: value.id, originChainId: sent.chainId, destinationChainId: out.chainId, originAsset: sent.asset, destinationAsset: out.asset,
     amountIn: sent.amount, inDecimals: sent.decimals, amountOut: out.amount, outDecimals: out.decimals, outKind: received ? "received" : "quoted",
     status: value.status, reverted: false, createdAt,
-    sourceHash: relayHashes(data.inTxs, sent.chainId)[0] ?? null, destinationHashes: relayHashes(data.outTxs, out.chainId),
+    sourceHash, destinationHashes,
     recipient: value.recipient.toLowerCase() === owner ? null : value.recipient,
   });
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeFunctionData } from "viem";
 import { CCTP_BURN_ABI, CCTP_FORWARD_HOOK, CCTP_TOKEN_MESSENGER, cctpBurnData } from "./cctp";
-import { CCTP_MAX_BURN, CCTP_UPSTREAM_PER_MINUTE, cctpMaxFee, getCctpQuote, getCctpStatus, parseCctpFees, parseCctpStatus, parseCctpStatusRequest, type CctpStatusRequest } from "./cctp-server";
+import { CCTP_MAX_BURN, CCTP_UPSTREAM_PER_MINUTE, CCTP_UPSTREAM_PER_SECOND, cctpMaxFee, getCctpQuote, getCctpStatus, parseCctpFees, parseCctpStatus, parseCctpStatusRequest, type CctpStatusRequest } from "./cctp-server";
 import { validateBridgeQuote } from "./client";
 import { getBridgeQuote } from "./relay";
 import { FIXTURE_INPUT, FIXTURE_NOW, addApprovalFixture, relayChainsFixture, relayRouteFixture } from "./relay.fixture";
@@ -127,7 +127,7 @@ test("Circle and RPC failures throw, and a failure is never reused", async () =>
   assert.equal(busy.paths().filter((path) => path.startsWith("/v2/burn")).length, 2);
 });
 
-test("Circle's answers are reused briefly and every caller shares one request budget", async () => {
+test("Circle's fee and capacity answers are reused briefly", async () => {
   const c = circle();
   await getCctpQuote(REQUEST, c.fetcher, () => NOW);
   await getCctpQuote({ ...REQUEST, amount: "30000000" }, c.fetcher, () => NOW + 10_000);
@@ -135,14 +135,32 @@ test("Circle's answers are reused briefly and every caller shares one request bu
   assert.equal(c.paths().filter((path) => path.startsWith("/v2/fastBurn")).length, 1);
   await getCctpQuote(REQUEST, c.fetcher, () => NOW + 31_000);
   assert.equal(c.paths().filter((path) => path.startsWith("/v2/burn")).length, 2);
+});
 
+const statusRequest = (n: number): CctpStatusRequest => ({ originChainId: 42161, destinationChainId: 8453, hash: `0x${n.toString(16).padStart(64, "0")}`, address: WALLET, amount: "25000000" });
+const circleBusy = (error: unknown) => error instanceof BridgeApiError && error.status === 429;
+
+test("Circle quotes and statuses share one rolling burst budget, and cache hits cost nothing", async () => {
+  const c = circle();
+  const burstAt = NOW + 999;
+  await getCctpQuote(REQUEST, c.fetcher, () => burstAt);
+  // The quote uses two Circle requests plus one RPC read. Only Circle counts toward this budget.
+  for (let n = 1; n <= CCTP_UPSTREAM_PER_SECOND - 2; n++) await getCctpStatus(statusRequest(n), c.fetcher, () => burstAt);
+  const next = statusRequest(CCTP_UPSTREAM_PER_SECOND);
+  await assert.rejects(getCctpStatus(next, c.fetcher, () => burstAt), circleBusy);
+  await assert.rejects(getCctpStatus(next, c.fetcher, () => NOW + 1_000), circleBusy);
+  assert.deepEqual(await getCctpStatus(statusRequest(1), c.fetcher, () => NOW + 1_000), { status: "waiting", inTxHashes: [], txHashes: [] });
+  assert.equal(c.calls.length, CCTP_UPSTREAM_PER_SECOND + 1);
+  await getCctpStatus(next, c.fetcher, () => burstAt + 1_000);
+  assert.equal(c.calls.length, CCTP_UPSTREAM_PER_SECOND + 2);
+});
+
+test("Circle caps sustained traffic even below its burst limit", async () => {
   const status = circle();
-  const request = (n: number): CctpStatusRequest => ({ originChainId: 42161, destinationChainId: 8453, hash: `0x${n.toString(16).padStart(64, "0")}`, address: WALLET, amount: "25000000" });
-  for (let n = 1; n <= CCTP_UPSTREAM_PER_MINUTE; n++) await getCctpStatus(request(n), status.fetcher, () => NOW);
-  await assert.rejects(getCctpStatus(request(0), status.fetcher, () => NOW + 1_000), (error) => error instanceof BridgeApiError && error.status === 429);
-  // a reused answer costs nothing, and the budget refills after a minute
-  assert.deepEqual(await getCctpStatus(request(1), status.fetcher, () => NOW + 1_000), { status: "waiting", inTxHashes: [], txHashes: [] });
-  await getCctpStatus(request(0), status.fetcher, () => NOW + 60_000);
+  for (let n = 1; n <= CCTP_UPSTREAM_PER_MINUTE; n++) await getCctpStatus(statusRequest(n), status.fetcher, () => NOW + (n - 1) * 100);
+  const next = statusRequest(CCTP_UPSTREAM_PER_MINUTE + 1);
+  await assert.rejects(getCctpStatus(next, status.fetcher, () => NOW + 59_999), circleBusy);
+  await getCctpStatus(next, status.fetcher, () => NOW + 60_000);
   assert.equal(status.calls.length, CCTP_UPSTREAM_PER_MINUTE + 1);
 });
 

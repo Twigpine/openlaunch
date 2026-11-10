@@ -22,16 +22,22 @@ function row(overrides: Partial<BridgeHistoryEntry> = {}): BridgeHistoryEntry {
 }
 
 const currency = (chainId: number, address: string, decimals: number, amount: string) => ({ currency: { chainId, address, symbol: "X", name: "X", decimals, metadata: {} }, amount, amountFormatted: "1", amountUsd: "1", minimumAmount: amount });
+type TestCurrency = ReturnType<typeof currency>;
 
 /** A GET /requests/v3 request in Relay's published shape, Arbitrum USDC to Base USDC unless overridden. */
-function relayRequest(overrides: Record<string, unknown> = {}, route: { from?: unknown; to?: unknown; actualTo?: unknown } = {}) {
+function relayRequest(overrides: Record<string, unknown> = {}, route: { from?: TestCurrency; to?: TestCurrency; actualTo?: TestCurrency } = {}) {
+  const from = route.from ?? currency(42161, ARBITRUM_USDC, 6, "25000000");
+  const to = route.to ?? currency(8453, BASE_USDC, 6, "24970000");
+  const actualTo = route.actualTo ?? currency(8453, BASE_USDC, 6, "24975000");
   return {
     id: hash(1), status: "success", user: WALLET, sender: WALLET, recipient: WALLET, refundTo: null, depositAddress: null, requestType: "Bridge",
     data: {
-      slippageTolerance: "50", failReason: null, inTxs: [{ txHash: hash(2), chainId: 42161, status: "success" }], outTxs: [{ txHash: hash(3), chainId: 8453, status: "success" }],
+      slippageTolerance: "50", failReason: null,
+      inTxs: [{ txHash: hash(2), chainId: from.currency.chainId, status: "success" }],
+      outTxs: [{ txHash: hash(3), chainId: actualTo.currency.chainId, status: "success" }],
       route: {
-        quoted: { origin: { inputCurrency: route.from ?? currency(42161, ARBITRUM_USDC, 6, "25000000") }, destination: { outputCurrency: route.to ?? currency(8453, BASE_USDC, 6, "24970000") } },
-        actual: { destination: { outputCurrency: route.actualTo ?? currency(8453, BASE_USDC, 6, "24975000") } },
+        quoted: { origin: { inputCurrency: from }, destination: { outputCurrency: to } },
+        actual: { destination: { outputCurrency: actualTo } },
       },
     },
     createdAt: "2026-11-10T09:30:00.000Z", updatedAt: "2026-11-10T09:30:20.000Z",
@@ -143,7 +149,6 @@ test("Relay's records become rows only for this wallet, on this bridge's network
   assert.ok(bridgeCurrencyAsset(5042, ARC_USDC)?.decimals === 6 && bridgeCurrencyAsset(5042, NATIVE)?.decimals === 18);
   // Elysium's USDC reads both ways; its native HYPE reads only as delivered, since the bridge never sends it
   const elysiumRequest = relayRequest({}, { from: currency(99901, ELYSIUM_USDC.toLowerCase(), 6, "25000000") });
-  elysiumRequest.data.inTxs = [{ txHash: hash(2), chainId: 99901, status: "success" }];
   const fromElysium = relayHistoryEntry(elysiumRequest, WALLET);
   assert.deepEqual([fromElysium?.originChainId, fromElysium?.originAsset, fromElysium?.inDecimals], [99901, "USDC", 6]);
   const toElysium = relayHistoryEntry(relayRequest({}, { to: currency(99901, ELYSIUM_USDC, 6, "24970000"), actualTo: currency(99901, ELYSIUM_USDC, 6, "24975000") }), WALLET);
@@ -152,7 +157,6 @@ test("Relay's records become rows only for this wallet, on this bridge's network
   assert.deepEqual([hype?.destinationChainId, hype?.destinationAsset, hype?.outDecimals, hype?.amountOut], [99901, "HYPE", 18, "281800000000000000"]);
   assert.equal(relayHistoryEntry(relayRequest({}, { to: currency(99901, NATIVE, 6, "1000000"), actualTo: currency(99901, NATIVE, 6, "1000000") }), WALLET), null, "HYPE has eighteen decimals");
   const sentHype = relayRequest({}, { from: currency(99901, NATIVE, 18, "1000000000000000000") });
-  sentHype.data.inTxs = [{ txHash: hash(2), chainId: 99901, status: "success" }];
   assert.equal(relayHistoryEntry(sentHype, WALLET), null, "HYPE sent from Elysium is not this bridge's");
 
   assert.equal(parseRelayHistory({ requests: [relayRequest(), relayRequest({ id: hash(7), user: OTHER, sender: OTHER })], continuation: "x" }, WALLET).length, 1);
@@ -238,12 +242,21 @@ test("Relay history stays off without a key, and with one asks /requests/v3 for 
     const seen: { url: string; key: string | null }[] = [];
     const fetcher = async (url: string, init: RequestInit) => {
       seen.push({ url, key: new Headers(init.headers).get("x-api-key") });
-      return Response.json({ requests: [relayRequest()] });
+      const { data } = relayRequest();
+      return Response.json({ requests: [
+        relayRequest({ id: hash(4), status: "waiting", recipient: OTHER, data: { ...data, inTxs: [], outTxs: [] } }),
+        relayRequest({ id: hash(5), status: "failure", data: { ...data, inTxs: [{ chainId: 42161, txHash: hash(0) }], outTxs: [{ chainId: 10, txHash: hash(3) }] } }),
+        relayRequest({ id: hash(6), status: "pending", data: { ...data, outTxs: [] } }),
+        relayRequest({ id: hash(7), data: { ...data, inTxs: [], outTxs: [{ chainId: 8453, txHash: hash(3) }] } }),
+      ] });
     };
     let clock = 1_000;
     const first = await getBridgeHistory(WALLET.toUpperCase().replace("0X", "0x"), fetcher, () => clock);
     assert.equal(first.relay, "on");
-    assert.equal(first.relay === "on" && first.transfers[0].status, "success");
+    assert.deepEqual(first.transfers.map((entry) => [entry.requestId, entry.status, entry.sourceHash, entry.destinationHashes]), [
+      [hash(6), "pending", hash(2), []],
+      [hash(7), "success", null, [hash(3)]],
+    ]);
     const url = new URL(seen[0].url);
     assert.equal(url.origin + url.pathname, "https://api.relay.link/requests/v3");
     assert.equal(url.searchParams.get("user"), WALLET, "the wallet is sent lowercased");
