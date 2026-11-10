@@ -315,3 +315,30 @@ test("a Circle transfer is named as Circle's, reads allowance for Circle's spend
   assert.match(board, /entry\.provider === "cctp" \? <span className=\{styles\.via\}>Circle<\/span> : <a href=\{\x60https:\/\/relay\.link\/transaction\//);
   assert.doesNotMatch(panel, /—/);
 });
+
+test("from an exchange: the guide only reads balances, opens the bridge on a checked route, and never offers a deposit address", () => {
+  const watch = read("./useExchangeWatch.ts");
+  const lib = read("../../lib/bridge/exchange.ts");
+  const review = read("../../app/ui-review-bridge/BridgeReview.tsx");
+  const guide = panel.slice(panel.indexOf("export function ExchangeGuide"), panel.indexOf("function ApprovalProgress"));
+  // read-only: balances through the public clients, nothing that signs, sends or switches
+  for (const source of [watch, lib, guide]) assert.doesNotMatch(source, /sendTransaction|writeContract|useWriteContract|getWalletClient|switchChain|signMessage|signTypedData|fetch\(/);
+  assert.ok(watch.includes("getBalance({ address: who })") && watch.includes('functionName: "balanceOf"'));
+  assert.ok(watch.includes("if (!document.hidden)"), "no reads while the tab is hidden");
+  // the form's link opens it; a guide left open in this tab comes back without taking focus
+  assert.ok(panel.includes('<button type="button" id="bridge-exchange-link" className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button>'));
+  assert.ok(panel.includes('setGuide((open) => open || "resumed")') && panel.includes('focusOnMount: guide === "opened"'));
+  // an arrival opens the bridge through the same guarded setters the pickers use, then ends the watch
+  assert.match(panel, /b\.setOriginChainId\(next\.originChainId\);\s*b\.setOriginAsset\(next\.originAsset\);\s*if \(next\.amount\) b\.setAmount\(next\.amount\);/);
+  assert.ok(panel.includes("const closeGuide = (focus") && panel.includes("clearExchangeWatch();"));
+  assert.ok(guide.includes("exchangeNeedsGas(arrival)"), "a token with no gas beside it is called out");
+  assert.ok(guide.includes("not USDC.e or another bridged version"));
+  assert.ok(guide.includes("navigator.clipboard.writeText(address)") && guide.includes("selection.addRange(range)"), "copy falls back to selecting the address");
+  // the fixture shows the guide from plain props and never starts the live watch
+  assert.doesNotMatch(review, /useExchangeWatch\(/);
+  assert.ok(review.includes("exchangeView={DIALOG_EXCHANGE}"));
+  // Relay deposit addresses stay off: never requested, and a quote carrying one is still refused
+  assert.doesNotMatch(read("../../lib/bridge/relay.ts"), /useDepositAddress/);
+  assert.ok(read("../../lib/bridge/validation.ts").includes('step.kind === "transaction" && isRequestId(step.requestId) && !step.depositAddress'));
+  assert.doesNotMatch(guide, /—/);
+});

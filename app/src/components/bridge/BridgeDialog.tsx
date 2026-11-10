@@ -6,20 +6,23 @@ import Image from "next/image";
 import Link from "next/link";
 import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
-import { ArrowLeftRight, Coins, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
-import { formatEther, formatUnits, zeroAddress } from "viem";
-import { BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeAssets, bridgeProviderName, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
+import { ArrowLeft, ArrowLeftRight, Coins, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleDollarSign, Clock3, Copy, LoaderCircle, Wallet, X } from "lucide-react";
+import { formatEther, formatUnits, zeroAddress, type Address } from "viem";
+import { BRIDGE_ASSET_NAMES, BRIDGE_CHAINS, BRIDGE_SEND_ASSETS, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, bridgeCurrency, bridgeAssets, bridgeProviderName, bridgeTokenAsset, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeFundingChain, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
 import { CCTP_APPROVAL_SPENDER } from "@/lib/bridge/approval";
 import { bridgeLinkKey, type BridgeLink } from "@/lib/bridge/link";
 import { signalCaption, signalMode } from "@/lib/bridge/signal";
 import { formatFeeWarningPercent } from "@/lib/bridge/fee-display";
+import { EXCHANGE_NETWORKS, EXCHANGE_OPEN_KEY, EXCHANGE_POLL_MS, exchangeGuideOpen, exchangeNeedsGas, exchangeNext, type ExchangeArrival } from "@/lib/bridge/exchange";
+import { formatFundAmount } from "@/lib/bridge/fund";
 import { shortAddr } from "@/lib/chainPublic";
 import WalletPicker from "../WalletPicker";
 import WalletAvatar from "../WalletAvatar";
 import useBridge from "./useBridge";
 import SignalBoard from "./SignalBoard";
 import SlideConfirm from "./SlideConfirm";
+import useExchangeWatch, { clearExchangeWatch, type ExchangeView } from "./useExchangeWatch";
 import { dotFont } from "./dot-font";
 import styles from "./BridgeDialog.module.css";
 import signal from "./Signal.module.css";
@@ -244,8 +247,41 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus, slot = 
   );
 }
 
-export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: () => void }) {
+/**
+ * `exchangeView` stands in for the live balance watch in the development fixture, so its guide never reads a network.
+ */
+export function BridgeForm({ bridge: b, connect, exchangeView }: { bridge: Bridge; connect: () => void; exchangeView?: ExchangeView }) {
+  // "opened" from the form's link takes focus; "resumed" (left open in this tab: the panel closed while waiting, or a
+  // wallet connected from it) does not, so reopening the panel or loading /bridge never jumps to it
+  const [guide, setGuide] = useState<false | "opened" | "resumed">(false);
+  useEffect(() => {
+    const resume = () => { try { if (exchangeGuideOpen(window.sessionStorage.getItem(EXCHANGE_OPEN_KEY), Date.now())) setGuide((open) => open || "resumed"); } catch { /* not kept */ } };
+    resume();
+  }, []);
   if (b.approval && (b.approval.status === "pending" || b.approval.status === "uncertain")) return <ApprovalProgress bridge={b} />;
+  const openGuide = () => {
+    try { window.sessionStorage.setItem(EXCHANGE_OPEN_KEY, String(Date.now())); } catch { /* open for this view only */ }
+    setGuide("opened");
+  };
+  // back in the form, focus lands where the guide left off: its link, or the amount it filled in
+  const closeGuide = (focus: "bridge-exchange-link" | "bridge-amount") => {
+    clearExchangeWatch();
+    setGuide(false);
+    window.requestAnimationFrame(() => document.getElementById(focus)?.focus());
+  };
+  if (guide) {
+    const bridgeFrom = (arrival: ExchangeArrival) => {
+      const next = exchangeNext(arrival, b.destinationChainId);
+      if (next.kind === "bridge") {
+        b.setOriginChainId(next.originChainId);
+        b.setOriginAsset(next.originAsset);
+        if (next.amount) b.setAmount(next.amount);
+      }
+      closeGuide(next.kind === "bridge" ? "bridge-amount" : "bridge-exchange-link");
+    };
+    const props = { address: b.address, destinationChainId: b.destinationChainId, focusOnMount: guide === "opened", onBridge: bridgeFrom, onBack: () => closeGuide("bridge-exchange-link"), onConnect: connect };
+    return exchangeView ? <ExchangeGuide {...props} view={exchangeView} /> : <LiveExchangeGuide {...props} />;
+  }
   const locked = b.busy || b.approvalBusy;
   const loading = locked || b.quoteLoading;
   const reviewing = !!b.quote && !b.quoteExpired;
@@ -306,6 +342,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
         </div>
         <p id="bridge-balance" className={styles.balance}>{!b.address ? `${inputCurrency.symbol} on ${origin.name}` : b.balanceLoading ? "Checking your balance…" : b.balance !== undefined ? `Available: ${nativeAmount(formatUnits(b.balance, inputCurrency.decimals))} ${inputCurrency.symbol}` : b.balanceError ?? "Balance unavailable"}</p>
         {b.address && erc20Input && b.originChainId !== 5042 && b.nativeBalance !== undefined ? <p className={styles.balance}>For gas: {nativeAmount(b.nativeBalance)} {origin.symbol}</p> : null}
+        {!reviewing ? <button type="button" id="bridge-exchange-link" className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button> : null}
       </div>
 
       <div className={styles.destinationAsset}><span className={styles.smallLabel}>Receive on {destination.name}</span><AssetSelect label="Receive" chain={b.destinationChainId} asset={b.destinationAsset} disabled={locked} onChange={b.setDestinationAsset} /></div>
@@ -346,6 +383,118 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
       </button>
       <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses {provider}, a third-party protocol, and carries risk. Openlaunch does not operate {provider}, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? `An unspent ${inputCurrency.symbol} approval remains until used or revoked.` : "No token approvals required."}</p>
     </form>
+  );
+}
+
+type ExchangeGuideProps = { address: Address | undefined; destinationChainId: BridgeChainId; focusOnMount?: boolean; onBridge: (arrival: ExchangeArrival) => void; onBack: () => void; onConnect: () => void };
+
+function LiveExchangeGuide(props: ExchangeGuideProps) {
+  const view = useExchangeWatch(props.address);
+  return <ExchangeGuide {...props} view={view} />;
+}
+
+/**
+ * From an exchange (lib/bridge/exchange.ts): where to withdraw, a read-only watch for the funds to land, then the bridge
+ * on that route. Plain props, so the development fixture can show every state without a wallet or a network.
+ */
+export function ExchangeGuide({ address, destinationChainId, focusOnMount = false, view, onBridge, onBack, onConnect }: ExchangeGuideProps & { view: ExchangeView }) {
+  const [copied, setCopied] = useState(false);
+  const addressRef = useRef<HTMLElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  // the guide replaces the form in place: bring its top into view and move focus to its title
+  useEffect(() => {
+    if (!focusOnMount) return;
+    backRef.current?.scrollIntoView({ block: "nearest" });
+    titleRef.current?.focus({ preventScroll: true });
+  }, [focusOnMount]);
+  const destination = BRIDGE_CHAINS[destinationChainId].name;
+  // nothing is watched without a wallet, whatever the view says
+  const arrivals = address ? view.arrivals : [];
+  const landed = arrivals.length > 0;
+  const firstBridge = arrivals.find((arrival) => exchangeNext(arrival, destinationChainId).kind === "bridge");
+  const names = EXCHANGE_NETWORKS.map((id) => BRIDGE_CHAINS[id].name);
+  const watched = `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const seconds = EXCHANGE_POLL_MS / 1000;
+  const amountOf = (arrival: ExchangeArrival) => `${formatFundAmount(arrival.amount, arrival.decimals)} ${arrival.asset}`;
+
+  async function copy() {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // no clipboard here: select the address so it can be copied by hand
+      const node = addressRef.current;
+      const selection = window.getSelection();
+      if (!node || !selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+
+  return (
+    <div className={styles.guide}>
+      <button ref={backRef} type="button" className={styles.guideBack} onClick={onBack}><ArrowLeft size={14} aria-hidden />Back to the bridge</button>
+      <h3 ref={titleRef} tabIndex={-1} className={styles.guideTitle}>From an exchange</h3>
+      <p className={styles.guideLead}>{destinationChainId === 8453
+        ? "Withdraw ETH or USDC from your exchange to this wallet on Base and it is ready to use. Withdrawn to one of the other networks below, it can be bridged to Base after."
+        : `Withdraw ETH or USDC from your exchange to this wallet on one of the networks below, then bridge it to ${destination}.`}</p>
+      <ol className={styles.steps}>
+        <li><span>1</span><div>
+          <strong>Use this wallet&apos;s address</strong>
+          {address ? <>
+            <code ref={addressRef} className={styles.guideAddress}>{address}</code>
+            <button type="button" className={styles.guideButton} onClick={() => void copy()}>{copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}{copied ? "Copied" : "Copy address"}</button>
+            <span className="sr-only" role="status">{copied ? "Address copied" : ""}</span>
+            <small>Paste it as the withdrawal address on the exchange. Some smart wallets work only on some networks, so pick one your wallet supports.</small>
+          </> : <>
+            <small>Connect a wallet to see the address to withdraw to.</small>
+            <button type="button" className={styles.guideButton} onClick={onConnect}><Wallet size={14} aria-hidden />Connect wallet</button>
+          </>}
+        </div></li>
+        <li><span>2</span><div>
+          <strong>Withdraw on one of these networks</strong>
+          <div className={styles.guideNetworks}>
+            {EXCHANGE_NETWORKS.map((id) => <div key={id}>
+              <NetworkMark chain={id} />
+              <span className={styles.networkCopy}><span className={styles.networkName}>{BRIDGE_CHAINS[id].name}</span><span className={styles.gasCurrency}>{BRIDGE_SEND_ASSETS[id].join(" or ")}</span></span>
+              <em className={styles.guideTag} data-ready={id === destinationChainId || undefined}>{id === destinationChainId ? "No bridge needed" : "Then bridge"}</em>
+            </div>)}
+          </div>
+          <small>Pick one your exchange lists for that token. For USDC, choose USDC itself, not USDC.e or another bridged version: the bridge sends only Circle&apos;s USDC. Bridging USDC from there takes a little ETH on that network for gas, so withdraw some ETH there too.</small>
+        </div></li>
+        <li data-complete={landed}><span>{landed ? <Check size={13} aria-hidden /> : "3"}</span><div>
+          <strong>{landed ? "Landed in your wallet" : "Wait for it to land"}</strong>
+          <p className={styles.guideStatus} role="status">
+            {address && !landed && !view.unreadable ? <LoaderCircle size={13} className={styles.spinner} aria-hidden /> : null}
+            <span>{!address ? "Starts once a wallet is connected."
+              : view.checking ? "Checking your balances…"
+              : view.unreadable ? `Could not read your balances. Trying again every ${seconds} seconds.`
+              : landed ? `${arrivals.map((arrival) => `${amountOf(arrival)} on ${BRIDGE_CHAINS[arrival.chainId].name}`).join(", ")}.`
+              : `Watching ${watched} every ${seconds} seconds. You can close the panel and reopen it in this tab to keep watching.`}</span>
+          </p>
+        </div></li>
+        <li><span>4</span><div>
+          <strong>{destinationChainId === 8453 ? "Bridge it to Base if it landed elsewhere" : `Bridge it to ${destination}`}</strong>
+          {!landed ? <small>Once it lands, the bridge opens on that route.</small> : arrivals.map((arrival) => {
+            const from = BRIDGE_CHAINS[arrival.chainId].name;
+            return <div key={`${arrival.chainId}:${arrival.asset}`} className={styles.guideArrival}>
+              {exchangeNext(arrival, destinationChainId).kind === "ready"
+                ? <p>{amountOf(arrival)} is on {from}, ready to use. No bridge needed.</p>
+                : <>
+                  <button type="button" className={arrival === firstBridge ? styles.primary : styles.secondary} onClick={() => onBridge(arrival)}>Bridge {amountOf(arrival)} from {from}<ArrowRight size={17} aria-hidden /></button>
+                  {exchangeNeedsGas(arrival) ? <p className={styles.guideGas} role="status"><CircleAlert size={15} aria-hidden /><span>There is no ETH on {from} to pay gas for sending {arrival.asset}. Withdraw a little ETH to {from} as well. This updates when it lands.</span></p> : null}
+                </>}
+            </div>;
+          })}
+        </div></li>
+      </ol>
+      <p className={styles.disclaimer}>The exchange sends to your wallet and sets its own withdrawal fees, limits and timing. This guide only reads your balances. It never asks your wallet for anything, and openlaunch never holds your funds.</p>
+    </div>
   );
 }
 

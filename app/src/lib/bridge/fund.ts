@@ -31,10 +31,14 @@ export type HoldingReader = {
  * What the wallet holds of every bridge asset on every network but `destination`. Each read stands alone: a network
  * that does not answer is left out, never counted as empty and never allowed to fail the others.
  */
-export async function readBridgeHoldings(read: HoldingReader, wallet: Address, destination: BridgeDestinationId): Promise<BridgeHolding[]> {
+export function readBridgeHoldings(read: HoldingReader, wallet: Address, destination: BridgeDestinationId): Promise<BridgeHolding[]> {
+  return readHoldingsOn(read, wallet, BRIDGE_CHAIN_IDS.filter((chainId) => chainId !== destination));
+}
+
+/** The same reads on the given networks only, each standing alone as above. */
+export async function readHoldingsOn(read: HoldingReader, wallet: Address, chains: readonly BridgeChainId[]): Promise<BridgeHolding[]> {
   const jobs: Promise<BridgeHolding | null>[] = [];
-  for (const chainId of BRIDGE_CHAIN_IDS) {
-    if (chainId === destination) continue;
+  for (const chainId of chains) {
     const gas = bridgesNativeCurrency(chainId) ? null : read.native(chainId, wallet).then((amount) => typeof amount === "bigint" && amount >= 0n ? amount : null, () => null);
     for (const asset of BRIDGE_SEND_ASSETS[chainId]) {
       const currency = bridgeCurrency(chainId, asset, "input");

@@ -79,6 +79,7 @@ export default async function BridgePage({ searchParams }: { searchParams: Promi
             <h2 id="bridge-know">Good to know</h2>
             <ul className={styles.points}>
               <li>Elysium sends USDC only. Its gas token, HYPE, can be received there but not sent, so receive a little HYPE first if you have none to pay gas on Elysium.</li>
+              <li>Funds on an exchange? The panel&apos;s exchange guide shows where to withdraw them (Base, Ethereum, Arbitrum or Optimism), watches for them to land, then opens the bridge on that route.</li>
               <li>Funds go from your wallet to Relay&apos;s deposit contract, or to Circle&apos;s transfer contract on a Circle route. They never pass through an openlaunch wallet or contract.</li>
               <li>Relay and Circle are third parties. openlaunch operates neither and cannot reverse a transfer.</li>
               <li>A transfer is saved in this browser while it is in progress. Reopen the bridge with the same wallet to pick it up.</li>

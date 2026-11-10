@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { X } from "lucide-react";
-import { BridgeForm, Transfer } from "@/components/bridge/BridgeDialog";
+import { BridgeForm, ExchangeGuide, Transfer } from "@/components/bridge/BridgeDialog";
+import { EXCHANGE_IDLE, type ExchangeView } from "@/components/bridge/useExchangeWatch";
+import signal from "@/components/bridge/Signal.module.css";
 import type useBridge from "@/components/bridge/useBridge";
 import { formatUnits, parseEther, parseUnits, zeroAddress } from "viem";
 import { canReverseBridgeRoute, changeBridgeRoute, parseBridgeAmount, type BridgeRouteChange, type BridgeRouteInputs } from "@/lib/bridge/client";
@@ -16,7 +18,7 @@ import { HistoryBoard } from "@/components/bridge/BridgeHistory";
 import type { BridgeHistoryEntry } from "@/lib/bridge/history";
 import { FundCard } from "@/components/bridge/BridgeToBuy";
 import type { BridgeHolding, FundStep } from "@/lib/bridge/fund";
-import type { BridgeAsset, BridgeDestinationId } from "@/lib/bridge/types";
+import type { BridgeAsset, BridgeChainId, BridgeDestinationId } from "@/lib/bridge/types";
 import { CCTP_TOKEN_MESSENGER, cctpRoute } from "@/lib/bridge/cctp";
 
 const wallet = "0x03508bB71268BBA25ECaCC8F620e01866650532c" as const;
@@ -57,6 +59,20 @@ const FUND_SCENES: FundScene[] = [
   { name: "Elysium HYPE, source found", step: "short", destination: 99901, asset: "HYPE", symbol: "KINO", row: null, shortBy: "0.25 HYPE", suggestion: { chainId: 8453, asset: "ETH", amount: 40_000_000_000_000_000n, decimals: 18 }, searching: false },
   { name: "Elysium HYPE, arrived", step: "arrived", destination: 99901, asset: "HYPE", symbol: "KINO", row: HISTORY_ROWS[6], shortBy: null, suggestion: null, searching: false },
 ];
+
+// "From an exchange", one guide per state it can show. Arrivals are synthetic, in real units.
+type ExchangeScene = { name: string; address: typeof wallet | undefined; destinationChainId: BridgeChainId; view: ExchangeView };
+const watching: ExchangeView = { checking: false, unreadable: false, arrivals: [] };
+const EXCHANGE_SCENES: ExchangeScene[] = [
+  { name: "no wallet", address: undefined, destinationChainId: 4663, view: EXCHANGE_IDLE },
+  { name: "watching", address: wallet, destinationChainId: 4663, view: watching },
+  { name: "balances unreadable", address: wallet, destinationChainId: 4663, view: { ...watching, unreadable: true } },
+  { name: "USDC landed, no gas", address: wallet, destinationChainId: 5042, view: { ...watching, arrivals: [{ chainId: 42161, asset: "USDC", amount: 250_000_000n, decimals: 6, gas: 0n }] } },
+  { name: "USDC and ETH landed", address: wallet, destinationChainId: 99901, view: { ...watching, arrivals: [{ chainId: 42161, asset: "USDC", amount: 250_000_000n, decimals: 6, gas: 4_000_000_000_000_000n }, { chainId: 42161, asset: "ETH", amount: 4_000_000_000_000_000n, decimals: 18, gas: null }] } },
+  { name: "landed on Base, wanted on Base", address: wallet, destinationChainId: 8453, view: { ...watching, arrivals: [{ chainId: 8453, asset: "USDC", amount: 100_000_000n, decimals: 6, gas: 2_000_000_000_000_000n }] } },
+];
+// the dialog's guide: 25 USDC on Arbitrum with no ETH beside it, so its button opens the bridge on that route
+const DIALOG_EXCHANGE: ExchangeView = { ...watching, arrivals: [{ chainId: 42161, asset: "USDC", amount: 25_000_000n, decimals: 6, gas: 0n }] };
 
 export default function BridgeReview() {
   const [historyScene, setHistoryScene] = useState<HistoryScene>("rows");
@@ -134,7 +150,7 @@ export default function BridgeReview() {
         <Dialog.Portal><Dialog.Backdrop className={styles.backdrop} /><Dialog.Popup className={styles.panel} initialFocus={false}>
           <div className={styles.heading}><Dialog.Title className={styles.title}>Bridge</Dialog.Title><Dialog.Close className={styles.close} aria-label="Close preview"><X size={19} /></Dialog.Close></div>
           <Dialog.Description className={styles.description}>Preview only · {scene} · no funds move</Dialog.Description>
-          {tracking ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={() => setScene("quote")} />}
+          {tracking ? <Transfer bridge={bridge} /> : <BridgeForm bridge={bridge} connect={() => setScene("quote")} exchangeView={DIALOG_EXCHANGE} />}
           <div className={styles.footer}><span>{viaCircle ? "Powered by Circle CCTP" : "Powered by Relay"}</span><span>0 Openlaunch fee</span></div>
         </Dialog.Popup></Dialog.Portal>
       </Dialog.Root>
@@ -146,6 +162,11 @@ export default function BridgeReview() {
       <p className="mt-2 text-sm text-body">The trade panel card, at trade panel width. Buttons do nothing here.</p>
       <div className="mt-6 grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))]">
         {FUND_SCENES.map(({ name, ...scene }) => <figure key={name} className="m-0 grid min-w-0 content-start gap-2"><figcaption className="text-xs text-muted">{name}</figcaption><FundCard {...scene} onBridge={() => {}} onOpen={() => {}} onDismiss={() => {}} /></figure>)}
+      </div>
+      <h2 className="mt-16 text-lg font-semibold">From an exchange</h2>
+      <p className="mt-2 text-sm text-body">The bridge panel&apos;s guide, at panel width. No balances are read here and buttons do nothing.</p>
+      <div className="mt-6 grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr))]">
+        {EXCHANGE_SCENES.map(({ name, ...scene }) => <figure key={name} className="m-0 grid min-w-0 content-start gap-2"><figcaption className="text-xs text-muted">{name}</figcaption><div className={signal.pagePanel}><ExchangeGuide {...scene} onBridge={() => {}} onBack={() => {}} onConnect={() => {}} /></div></figure>)}
       </div>
     </div>
     </>
