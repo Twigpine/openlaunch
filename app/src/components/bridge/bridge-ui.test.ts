@@ -24,7 +24,13 @@ test("bridge uses bundled official asset marks rather than letter placeholders",
 });
 
 test("bridge keeps one lazily loaded controller across desktop/mobile and dismissal", () => {
-  assert.match(header, /<BridgeProvider>/);
+  // one provider, in the root layout around the header and every page, so the token page's card is inside it too
+  const layout = read("../../app/layout.tsx");
+  assert.match(layout, /<BridgeProvider>\s*<Header \/>\s*<TxToasts \/>\s*<div className="flex-1 min-w-0">\{children\}<\/div>\s*<Footer \/>\s*<\/BridgeProvider>/);
+  assert.ok(layout.indexOf("<Web3Provider>") < layout.indexOf("<BridgeProvider>"), "inside the wallet provider the controller reads");
+  // the header no longer mounts its own: a second provider would start a second controller
+  assert.doesNotMatch(header, /<BridgeProvider/);
+  for (const file of ["../launchpad/TradePanel.tsx", "./BridgeToBuy.tsx", "../CommandPalette.tsx", "./BridgePageSlot.tsx"]) assert.doesNotMatch(read(file), /<BridgeProvider/, file);
   // desktop: one button, icon-only (its label pushed the Launch button out of the strip)
   assert.match(header, /<BridgeButton compact \/>/);
   assert.match(header, /<BridgeButton block onOpen=\{\(\) => setOpen\(false\)\} \/>/);

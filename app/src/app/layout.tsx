@@ -5,6 +5,7 @@ import Web3Provider from "@/components/Web3Provider";
 import Header from "@/components/Header";
 import TxToasts from "@/components/launchpad/TxToasts";
 import LiveProvider from "@/components/launchpad/LiveProvider";
+import { BridgeProvider } from "@/components/bridge/BridgeProvider";
 import { getLaunchFeed, getLaunchTotalsForRequest } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { boostEnabled } from "@/lib/launchpad/boostSwitch";
@@ -54,10 +55,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Suspense fallback={null}>
             <RouteProgress />
           </Suspense>
+          {/* one bridge controller for the header, the search and every page (the token page's "bridge, then buy") */}
+          <BridgeProvider>
           <Header />
           <TxToasts />
           <div className="flex-1 min-w-0">{children}</div>
           <Footer />
+          </BridgeProvider>
           </LiveProvider>
         </Web3Provider>
         </ThemeProvider>

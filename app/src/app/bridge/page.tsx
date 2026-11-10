@@ -7,7 +7,7 @@ import BridgePageLayout from "./BridgePageLayout";
 
 /**
  * The bridge as a page: the same panel the header opens, with room for the facts beside it. The panel is rendered by
- * the header's one bridge controller into the slot below (components/bridge/bridge-slot.ts), so this page starts no
+ * the app's one bridge controller into the slot below (components/bridge/bridge-slot.ts), so this page starts no
  * second copy. `?from=…&to=…&asset=…&toAsset=…` preselects a route (lib/bridge/link.ts) and nothing more.
  */
 export const metadata: Metadata = pageMetadata({

@@ -11,7 +11,11 @@ const BridgeDialog = dynamic(() => import("./BridgeDialog"), { ssr: false });
 type OpenBridge = (link?: BridgeLink) => void;
 const BridgeContext = createContext<{ show: OpenBridge; wake: () => void } | null>(null);
 
-/** Mounted once for both navigation variants and for the /bridge page; closing the panel does not stop tracking. */
+/**
+ * Mounted once, in the root layout, around the header and every page: the header's buttons, the search and the token
+ * page's "bridge, then buy" card all reach this one controller. A second one would quote and track on its own, so
+ * nothing else may mount it. Closing the panel does not stop tracking.
+ */
 export function BridgeProvider({ children }: { children: React.ReactNode }) {
   const [activated, setActivated] = useState(false);
   const [open, setOpen] = useState(false);
