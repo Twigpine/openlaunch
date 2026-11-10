@@ -346,7 +346,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         {me && me.trades.length > 0 ? (
           <div className={`${styles.tradeScroll} bb-scroll`} role="region" aria-label="Your trades table" tabIndex={0}>
             <table className={styles.trades}>
-              <caption className="sr-only">Your latest indexed trades on Base, Robinhood Chain and Arc</caption>
+              <caption className="sr-only">Your latest indexed trades on Base, Robinhood Chain, Arc and Elysium</caption>
               <thead><tr><th scope="col">Side</th><th scope="col">Token / chain</th><th scope="col">Amount</th><th scope="col" className={styles.usdColumn}>USD value</th><th scope="col">Transaction</th></tr></thead>
               <tbody className="font-mono tnum">
                 {me.trades.map((t) => (

@@ -24,6 +24,7 @@ export const PALETTE_PAGES: ReadonlyArray<{ id: string; label: string; href: str
   { id: "page:base", label: "Launches on Base", href: "/base", keywords: "base chain network" },
   { id: "page:robinhood", label: "Launches on Robinhood Chain", href: "/robinhood", keywords: "robinhood chain network stocks" },
   { id: "page:arc", label: "Launches on Arc", href: "/arc", keywords: "arc chain network usdc" },
+  { id: "page:elysium", label: "Launches on Elysium", href: "/elysium", keywords: "elysium hyperliquid hype kinetiq chain network" },
 ];
 
 /** Token search starts at two characters; one letter matches half the market. */
