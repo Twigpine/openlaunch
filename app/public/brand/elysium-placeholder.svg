@@ -1,7 +1,0 @@
-<!-- PLACEHOLDER, not Kinetiq's or Elysium's mark: a neutral "E" lettermark on its own dark tile, drawn for openlaunch.
-     Replace it with the official Elysium network mark (from Kinetiq's brand kit, unchanged geometry and colors, with
-     its source recorded here like the other files in this folder) before the Elysium chain is switched on. -->
-<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="32" height="32" rx="9" fill="#0B0B0C"/>
-<path d="M10 7.5H22.5V11H14V14.25H21.5V17.75H14V21H22.5V24.5H10V7.5Z" fill="#FFFFFF"/>
-</svg>

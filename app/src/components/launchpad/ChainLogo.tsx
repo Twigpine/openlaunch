@@ -13,8 +13,9 @@ const MARK: Record<ChainKey, { src: string; tile: string; w: number; h: number; 
   base: { src: "/brand/base.svg", tile: "", w: 1, h: 1, scale: 1, fill: true },
   robinhood: { src: "/brand/robinhood-white.svg", tile: DARK_TILE, w: 32, h: 42, scale: 0.62, fill: false },
   arc: { src: "/brand/arc.svg", tile: DARK_TILE, w: 31, h: 32, scale: 0.56, fill: false },
-  // a neutral placeholder on its own tile until Kinetiq's official Elysium mark replaces it (see the file's header)
-  elysium: { src: "/brand/elysium-placeholder.svg", tile: "", w: 1, h: 1, scale: 1, fill: true },
+  // Elysium's mark as supplied by the maintainers (2026-11-10, 225×225 PNG, unchanged): a black disc on white, so it is its own
+  // tile on both themes. Swap in Kinetiq's brand-kit file (SVG, source recorded) when one is published.
+  elysium: { src: "/brand/elysium.png", tile: "", w: 1, h: 1, scale: 1, fill: true },
 };
 
 export function ChainLogo({ chain, size = 18, className = "" }: { chain: ChainKey; size?: number; className?: string }) {
