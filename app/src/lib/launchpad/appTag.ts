@@ -3,10 +3,12 @@
  *
  * Every transaction the app sends carries its ERC-8021 builder-code suffix (chainPublic.BUILDER_DATA_SUFFIX) on the
  * calldata. A swap counts as in-app when:
- *   - the transaction was sent to the chain's Universal Router and its input carries the suffix (a wallet sending its
- *     own transaction: the suffix ends the input, unless the wallet appended a builder code of its own after it), or
+ *   - the transaction was sent to the chain's Universal Router and its input ends with the suffix (a wallet sending
+ *     its own transaction), or with the suffix followed only by another ERC-8021 suffix (a wallet that appends a
+ *     builder code of its own); the same bytes inside the swap's arguments do not count, or
  *   - it was sent to an ERC-4337 EntryPoint, and the user operation of the account the swap is credited to carries
- *     the suffix in its callData (a smart wallet: the app's call, suffix and all, sits inside the operation).
+ *     the suffix in its callData (a smart wallet: the app's call, suffix and all, sits inside the operation; ABI
+ *     encoding pads that call, so there the suffix is never last and is looked for anywhere in the callData).
  * Anything else (an aggregator, a bot contract, another front end's smart-wallet trade) is not in-app.
  *
  * The suffix is public, so anyone can copy it: this is a label for a small, capped points bonus, never proof. It is
@@ -33,6 +35,19 @@ export type AppTag = { direct: boolean; senders: readonly string[] };
 
 const NONE: AppTag = { direct: false, senders: [] };
 
+/** ERC-8021's closing marker: the last 16 bytes of every builder-code suffix. */
+const ERC8021_MARKER = "80218021802180218021802180218021";
+/** The longest tail another wallet's suffix may add after ours (hex characters: 256 bytes). */
+const MAX_TAIL_HEX = 512;
+
+/** Whether `input` ends with `needle`, or with `needle` followed only by another ERC-8021 suffix. */
+export function endsWithSuffix(input: string, needle: string): boolean {
+  const at = input.lastIndexOf(needle);
+  if (at < 0) return false;
+  const rest = input.slice(at + needle.length);
+  return rest === "" || (rest.length % 2 === 0 && rest.length <= MAX_TAIL_HEX && rest.endsWith(ERC8021_MARKER));
+}
+
 /** The suffix as bare lowercase hex (no 0x), for searching an input. */
 function bare(suffix: string): string {
   const s = suffix.toLowerCase();
@@ -45,7 +60,7 @@ export function appTagOf(p: { to: string | null; input: string; router: string; 
   const needle = bare(p.suffix);
   if (!to || needle.length === 0) return NONE;
   const input = p.input.toLowerCase();
-  if (to === p.router.toLowerCase()) return { direct: input.includes(needle), senders: [] };
+  if (to === p.router.toLowerCase()) return { direct: endsWithSuffix(input, needle), senders: [] };
   if (!ENTRY_POINTS.has(to) || !input.includes(needle)) return NONE; // cheap: no suffix anywhere, no operation has it
   try {
     const { args } = decodeFunctionData({ abi: HANDLE_OPS_ABI, data: p.input as Hex });

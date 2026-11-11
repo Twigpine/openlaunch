@@ -211,7 +211,14 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
               WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
     ON CONFLICT DO NOTHING
     RETURNING tx_hash, usd`;
-    if (inserted.length === 0) return false;
+    if (inserted.length === 0) {
+      // already recorded (the wallet's receipt got here first, or an overlap re-read): an app tag that was unknown then
+      // (applyLaunchTx could not read the transaction) is filled now, for the same credited trader
+      if (who.app !== null && who.trader) {
+        await t`UPDATE bb_launch_swaps SET via_app = ${who.app} WHERE chain_id = ${cid} AND tx_hash = ${log.transactionHash!.toLowerCase()} AND log_index = ${li} AND via_app IS NULL AND trader = ${who.trader}`;
+      }
+      return false;
+    }
     const usd = (inserted[0] as { usd: number | null }).usd ?? 0;
     await t`
     UPDATE bb_launches SET
@@ -888,56 +895,63 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   const reason = skipReason(chain);
   if (reason) return { status: "skipped", reason };
   const db = maybeDb()!;
-  const receipt = await publicClient(chain).getTransactionReceipt({ hash }).catch(() => null);
+  // the receipt has no input: the transaction is read for the app tag at the same time, once, so the wallet waits no
+  // longer for it. If that read fails, the trade is still credited from the receipt with its tag unknown (NULL), and
+  // the tag is not cached: the log poll reads the transaction again and fills it in (applySwap, on the conflict)
+  const [receipt, sent] = await Promise.all([
+    publicClient(chain).getTransactionReceipt({ hash }).catch(() => null),
+    publicClient(chain).getTransaction({ hash }).catch(() => null),
+  ]);
   if (!receipt) return { status: "not_found" };
   if (receipt.status !== "success") return { status: "reverted" };
   // the receipt in hand is what attribution needs (sender, destination, logs): give it to traderOf, so crediting a
   // smart wallet's swap here never depends on reading the same receipt a second time from a node that may lag
   const k = `${chain}:${receipt.transactionHash}`; // the same hash the receipt's logs carry, so traderOf finds it
-  // the receipt has no input: the transaction is read for the app tag (twice at most). If that fails, the trade is
-  // still credited from the receipt, with its app tag unknown (NULL, never in-app) rather than held back
   const to = receipt.to ? receipt.to.toLowerCase() : null;
-  let input: string | null = null;
-  for (let attempt = 0; attempt < 2 && input === null; attempt++) input = (await publicClient(chain).getTransaction({ hash: receipt.transactionHash }).catch(() => null))?.input ?? null;
+  const input = sent?.input ?? null;
   if (txFacts.size > 5000) txFacts.clear();
   txFacts.set(k, { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) });
   if (receiptLogs.size > 500) receiptLogs.clear();
   receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
-  const cfg = launchpad(chain);
-  const factory = cfg.factory!.toLowerCase();
-  const locker = cfg.locker!.toLowerCase();
-  const pm = cfg.v4.poolManager.toLowerCase();
+  try {
+    const cfg = launchpad(chain);
+    const factory = cfg.factory!.toLowerCase();
+    const locker = cfg.locker!.toLowerCase();
+    const pm = cfg.v4.poolManager.toLowerCase();
 
-  let launches = 0;
-  let swaps = 0;
-  let fees = 0;
-  const tokens: string[] = [];
-  const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
-  for (const l of launched) {
-    if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
-    tokens.push(l.args.token.toLowerCase());
-  }
-  const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
-  // no price capture here: this path runs while the user waits, and a capture can wait on price sources. Its trades take
-  // the hour's price the poller already captured, or are priced by the poller's heal pass a few minutes later.
-  const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
-  for (const l of swapLogs) {
-    if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
-      swaps++;
-      const t = poolToToken.get(l.args.id.toLowerCase());
-      if (t && !tokens.includes(t)) tokens.push(t);
+    let launches = 0;
+    let swaps = 0;
+    let fees = 0;
+    const tokens: string[] = [];
+    const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
+    for (const l of launched) {
+      if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
+      tokens.push(l.args.token.toLowerCase());
     }
-  }
-  const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
-  for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
-  let boosts = 0;
-  const twig = TWIG_ADDRESSES[chain];
-  if (twig) {
-    const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
-    for (const l of burnLogs) {
-      if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
-      else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+    const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
+    // no price capture here: this path runs while the user waits, and a capture can wait on price sources. Its trades take
+    // the hour's price the poller already captured, or are priced by the poller's heal pass a few minutes later.
+    const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
+    for (const l of swapLogs) {
+      if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
+        swaps++;
+        const t = poolToToken.get(l.args.id.toLowerCase());
+        if (t && !tokens.includes(t)) tokens.push(t);
+      }
     }
+    const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
+    for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
+    let boosts = 0;
+    const twig = TWIG_ADDRESSES[chain];
+    if (twig) {
+      const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
+      for (const l of burnLogs) {
+        if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
+        else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+      }
+    }
+    return { status: "applied", launches, swaps, fees, boosts, tokens };
+  } finally {
+    if (input === null) txFacts.delete(k); // unknown: the log poll reads the transaction again
   }
-  return { status: "applied", launches, swaps, fees, boosts, tokens };
 }

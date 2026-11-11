@@ -113,8 +113,11 @@ export type BonusRules = {
   /** cumulative: each one reached (qualified volume and distinct eligible traders on the token) adds its points */
   volumeTiers: readonly { usd: number; pts: number; traders: number }[];
 };
-/** The rules one season scores on: version 1, plus the bonuses from version 2 on. */
-export type Rules = typeof RULES_V1 & { bonus?: BonusRules };
+/**
+ * The rules one season scores on: every version-1 field as a number (not its version-1 value, so a version or a
+ * test can change one), plus the bonuses from version 2 on.
+ */
+export type Rules = { readonly [K in keyof typeof RULES_V1]: number } & { readonly bonus?: BonusRules };
 /** The rules every page describes where all versions agree (eligibility, real buyers): version 1's. */
 export const RULES: Rules = RULES_V1;
 
