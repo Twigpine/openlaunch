@@ -192,7 +192,7 @@ export const FINAL_PRICE_LOOKBACK_MS = 7 * 24 * 3_600_000;
 export async function quoteUsdAtHour(read: Db, ms: number): Promise<Map<string, number>> {
   const rows = await read<{ chain_id: number; quote: string; usd: number }[]>`
     SELECT DISTINCT ON (chain_id, quote) chain_id, quote, usd FROM bb_quote_usd_hourly
-     WHERE hour <= ${hourIso(ms)} AND hour > ${hourIso(ms - FINAL_PRICE_LOOKBACK_MS)}
+     WHERE hour <= ${hourIso(ms)} AND hour >= ${hourIso(ms - FINAL_PRICE_LOOKBACK_MS)}
      ORDER BY chain_id, quote, hour DESC`;
   return new Map(rows.map((r) => [`${r.chain_id}:${r.quote.toLowerCase()}`, Number(r.usd)]));
 }
