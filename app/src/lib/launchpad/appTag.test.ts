@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeFunctionData, parseAbi, type Hex } from "viem";
-import { HANDLE_OPS_ABI, appTagOf, swapInApp } from "./appTag.ts";
+import { HANDLE_OPS_ABI, appTagOf, endsWithSuffix, swapInApp } from "./appTag.ts";
 import { BUILDER_DATA_SUFFIX } from "../chainPublic.ts";
 
 const ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
@@ -21,9 +21,17 @@ const op07 = (sender: string, callData: Hex) => ({ sender: sender as Hex, nonce:
 const bundle06 = (ops: ReturnType<typeof op06>[]) => encodeFunctionData({ abi: [HANDLE_OPS_ABI[0]], args: [ops, OTHER as Hex] });
 const bundle07 = (ops: ReturnType<typeof op07>[]) => encodeFunctionData({ abi: [HANDLE_OPS_ABI[1]], args: [ops, OTHER as Hex] });
 
-test("a wallet's own router call is in-app with the suffix (also when its wallet appends a code after ours)", () => {
+// another wallet's own ERC-8021 suffix ("bc_other", schema 0), as it would append after ours
+const OTHER_CODE = "62635f6f74686572" + "08" + "00" + "80218021802180218021802180218021";
+
+test("a wallet's own router call is in-app with the suffix at the end (or followed only by another builder suffix)", () => {
   assert.equal(appTagOf({ to: ROUTER, input: swapCall + tail, router: ROUTER, suffix: SUFFIX }).direct, true);
-  assert.equal(appTagOf({ to: ROUTER, input: swapCall + tail + "deadbeef", router: ROUTER, suffix: SUFFIX }).direct, true);
+  assert.equal(appTagOf({ to: ROUTER, input: swapCall + tail + OTHER_CODE, router: ROUTER, suffix: SUFFIX }).direct, true);
+  // anything else after it, or the same bytes inside the swap's arguments, is not our suffix
+  assert.equal(appTagOf({ to: ROUTER, input: swapCall + tail + "deadbeef", router: ROUTER, suffix: SUFFIX }).direct, false);
+  const embedded = encodeFunctionData({ abi: execute, args: ["0x10", [`0x${tail}`], 1n] });
+  assert.equal(appTagOf({ to: ROUTER, input: embedded, router: ROUTER, suffix: SUFFIX }).direct, false);
+  assert.equal(endsWithSuffix("ab" + "00".repeat(300) + "80218021802180218021802180218021", "ab"), false, "a tail longer than any suffix");
   assert.equal(appTagOf({ to: ROUTER, input: swapCall, router: ROUTER, suffix: SUFFIX }).direct, false);
   // the suffix on a call to anything but the router (a bot contract, an aggregator) is not in-app
   assert.equal(appTagOf({ to: OTHER, input: swapCall + tail, router: ROUTER, suffix: SUFFIX }).direct, false);

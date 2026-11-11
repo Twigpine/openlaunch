@@ -230,8 +230,8 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const price = await quotePricer(usd);
 
   // the season's swaps decide which tokens are in scope
-  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string; usd: number | null }[]>`
-    SELECT chain_id, token, trader, is_buy, amount0, amount1, block_number, log_index, tx_hash, block_time AS t, usd
+  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string; usd: number | null; app: boolean }[]>`
+    SELECT chain_id, token, trader, is_buy, amount0, amount1, block_number, log_index, tx_hash, block_time AS t, usd, via_app IS TRUE AS app
       FROM bb_launch_swaps WHERE block_time >= ${season.starts_at} AND block_time < ${until} AND trader IS NOT NULL`;
   const keyOf = (cid: number, token: string) => `${chainKeyOf(cid) ?? cid}:${token}`;
   const scope = new Map<string, { cid: number; token: string }>();
@@ -318,7 +318,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const abs = (v: string) => (v.startsWith("-") ? BigInt(v.slice(1)) : BigInt(v));
   const int = (v: string) => abs(v.split(".")[0]);
   const usdOf = (v: number | null) => (v === null || v === undefined ? null : Number(v));
-  const swaps: ScoreSwap[] = swapRows.map((s) => ({ key: keyOf(s.chain_id, s.token), trader: s.trader, isBuy: s.is_buy, quoteRaw: abs(s.amount0), tokenRaw: abs(s.amount1), block: Number(s.block_number), logIndex: Number(s.log_index), time: new Date(s.t).getTime(), tx: s.tx_hash, usd: usdOf(s.usd) }));
+  const swaps: ScoreSwap[] = swapRows.map((s) => ({ key: keyOf(s.chain_id, s.token), trader: s.trader, isBuy: s.is_buy, quoteRaw: abs(s.amount0), tokenRaw: abs(s.amount1), block: Number(s.block_number), logIndex: Number(s.log_index), time: new Date(s.t).getTime(), tx: s.tx_hash, usd: usdOf(s.usd), app: Boolean(s.app) }));
   const firstBuys: FirstBuy[] = firstRows.map((f) => ({ key: keyOf(f.chain_id, f.token), wallet: f.trader, block: Number(f.block_number), logIndex: Number(f.log_index), time: new Date(f.t).getTime(), quoteRaw: abs(f.amount0), tokenRaw: abs(f.amount1), tx: f.tx_hash, usd: usdOf(f.usd) }));
   const launcherBuys = new Map<string, { tx: string; tokenRaw: bigint }[]>();
   for (const b of launcherBuyRows) {
