@@ -317,9 +317,11 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     for (const lot of lotsOfTx.get(`${key}|${w}|${tx}`) ?? []) left += lot.size - lot.outs.reduce((a, o) => (o.block <= block ? a + o.take : a), 0n);
     return left;
   };
-  // (version 2) the last block of a moment, per chain, from the trades' own (time, block) pairs (transfers carry blocks,
-  // not times): interpolated between the trades on either side of it, which is exact on a chain with steady block times
-  // (Base: 2 s) and stays between those two trades on one without; after the last trade, every block so far
+  // (version 2) where a moment falls among the blocks, per chain, from the trades' own exact (time, block) pairs
+  // (transfers carry blocks, not times): the block of the last trade at or before the moment. A trade is never placed
+  // on the wrong side of it (a sell after the moment is in a later block), and no moment ever reaches past the trades
+  // known. A bare transfer between that trade and the next is taken as after the moment: in the holder's favour, which
+  // cannot be farmed (the tokens moved out and still unsold sit in the token as long as they would have)
   const timeline = new Map<string, { time: number; block: number }[]>();
   for (const t of [...input.swaps, ...input.firstBuys]) {
     const c = t.key.split(":")[0];
@@ -337,13 +339,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
       if (list[mid].time <= ms) lo = mid + 1;
       else hi = mid;
     }
-    if (lo >= list.length) return Number.POSITIVE_INFINITY; // no trade after the moment: everything so far
-    const after = list[lo];
-    if (lo === 0) return after.block - 1; // before the first trade known
-    const before = list[lo - 1];
-    if (after.time === before.time || after.block <= before.block) return before.block;
-    const guess = before.block + Math.floor(((ms - before.time) / (after.time - before.time)) * (after.block - before.block));
-    return Math.min(after.block - 1, Math.max(before.block, guess));
+    return lo === 0 ? Number.NEGATIVE_INFINITY : list[lo - 1].block; // before every trade known: no outflow yet
   };
 
   /** The wallet received at least half of what a buy bought, in that buy's own transaction. */

@@ -547,3 +547,19 @@ test("v2 creator volume: round trips count for nothing; a sell of a week-old buy
   assert.equal(c.creatorWhy.volumeUsd, 6 * 2_000 + 51 * 6, "6 traders × ($1,000 held buy + $1,000 sell of a week-old buy) + the holders'");
   assert.equal(c.creatorWhy.volumePts, 100);
 });
+
+test("v2 vesting boundary: a bare transfer after the week keeps the vesting, even with no trade after it; one before it does not", () => {
+  const buy = trade(w(1), START + DAY + 3_600_000, 0.5, 30_000); // an eligible trader, $10 fee
+  const eligible = new Set([...gateEligible, w(1)]);
+  const out = (block: number): Move => ({ key: L.key, wallet: w(1), block, logIndex: 1, tx: `0xout${block}`, delta: -buy.move.delta });
+  const vested = (moves: Move[], extra: ReturnType<typeof trade>[] = []) =>
+    scoreSeason(build(gate, { swaps: [...gate.map((g) => g.swap), buy.swap, ...extra.map((x) => x.swap)], moves: [...gate.flatMap((g) => g.moves), buy.move, ...extra.map((x) => x.move), ...moves], eligible }), RULES_V2).wallets.get(CREATOR)!.creatorWhy.feesUsd;
+  const holdersOnly = Math.round(7 * 0.06 * 100) / 100;
+  // moved out in a block past every trade known (no trade after the week to place it): taken as after the week
+  assert.equal(vested([out(39_000)]), 10 + 7 * 0.06);
+  // moved out on day 2, and a later trade (day 3, another wallet) shows that block came before the week was up
+  const later = trade(w(2), START + 3 * DAY, 0.003, 32_000);
+  assert.equal(vested([out(31_000)], [later]), holdersOnly);
+  // a sell is a trade itself: sold on day 5, never vested
+  assert.equal(vested([], [trade(w(1), START + 5 * DAY, 0.5, 35_000, { isBuy: false })]), holdersOnly);
+});
