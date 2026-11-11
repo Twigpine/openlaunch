@@ -12,6 +12,7 @@ import { quotePricer } from "@/lib/launchpad/queries";
 import { hourIso } from "@/lib/launchpad/usd-history";
 import { capturable } from "@/lib/launchpad/usdLedger";
 import { lastBlockBetween } from "./blocks";
+import { computeLogLine, type ComputeResult } from "./log";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
 import { LATEST_RULES_VERSION, isEligible, notEligibleReason, rankBy, rulesFor, scoreSeason, steadyPrice, whyLine, type CreatorBreakdown, type FirstBuy, type LinkedTransfer, type PublicReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
 
@@ -76,7 +77,7 @@ export function seasonFinal(s: Pick<Season, "computed_until" | "ends_at">): bool
 // ── compute ──────────────────────────────────────────────────────────────────
 type LaunchRowRaw = { chain_id: number; token: string; launcher: string; recipients: { payout: string; bps: number }[]; block_number: bigint; block_time: string; lp_fee: number; quote: string; sqrt_price_x96: string | null };
 
-export type ComputeResult = { wallets: number; eligible: number; ms: number } | { skipped: string };
+export type { ComputeResult } from "./log";
 
 /** The chains the indexer reads (configured, with a deploy block): the ones a season's data comes from. */
 const indexedChains = () => CONFIGURED_CHAINS.filter((c) => launchDeployBlock(c) > 0n);
@@ -398,7 +399,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   });
   if (!wrote) return { skipped: "the season changed while it was being computed (the next run uses the new window)" };
   if (dropped) console.log(`[points] ${season.slug}: ${dropped} token(s) without a price left out of this run`);
-  return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0 };
+  return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0, read: { swaps: swapRows.length, firstBuys: firstRows.length, moves: moveRows.length, linked: linkedRows.length } };
 }
 
 let running = false;
@@ -416,7 +417,8 @@ async function computeLocked(season: Season): Promise<ComputeResult | null> {
     if (!ok) return null;
     try {
       const r = await computeSeason(db, pool, season);
-      console.log(`[points] ${season.slug}:`, "skipped" in r ? `skipped (${r.skipped}), last board kept` : `${r.wallets} wallets (${r.eligible} eligible) in ${r.ms}ms`);
+      const { level, line } = computeLogLine(season.slug, r);
+      console[level](line);
       return r;
     } finally {
       await db`SELECT pg_advisory_unlock(hashtext('points-compute'))`.catch(() => {});
