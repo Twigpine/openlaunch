@@ -44,7 +44,13 @@
  * Only points-eligible wallets rank; everyone else sees what is waiting for them.
  */
 
-export const RULES = {
+/**
+ * Version 1: every season started before rules had versions, and the base every later version builds on. A season
+ * keeps the version it was started with (bb_seasons.rules_version), so a rule added later never changes the standings
+ * of a season already running; fixes that only take farmed points away (PR "close the sock-farm, dust and end-price
+ * holes") are part of version 1 itself.
+ */
+export const RULES_V1 = {
   sniperBlocks: 3,
   sniperMs: 12_000,
   minTradeUsd: 5,
@@ -76,6 +82,20 @@ export const RULES = {
   eligibleMinAgeDays: 30,
   eligibleMinFollowers: 20,
 } as const;
+
+/** The rules one season scores on. */
+export type Rules = typeof RULES_V1;
+/** The rules every page describes where all versions agree (eligibility, real buyers): version 1's. */
+export const RULES: Rules = RULES_V1;
+/** The version a new season starts on. */
+export const LATEST_RULES_VERSION = 1;
+/** The rules of a version (an unknown one scores on version 1). */
+export function rulesFor(version: number | null | undefined): Rules {
+  switch (version) {
+    default:
+      return RULES_V1;
+  }
+}
 
 const DAY = 86_400_000;
 
@@ -137,7 +157,8 @@ const units = (raw: bigint, decimals: number) => Number(raw) / 10 ** decimals;
 const utcDay = (ms: number) => Math.floor(ms / DAY);
 
 /** Score one season from the chain index (pure): real buyers and holders, creator and scout points, caps, and the why behind each. */
-export function scoreSeason(input: ScoreInput): ScoreResult {
+export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreResult {
+  const R = rules;
   const end = Math.min(input.now, input.seasonEnd);
   // only priced tokens take part: an unpriced quote has no dollar floor to hold anything to
   const launches = new Map(input.launches.filter((l) => l.quoteUsd !== null && l.tokenUsd !== null && l.quoteUsd > 0 && l.tokenUsd > 0).map((l) => [l.key, l]));
@@ -150,7 +171,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     }
     return s;
   };
-  const sniper = (l: ScoreLaunch, block: number, time: number) => block <= l.launchBlock + RULES.sniperBlocks || time - l.launchTime < RULES.sniperMs;
+  const sniper = (l: ScoreLaunch, block: number, time: number) => block <= l.launchBlock + R.sniperBlocks || time - l.launchTime < R.sniperMs;
   const quoteUsd = (l: ScoreLaunch, raw: bigint) => units(raw, l.quoteDecimals) * (l.quoteUsd as number);
   /** A trade's USD value at its own hour when it was stored, else at this run's quote price. */
   const tradeUsd = (l: ScoreLaunch, t: { quoteRaw: bigint; usd?: number | null }) => (typeof t.usd === "number" && Number.isFinite(t.usd) ? t.usd : quoteUsd(l, t.quoteRaw));
@@ -171,7 +192,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
       before.set(t.wallet, (before.get(t.wallet) ?? 0n) + t.raw);
     }
     const set = new Set<string>();
-    for (const [w, raw] of before) if (tokenUsd(l, raw) >= RULES.linkMinUsd) set.add(w);
+    for (const [w, raw] of before) if (tokenUsd(l, raw) >= R.linkMinUsd) set.add(w);
     linked.set(key, set);
   }
   const insider = (l: ScoreLaunch, w: string) => w === l.launcher || l.recipients.includes(w) || input.system.has(w) || input.flagged.has(w) || (linked.get(l.key)?.has(w) ?? false);
@@ -227,7 +248,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   const realBuyers = new Map<string, FirstBuy[]>();
   for (const f of input.firstBuys) {
     const l = launches.get(f.key);
-    if (!l || insider(l, f.wallet) || sniper(l, f.block, f.time) || tradeUsd(l, f) < RULES.minTradeUsd) continue;
+    if (!l || insider(l, f.wallet) || sniper(l, f.block, f.time) || tradeUsd(l, f) < R.minTradeUsd) continue;
     if (!received(f.key, f.wallet, f.tx, f.tokenRaw)) continue; // the tokens went to someone else: not this wallet's buy
     const list = realBuyers.get(f.key) ?? [];
     list.push(f);
@@ -239,7 +260,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   const realHolders = new Map<string, FirstBuy[]>();
   for (const [key, list] of realBuyers) {
     const l = launches.get(key)!;
-    const held = list.filter((f) => tokenUsd(l, leftOf(key, f.wallet, f.tx)) >= (input.eligible.has(f.wallet) ? RULES.verifiedHolderMinUsd : RULES.holderMinUsd));
+    const held = list.filter((f) => tokenUsd(l, leftOf(key, f.wallet, f.tx)) >= (input.eligible.has(f.wallet) ? R.verifiedHolderMinUsd : R.holderMinUsd));
     realHolders.set(key, held);
   }
   const eligibleHolders = new Map<string, number>();
@@ -247,7 +268,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   /** Counted holders of a token: every eligible one, and unverified ones up to the allowance (countedHolders). */
   const holderCount = (key: string) => {
     const e = eligibleHolders.get(key) ?? 0;
-    return countedHolders(e, (realHolders.get(key)?.length ?? 0) - e);
+    return countedHolders(e, (realHolders.get(key)?.length ?? 0) - e, R);
   };
 
   // the season's outside trades (≥ $5, outside the sniper window), and what each creator sold
@@ -257,7 +278,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     const l = launches.get(s.key);
     if (!l || !inSeason(s.time)) continue;
     if (s.trader === l.launcher && !s.isBuy) creatorSold.add(s.key);
-    if (insider(l, s.trader) || sniper(l, s.block, s.time) || tradeUsd(l, s) < RULES.minTradeUsd) continue;
+    if (insider(l, s.trader) || sniper(l, s.block, s.time) || tradeUsd(l, s) < R.minTradeUsd) continue;
     outside.push(s);
   }
 
@@ -281,7 +302,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     for (const f of list) {
       if (!inSeason(f.time) || end - f.time < DAY) continue; // gained this season, held a day
       const eligible = input.eligible.has(f.wallet);
-      const pts = (eligible ? RULES.verifiedHolder : RULES.holder) * (end - f.time >= 7 * DAY ? 1 + RULES.weekBonus : 1);
+      const pts = (eligible ? R.verifiedHolder : R.holder) * (end - f.time >= 7 * DAY ? 1 + R.weekBonus : 1);
       ensure(l).holders.push({ wallet: f.wallet, pts, eligible });
     }
   }
@@ -337,7 +358,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     const roomOf = (best: Assigned) => {
       let n = 0;
       for (const h of best.values()) if (h.eligible) n++;
-      return unverifiedAllowance(n);
+      return unverifiedAllowance(n, R);
     };
     /** Fee points of one token, at most 50 per trader per day, counting what `used` already holds for this creator. */
     const feePoints = (t: TokenCreator, used: Map<string, number>) => {
@@ -346,7 +367,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
       for (const f of t.fees) {
         const k = `${f.trader}|${f.day}`;
         const already = used.get(k) ?? 0;
-        const p = Math.min(f.usd * RULES.creatorFeePointsPerUsd, RULES.creatorFeeCapPerTraderDay - already);
+        const p = Math.min(f.usd * R.creatorFeePointsPerUsd, R.creatorFeeCapPerTraderDay - already);
         if (p <= 0) continue;
         used.set(k, already + p);
         pts += p;
@@ -380,7 +401,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     for (const list of byDay.values()) {
       const left = [...list].sort((a, b) => a.l.key.localeCompare(b.l.key));
       const used = new Map<string, number>();
-      for (let picked = 0; picked < RULES.bestTokensPerDay && left.length; picked++) {
+      for (let picked = 0; picked < R.bestTokensPerDay && left.length; picked++) {
         let best = 0;
         let bestValue = -1;
         left.forEach((t, i) => {
@@ -423,11 +444,11 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
 
   // ── scout points ──
   for (const [key, list] of realBuyers) {
-    if (holderCount(key) < RULES.earlyHoldersTarget) continue;
-    for (const f of list.slice(0, RULES.earlyFirstBuyers)) {
+    if (holderCount(key) < R.earlyHoldersTarget) continue;
+    for (const f of list.slice(0, R.earlyFirstBuyers)) {
       if (!inSeason(f.time)) continue;
       const s = get(f.wallet);
-      s.scout += RULES.early + (halfLeft(key, f.wallet, f.tx, f.tokenRaw) ? RULES.earlyStillHolding : 0);
+      s.scout += R.early + (halfLeft(key, f.wallet, f.tx, f.tokenRaw) ? R.earlyStillHolding : 0);
       s.scoutWhy.early++;
     }
   }
@@ -437,7 +458,7 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
   // token nobody else holds)
   const firstInSeason: FirstBuy[] = [];
   for (const [key, list] of realBuyers) {
-    if (holderCount(key) < RULES.holdMinHolders) continue;
+    if (holderCount(key) < R.holdMinHolders) continue;
     for (const f of list) if (inSeason(f.time)) firstInSeason.push(f);
   }
   const holdsPerDay = new Map<string, number>();
@@ -445,22 +466,22 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
     if (end - f.time < DAY || !halfLeft(f.key, f.wallet, f.tx, f.tokenRaw)) continue;
     const dayKey = `${f.wallet}|${utcDay(f.time)}`;
     const n = holdsPerDay.get(dayKey) ?? 0;
-    if (n >= RULES.holdTokensPerDay) continue;
+    if (n >= R.holdTokensPerDay) continue;
     holdsPerDay.set(dayKey, n + 1);
     const w = get(f.wallet);
-    w.scout += RULES.hold;
+    w.scout += R.hold;
     w.scoutWhy.holds++;
   }
   const scoutFeeUsed = new Map<string, number>();
   for (const s of outside) {
     if (!s.isBuy || !heldBuy(s)) continue;
-    if (holderCount(s.key) < RULES.scoutFeeMinHolders || (eligibleHolders.get(s.key) ?? 0) < RULES.scoutFeeMinEligibleHolders) continue;
+    if (holderCount(s.key) < R.scoutFeeMinHolders || (eligibleHolders.get(s.key) ?? 0) < R.scoutFeeMinEligibleHolders) continue;
     const l = launches.get(s.key)!;
     const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
     if (fee <= 0) continue;
     const k = `${s.trader}|${utcDay(s.time)}`;
     const used = scoutFeeUsed.get(k) ?? 0;
-    const pts = Math.min(fee * RULES.scoutFeePointsPerUsd, RULES.scoutFeeCapPerDay - used);
+    const pts = Math.min(fee * R.scoutFeePointsPerUsd, R.scoutFeeCapPerDay - used);
     if (pts <= 0) continue;
     scoutFeeUsed.set(k, used + pts);
     const w = get(s.trader);
@@ -485,13 +506,13 @@ export function scoreSeason(input: ScoreInput): ScoreResult {
 }
 
 /** How many unverified holders count beside `eligible` eligible ones: max(10, 2 × eligible). */
-export function unverifiedAllowance(eligible: number): number {
-  return Math.max(RULES.unverifiedFree, RULES.unverifiedPerVerified * eligible);
+export function unverifiedAllowance(eligible: number, rules: Rules = RULES_V1): number {
+  return Math.max(rules.unverifiedFree, rules.unverifiedPerVerified * eligible);
 }
 
 /** Counted holders: every eligible one, and unverified ones up to the allowance (a crowd of fresh wallets reaches no threshold alone). */
-export function countedHolders(eligible: number, unverified: number): number {
-  return eligible + Math.min(unverified, unverifiedAllowance(eligible));
+export function countedHolders(eligible: number, unverified: number, rules: Rules = RULES_V1): number {
+  return eligible + Math.min(unverified, unverifiedAllowance(eligible, rules));
 }
 
 /**

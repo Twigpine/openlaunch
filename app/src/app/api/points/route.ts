@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     // anyone can ask about any wallet: the reason never says whether a moderator kept it off the boards (walletReason
     // works it out as if that flag were not there); a hidden profile is public already
     const [me, reason] = isAddress(w) ? await Promise.all([walletPoints(season.id, w), walletReason(w)]) : [null, null];
-    return NextResponse.json({ season: { name: season.name, starts_at: season.starts_at, ends_at: season.ends_at, ended: seasonEnded(season), final: seasonFinal(season) }, me, reason }, { headers: { "cache-control": "no-store" } });
+    return NextResponse.json({ season: { name: season.name, starts_at: season.starts_at, ends_at: season.ends_at, ended: seasonEnded(season), final: seasonFinal(season), rules_version: season.rules_version }, me, reason }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     console.error("[points] read failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load points" }, { status: 502 });

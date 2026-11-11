@@ -648,3 +648,12 @@ ALTER TABLE bb_launch_fee_events ADD COLUMN IF NOT EXISTS usd double precision;
 ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS volume_usd double precision NOT NULL DEFAULT 0;
 ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fees_collected_usd double precision NOT NULL DEFAULT 0;
 ALTER TABLE bb_launches ADD COLUMN IF NOT EXISTS fees_burned_usd double precision NOT NULL DEFAULT 0;
+
+-- ── in-app trades and rules versions (2026-11-11, lib/launchpad/appTag.ts, lib/points/score.ts) ───────────────
+-- A swap made in the app: its transaction carries the app's ERC-8021 builder suffix (a wallet's own router call), or
+-- the smart wallet's user operation it is credited to does. NULL = not known (from before this column, or the
+-- transaction's input could not be read); only true counts. A label for a small capped points bonus, never proof.
+ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS via_app boolean;
+-- the scoring rules a season runs on (score.rulesFor): a season keeps the version it was started with, so a rule
+-- added later never changes a season already running. Every season before this column scores on version 1
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS rules_version integer NOT NULL DEFAULT 1;

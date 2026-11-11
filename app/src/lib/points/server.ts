@@ -13,7 +13,7 @@ import { hourIso } from "@/lib/launchpad/usd-history";
 import { capturable } from "@/lib/launchpad/usdLedger";
 import { lastBlockBetween } from "./blocks";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
-import { isEligible, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type CreatorBreakdown, type FirstBuy, type LinkedTransfer, type PublicReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
+import { LATEST_RULES_VERSION, isEligible, notEligibleReason, rankBy, rulesFor, scoreSeason, steadyPrice, whyLine, type CreatorBreakdown, type FirstBuy, type LinkedTransfer, type PublicReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
 
 /**
  * Season points, the server half: load one season's chain data, score it (score.ts), replace the season's rows.
@@ -38,7 +38,8 @@ import { isEligible, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLin
  * block, so a late final compute sees the season as it ended. Until then an ended season is not recomputed at all.
  */
 
-export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null };
+/** `rules_version`: the scoring rules the season runs on (score.rulesFor), fixed when it starts. */
+export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null; rules_version: number };
 export type Board = "creator" | "scout";
 export type BoardRow = { rank: number; wallet: string; points: number; why: string };
 export type WalletPoints = { creator: number; scout: number; total: number; eligible: boolean; rank_creator: number | null; rank_scout: number | null; why_creator: string; why_scout: string; computed_at: string };
@@ -47,7 +48,7 @@ export type WalletPoints = { creator: number; scout: number; total: number; elig
 export async function currentSeason(): Promise<Season | null> {
   const db = maybeDb();
   if (!db) return null;
-  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version FROM bb_seasons WHERE starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
   return s ?? null;
 }
 
@@ -55,7 +56,7 @@ export async function currentSeason(): Promise<Season | null> {
 export async function publicSeason(): Promise<Season | null> {
   const db = maybeDb();
   if (!db) return null;
-  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE public AND starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version FROM bb_seasons WHERE public AND starts_at <= now() ORDER BY starts_at DESC LIMIT 1`;
   return s ?? null;
 }
 
@@ -356,7 +357,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     eligible,
     flagged,
     seasonStartBlocks,
-  });
+  }, rulesFor(season.rules_version));
 
   const scores = [...result.wallets.values()];
   const rc = rankBy(scores, "creator", eligible);
@@ -497,7 +498,7 @@ export async function walletReason(wallet: string): Promise<PublicReason | null>
 
 // ── admin ────────────────────────────────────────────────────────────────────
 /**
- * Start a season (hidden: a shadow run until it is published), or null when one is already running. Under a lock,
+ * Start a season (hidden: a shadow run until it is published) on the latest rules version, or null when one is already running. Under a lock,
  * so two starts at once make one season; the slug comes from the row's own id and the number follows the highest
  * season name, so a deleted season never makes the next start collide with a slug or repeat a name.
  */
@@ -511,12 +512,12 @@ export async function startSeason(days = 28): Promise<Season | null> {
     const [running] = await t`SELECT 1 FROM bb_seasons WHERE ends_at > now() LIMIT 1`;
     if (running) return null;
     const [row] = await t<{ id: number }[]>`
-      INSERT INTO bb_seasons (slug, name, starts_at, ends_at, public) VALUES (${`pending-${Date.now()}-${Math.random().toString(36).slice(2)}`}, '', now(), now() + make_interval(days => ${days}), false) RETURNING id`;
+      INSERT INTO bb_seasons (slug, name, starts_at, ends_at, public, rules_version) VALUES (${`pending-${Date.now()}-${Math.random().toString(36).slice(2)}`}, '', now(), now() + make_interval(days => ${days}), false, ${LATEST_RULES_VERSION}) RETURNING id`;
     const [s] = await t<Season[]>`
       UPDATE bb_seasons SET slug = 's' || id,
              name = 'Season ' || (1 + COALESCE((SELECT max((regexp_match(name, '^Season ([0-9]+)$'))[1]::int) FROM bb_seasons WHERE id <> ${row.id}), 0))
        WHERE id = ${row.id}
-      RETURNING id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at`;
+      RETURNING id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version`;
     return s;
   }) as Promise<Season | null>;
 }
@@ -561,7 +562,7 @@ export async function finalizeIfEnded(season: Season): Promise<boolean> {
   if (seasonFinal(season)) return true;
   await computeLocked(season);
   const db = maybeDb()!;
-  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE id = ${season.id}`;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version FROM bb_seasons WHERE id = ${season.id}`;
   return Boolean(s && seasonFinal(s));
 }
 
@@ -569,7 +570,7 @@ export async function finalizeIfEnded(season: Season): Promise<boolean> {
 export async function seasonById(id: number): Promise<Season | null> {
   const db = maybeDb();
   if (!db) return null;
-  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons WHERE id = ${id}`;
+  const [s] = await db<Season[]>`SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version FROM bb_seasons WHERE id = ${id}`;
   return s ?? null;
 }
 
@@ -578,7 +579,7 @@ export async function previousPublishedSeason(exceptId: number): Promise<Season 
   const db = maybeDb();
   if (!db) return null;
   const [s] = await db<Season[]>`
-    SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at FROM bb_seasons
+    SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version FROM bb_seasons
      WHERE published_at IS NOT NULL AND id <> ${exceptId} ORDER BY starts_at DESC LIMIT 1`;
   return s ?? null;
 }
