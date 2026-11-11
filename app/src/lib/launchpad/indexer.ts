@@ -850,7 +850,8 @@ const appTagIdleUntil = new Map<ChainKey, number>();
  * Fill the app tag (via_app) of the last day's swaps whose transaction could not be read when they were credited
  * (applyLaunchTx reads it once beside the receipt; a log poll re-reads it only while the swap is in the overlap). Only
  * settled swaps (credited to their sender or smart wallet); the update keeps the same credited trader. Up to 20
- * transaction reads a poll; one that fails rests ten minutes; a pass that finds nothing rests five minutes. Swaps
+ * transaction reads a poll; one that fails rests ten minutes (left out of the query meanwhile, so the swaps behind it
+ * are reached); a pass that finds nothing rests five minutes. Swaps
  * older than a day (and every one from before the column) keep NULL, which never counts as in-app.
  */
 export async function healAppTags(chain: ChainKey): Promise<number> {
@@ -858,10 +859,17 @@ export async function healAppTags(chain: ChainKey): Promise<number> {
   if (!db || skipReason(chain)) return 0;
   if (Date.now() < (appTagIdleUntil.get(chain) ?? 0)) return 0;
   const cid = chainIdOf(chain);
+  // transactions still resting after a failed read are left out of the query, so a run of unreadable ones at the head
+  // never fills every batch and keeps older swaps from their tag until they pass the day
+  const prefix = `app:${chain}:`;
+  const now = Date.now();
+  const resting: string[] = [];
+  for (const [k, until] of healRestUntil) if (until > now && k.startsWith(prefix)) resting.push(k.slice(prefix.length));
   type Unknown = { tx_hash: string; log_index: number; trader: string; trader_via: string };
   const rows = await db<Unknown[]>`
     SELECT tx_hash, log_index, trader, trader_via FROM bb_launch_swaps
      WHERE block_time > now() - interval '1 day' AND chain_id = ${cid} AND via_app IS NULL AND trader IS NOT NULL AND trader_via IN ('tx_from', 'userop')
+       AND NOT (tx_hash = ANY(${resting}::text[]))
      ORDER BY block_time DESC LIMIT 100`;
   if (rows.length === 0) {
     appTagIdleUntil.set(chain, Date.now() + ATTRIBUTION_IDLE_MS);
