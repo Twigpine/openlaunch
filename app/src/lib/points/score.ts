@@ -47,7 +47,8 @@
  *     or more before (LIFO, so a round trip never qualifies). Per trader per day: min(300, min(200, plain buys) +
  *     in-app buys + sells). Same token gates as scout fees. The tag is public, so the bonus stays small and capped
  *   - vesting: a buy half held for a week keeps its fee points (creator and scout) after it is sold
- *   - creator volume milestones per token: outside trades at their own hour's value, each trader counted for at most
+ *   - creator volume milestones per token: outside trades with capital at risk (held buys, sells of buys a week old;
+ *     a round trip counts for nothing) at their own hour's value, each trader counted for at most
  *     $1,000 a day across one creator's tokens ($100 without a qualifying profile). $10k / $50k / $250k / $1M of that
  *     with 10 / 25 / 75 / 200 distinct eligible traders on the token add 100 / 400 / 1,500 / 4,000 (6,000 at most),
  *     with 50+ counted holders, on a token that is not a dump; part of the token's value in the best-3-per-day pick
@@ -397,6 +398,19 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     const left = leftAt(s.key, s.trader, s.tx, lastBlockAt(s.key, s.time + B.buyVestMs));
     return left > 0n && left * 2n >= s.tokenRaw;
   };
+  // (version 2) the share of a sell that sold the wallet's own in-season buys made a week or more before it (LIFO:
+  // a round trip uses up the lot it just bought, so it never qualifies)
+  const buyTime = new Map<string, number>(); // `${key}|${wallet}|${tx}` → when an in-season buy was made
+  for (const s of input.swaps) if (s.isBuy && inSeason(s.time)) buyTime.set(`${s.key}|${s.trader}|${s.tx}`, s.time);
+  const agedSellShare = (s: ScoreSwap) => {
+    if (!B || s.isBuy || s.tokenRaw <= 0n) return 0;
+    let aged = 0n;
+    for (const u of usedBy.get(`${s.key}|${s.trader}|${s.tx}`) ?? []) {
+      const at = buyTime.get(`${s.key}|${s.trader}|${u.lotTx}`);
+      if (at !== undefined && s.time - at >= B.sellMinLotAgeMs) aged += u.take;
+    }
+    return Math.min(1, Number((aged * 1_000_000n) / s.tokenRaw) / 1_000_000);
+  };
 
   // ── creator points ──
   type TokenCreator = { l: ScoreLaunch; holders: { wallet: string; pts: number; eligible: boolean }[]; fees: { trader: string; day: number; usd: number }[]; dumped: boolean; volume: { pts: number; usd: number } };
@@ -425,17 +439,21 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
   }
-  // (version 2) volume milestones: each token's qualified volume is its outside trades (both sides, at their own hour's
-  // value), each trader counted for at most $1,000 a day across all of one creator's tokens ($100 without a qualifying
-  // profile); a milestone needs that volume, that many distinct eligible traders on the token, and 50 counted holders
+  // (version 2) volume milestones: each token's qualified volume is its outside trades with capital at risk, at their
+  // own hour's value: buys still held (heldBuy: half held throughout, or for a week), and the share of sells that sold
+  // the trader's own buys made a week or more before (so a round trip counts for nothing on either side); each trader
+  // counted for at most $1,000 a day across all of one creator's tokens ($100 without a qualifying profile). A
+  // milestone needs that volume, that many distinct eligible traders on the token, and 50 counted holders
   if (B) {
     const used = new Map<string, number>(); // `${creator}|${trader}|${day}` → qualified volume counted so far
     const volume = new Map<string, { usd: number; traders: Set<string> }>();
     for (const s of outside) {
       const l = launches.get(s.key)!;
       const eligible = input.eligible.has(s.trader);
+      const atRisk = s.isBuy ? (heldBuy(s) ? 1 : 0) : agedSellShare(s);
+      if (atRisk <= 0) continue;
       const k = `${l.launcher}|${s.trader}|${utcDay(s.time)}`;
-      const add = Math.min(tradeUsd(l, s), (eligible ? B.volumeTraderCapUsd : B.volumeUnverifiedTraderCapUsd) - (used.get(k) ?? 0));
+      const add = Math.min(tradeUsd(l, s) * atRisk, (eligible ? B.volumeTraderCapUsd : B.volumeUnverifiedTraderCapUsd) - (used.get(k) ?? 0));
       if (add <= 0) continue;
       used.set(k, (used.get(k) ?? 0) + add);
       const v = volume.get(s.key) ?? { usd: 0, traders: new Set<string>() };
@@ -638,8 +656,6 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     // version 2: per trader per UTC day, plain buys earn 10 a $1 of fees up to 200; in-app buys 15 a $1 and in-app
     // sells of tokens bought in the season a week or more before 5 a $1, filling the day up to 300 together:
     // min(300, min(200, plain) + in-app buys + sells), the same whatever order the trades came in
-    const buyTime = new Map<string, number>(); // `${key}|${wallet}|${tx}` → when an in-season buy was made
-    for (const s of input.swaps) if (s.isBuy && inSeason(s.time)) buyTime.set(`${s.key}|${s.trader}|${s.tx}`, s.time);
     const days = new Map<string, { trader: string; plain: number; app: number; sell: number; feesUsd: number; appUsd: number; sellUsd: number }>();
     for (const s of outside) {
       if (!feeGate(s.key)) continue;
@@ -656,15 +672,8 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
         } else d.plain += fee * R.scoutFeePointsPerUsd;
         d.feesUsd += fee;
       } else {
-        if (!s.app || s.tokenRaw <= 0n) continue;
-        // the share of the sell that used up the wallet's own in-season buys made a week or more before it (LIFO:
-        // a round trip uses up the lot it just bought, so it never qualifies)
-        let aged = 0n;
-        for (const u of usedBy.get(`${s.key}|${s.trader}|${s.tx}`) ?? []) {
-          const at = buyTime.get(`${s.key}|${s.trader}|${u.lotTx}`);
-          if (at !== undefined && s.time - at >= B.sellMinLotAgeMs) aged += u.take;
-        }
-        const share = Math.min(1, Number((aged * 1_000_000n) / s.tokenRaw) / 1_000_000);
+        if (!s.app) continue;
+        const share = agedSellShare(s);
         if (share <= 0) continue;
         d.sell += fee * share * B.sellFeePointsPerUsd;
         d.sellUsd += fee * share;

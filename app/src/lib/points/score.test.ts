@@ -528,3 +528,22 @@ test("v2 why lines name in-app fees, sells and qualified volume; old rows withou
   assert.equal(whyLine("creator", { creatorWhy: z, scoutWhy: sc }), "2 verified holders · $12,345 qualified volume");
   assert.equal(whyLine("scout", { creatorWhy: z, scoutWhy: { early: 1, holds: 0, feesUsd: 0 } }), "early on 1 token");
 });
+
+test("v2 creator volume: round trips count for nothing; a sell of a week-old buy counts", () => {
+  const holders = crowd(51, 6000);
+  const eligibleHolders = wallets(holders.slice(0, 17));
+  // 10 eligible wallets each buy $1,000 and sell it straight back, every day for a week: $140,000 of churn
+  const wash = Array.from({ length: 10 }, (_, i) => Array.from({ length: 7 }, (_, d) => [
+    trade(w(9100 + i), START + (2 + d) * DAY + i, 0.5, 60_000 + d * 100 + i * 2),
+    trade(w(9100 + i), START + (2 + d) * DAY + i + 60_000, 0.5, 60_000 + d * 100 + i * 2 + 1, { isBuy: false }),
+  ]).flat()).flat();
+  const run = (extra: ReturnType<typeof trade>[], who: string[]) =>
+    scoreSeason(build(holders, { swaps: [...holders.map((h) => h.swap), ...extra.map((x) => x.swap)], moves: [...holders.flatMap((h) => h.moves), ...extra.map((x) => x.move)], eligible: new Set([...eligibleHolders, ...who]) }), RULES_V2).wallets.get(CREATOR)!;
+  assert.equal(run(wash, wash.map((x) => x.swap.trader)).creatorWhy.volumePts, undefined, "only the holders' own $306 is at risk");
+  // a $1,000 buy held 8 days then sold: both sides count ($2,000)
+  const held = [trade(w(9300), START + 1 * DAY + 3_600_000, 0.5, 30_000), trade(w(9300), START + 9 * DAY, 0.5, 90_000, { isBuy: false })];
+  const pairs = Array.from({ length: 5 }, (_, i) => [trade(w(9400 + i), START + 1 * DAY + 3_600_000 + i, 0.5, 30_001 + i), trade(w(9400 + i), START + 9 * DAY + i, 0.5, 90_001 + i, { isBuy: false })]).flat();
+  const c = run([...held, ...pairs], [w(9300), ...pairs.map((x) => x.swap.trader)]);
+  assert.equal(c.creatorWhy.volumeUsd, 6 * 2_000 + 51 * 6, "6 traders × ($1,000 held buy + $1,000 sell of a week-old buy) + the holders'");
+  assert.equal(c.creatorWhy.volumePts, 100);
+});
