@@ -882,6 +882,8 @@ export async function healAppTags(chain: ChainKey): Promise<number> {
   for (const [hash, swaps] of byTx) {
     if (read >= 20) break;
     const key = `app:${chain}:${hash}`;
+    // checked again here: a pass running alongside (the loop and a manual sync on one machine) may have just put it to rest
+    if (Date.now() < (healRestUntil.get(key) ?? 0)) continue;
     read++;
     const tx = await txOf(chain, hash as Hex);
     if (!tx || tx.tag === null) {

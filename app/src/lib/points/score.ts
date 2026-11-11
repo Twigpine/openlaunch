@@ -474,11 +474,16 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
    * A dump: tokens moved out during the season and less than half of the creator's own buys is left (fee tokens that
    * came in after the buys are used up first, so selling those is not one).
    */
+  const dumpedMemo = new Map<string, boolean>();
   const dumped = (l: ScoreLaunch) => {
+    const hit = dumpedMemo.get(l.key);
+    if (hit !== undefined) return hit;
     const buys = input.launcherBuys.get(l.key) ?? [];
     const bought = buys.reduce((a, b) => a + b.tokenRaw, 0n);
     const left = buys.reduce((a, b) => a + leftOf(l.key, l.launcher, b.tx), 0n);
-    return bought > 0n && creatorOut.has(l.key) && left * 2n < bought;
+    const d = bought > 0n && creatorOut.has(l.key) && left * 2n < bought;
+    dumpedMemo.set(l.key, d);
+    return d;
   };
   // (version 2) volume milestones: each token's qualified volume is its outside trades with capital at risk, at their
   // own hour's value: buys still held (heldBuy: half held throughout, or for a week), and the share of sells that sold
