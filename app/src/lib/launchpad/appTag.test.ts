@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeFunctionData, parseAbi, type Hex } from "viem";
-import { HANDLE_OPS_ABI, appTagOf, endsWithSuffix, swapInApp } from "./appTag.ts";
+import { ACCOUNT_CALL_ABI, HANDLE_OPS_ABI, accountCalls, appTagOf, endsWithSuffix, swapInApp } from "./appTag.ts";
 import { BUILDER_DATA_SUFFIX } from "../chainPublic.ts";
 
 const ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
@@ -52,6 +52,14 @@ test("a smart wallet's operation is in-app only for the account whose own callDa
     assert.equal(swapInApp(tag, "0x00000000000000000000000000000000000000cc", "tx_from"), false, "credited to the bundler");
   }
   assert.deepEqual(appTagOf({ to: EP06, input: bundle06([op06(ACCOUNT, plain)]), router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] });
+  // the suffix on an operation that calls something other than the router (a bot contract, an aggregator) is not in-app
+  const elsewhere = encodeFunctionData({ abi: smartExecute, args: [OTHER as Hex, 0n, (swapCall + tail) as Hex] });
+  assert.deepEqual(appTagOf({ to: EP06, input: bundle06([op06(ACCOUNT, elsewhere)]), router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] });
+  // nor one that only names the router inside its arguments, or a router call with the suffix buried in its arguments
+  const namesRouter = encodeFunctionData({ abi: smartExecute, args: [OTHER as Hex, 0n, (encodeFunctionData({ abi: parseAbi(["function go(address r, bytes d)"]), args: [ROUTER, swapCall] }) + tail) as Hex] });
+  assert.deepEqual(appTagOf({ to: EP06, input: bundle06([op06(ACCOUNT, namesRouter)]), router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] });
+  const buried = opCall(encodeFunctionData({ abi: execute, args: ["0x10", [`0x${tail}`], 1n] }));
+  assert.deepEqual(appTagOf({ to: EP06, input: bundle06([op06(ACCOUNT, buried)]), router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] });
   assert.deepEqual(appTagOf({ to: EP06, input: "0xdeadbeef" + tail, router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] }, "not a bundle");
 });
 
@@ -59,4 +67,16 @@ test("an unread transaction is unknown, never in-app", () => {
   assert.equal(swapInApp(null, ACCOUNT, "tx_from"), null);
   assert.equal(swapInApp({ direct: true, senders: [] }, null, null), null);
   assert.equal(swapInApp({ direct: true, senders: [] }, ACCOUNT, "tx_from"), true);
+});
+
+test("smart-account call formats: Coinbase Smart Wallet execute and executeBatch, SimpleAccount batches; others are not read", () => {
+  const callData = (swapCall + tail) as Hex;
+  const formats = [
+    encodeFunctionData({ abi: [ACCOUNT_CALL_ABI[0]], args: [ROUTER, 0n, callData] }),
+    encodeFunctionData({ abi: [ACCOUNT_CALL_ABI[1]], args: [[{ target: OTHER as Hex, value: 0n, data: "0x" }, { target: ROUTER, value: 0n, data: callData }]] }),
+    encodeFunctionData({ abi: [ACCOUNT_CALL_ABI[2]], args: [[OTHER as Hex, ROUTER], ["0x", callData]] }),
+    encodeFunctionData({ abi: [ACCOUNT_CALL_ABI[3]], args: [[ROUTER], [0n], [callData]] }),
+  ];
+  for (const cd of formats) assert.deepEqual(appTagOf({ to: EP07, input: bundle07([op07(ACCOUNT, cd as Hex)]), router: ROUTER, suffix: SUFFIX }).senders, [ACCOUNT], cd.slice(0, 10));
+  assert.deepEqual(accountCalls("0xdeadbeef"), []);
 });

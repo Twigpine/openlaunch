@@ -6,29 +6,47 @@
  *   - the transaction was sent to the chain's Universal Router and its input ends with the suffix (a wallet sending
  *     its own transaction), or with the suffix followed only by another ERC-8021 suffix (a wallet that appends a
  *     builder code of its own); the same bytes inside the swap's arguments do not count, or
- *   - it was sent to an ERC-4337 EntryPoint, and the user operation of the account the swap is credited to carries
- *     the suffix in its callData (a smart wallet: the app's call, suffix and all, sits inside the operation; ABI
- *     encoding pads that call, so there the suffix is never last and is looked for anywhere in the callData).
+ *   - it was sent to an ERC-4337 EntryPoint, and the user operation of the account the swap is credited to makes a
+ *     call TO the Universal Router whose data ends with the suffix, read by decoding the account's call
+ *     (execute(address,uint256,bytes) of Coinbase Smart Wallet and SimpleAccount, or one of their executeBatch forms).
+ *     An operation calling a bot contract or an aggregator, one that only names the router in its arguments, or a
+ *     smart account whose call format is not one of those, does not count.
  * Anything else (an aggregator, a bot contract, another front end's smart-wallet trade) is not in-app.
  *
  * The suffix is public, so anyone can copy it: this is a label for a small, capped points bonus, never proof. It is
  * worked out once per transaction and only its result is kept (the input itself can be kilobytes).
  */
 import { decodeFunctionData, parseAbi, type Hex } from "viem";
-
-/** ERC-4337 EntryPoints (same address on every chain): v0.6, v0.7, v0.8, v0.9. Lowercase; kept equal to attribution.ts. */
-const ENTRY_POINTS: ReadonlySet<string> = new Set([
-  "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
-  "0x0000000071727de22e5e9d8baf0edac6f37da032",
-  "0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
-  "0x433709009b8330fda32311df1c2afa402ed8d009",
-]);
+import { ENTRY_POINTS } from "./attribution.ts";
 
 /** handleOps for v0.6 (UserOperation) and v0.7+ (PackedUserOperation): different tuples, so different selectors. */
 export const HANDLE_OPS_ABI = parseAbi([
   "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,uint256 callGasLimit,uint256 verificationGasLimit,uint256 preVerificationGas,uint256 maxFeePerGas,uint256 maxPriorityFeePerGas,bytes paymasterAndData,bytes signature)[] ops, address beneficiary)",
   "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)[] ops, address beneficiary)",
 ]);
+
+/** The smart-account call formats read for the app tag (Coinbase Smart Wallet; SimpleAccount v0.6 and v0.7). */
+export const ACCOUNT_CALL_ABI = parseAbi([
+  "function execute(address target, uint256 value, bytes data)",
+  "function executeBatch((address target, uint256 value, bytes data)[] calls)",
+  "function executeBatch(address[] dest, bytes[] func)",
+  "function executeBatch(address[] dest, uint256[] value, bytes[] func)",
+]);
+
+/** The (target, data) calls a smart account's operation makes, or [] for a call format not read here. */
+export function accountCalls(callData: string): { target: string; data: string }[] {
+  try {
+    const d = decodeFunctionData({ abi: ACCOUNT_CALL_ABI, data: callData as Hex });
+    if (d.functionName === "execute") return [{ target: (d.args[0] as string).toLowerCase(), data: (d.args[2] as string).toLowerCase() }];
+    const a = d.args as readonly unknown[];
+    if (a.length === 1) return (a[0] as readonly { target: string; data: string }[]).map((c) => ({ target: c.target.toLowerCase(), data: c.data.toLowerCase() }));
+    const targets = a[0] as readonly string[];
+    const datas = (a.length === 2 ? a[1] : a[2]) as readonly string[];
+    return targets.map((t, i) => ({ target: t.toLowerCase(), data: (datas[i] ?? "0x").toLowerCase() }));
+  } catch {
+    return [];
+  }
+}
 
 /** What one transaction says about the app: `direct` for a wallet's own router call, `senders` for smart wallets. */
 export type AppTag = { direct: boolean; senders: readonly string[] };
@@ -64,7 +82,9 @@ export function appTagOf(p: { to: string | null; input: string; router: string; 
   if (!ENTRY_POINTS.has(to) || !input.includes(needle)) return NONE; // cheap: no suffix anywhere, no operation has it
   try {
     const { args } = decodeFunctionData({ abi: HANDLE_OPS_ABI, data: p.input as Hex });
-    const senders = args[0].filter((op) => op.callData.toLowerCase().includes(needle)).map((op) => op.sender.toLowerCase());
+    const router = p.router.toLowerCase();
+    // the same call must go to the router and carry the suffix at its end, as a wallet's own router call would
+    const senders = args[0].filter((op) => accountCalls(op.callData).some((c) => c.target === router && endsWithSuffix(c.data, needle))).map((op) => op.sender.toLowerCase());
     return { direct: false, senders: [...new Set(senders)] };
   } catch {
     return NONE; // handleAggregatedOps, or an input that is not a bundle: not tagged

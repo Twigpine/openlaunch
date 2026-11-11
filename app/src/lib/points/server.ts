@@ -9,7 +9,7 @@ import { DEAD_ADDR, ZERO_ADDR } from "@/lib/launchpad/holders";
 import { launchDeployBlock, systemAddresses } from "@/lib/launchpad/indexer";
 import { quotePerToken } from "@/lib/launchpad/math";
 import { quotePricer } from "@/lib/launchpad/queries";
-import { hourIso } from "@/lib/launchpad/usd-history";
+import { HOUR_MS, hourIso, hourStartMs } from "@/lib/launchpad/usd-history";
 import { capturable } from "@/lib/launchpad/usdLedger";
 import { lastBlockBetween } from "./blocks";
 import { computeLogLine, type ComputeResult } from "./log";
@@ -181,9 +181,19 @@ export async function tradePricesBefore(read: Db, cids: readonly number[], toks:
   return out;
 }
 
-/** The USD price of every captured quote in the UTC hour holding `ms`: `${chain_id}:${quote}` → usd. */
+/** How far back the final standings look for a quote's last hourly price before the season's end. */
+export const FINAL_PRICE_LOOKBACK_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Each captured quote's last hourly USD price at or before the UTC hour holding `ms`, from rows at most
+ * FINAL_PRICE_LOOKBACK_MS older: `${chain_id}:${quote}` → usd. A quote that traded little near the end keeps the
+ * price of its last captured hour (never one from after it); one with no row in the window is not in the map.
+ */
 export async function quoteUsdAtHour(read: Db, ms: number): Promise<Map<string, number>> {
-  const rows = await read<{ chain_id: number; quote: string; usd: number }[]>`SELECT chain_id, quote, usd FROM bb_quote_usd_hourly WHERE hour = ${hourIso(ms)}`;
+  const rows = await read<{ chain_id: number; quote: string; usd: number }[]>`
+    SELECT DISTINCT ON (chain_id, quote) chain_id, quote, usd FROM bb_quote_usd_hourly
+     WHERE hour <= ${hourIso(ms)} AND hour > ${hourIso(ms - FINAL_PRICE_LOOKBACK_MS)}
+     ORDER BY chain_id, quote, hour DESC`;
   return new Map(rows.map((r) => [`${r.chain_id}:${r.quote.toLowerCase()}`, Number(r.usd)]));
 }
 
@@ -256,13 +266,20 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   // the token's steady price (its trades at the cut-off, 12 h and 24 h before), and once the season is over the
   // quotes' prices in its last hour: a final run computed late values nothing at a later price
   const tradePrices = await tradePricesBefore(read, cids, toks, PRICE_SAMPLE_HOURS.map((h) => new Date(dataUntil - h * 3_600_000).toISOString()));
-  const endHourUsd = dataUntil < now ? await quoteUsdAtHour(read, end - 1) : new Map<string, number>();
+  // (the last hour that closed by the end: the row of the hour holding the end keeps updating after it until that hour
+  // is over, so it could carry a price from after the season)
+  const endHourUsd = dataUntil < now ? await quoteUsdAtHour(read, hourStartMs(end) - HOUR_MS) : new Map<string, number>();
+  const noEndPrice = new Set<string>();
   const launches: ScoreLaunch[] = [];
   for (const l of launchRows) {
     const chain = chainKeyOf(l.chain_id) as ChainKey;
     const q = price(chain, l.quote);
-    // community pairs and unlisted quotes are never captured: they keep their price now, which follows their listing
-    const usdQ = (capturable(q.key) ? endHourUsd.get(`${l.chain_id}:${l.quote.toLowerCase()}`) : undefined) ?? q.usd;
+    // community pairs and unlisted quotes are never captured: they keep their price now, which follows their listing.
+    // A captured quote with no hourly price in the week before the end (never captured in that time: a stock the
+    // backfill cannot fill) falls back to its price now, named in the log rather than silently
+    const atEnd = capturable(q.key) ? endHourUsd.get(`${l.chain_id}:${l.quote.toLowerCase()}`) : undefined;
+    if (dataUntil < now && capturable(q.key) && atEnd === undefined && q.usd !== null) noEndPrice.add(`${chain}:${q.key}:${l.quote.toLowerCase()}`);
+    const usdQ = atEnd ?? q.usd;
     if (usdQ === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
     if (usdQ === null && q.priced && finalRun && now < end + PRICE_WAIT_MS) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
     if (usdQ === null) {
@@ -403,7 +420,8 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   });
   if (!wrote) return { skipped: "the season changed while it was being computed (the next run uses the new window)" };
   if (dropped) console.log(`[points] ${season.slug}: ${dropped} token(s) without a price left out of this run`);
-  return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0, read: { swaps: swapRows.length, firstBuys: firstRows.length, moves: moveRows.length, linked: linkedRows.length } };
+  if (noEndPrice.size) console.warn(`[points] ${season.slug}: no hourly price in the week before the end for ${[...noEndPrice].join(", ")}: valued at the price now`);
+  return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0, read: { swaps: seasonSwapRows.length, firstBuys: firstRows.length, moves: moveRows.length, linked: linkedRows.length } };
 }
 
 let running = false;
@@ -420,8 +438,9 @@ async function computeLocked(season: Season): Promise<ComputeResult | null> {
     const [{ ok }] = await db<{ ok: boolean }[]>`SELECT pg_try_advisory_lock(hashtext('points-compute')) AS ok`;
     if (!ok) return null;
     try {
+      const t0 = Date.now();
       const r = await computeSeason(db, pool, season);
-      const { level, line } = computeLogLine(season.slug, r);
+      const { level, line } = computeLogLine(season.slug, r, Date.now() - t0);
       console[level](line);
       return r;
     } finally {

@@ -882,6 +882,7 @@ export async function healAppTags(chain: ChainKey): Promise<number> {
   for (const [hash, swaps] of byTx) {
     if (read >= 20) break;
     const key = `app:${chain}:${hash}`;
+    // checked again here: a pass running alongside (the loop and a manual sync on one machine) may have just put it to rest
     if (Date.now() < (healRestUntil.get(key) ?? 0)) continue;
     read++;
     const tx = await txOf(chain, hash as Hex);
@@ -968,7 +969,8 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   const to = receipt.to ? receipt.to.toLowerCase() : null;
   const input = sent?.input ?? null;
   if (txFacts.size > 5000) txFacts.clear();
-  txFacts.set(k, { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) });
+  const seeded: TxFacts = { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) };
+  txFacts.set(k, seeded);
   if (receiptLogs.size > 500) receiptLogs.clear();
   receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
   try {
@@ -1010,6 +1012,8 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
     }
     return { status: "applied", launches, swaps, fees, boosts, tokens };
   } finally {
-    if (input === null) txFacts.delete(k); // unknown: the log poll reads the transaction again
+    // unknown: the log poll (or healAppTags) reads the transaction again. Only this call's own entry is removed: a sync
+    // of the same transaction running alongside may have cached the real tag meanwhile
+    if (input === null && txFacts.get(k) === seeded) txFacts.delete(k);
   }
 }
