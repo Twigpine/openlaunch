@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LATEST_RULES_VERSION, RULES, RULES_V1, countedHolders, isEligible, rulesFor, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
+import { LATEST_RULES_VERSION, RULES, RULES_V1, RULES_V2, countedHolders, isEligible, rulesFor, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
 
 const DAY = 86_400_000;
 const START = Date.UTC(2026, 9, 1);
@@ -430,4 +430,101 @@ test("rules versions: a season scores on the version it started with; an unknown
   const holders = [buyer(w(1), START + DAY, 0.003), ...crowd(9, 1000)];
   assert.equal(scoreSeason(build(holders), RULES_V1).wallets.get(w(1))!.scoutWhy.holds, 1);
   assert.equal(scoreSeason(build(holders), { ...RULES_V1, holdMinHolders: 11 }).wallets.get(w(1))?.scoutWhy.holds ?? 0, 0);
+});
+
+// ── version 2: in-app trading, vesting, creator volume ───────────────────────
+let tn = 0;
+/** One trade of `ethIn` at `t` (block given, so blocks follow time), with its token move. */
+function trade(wallet: string, t: number, ethIn: number, block: number, o: { isBuy?: boolean; app?: boolean; launch?: ScoreLaunch } = {}) {
+  tn++;
+  const launch = o.launch ?? L;
+  const isBuy = o.isBuy ?? true;
+  const tokenRaw = tokensFor(ethIn);
+  const tx = `0xv2t${tn}`;
+  const swap: ScoreSwap = { key: launch.key, trader: wallet, isBuy, quoteRaw: eth(ethIn), tokenRaw, block, logIndex: 5, time: t, tx, app: o.app };
+  const move: Move = { key: launch.key, wallet, block, logIndex: 6, tx, delta: isBuy ? tokenRaw : -tokenRaw };
+  return { swap, move };
+}
+/** 20 holders of L, 7 of them eligible: L passes the scout fee gate (7 + min(13, 14) = 20 counted). */
+const gate = crowd(20, 3000);
+const gateEligible = wallets(gate.slice(0, 7));
+function v2(trades: ReturnType<typeof trade>[], over: Partial<ScoreInput> = {}, rules = RULES_V2) {
+  return scoreSeason(build(gate, { swaps: [...gate.map((g) => g.swap), ...trades.map((x) => x.swap)], moves: [...gate.flatMap((g) => g.moves), ...trades.map((x) => x.move)], eligible: new Set(gateEligible), ...over }), rules);
+}
+
+test("v2 in-app buys: 15 a $1 of fees instead of 10; v1 ignores the tag", () => {
+  const app = trade(w(1), START + 2 * DAY, 0.5, 30_000, { app: true }); // $1,000 → $10 fee
+  const plain = trade(w(2), START + 2 * DAY, 0.5, 30_001);
+  const r = v2([app, plain]);
+  assert.equal(r.wallets.get(w(1))!.scout, 150);
+  assert.equal(r.wallets.get(w(1))!.scoutWhy.appFeesUsd, 10);
+  assert.equal(r.wallets.get(w(2))!.scout, 100);
+  assert.equal(v2([app], {}, RULES_V1).wallets.get(w(1))!.scout, 100, "version 1: no bonus");
+});
+
+test("v2 daily cap: plain buys stop at 200, in-app trades fill the day to 300", () => {
+  const big = trade(w(1), START + 2 * DAY, 3, 30_000); // $6,000 → $60 fee → 600 plain, capped at 200
+  const app = trade(w(1), START + 2 * DAY + 1, 0.5, 30_001, { app: true }); // 150
+  assert.equal(v2([big]).wallets.get(w(1))!.scout, 200);
+  assert.equal(v2([big, app]).wallets.get(w(1))!.scout, 300);
+  assert.equal(v2([trade(w(3), START + 2 * DAY, 3, 30_002, { app: true })]).wallets.get(w(3))!.scout, 300, "in-app alone up to 300");
+  // the next day is a new day
+  assert.equal(v2([big, app, trade(w(1), START + 3 * DAY, 0.5, 31_000, { app: true })]).wallets.get(w(1))!.scout, 450);
+});
+
+test("v2 sells: an in-app sell of a buy held a week earns 5 a $1 of fees; a younger lot or a sell elsewhere earns none", () => {
+  const buy = trade(w(1), START + DAY + 3_600_000, 0.5, 30_000, { app: true }); // 150
+  const sellLate = trade(w(1), START + 9 * DAY, 0.5, 40_000, { isBuy: false, app: true }); // $10 fee → 50
+  const r = v2([buy, sellLate]).wallets.get(w(1))!;
+  assert.equal(r.scout, 150 + 50, "the buy keeps its points (held a week), the sell earns its own");
+  assert.equal(r.scoutWhy.sellFeesUsd, 10);
+  const sellEarly = trade(w(1), START + 6 * DAY, 0.5, 36_000, { isBuy: false, app: true });
+  assert.equal(v2([buy, sellEarly]).wallets.get(w(1))?.scout ?? 0, 0, "sold after 5 days: no sell points, and the buy was not held a week");
+  const sellElsewhere = trade(w(1), START + 9 * DAY, 0.5, 40_000, { isBuy: false });
+  assert.equal(v2([buy, sellElsewhere]).wallets.get(w(1))!.scout, 150, "a sell outside the app earns nothing of its own");
+  // a round trip: a fresh buy the same day is what the sell uses up (LIFO), so the old lot never qualifies
+  const fresh = trade(w(1), START + 9 * DAY - 60_000, 0.5, 39_990);
+  assert.equal(v2([buy, fresh, sellLate]).wallets.get(w(1))!.scoutWhy.sellFeesUsd ?? 0, 0);
+  assert.equal(v2([buy, sellLate], {}, RULES_V1).wallets.get(w(1))?.scout ?? 0, 0, "version 1: sold, so nothing");
+});
+
+test("v2 vesting: a buy half held for a week keeps the creator's fee points after it is sold", () => {
+  const buy = trade(w(1), START + DAY + 3_600_000, 0.5, 30_000); // an eligible trader, $10 fee
+  const sell = trade(w(1), START + 9 * DAY, 0.5, 40_000, { isBuy: false });
+  const eligible = new Set([...gateEligible, w(1)]);
+  assert.equal(v2([buy, sell], { eligible }).wallets.get(CREATOR)!.creatorWhy.feesUsd, 10 + 7 * 0.06, "the vested buy and the 7 eligible holders' own");
+  assert.equal(v2([buy, sell], { eligible }, RULES_V1).wallets.get(CREATOR)!.creatorWhy.feesUsd, Math.round(7 * 0.06 * 100) / 100, "version 1: the sold buy counts for nothing");
+  const sellAt3 = trade(w(1), START + 3 * DAY, 0.5, 32_000, { isBuy: false });
+  assert.equal(v2([buy, sellAt3], { eligible }).wallets.get(CREATOR)!.creatorWhy.feesUsd, Math.round(7 * 0.06 * 100) / 100, "sold after 2 days: not vested");
+});
+
+test("v2 creator volume: milestones need qualified volume, distinct eligible traders and 50 counted holders", () => {
+  // 17 eligible + 34 unverified holders: 17 + min(34, 34) = 51 counted; their own buys are $306 of volume
+  const holders = crowd(51, 6000);
+  const eligibleHolders = wallets(holders.slice(0, 17));
+  const traders = (n: number, days: number) =>
+    Array.from({ length: n }, (_, i) => Array.from({ length: days }, (_, d) => trade(w(9000 + i), START + (2 + d) * DAY + i, 0.5, 50_000 + d * 100 + i))).flat(); // $1,000 a day each
+  const run = (extra: ReturnType<typeof trade>[], traderWallets: string[], hs = holders, eh = eligibleHolders, rules = RULES_V2) =>
+    scoreSeason(build(hs, { swaps: [...hs.map((h) => h.swap), ...extra.map((x) => x.swap)], moves: [...hs.flatMap((h) => h.moves), ...extra.map((x) => x.move)], eligible: new Set([...eh, ...traderWallets]) }), rules).wallets.get(CREATOR)!;
+  const t8 = traders(8, 7); // 8 more eligible traders × 7 days = $56,000; 25 distinct eligible traders
+  const c = run(t8, t8.map((x) => x.swap.trader));
+  assert.equal(c.creatorWhy.volumePts, 100 + 400);
+  assert.equal(c.creatorWhy.volumeUsd, 56_000 + 51 * 6);
+  const t7 = traders(7, 8); // $56,000 too, but 24 distinct eligible traders: the second milestone needs 25
+  assert.equal(run(t7, t7.map((x) => x.swap.trader)).creatorWhy.volumePts, 100);
+  // one trader's $50,000 in a day counts as $1,000; without a qualifying profile, $100
+  const whale = [trade(w(9500), START + 2 * DAY, 25, 50_000)];
+  assert.equal(run(whale, [w(9500)]).creatorWhy.volumeUsd, undefined, "$1,306 qualified: no milestone");
+  // under 50 counted holders: no milestone at all (16 + min(35, 32) = 48)
+  assert.equal(run(t8, t8.map((x) => x.swap.trader), holders, eligibleHolders.slice(0, 16)).creatorWhy.volumePts, undefined);
+  // version 1: none
+  assert.equal(run(t8, t8.map((x) => x.swap.trader), holders, eligibleHolders, RULES_V1).creatorWhy.volumePts, undefined);
+});
+
+test("v2 why lines name in-app fees, sells and qualified volume; old rows without them still read", () => {
+  const sc = { early: 0, holds: 0, feesUsd: 25, appFeesUsd: 10, sellFeesUsd: 4 };
+  const z = { tokens: 1, verifiedHolders: 2, holders: 0, feesUsd: 0, dumped: 0, volumeUsd: 12_345, volumePts: 100 };
+  assert.equal(whyLine("scout", { creatorWhy: z, scoutWhy: sc }), "$25.00 fees paid ($10.00 in the app) · $4.00 fees on sells after a week");
+  assert.equal(whyLine("creator", { creatorWhy: z, scoutWhy: sc }), "2 verified holders · $12,345 qualified volume");
+  assert.equal(whyLine("scout", { creatorWhy: z, scoutWhy: { early: 1, holds: 0, feesUsd: 0 } }), "early on 1 token");
 });

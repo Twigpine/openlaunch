@@ -41,6 +41,17 @@
  *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ counted holders (5+ of them eligible),
  *       for each buy half of which has been held ever since; at most 200 a day
  *
+ * Version 2 (seasons started on rules_version 2; score.RULES_V2) adds, on top of everything above:
+ *   - in-app trading (bb_launch_swaps.via_app; appTag.ts): a held in-app buy earns 15 per $1 of fees instead of 10;
+ *     an in-app sell earns 5 per $1 of fees on the share of it that sold the wallet's own in-season buys made a week
+ *     or more before (LIFO, so a round trip never qualifies). Per trader per day: min(300, min(200, plain buys) +
+ *     in-app buys + sells). Same token gates as scout fees. The tag is public, so the bonus stays small and capped
+ *   - vesting: a buy half held for a week keeps its fee points (creator and scout) after it is sold
+ *   - creator volume milestones per token: outside trades at their own hour's value, each trader counted for at most
+ *     $1,000 a day across one creator's tokens ($100 without a qualifying profile). $10k / $50k / $250k / $1M of that
+ *     with 10 / 25 / 75 / 200 distinct eligible traders on the token add 100 / 400 / 1,500 / 4,000 (6,000 at most),
+ *     with 50+ counted holders, on a token that is not a dump; part of the token's value in the best-3-per-day pick
+ *
  * Only points-eligible wallets rank; everyone else sees what is waiting for them.
  */
 
@@ -83,15 +94,57 @@ export const RULES_V1 = {
   eligibleMinFollowers: 20,
 } as const;
 
-/** The rules one season scores on. */
-export type Rules = typeof RULES_V1;
+/** Version 2's bonuses (score.ts header, "Version 2"). */
+export type BonusRules = {
+  /** points per $1 of fees on an in-app buy (10 elsewhere) */
+  appFeePointsPerUsd: number;
+  /** a trader's daily fee points with in-app trades: plain buys still stop at scoutFeeCapPerDay, in-app ones fill the rest */
+  scoutFeeCapPerDayApp: number;
+  /** points per $1 of fees on an in-app sell of tokens the wallet bought in the season at least `sellMinLotAgeMs` before */
+  sellFeePointsPerUsd: number;
+  sellMinLotAgeMs: number;
+  /** a buy half held this long keeps its fee points (creator and scout) after it is sold */
+  buyVestMs: number;
+  /** a creator's qualified volume: per trader per UTC day across all their tokens, at most this much */
+  volumeTraderCapUsd: number;
+  volumeUnverifiedTraderCapUsd: number;
+  /** a token earns volume milestones only with this many counted holders */
+  volumeMinHolders: number;
+  /** cumulative: each one reached (qualified volume and distinct eligible traders on the token) adds its points */
+  volumeTiers: readonly { usd: number; pts: number; traders: number }[];
+};
+/** The rules one season scores on: version 1, plus the bonuses from version 2 on. */
+export type Rules = typeof RULES_V1 & { bonus?: BonusRules };
 /** The rules every page describes where all versions agree (eligibility, real buyers): version 1's. */
 export const RULES: Rules = RULES_V1;
+
+/** Version 2: version 1 plus in-app trading points, a week's vesting on buys, and creator volume milestones. */
+export const RULES_V2: Rules = {
+  ...RULES_V1,
+  bonus: {
+    appFeePointsPerUsd: 15,
+    scoutFeeCapPerDayApp: 300,
+    sellFeePointsPerUsd: 5,
+    sellMinLotAgeMs: 7 * 86_400_000,
+    buyVestMs: 7 * 86_400_000,
+    volumeTraderCapUsd: 1_000,
+    volumeUnverifiedTraderCapUsd: 100,
+    volumeMinHolders: 50,
+    volumeTiers: [
+      { usd: 10_000, pts: 100, traders: 10 },
+      { usd: 50_000, pts: 400, traders: 25 },
+      { usd: 250_000, pts: 1_500, traders: 75 },
+      { usd: 1_000_000, pts: 4_000, traders: 200 },
+    ],
+  },
+};
 /** The version a new season starts on. */
-export const LATEST_RULES_VERSION = 1;
+export const LATEST_RULES_VERSION = 2;
 /** The rules of a version (an unknown one scores on version 1). */
 export function rulesFor(version: number | null | undefined): Rules {
   switch (version) {
+    case 2:
+      return RULES_V2;
     default:
       return RULES_V1;
   }
@@ -111,7 +164,8 @@ export type ScoreLaunch = {
   tokenUsd: number | null; // USD per whole token now; null → out of scoring
 };
 /** `usd`: the trade's value at its own hour (bb_launch_swaps.usd); missing or null → the quote's price in this run. */
-export type ScoreSwap = { key: string; trader: string; isBuy: boolean; quoteRaw: bigint; tokenRaw: bigint; block: number; logIndex: number; time: number; tx: string; usd?: number | null };
+/** `app`: made in the app (bb_launch_swaps.via_app; appTag.ts). */
+export type ScoreSwap = { key: string; trader: string; isBuy: boolean; quoteRaw: bigint; tokenRaw: bigint; block: number; logIndex: number; time: number; tx: string; usd?: number | null; app?: boolean };
 /** A wallet's first buy of a token, all-time (its rank among real buyers decides "early"). */
 export type FirstBuy = { key: string; wallet: string; block: number; logIndex: number; time: number; quoteRaw: bigint; tokenRaw: bigint; tx: string; usd?: number | null };
 /** One transfer of a token from its launcher or a fee recipient to `wallet`. */
@@ -146,8 +200,9 @@ export type ScoreInput = {
   seasonStartBlocks: ReadonlyMap<string, number>;
 };
 
-export type CreatorBreakdown = { tokens: number; verifiedHolders: number; holders: number; feesUsd: number; dumped: number };
-export type ScoutBreakdown = { early: number; holds: number; feesUsd: number };
+/** Version 2 adds `volumeUsd` / `volumePts` (creator) and `appFeesUsd` / `sellFeesUsd` (scout); older rows lack them. */
+export type CreatorBreakdown = { tokens: number; verifiedHolders: number; holders: number; feesUsd: number; dumped: number; volumeUsd?: number; volumePts?: number };
+export type ScoutBreakdown = { early: number; holds: number; feesUsd: number; appFeesUsd?: number; sellFeesUsd?: number };
 export type WalletScore = { wallet: string; creator: number; scout: number; total: number; creatorWhy: CreatorBreakdown; scoutWhy: ScoutBreakdown };
 export type ScoreResult = { wallets: Map<string, WalletScore>; realHolders: Map<string, number> };
 
@@ -200,6 +255,10 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   // A lot only ever shrinks, so what is left of it at the end is the least it ever held. Linear in the moves.
   const lotsByTx = new Map<string, bigint>(); // `${key}|${wallet}|${tx}` → what is left of the lots that tx brought in
   const receivedByTx = new Map<string, bigint>(); // `${key}|${wallet}|${tx}` → what that tx brought in at all
+  // (version 2) each lot's outflows by block, to tell what was left of it at a moment; and what each outflow used up
+  type Lot = { tx: string; size: bigint; left: bigint; outs: { block: number; take: bigint }[] };
+  const lotsOfTx = new Map<string, Lot[]>(); // `${key}|${wallet}|${tx}` → the lots that tx brought in
+  const usedBy = new Map<string, { lotTx: string; take: bigint }[]>(); // `${key}|${wallet}|${outTx}` → the lots it used up
   {
     const byPair = new Map<string, Map<string, { block: number; logIndex: number; tx: string; delta: bigint }>>();
     for (const m of input.moves) {
@@ -211,11 +270,11 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
       byPair.set(k, byAt);
     }
     for (const [k, byAt] of byPair) {
-      const stack: { tx: string; left: bigint }[] = [];
-      const all: { tx: string; left: bigint }[] = [];
+      const stack: Lot[] = [];
+      const all: Lot[] = [];
       for (const m of [...byAt.values()].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex)) {
         if (m.delta > 0n) {
-          const lot = { tx: m.tx, left: m.delta };
+          const lot: Lot = { tx: m.tx, size: m.delta, left: m.delta, outs: [] };
           stack.push(lot);
           all.push(lot);
           receivedByTx.set(`${k}|${m.tx}`, (receivedByTx.get(`${k}|${m.tx}`) ?? 0n) + m.delta);
@@ -226,11 +285,18 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
             const take = top.left < out ? top.left : out;
             top.left -= take;
             out -= take;
+            top.outs.push({ block: m.block, take });
+            const used = usedBy.get(`${k}|${m.tx}`) ?? [];
+            used.push({ lotTx: top.tx, take });
+            usedBy.set(`${k}|${m.tx}`, used);
             if (top.left === 0n) stack.pop();
           }
         }
       }
-      for (const lot of all) lotsByTx.set(`${k}|${lot.tx}`, (lotsByTx.get(`${k}|${lot.tx}`) ?? 0n) + lot.left);
+      for (const lot of all) {
+        lotsByTx.set(`${k}|${lot.tx}`, (lotsByTx.get(`${k}|${lot.tx}`) ?? 0n) + lot.left);
+        lotsOfTx.set(`${k}|${lot.tx}`, [...(lotsOfTx.get(`${k}|${lot.tx}`) ?? []), lot]);
+      }
     }
   }
   /** What is left of the tokens a transaction brought into a wallet (matched by transaction, not log order). */
@@ -239,6 +305,41 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   const halfLeft = (key: string, w: string, tx: string, boughtRaw: bigint) => {
     const left = leftOf(key, w, tx);
     return left > 0n && left * 2n >= boughtRaw;
+  };
+
+  /** What was left of the lots a transaction brought in after every outflow up to and including `block`. */
+  const leftAt = (key: string, w: string, tx: string, block: number) => {
+    let left = 0n;
+    for (const lot of lotsOfTx.get(`${key}|${w}|${tx}`) ?? []) left += lot.size - lot.outs.reduce((a, o) => (o.block <= block ? a + o.take : a), 0n);
+    return left;
+  };
+  // (version 2) the last block of a moment, per chain, from the trades' own (time, block) pairs (transfers carry blocks,
+  // not times): interpolated between the trades on either side of it, which is exact on a chain with steady block times
+  // (Base: 2 s) and stays between those two trades on one without; after the last trade, every block so far
+  const timeline = new Map<string, { time: number; block: number }[]>();
+  for (const t of [...input.swaps, ...input.firstBuys]) {
+    const c = t.key.split(":")[0];
+    const list = timeline.get(c) ?? [];
+    list.push({ time: t.time, block: t.block });
+    timeline.set(c, list);
+  }
+  for (const list of timeline.values()) list.sort((a, b) => a.time - b.time || a.block - b.block);
+  const lastBlockAt = (key: string, ms: number) => {
+    const list = timeline.get(key.split(":")[0]) ?? [];
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid].time <= ms) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo >= list.length) return Number.POSITIVE_INFINITY; // no trade after the moment: everything so far
+    const after = list[lo];
+    if (lo === 0) return after.block - 1; // before the first trade known
+    const before = list[lo - 1];
+    if (after.time === before.time || after.block <= before.block) return before.block;
+    const guess = before.block + Math.floor(((ms - before.time) / (after.time - before.time)) * (after.block - before.block));
+    return Math.min(after.block - 1, Math.max(before.block, guess));
   };
 
   /** The wallet received at least half of what a buy bought, in that buy's own transaction. */
@@ -281,18 +382,26 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     if (insider(l, s.trader) || sniper(l, s.block, s.time) || tradeUsd(l, s) < R.minTradeUsd) continue;
     outside.push(s);
   }
+  // in chain order, so a daily cap is used up the same way on every run (the database returns rows in any order)
+  outside.sort((a, b) => a.time - b.time || a.key.localeCompare(b.key) || a.block - b.block || a.logIndex - b.logIndex);
 
   // net buying: a buy earns fee points only if at least half of it has been held every moment since, so a round trip
-  // (the fees coming back to a farmer's own token) earns nothing and washing ties up real capital for the season
-  const heldBuy = (s: ScoreSwap) => halfLeft(s.key, s.trader, s.tx, s.tokenRaw);
+  // (the fees coming back to a farmer's own token) earns nothing and washing ties up real capital for the season.
+  // From version 2, a buy half held for a week (buyVestMs) keeps them after it is sold: capital still sits a week
+  const B = R.bonus;
+  const heldBuy = (s: ScoreSwap) => {
+    if (!B || end - s.time < B.buyVestMs) return halfLeft(s.key, s.trader, s.tx, s.tokenRaw);
+    const left = leftAt(s.key, s.trader, s.tx, lastBlockAt(s.key, s.time + B.buyVestMs));
+    return left > 0n && left * 2n >= s.tokenRaw;
+  };
 
   // ── creator points ──
-  type TokenCreator = { l: ScoreLaunch; holders: { wallet: string; pts: number; eligible: boolean }[]; fees: { trader: string; day: number; usd: number }[]; dumped: boolean };
+  type TokenCreator = { l: ScoreLaunch; holders: { wallet: string; pts: number; eligible: boolean }[]; fees: { trader: string; day: number; usd: number }[]; dumped: boolean; volume: { pts: number; usd: number } };
   const perToken = new Map<string, TokenCreator>();
   const ensure = (l: ScoreLaunch) => {
     let t = perToken.get(l.key);
     if (!t) {
-      t = { l, holders: [], fees: [], dumped: false };
+      t = { l, holders: [], fees: [], dumped: false, volume: { pts: 0, usd: 0 } };
       perToken.set(l.key, t);
     }
     return t;
@@ -312,6 +421,34 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     const l = launches.get(s.key)!;
     const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
+  }
+  // (version 2) volume milestones: each token's qualified volume is its outside trades (both sides, at their own hour's
+  // value), each trader counted for at most $1,000 a day across all of one creator's tokens ($100 without a qualifying
+  // profile); a milestone needs that volume, that many distinct eligible traders on the token, and 50 counted holders
+  if (B) {
+    const used = new Map<string, number>(); // `${creator}|${trader}|${day}` → qualified volume counted so far
+    const volume = new Map<string, { usd: number; traders: Set<string> }>();
+    for (const s of outside) {
+      const l = launches.get(s.key)!;
+      const eligible = input.eligible.has(s.trader);
+      const k = `${l.launcher}|${s.trader}|${utcDay(s.time)}`;
+      const add = Math.min(tradeUsd(l, s), (eligible ? B.volumeTraderCapUsd : B.volumeUnverifiedTraderCapUsd) - (used.get(k) ?? 0));
+      if (add <= 0) continue;
+      used.set(k, (used.get(k) ?? 0) + add);
+      const v = volume.get(s.key) ?? { usd: 0, traders: new Set<string>() };
+      v.usd += add;
+      if (eligible) v.traders.add(s.trader);
+      volume.set(s.key, v);
+    }
+    for (const [key, v] of volume) {
+      if (holderCount(key) < B.volumeMinHolders) continue;
+      let pts = 0;
+      for (const tier of B.volumeTiers) {
+        if (v.usd < tier.usd || v.traders.size < tier.traders) break;
+        pts += tier.pts;
+      }
+      if (pts > 0) ensure(launches.get(key)!).volume = { pts, usd: v.usd };
+    }
   }
   // the creator's in-season outflows of each token: a sell, or tokens moved to any other wallet (one that then sells
   // included; a burn is not one), told from earlier ones by the season's first block on that chain
@@ -405,7 +542,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
         let best = 0;
         let bestValue = -1;
         left.forEach((t, i) => {
-          const v = (firstPass.get(t) ?? 0) + feePoints(t, new Map(used)).pts;
+          const v = (firstPass.get(t) ?? 0) + feePoints(t, new Map(used)).pts + t.volume.pts;
           if (v > bestValue) [best, bestValue] = [i, v];
         });
         const [t] = left.splice(best, 1);
@@ -428,11 +565,15 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     const counted = new Set<string>();
     for (const t of kept) {
       const fees = feePoints(t, feeUsed);
-      const v = (value.get(t) ?? 0) + fees.pts;
+      const v = (value.get(t) ?? 0) + fees.pts + t.volume.pts;
       if (v <= 0) continue;
       s.creator += v;
       s.creatorWhy.tokens++;
       s.creatorWhy.feesUsd += fees.usd;
+      if (t.volume.pts > 0) {
+        s.creatorWhy.volumePts = (s.creatorWhy.volumePts ?? 0) + t.volume.pts;
+        s.creatorWhy.volumeUsd = (s.creatorWhy.volumeUsd ?? 0) + t.volume.usd;
+      }
       for (const [wallet, h] of holderBest) {
         if (h.t !== t || counted.has(wallet)) continue;
         counted.add(wallet);
@@ -472,21 +613,70 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     w.scout += R.hold;
     w.scoutWhy.holds++;
   }
-  const scoutFeeUsed = new Map<string, number>();
-  for (const s of outside) {
-    if (!s.isBuy || !heldBuy(s)) continue;
-    if (holderCount(s.key) < R.scoutFeeMinHolders || (eligibleHolders.get(s.key) ?? 0) < R.scoutFeeMinEligibleHolders) continue;
-    const l = launches.get(s.key)!;
-    const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
-    if (fee <= 0) continue;
-    const k = `${s.trader}|${utcDay(s.time)}`;
-    const used = scoutFeeUsed.get(k) ?? 0;
-    const pts = Math.min(fee * R.scoutFeePointsPerUsd, R.scoutFeeCapPerDay - used);
-    if (pts <= 0) continue;
-    scoutFeeUsed.set(k, used + pts);
-    const w = get(s.trader);
-    w.scout += pts;
-    w.scoutWhy.feesUsd += fee;
+  const feeGate = (key: string) => holderCount(key) >= R.scoutFeeMinHolders && (eligibleHolders.get(key) ?? 0) >= R.scoutFeeMinEligibleHolders;
+  if (!B) {
+    const scoutFeeUsed = new Map<string, number>();
+    for (const s of outside) {
+      if (!s.isBuy || !heldBuy(s)) continue;
+      if (!feeGate(s.key)) continue;
+      const l = launches.get(s.key)!;
+      const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
+      if (fee <= 0) continue;
+      const k = `${s.trader}|${utcDay(s.time)}`;
+      const used = scoutFeeUsed.get(k) ?? 0;
+      const pts = Math.min(fee * R.scoutFeePointsPerUsd, R.scoutFeeCapPerDay - used);
+      if (pts <= 0) continue;
+      scoutFeeUsed.set(k, used + pts);
+      const w = get(s.trader);
+      w.scout += pts;
+      w.scoutWhy.feesUsd += fee;
+    }
+  } else {
+    // version 2: per trader per UTC day, plain buys earn 10 a $1 of fees up to 200; in-app buys 15 a $1 and in-app
+    // sells of tokens bought in the season a week or more before 5 a $1, filling the day up to 300 together:
+    // min(300, min(200, plain) + in-app buys + sells), the same whatever order the trades came in
+    const buyTime = new Map<string, number>(); // `${key}|${wallet}|${tx}` → when an in-season buy was made
+    for (const s of input.swaps) if (s.isBuy && inSeason(s.time)) buyTime.set(`${s.key}|${s.trader}|${s.tx}`, s.time);
+    const days = new Map<string, { trader: string; plain: number; app: number; sell: number; feesUsd: number; appUsd: number; sellUsd: number }>();
+    for (const s of outside) {
+      if (!feeGate(s.key)) continue;
+      const l = launches.get(s.key)!;
+      const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
+      if (fee <= 0) continue;
+      const k = `${s.trader}|${utcDay(s.time)}`;
+      const d = days.get(k) ?? { trader: s.trader, plain: 0, app: 0, sell: 0, feesUsd: 0, appUsd: 0, sellUsd: 0 };
+      if (s.isBuy) {
+        if (!heldBuy(s)) continue;
+        if (s.app) {
+          d.app += fee * B.appFeePointsPerUsd;
+          d.appUsd += fee;
+        } else d.plain += fee * R.scoutFeePointsPerUsd;
+        d.feesUsd += fee;
+      } else {
+        if (!s.app || s.tokenRaw <= 0n) continue;
+        // the share of the sell that used up the wallet's own in-season buys made a week or more before it (LIFO:
+        // a round trip uses up the lot it just bought, so it never qualifies)
+        let aged = 0n;
+        for (const u of usedBy.get(`${s.key}|${s.trader}|${s.tx}`) ?? []) {
+          const at = buyTime.get(`${s.key}|${s.trader}|${u.lotTx}`);
+          if (at !== undefined && s.time - at >= B.sellMinLotAgeMs) aged += u.take;
+        }
+        const share = Math.min(1, Number((aged * 1_000_000n) / s.tokenRaw) / 1_000_000);
+        if (share <= 0) continue;
+        d.sell += fee * share * B.sellFeePointsPerUsd;
+        d.sellUsd += fee * share;
+      }
+      days.set(k, d);
+    }
+    for (const d of days.values()) {
+      const pts = Math.min(B.scoutFeeCapPerDayApp, Math.min(R.scoutFeeCapPerDay, d.plain) + d.app + d.sell);
+      if (pts <= 0) continue;
+      const w = get(d.trader);
+      w.scout += pts;
+      w.scoutWhy.feesUsd += d.feesUsd;
+      if (d.appUsd > 0) w.scoutWhy.appFeesUsd = (w.scoutWhy.appFeesUsd ?? 0) + d.appUsd;
+      if (d.sellUsd > 0) w.scoutWhy.sellFeesUsd = (w.scoutWhy.sellFeesUsd ?? 0) + d.sellUsd;
+    }
   }
 
   for (const w of [...wallets.keys()]) {
@@ -498,8 +688,12 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     s.creator = Math.round(s.creator);
     s.scout = Math.round(s.scout);
     s.total = s.creator + s.scout;
-    s.creatorWhy.feesUsd = Math.round(s.creatorWhy.feesUsd * 100) / 100;
-    s.scoutWhy.feesUsd = Math.round(s.scoutWhy.feesUsd * 100) / 100;
+    const cents = (n: number) => Math.round(n * 100) / 100;
+    s.creatorWhy.feesUsd = cents(s.creatorWhy.feesUsd);
+    s.scoutWhy.feesUsd = cents(s.scoutWhy.feesUsd);
+    if (s.creatorWhy.volumeUsd !== undefined) s.creatorWhy.volumeUsd = cents(s.creatorWhy.volumeUsd);
+    if (s.scoutWhy.appFeesUsd !== undefined) s.scoutWhy.appFeesUsd = cents(s.scoutWhy.appFeesUsd);
+    if (s.scoutWhy.sellFeesUsd !== undefined) s.scoutWhy.sellFeesUsd = cents(s.scoutWhy.sellFeesUsd);
     if (s.total <= 0) wallets.delete(w);
   }
   return { wallets, realHolders: new Map([...realHolders].map(([k, v]) => [k, v.length])) };
@@ -575,11 +769,13 @@ export function whyLine(board: "creator" | "scout", s: Pick<WalletScore, "creato
     if (c.verifiedHolders) parts.push(`${c.verifiedHolders} verified holder${c.verifiedHolders === 1 ? "" : "s"}`);
     if (c.holders) parts.push(`${c.holders} holder${c.holders === 1 ? "" : "s"}`);
     if (c.feesUsd >= 0.01) parts.push(`${usd(c.feesUsd)} fees from verified traders`);
+    if (c.volumePts) parts.push(`${usd(c.volumeUsd ?? 0)} qualified volume`);
   } else {
     const c = s.scoutWhy;
     if (c.early) parts.push(`early on ${c.early} token${c.early === 1 ? "" : "s"}`);
     if (c.holds) parts.push(`${c.holds} held a day+`);
-    if (c.feesUsd >= 0.01) parts.push(`${usd(c.feesUsd)} fees paid`);
+    if (c.feesUsd >= 0.01) parts.push(`${usd(c.feesUsd)} fees paid${(c.appFeesUsd ?? 0) >= 0.01 ? ` (${usd(c.appFeesUsd ?? 0)} in the app)` : ""}`);
+    if ((c.sellFeesUsd ?? 0) >= 0.01) parts.push(`${usd(c.sellFeesUsd ?? 0)} fees on sells after a week`);
   }
   return parts.join(" · ");
 }
