@@ -713,6 +713,7 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
       await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
       await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));
       await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, errMessage(e)));
+      await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, errMessage(e)));
       await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, errMessage(e)));
     }),
   );
@@ -842,6 +843,63 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
   }
   if (healed) console.log(`[launch-sync] healed traders on ${healed} swap(s) on ${chain}`);
   return healed;
+}
+
+const appTagIdleUntil = new Map<ChainKey, number>();
+/**
+ * Fill the app tag (via_app) of the last day's swaps whose transaction could not be read when they were credited
+ * (applyLaunchTx reads it once beside the receipt; a log poll re-reads it only while the swap is in the overlap). Only
+ * settled swaps (credited to their sender or smart wallet); the update keeps the same credited trader. Up to 20
+ * transaction reads a poll; one that fails rests ten minutes (left out of the query meanwhile, so the swaps behind it
+ * are reached); a pass that finds nothing rests five minutes. Swaps
+ * older than a day (and every one from before the column) keep NULL, which never counts as in-app.
+ */
+export async function healAppTags(chain: ChainKey): Promise<number> {
+  const db = maybeDb();
+  if (!db || skipReason(chain)) return 0;
+  if (Date.now() < (appTagIdleUntil.get(chain) ?? 0)) return 0;
+  const cid = chainIdOf(chain);
+  // transactions still resting after a failed read are left out of the query, so a run of unreadable ones at the head
+  // never fills every batch and keeps older swaps from their tag until they pass the day
+  const prefix = `app:${chain}:`;
+  const now = Date.now();
+  const resting: string[] = [];
+  for (const [k, until] of healRestUntil) if (until > now && k.startsWith(prefix)) resting.push(k.slice(prefix.length));
+  type Unknown = { tx_hash: string; log_index: number; trader: string; trader_via: string };
+  const rows = await db<Unknown[]>`
+    SELECT tx_hash, log_index, trader, trader_via FROM bb_launch_swaps
+     WHERE block_time > now() - interval '1 day' AND chain_id = ${cid} AND via_app IS NULL AND trader IS NOT NULL AND trader_via IN ('tx_from', 'userop')
+       AND NOT (tx_hash = ANY(${resting}::text[]))
+     ORDER BY block_time DESC LIMIT 100`;
+  if (rows.length === 0) {
+    appTagIdleUntil.set(chain, Date.now() + ATTRIBUTION_IDLE_MS);
+    return 0;
+  }
+  const byTx = new Map<string, Unknown[]>();
+  for (const r of rows) byTx.set(r.tx_hash, [...(byTx.get(r.tx_hash) ?? []), r]);
+  let tagged = 0;
+  let read = 0;
+  for (const [hash, swaps] of byTx) {
+    if (read >= 20) break;
+    const key = `app:${chain}:${hash}`;
+    if (Date.now() < (healRestUntil.get(key) ?? 0)) continue;
+    read++;
+    const tx = await txOf(chain, hash as Hex);
+    if (!tx || tx.tag === null) {
+      if (healRestUntil.size > 5_000) healRestUntil.clear();
+      healRestUntil.set(key, Date.now() + ATTRIBUTION_TRY_GAP_MS);
+      continue;
+    }
+    healRestUntil.delete(key);
+    for (const r of swaps) {
+      const app = swapInApp(tx.tag, r.trader, r.trader_via);
+      if (app === null) continue;
+      const up = await db`UPDATE bb_launch_swaps SET via_app = ${app} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND via_app IS NULL AND trader = ${r.trader} RETURNING tx_hash`;
+      tagged += up.length;
+    }
+  }
+  if (tagged) console.log(`[launch-sync] filled the app tag on ${tagged} swap(s) on ${chain}`);
+  return tagged;
 }
 
 async function run(chain: ChainKey): Promise<LaunchSyncResult> {
