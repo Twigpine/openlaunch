@@ -75,7 +75,8 @@ test("hero totals: volume in a feed-less stock is left out without the undercoun
 
 test("the points run waits for a missing price only when the quote has a price source", () => {
   const points = read("../points/server.ts");
-  assert.match(points, /if \(q\.usd === null && q\.priced && finalRun && now < end \+ PRICE_WAIT_MS\) return \{ skipped: `no price for \$\{q\.key\} right now; the final standings wait for it` \};/);
+  // (usdQ: the quote's price in the season's last hour once it has ended, else its price now)
+  assert.match(points, /if \(usdQ === null && q\.priced && finalRun && now < end \+ PRICE_WAIT_MS\) return \{ skipped: `no price for \$\{q\.key\} right now; the final standings wait for it` \};/);
   assert.doesNotMatch(points, /q\.key !== "other"/, "the key alone no longer decides: a feed-less stock has the key 'stock'");
   // and that answer is the same one the hero totals use
   const queries = read("./queries.ts");
