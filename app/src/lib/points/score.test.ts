@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RULES, isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
+import { RULES, countedHolders, isEligible, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
 
 const DAY = 86_400_000;
 const START = Date.UTC(2026, 9, 1);
@@ -35,6 +35,11 @@ function buyer(wallet: string, t: number, ethIn: number, keep = 1, launch: Score
 function build(buyers: ReturnType<typeof buyer>[], over: Partial<ScoreInput> = {}) {
   return input({ swaps: buyers.map((b) => b.swap), firstBuys: buyers.map((b) => b.first), moves: buyers.flatMap((b) => b.moves), ...over });
 }
+/** `count` other real holders of a token ($6 each, held), from wallet w(from) on: enough to pass a counted-holders gate. */
+function crowd(count: number, from: number, launch: ScoreLaunch = L, t = START + DAY) {
+  return Array.from({ length: count }, (_, i) => buyer(w(from + i), t + i, 0.003, 1, launch, 20_000 + from + i));
+}
+const wallets = (bs: ReturnType<typeof buyer>[]) => bs.map((b) => b.first.wallet);
 
 // ── the rules ────────────────────────────────────────────────────────────────
 test("a real holder who bought this season and held a day earns the creator 30 if eligible, 5 if not; half again after a week", () => {
@@ -70,7 +75,7 @@ test("the creator, fee recipients, transfer-fed wallets and snipers (by block or
   const blockSniper = buyer(w(8), START + DAY, 1, 1, L, L.launchBlock + 2);
   const fresh: ScoreLaunch = { ...L, key: "base:0xfresh", launchTime: START + DAY };
   const timeSniper = buyer(w(7), START + DAY + 5_000, 1, 1, fresh, 99_999);
-  const r = scoreSeason(build([self, recip, sock, blockSniper, timeSniper], { launches: [L, fresh], linked: new Map([[L.key, new Set([w(9)])]]), eligible: new Set([w(7), w(8), w(9)]) }));
+  const r = scoreSeason(build([self, recip, sock, blockSniper, timeSniper], { launches: [L, fresh], linked: new Map([[L.key, [{ wallet: w(9), block: 10, logIndex: 0, raw: tokensFor(1) }]]]), eligible: new Set([w(7), w(8), w(9)]) }));
   assert.equal(r.wallets.get(CREATOR)?.creator ?? 0, 0);
   assert.equal(r.realHolders.get(L.key) ?? 0, 0);
 });
@@ -78,9 +83,9 @@ test("the creator, fee recipients, transfer-fed wallets and snipers (by block or
 test("only the best 3 tokens a wallet launched on one day count, and each holder counts once per creator", () => {
   const launches = Array.from({ length: 5 }, (_, i) => ({ ...L, key: `base:0xd${i}`, launchTime: START - DAY + i }));
   const buyers = launches.flatMap((l, i) => Array.from({ length: i + 1 }, (_, j) => buyer(w(100 * (i + 1) + j), START + DAY, 0.003, 1, l)));
-  const r = scoreSeason(build(buyers, { launches }));
+  const r = scoreSeason(build(buyers, { launches, eligible: new Set(wallets(buyers)) }));
   assert.equal(r.wallets.get(CREATOR)!.creatorWhy.tokens, 3);
-  assert.equal(r.wallets.get(CREATOR)!.creatorWhy.holders, 5 + 4 + 3);
+  assert.equal(r.wallets.get(CREATOR)!.creatorWhy.verifiedHolders, 5 + 4 + 3);
   // one eligible fan holding all five tokens counts once
   const fan = launches.map((l) => buyer(w(1), START + DAY, 0.003, 1, l));
   const r2 = scoreSeason(build(fan, { launches, eligible: new Set([w(1)]) }));
@@ -100,33 +105,38 @@ test("dump: sold this season and dropped below half of what was bought → 0; se
   assert.ok((feeSale.wallets.get(CREATOR)?.creator ?? 0) > 0, "sold the fee tokens, kept everything bought");
 });
 
-test("early: first 25 real buyers of a token with 50+ real holders; +50 only if half of that buy was held throughout", () => {
+test("early: first 25 real buyers of a token with 50+ counted holders; +50 only if half of that buy was held throughout", () => {
   const buyers = Array.from({ length: 52 }, (_, i) => buyer(w(i + 1), START + DAY + i * 1000, 0.003, i === 0 ? 0.3 : 1, L, 1000 + i));
-  const r = scoreSeason(build(buyers));
+  // 20 eligible holders (w(30)…w(49)) let the 31 others count: 20 + min(31, 40) = 51 counted
+  const r = scoreSeason(build(buyers, { eligible: new Set(wallets(buyers.slice(29, 49))) }));
   assert.equal(r.realHolders.get(L.key), 52 - 1, "w(1) dropped to $1.80: not a real holder (unverified needs $5)");
   assert.equal(r.wallets.get(w(1))!.scoutWhy.early, 1);
-  assert.equal(r.wallets.get(w(2))!.scout - r.wallets.get(w(1))!.scout, RULES.earlyStillHolding + RULES.hold);
+  // w(2) also earns fee points on its own held $6 buy now the token passes the fee gate: 0.6, rounded with the rest
+  assert.equal(r.wallets.get(w(2))!.scout - r.wallets.get(w(1))!.scout, Math.round(RULES.earlyStillHolding + RULES.hold + 6 * 0.01 * RULES.scoutFeePointsPerUsd));
   assert.equal(r.wallets.get(w(26))?.scoutWhy.early ?? 0, 0);
 });
 
 test("early slots go to real buyers only: sub-$5 first buys cannot crowd them out", () => {
-  const crowd = Array.from({ length: 25 }, (_, i) => buyer(w(500 + i), START + DAY + i, 0.001, 1, L, 900 + i)); // $2 each
+  const small = Array.from({ length: 25 }, (_, i) => buyer(w(500 + i), START + DAY + i, 0.001, 1, L, 900 + i)); // $2 each
   const real = Array.from({ length: 52 }, (_, i) => buyer(w(i + 1), START + DAY + 100 + i, 0.003, 1, L, 1000 + i));
-  const r = scoreSeason(build([...crowd, ...real]));
+  const r = scoreSeason(build([...small, ...real], { eligible: new Set(wallets(real.slice(29, 49))) }));
   assert.equal(r.wallets.get(w(1))!.scoutWhy.early, 1);
 });
 
 test("holds: first buy ≥ $5 this season, half held throughout for a day; 20 tokens a day", () => {
   const launches = Array.from({ length: 25 }, (_, i) => ({ ...L, key: `base:0xh${i}` }));
-  const r = scoreSeason(build(launches.map((l) => buyer(w(1), START + DAY, 0.003, 1, l)), { launches }));
+  // 9 other holders on each token: with the wallet's own, the 10 counted holders a hold needs
+  const others = launches.flatMap((l, i) => crowd(9, 1000 + 10 * i, l, START + 2 * DAY));
+  const r = scoreSeason(build([...launches.map((l) => buyer(w(1), START + DAY, 0.003, 1, l)), ...others], { launches }));
   assert.equal(r.wallets.get(w(1))!.scoutWhy.holds, RULES.holdTokensPerDay);
-  const soldDown = scoreSeason(build([buyer(w(2), START + DAY, 0.003, 0.4)]));
+  const soldDown = scoreSeason(build([buyer(w(2), START + DAY, 0.003, 0.4), ...crowd(10, 1000)]));
   assert.equal(soldDown.wallets.get(w(2))?.scoutWhy.holds ?? 0, 0, "sold down to 40%: no hold");
 });
 
-test("scout fees: held buys on tokens with 20+ real holders (5+ eligible), at most 200 a day; round trips earn nothing", () => {
+test("scout fees: held buys on tokens with 20+ counted holders (5+ eligible), at most 200 a day; round trips earn nothing", () => {
   const holders = Array.from({ length: 20 }, (_, i) => buyer(w(100 + i), START + DAY, 0.003));
-  const eligible = new Set(holders.slice(0, 5).map((h) => h.first.wallet));
+  // 7 eligible holders let the 13 others count: 7 + min(13, 14) = 20
+  const eligible = new Set(holders.slice(0, 7).map((h) => h.first.wallet));
   const buys: ScoreSwap[] = Array.from({ length: 30 }, (_, i) => ({ key: L.key, trader: w(1), isBuy: true, quoteRaw: eth(1), tokenRaw: tokensFor(1), block: 6000 + i, logIndex: 10, time: START + 2 * DAY + i, tx: `0xsb${i}` }));
   const ins: Move[] = buys.map((b) => ({ key: L.key, wallet: w(1), block: b.block, logIndex: 11, tx: b.tx, delta: b.tokenRaw }));
   const base = { swaps: [...holders.map((h) => h.swap), ...buys], firstBuys: holders.map((h) => h.first), moves: [...holders.flatMap((h) => h.moves), ...ins], eligible };
@@ -209,8 +219,8 @@ test("farm: a small base position held all season does not cover later round tri
 test("a buy whose token transfer is logged before its swap (router takes first) still counts", () => {
   const b = buyer(w(1), START + DAY, 0.01);
   b.moves[0] = { ...b.moves[0], logIndex: b.swap.logIndex - 1 };
-  const r = scoreSeason(build([b]));
-  assert.equal(r.realHolders.get(L.key), 1);
+  const r = scoreSeason(build([b, ...crowd(9, 1000)]));
+  assert.equal(r.realHolders.get(L.key), 10);
   assert.equal(r.wallets.get(w(1))!.scoutWhy.holds, 1);
 });
 
@@ -301,7 +311,7 @@ test("a buy whose tokens the wallet never received (a relayer or bundler the swa
     const b = buyer(`0xrelay${i}`, START + DAY + i, 0.003, 1, L, 1000 + i);
     return { ...b, moves: b.moves.map((m) => ({ ...m, wallet: `0xuser${i}` })) };
   });
-  const r = scoreSeason(build([...relayed, ...real]));
+  const r = scoreSeason(build([...relayed, ...real], { eligible: new Set(wallets(real.slice(29, 49))) }));
   assert.equal(r.wallets.get("0xrelay0")?.scoutWhy.early ?? 0, 0, "the relayer takes no early slot");
   assert.equal(r.wallets.get(w(1))!.scoutWhy.early, 1, "the first real buyers keep theirs");
 });
@@ -317,4 +327,96 @@ test("best 3 by what each token adds: three tokens sharing one trader's fee cap 
   // the whale counts once as a holder (45) and once for fees (50); 0xd's fan adds 45 more
   assert.equal(c.creatorWhy.verifiedHolders, 2, "0xd's holder is counted: 0xd was not cut for a second share of the same cap");
   assert.ok(c.creator >= 45 + 50 + 45, `creator ${c.creator}`);
+});
+
+// ── review 2026-11-11: sock farms, dust griefing, prices ─────────────────────
+test("counted holders: unverified ones count up to max(10, 2 × eligible)", () => {
+  assert.equal(countedHolders(0, 49), 10);
+  assert.equal(countedHolders(1, 49), 11);
+  assert.equal(countedHolders(17, 33), 17 + 33);
+  assert.equal(countedHolders(7, 13), 20);
+  assert.equal(countedHolders(5, 100), 15);
+});
+
+test("farm: one eligible wallet and 49 fresh ones make no early slot, no hold and only 10 holders for the launcher", () => {
+  const junk: ScoreLaunch = { ...L, key: "base:0xjunk", launcher: "0xside", launchTime: START + DAY };
+  const socks = Array.from({ length: 50 }, (_, i) => buyer(w(i + 1), START + DAY + 60_000 + i, 0.003, 1, junk, 5_000 + i));
+  const r = scoreSeason(build(socks, { launches: [junk], eligible: new Set([w(1)]) }));
+  assert.equal(r.wallets.get(w(1))?.scoutWhy.early ?? 0, 0, "1 + min(49, 10) = 11 counted, not 50");
+  assert.equal(r.wallets.get(w(1))?.scoutWhy.holds, 1, "11 counted holders pass the hold gate");
+  const side = r.wallets.get("0xside")!;
+  assert.equal(side.creatorWhy.verifiedHolders, 1);
+  assert.equal(side.creatorWhy.holders, RULES.unverifiedFree, "the launcher is paid for 10 of the 49");
+  // the same token with 17 eligible holders among the 50 does reach the early target
+  const real = scoreSeason(build(socks, { launches: [junk], eligible: new Set(wallets(socks.slice(0, 17))) }));
+  assert.equal(real.wallets.get(w(1))!.scoutWhy.early, 1, "17 + min(33, 34) = 50 counted");
+  assert.equal(real.wallets.get("0xside")!.creatorWhy.holders, 33);
+});
+
+test("holds need 10 counted holders: a token only the wallet holds earns nothing", () => {
+  const alone = scoreSeason(build([buyer(w(1), START + DAY, 0.003), ...crowd(2, 1000)]));
+  assert.equal(alone.wallets.get(w(1))?.scoutWhy.holds ?? 0, 0);
+  const ten = scoreSeason(build([buyer(w(1), START + DAY, 0.003), ...crowd(9, 1000)]));
+  assert.equal(ten.wallets.get(w(1))!.scoutWhy.holds, 1);
+});
+
+test("a sock-heavy token cannot push a token with eligible holders out of the best 3 of a day", () => {
+  const launches = ["0xa", "0xb", "0xc", "0xd"].map((t, i) => ({ ...L, key: `base:${t}`, launchTime: START - DAY + i }));
+  // 0xa: 40 fresh wallets (worth 10 × 7.5 = 75 at most); 0xb..0xd: 2 eligible holders each (2 × 45 = 90)
+  const socks = crowd(40, 2_000, launches[0]);
+  const fans = launches.slice(1).flatMap((l, i) => crowd(2, 100 * (i + 1), l));
+  const r = scoreSeason(build([...socks, ...fans], { launches, eligible: new Set(wallets(fans)) }));
+  const c = r.wallets.get(CREATOR)!;
+  assert.equal(c.creatorWhy.verifiedHolders, 6, "0xb, 0xc and 0xd were kept");
+  assert.equal(c.creatorWhy.holders, 0, "0xa was cut");
+});
+
+test("dust griefing: tokens from the launcher after a buy, or dust before it, never take a buyer's points", () => {
+  const b = buyer(w(1), START + DAY, 0.003);
+  const others = crowd(9, 1000);
+  const after = { wallet: w(1), block: b.first.block + 10, logIndex: 0, raw: tokensFor(1) }; // $2,000 of tokens, after the buy
+  const dust = { wallet: w(1), block: 10, logIndex: 0, raw: 1n }; // 1 wei, before it
+  const r = scoreSeason(build([b, ...others], { linked: new Map([[L.key, [after, dust]]]) }));
+  assert.equal(r.wallets.get(w(1))!.scoutWhy.holds, 1);
+  assert.equal(r.realHolders.get(L.key), 10);
+  // $5 or more before the first buy: an insider, as before
+  const fed = { wallet: w(1), block: 10, logIndex: 0, raw: tokensFor(0.0025) };
+  const r2 = scoreSeason(build([b, ...others], { linked: new Map([[L.key, [fed]]]) }));
+  assert.equal(r2.wallets.get(w(1))?.scoutWhy.holds ?? 0, 0);
+  assert.equal(r2.realHolders.get(L.key), 9);
+  // a wallet that never bought is linked by what it got at any time (it sells only what it was given)
+  const never = { wallet: w(77), block: 99_999, logIndex: 0, raw: tokensFor(0.0025) };
+  const sale: ScoreSwap = { key: L.key, trader: w(77), isBuy: true, quoteRaw: eth(1), tokenRaw: tokensFor(1), block: 100_000, logIndex: 1, time: START + 2 * DAY, tx: "0xn" };
+  const r3 = scoreSeason(build([b, ...others], { swaps: [b.swap, ...others.map((o) => o.swap), sale], linked: new Map([[L.key, [never]]]), eligible: new Set([w(77)]) }));
+  assert.equal(r3.wallets.get(CREATOR)?.creatorWhy.feesUsd ?? 0, 0, "its trades are an insider's");
+});
+
+test("trade-time USD: a buy is judged by its value at its own hour, not today's price", () => {
+  // today ETH is $2,000, so 0.003 ETH reads $6; at the buy's hour it was worth $4 (stored): not a real buy
+  const cheap = buyer(w(1), START + DAY, 0.003);
+  cheap.first.usd = 4;
+  cheap.swap.usd = 4;
+  const r = scoreSeason(build([cheap, ...crowd(9, 1000)]));
+  assert.equal(r.realHolders.get(L.key), 9);
+  // today 0.002 ETH reads $4; at its hour it was $6 (stored): a real buy
+  const dear = buyer(w(2), START + DAY, 0.002, 1);
+  dear.first.usd = 6;
+  dear.swap.usd = 6;
+  const r2 = scoreSeason(build([dear, ...crowd(9, 1000)], { eligible: new Set([w(2)]) })); // eligible: a $1 floor for what it holds
+  assert.equal(r2.realHolders.get(L.key), 10);
+  // fees too: a stored $1,000 buy pays its 1% at $1,000, whatever the quote is worth now
+  const whale = buyer(w(3), START + DAY, 0.003);
+  whale.swap.usd = 1_000;
+  const holders = crowd(20, 3000);
+  const r3 = scoreSeason(build([whale, ...holders], { eligible: new Set(wallets(holders.slice(0, 7))) }));
+  assert.equal(r3.wallets.get(w(3))!.scoutWhy.feesUsd, 10);
+});
+
+test("steady price: median of three, the older of two, the one there is", () => {
+  assert.equal(steadyPrice([100, 1, 1.1]), 1.1, "a pump at the cut-off moves nothing");
+  assert.equal(steadyPrice([0.01, 1, 1.1]), 1, "nor a dump");
+  assert.equal(steadyPrice([5, 1, null]), 1, "two: the older");
+  assert.equal(steadyPrice([5, null, null]), 5);
+  assert.equal(steadyPrice([null, null, null]), null);
+  assert.equal(steadyPrice([0, Number.NaN, 2]), 2);
 });

@@ -9,9 +9,11 @@ import { DEAD_ADDR, ZERO_ADDR } from "@/lib/launchpad/holders";
 import { launchDeployBlock, systemAddresses } from "@/lib/launchpad/indexer";
 import { quotePerToken } from "@/lib/launchpad/math";
 import { quotePricer } from "@/lib/launchpad/queries";
+import { hourIso } from "@/lib/launchpad/usd-history";
+import { capturable } from "@/lib/launchpad/usdLedger";
 import { lastBlockBetween } from "./blocks";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
-import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type CreatorBreakdown, type FirstBuy, type PublicReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
+import { isEligible, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type CreatorBreakdown, type FirstBuy, type LinkedTransfer, type PublicReason, type ScoreLaunch, type ScoreSwap, type ScoutBreakdown } from "./score";
 
 /**
  * Season points, the server half: load one season's chain data, score it (score.ts), replace the season's rows.
@@ -20,7 +22,11 @@ import { isEligible, notEligibleReason, rankBy, scoreSeason, whyLine, type Creat
  * demand from /admin. Everything is recomputed from scratch, so a rule change or an admin flag applies to the whole
  * season on the next run.
  *
- * Prices: without ETH, GITLAWB or TWIG a run writes nothing (the last board stays). Another quote that normally has a
+ * Prices: trades count at their own hour's value (bb_launch_swaps.usd; this run's quote price where none was stored).
+ * Balances are held to the token's steady price (score.steadyPrice: the median of its last trade price at the
+ * cut-off, 12 h and 24 h before), in quote terms times the quote's USD price: for the final standings, the quote's
+ * price in the season's last hour (bb_quote_usd_hourly), so a final run an hour late values nothing at a later price.
+ * Without ETH, GITLAWB or TWIG a run writes nothing (the last board stays). Another quote that normally has a
  * price (a community pair priced from an openlaunch pool, a stock) but has none right now only takes its own tokens out of an hourly run, which the next run
  * puts back; a run that would fix the FINAL standings writes nothing instead (for up to a day), so a price blip can
  * never drop tokens from them for good. Tokens quoted in an unlisted pair never count (they have no price to hold
@@ -145,6 +151,40 @@ async function unattributedIn(read: Db, from: string, to: string): Promise<boole
   return Boolean(r?.open);
 }
 
+/** Hours of trade-price samples a run holds balances to: the cut-off, 12 h and 24 h before it (newest first). */
+const PRICE_SAMPLE_HOURS = [0, 12, 24];
+
+/**
+ * Each token's last trade price (sqrtPriceX96) before each of `times`, newest first: `${chain_id}:${token}` → one
+ * entry per time, null where the token had not traded yet. One indexed lookup per token and time
+ * (bb_launch_swaps_token_time_idx).
+ */
+export async function tradePricesBefore(read: Db, cids: readonly number[], toks: readonly string[], times: readonly string[]): Promise<Map<string, (string | null)[]>> {
+  const out = new Map<string, (string | null)[]>();
+  if (cids.length === 0) return out;
+  const rows = await read<{ chain_id: number; token: string; i: string; sqrt: string }[]>`
+    SELECT u.cid AS chain_id, u.tok AS token, p.i::text AS i, s.sqrt_price_x96::text AS sqrt
+      FROM unnest(${cids as number[]}::int[], ${toks as string[]}::text[]) AS u(cid, tok)
+      CROSS JOIN unnest(${times as string[]}::timestamptz[]) WITH ORDINALITY AS p(t, i)
+      CROSS JOIN LATERAL (
+        SELECT sqrt_price_x96 FROM bb_launch_swaps s
+         WHERE s.token = u.tok AND s.chain_id = u.cid AND s.block_time < p.t
+         ORDER BY s.block_time DESC, s.block_number DESC, s.log_index DESC LIMIT 1) s`;
+  for (const r of rows) {
+    const k = `${r.chain_id}:${r.token}`;
+    const list = out.get(k) ?? times.map(() => null);
+    list[Number(r.i) - 1] = r.sqrt;
+    out.set(k, list);
+  }
+  return out;
+}
+
+/** The USD price of every captured quote in the UTC hour holding `ms`: `${chain_id}:${quote}` → usd. */
+export async function quoteUsdAtHour(read: Db, ms: number): Promise<Map<string, number>> {
+  const rows = await read<{ chain_id: number; quote: string; usd: number }[]>`SELECT chain_id, quote, usd FROM bb_quote_usd_hourly WHERE hour = ${hourIso(ms)}`;
+  return new Map(rows.map((r) => [`${r.chain_id}:${r.quote.toLowerCase()}`, Number(r.usd)]));
+}
+
 /** `read` runs the season's reads one after another (a reserved connection); `write` (the pool) runs the replace. */
 export async function computeSeason(read: Db, write: Db, season: Season): Promise<ComputeResult> {
   const t0 = Date.now();
@@ -189,8 +229,8 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const price = await quotePricer(usd);
 
   // the season's swaps decide which tokens are in scope
-  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string }[]>`
-    SELECT chain_id, token, trader, is_buy, amount0, amount1, block_number, log_index, tx_hash, block_time AS t
+  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string; usd: number | null }[]>`
+    SELECT chain_id, token, trader, is_buy, amount0, amount1, block_number, log_index, tx_hash, block_time AS t, usd
       FROM bb_launch_swaps WHERE block_time >= ${season.starts_at} AND block_time < ${until} AND trader IS NOT NULL`;
   const keyOf = (cid: number, token: string) => `${chainKeyOf(cid) ?? cid}:${token}`;
   const scope = new Map<string, { cid: number; token: string }>();
@@ -208,17 +248,24 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const launchRows = await read<LaunchRowRaw[]>`
     SELECT l.chain_id, l.token, l.launcher, l.recipients, l.block_number, l.block_time, l.lp_fee, l.quote, l.sqrt_price_x96
       FROM bb_launches l JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON l.chain_id = u.cid AND l.token = u.tok`;
+  // the token's steady price (its trades at the cut-off, 12 h and 24 h before), and once the season is over the
+  // quotes' prices in its last hour: a final run computed late values nothing at a later price
+  const tradePrices = await tradePricesBefore(read, cids, toks, PRICE_SAMPLE_HOURS.map((h) => new Date(dataUntil - h * 3_600_000).toISOString()));
+  const endHourUsd = dataUntil < now ? await quoteUsdAtHour(read, end - 1) : new Map<string, number>();
   const launches: ScoreLaunch[] = [];
   for (const l of launchRows) {
     const chain = chainKeyOf(l.chain_id) as ChainKey;
     const q = price(chain, l.quote);
-    if (q.usd === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
-    if (q.usd === null && q.priced && finalRun && now < end + PRICE_WAIT_MS) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
-    if (q.usd === null) {
+    // community pairs and unlisted quotes are never captured: they keep their price now, which follows their listing
+    const usdQ = (capturable(q.key) ? endHourUsd.get(`${l.chain_id}:${l.quote.toLowerCase()}`) : undefined) ?? q.usd;
+    if (usdQ === null && MAIN_QUOTES.has(q.key)) return { skipped: `no price for ${q.key}` };
+    if (usdQ === null && q.priced && finalRun && now < end + PRICE_WAIT_MS) return { skipped: `no price for ${q.key} right now; the final standings wait for it` };
+    if (usdQ === null) {
       dropped++;
       continue;
     }
-    const perToken = l.sqrt_price_x96 ? quotePerToken(BigInt(l.sqrt_price_x96), q.decimals) : 0;
+    const samples = (tradePrices.get(`${l.chain_id}:${l.token}`) ?? []).map((x) => (x ? quotePerToken(BigInt(x), q.decimals) : null));
+    const perToken = steadyPrice(samples) ?? (l.sqrt_price_x96 ? quotePerToken(BigInt(l.sqrt_price_x96), q.decimals) : 0);
     launches.push({
       key: keyOf(l.chain_id, l.token),
       launcher: l.launcher,
@@ -227,13 +274,13 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
       launchTime: new Date(l.block_time).getTime(),
       lpFee: Number(l.lp_fee),
       quoteDecimals: q.decimals,
-      quoteUsd: q.usd,
-      tokenUsd: q.usd === null || !perToken ? null : perToken * q.usd,
+      quoteUsd: usdQ,
+      tokenUsd: !perToken ? null : perToken * usdQ,
     });
   }
 
-  const firstRows = await read<{ chain_id: number; token: string; trader: string; block_number: bigint; log_index: number; tx_hash: string; t: string; amount0: string; amount1: string }[]>`
-    SELECT DISTINCT ON (s.chain_id, s.token, s.trader) s.chain_id, s.token, s.trader, s.block_number, s.log_index, s.tx_hash, s.block_time AS t, s.amount0, s.amount1
+  const firstRows = await read<{ chain_id: number; token: string; trader: string; block_number: bigint; log_index: number; tx_hash: string; t: string; amount0: string; amount1: string; usd: number | null }[]>`
+    SELECT DISTINCT ON (s.chain_id, s.token, s.trader) s.chain_id, s.token, s.trader, s.block_number, s.log_index, s.tx_hash, s.block_time AS t, s.amount0, s.amount1, s.usd
       FROM bb_launch_swaps s JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
      WHERE s.is_buy AND s.trader IS NOT NULL AND s.block_time < ${until} ORDER BY s.chain_id, s.token, s.trader, s.block_number, s.log_index`; // buys after the end are not the season's
   // every balance change of every buyer (and launcher) of the tokens in scope: holding is judged on the lowest balance
@@ -255,8 +302,10 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
       FROM bb_launch_swaps s JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
       JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON s.chain_id = u.cid AND s.token = u.tok
      WHERE s.is_buy AND s.trader = l.launcher AND s.block_time < ${until}`;
-  const linkedRows = await read<{ chain_id: number; token: string; to_addr: string }[]>`
-    SELECT DISTINCT t.chain_id, t.token, t.to_addr
+  // every transfer from the launcher or a fee recipient, with its position: only those before a wallet's first buy
+  // (and worth $5 or more together) make it an insider (score.ts), so dust sent after a buy takes nothing away
+  const linkedRows = await read<{ chain_id: number; token: string; to_addr: string; block_number: bigint; log_index: number; value: string }[]>`
+    SELECT t.chain_id, t.token, t.to_addr, t.block_number, t.log_index, t.value::text AS value
       FROM bb_token_transfers t JOIN bb_launches l ON l.chain_id = t.chain_id AND l.token = t.token
       JOIN unnest(${cids}::int[], ${toks}::text[]) AS u(cid, tok) ON t.chain_id = u.cid AND t.token = u.tok
       JOIN unnest(${boundCids}::int[], ${boundBlocks}::bigint[]) AS e(cid, eb) ON e.cid = t.chain_id AND t.block_number <= e.eb
@@ -267,19 +316,20 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
 
   const abs = (v: string) => (v.startsWith("-") ? BigInt(v.slice(1)) : BigInt(v));
   const int = (v: string) => abs(v.split(".")[0]);
-  const swaps: ScoreSwap[] = swapRows.map((s) => ({ key: keyOf(s.chain_id, s.token), trader: s.trader, isBuy: s.is_buy, quoteRaw: abs(s.amount0), tokenRaw: abs(s.amount1), block: Number(s.block_number), logIndex: Number(s.log_index), time: new Date(s.t).getTime(), tx: s.tx_hash }));
-  const firstBuys: FirstBuy[] = firstRows.map((f) => ({ key: keyOf(f.chain_id, f.token), wallet: f.trader, block: Number(f.block_number), logIndex: Number(f.log_index), time: new Date(f.t).getTime(), quoteRaw: abs(f.amount0), tokenRaw: abs(f.amount1), tx: f.tx_hash }));
+  const usdOf = (v: number | null) => (v === null || v === undefined ? null : Number(v));
+  const swaps: ScoreSwap[] = swapRows.map((s) => ({ key: keyOf(s.chain_id, s.token), trader: s.trader, isBuy: s.is_buy, quoteRaw: abs(s.amount0), tokenRaw: abs(s.amount1), block: Number(s.block_number), logIndex: Number(s.log_index), time: new Date(s.t).getTime(), tx: s.tx_hash, usd: usdOf(s.usd) }));
+  const firstBuys: FirstBuy[] = firstRows.map((f) => ({ key: keyOf(f.chain_id, f.token), wallet: f.trader, block: Number(f.block_number), logIndex: Number(f.log_index), time: new Date(f.t).getTime(), quoteRaw: abs(f.amount0), tokenRaw: abs(f.amount1), tx: f.tx_hash, usd: usdOf(f.usd) }));
   const launcherBuys = new Map<string, { tx: string; tokenRaw: bigint }[]>();
   for (const b of launcherBuyRows) {
     const k = keyOf(b.chain_id, b.token);
     launcherBuys.set(k, [...(launcherBuys.get(k) ?? []), { tx: b.tx_hash, tokenRaw: abs(b.amount1) }]);
   }
-  const linked = new Map<string, Set<string>>();
+  const linked = new Map<string, LinkedTransfer[]>();
   for (const r of linkedRows) {
     const k = keyOf(r.chain_id, r.token);
-    const set = linked.get(k) ?? new Set<string>();
-    set.add(r.to_addr);
-    linked.set(k, set);
+    const list = linked.get(k) ?? [];
+    list.push({ wallet: r.to_addr, block: Number(r.block_number), logIndex: Number(r.log_index), raw: int(r.value) });
+    linked.set(k, list);
   }
   const eligible = new Set(profileRows.filter((p) => isEligible(p, now)).map((p) => p.wallet));
   const flagged = new Set(profileRows.filter((p) => p.points_flag).map((p) => p.wallet));
