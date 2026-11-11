@@ -38,8 +38,9 @@
  *       more while still holding half of that first buy
  *     - 5 per token with 10+ counted holders that the wallet first bought in the season (a real buy) and still
  *       half-held a day later; at most 20 tokens per UTC day
- *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ counted holders (5+ of them eligible),
- *       for each buy half of which has been held ever since; at most 200 a day
+ *     - 10 per $1 of fees paid on buys ≥ $5 of other people's tokens with 20+ counted holders (which takes at least 7
+ *       eligible ones; the 5+ eligible check is kept but never decides alone), for each buy half of which has been
+ *       held ever since; at most 200 a day
  *
  * Version 2 (seasons started on rules_version 2; score.RULES_V2) adds, on top of everything above:
  *   - in-app trading (bb_launch_swaps.via_app; appTag.ts): a held in-app buy earns 15 per $1 of fees instead of 10;
@@ -58,9 +59,11 @@
 
 /**
  * Version 1: every season started before rules had versions, and the base every later version builds on. A season
- * keeps the version it was started with (bb_seasons.rules_version), so a rule added later never changes the standings
- * of a season already running; fixes that only take farmed points away (PR "close the sock-farm, dust and end-price
- * holes") are part of version 1 itself.
+ * keeps the version it was started with (bb_seasons.rules_version), so a bonus added later never changes the standings
+ * of a season already running. Fixes to how version 1 judges buyers, holders and prices (2026-11-11: counted holders,
+ * linked wallets only from before a first buy, trade-time USD, the steady price) are part of version 1 itself and
+ * rescore a running season on its next run: mostly they take farmed points away, but a wallet wrongly treated as an
+ * insider, or a trade worth more at its own hour, can gain.
  */
 export const RULES_V1 = {
   sniperBlocks: 3,
@@ -266,6 +269,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   const receivedByTx = new Map<string, bigint>(); // `${key}|${wallet}|${tx}` → what that tx brought in at all
   // (version 2) each lot's outflows by block, to tell what was left of it at a moment; and what each outflow used up
   type Lot = { tx: string; size: bigint; left: bigint; outs: { block: number; take: bigint }[] };
+  const history = R.bonus !== undefined; // version 1 needs none of it
   const lotsOfTx = new Map<string, Lot[]>(); // `${key}|${wallet}|${tx}` → the lots that tx brought in
   const usedBy = new Map<string, { lotTx: string; take: bigint }[]>(); // `${key}|${wallet}|${outTx}` → the lots it used up
   {
@@ -294,17 +298,22 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
             const take = top.left < out ? top.left : out;
             top.left -= take;
             out -= take;
-            top.outs.push({ block: m.block, take });
-            const used = usedBy.get(`${k}|${m.tx}`) ?? [];
-            used.push({ lotTx: top.tx, take });
-            usedBy.set(`${k}|${m.tx}`, used);
+            if (history) {
+              top.outs.push({ block: m.block, take });
+              const used = usedBy.get(`${k}|${m.tx}`);
+              if (used) used.push({ lotTx: top.tx, take });
+              else usedBy.set(`${k}|${m.tx}`, [{ lotTx: top.tx, take }]);
+            }
             if (top.left === 0n) stack.pop();
           }
         }
       }
       for (const lot of all) {
         lotsByTx.set(`${k}|${lot.tx}`, (lotsByTx.get(`${k}|${lot.tx}`) ?? 0n) + lot.left);
-        lotsOfTx.set(`${k}|${lot.tx}`, [...(lotsOfTx.get(`${k}|${lot.tx}`) ?? []), lot]);
+        if (!history) continue;
+        const lots = lotsOfTx.get(`${k}|${lot.tx}`);
+        if (lots) lots.push(lot);
+        else lotsOfTx.set(`${k}|${lot.tx}`, [lot]);
       }
     }
   }
@@ -328,7 +337,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   // known. A bare transfer between that trade and the next is taken as after the moment: in the holder's favour, which
   // cannot be farmed (the tokens moved out and still unsold sit in the token as long as they would have)
   const timeline = new Map<string, { time: number; block: number }[]>();
-  for (const t of [...input.swaps, ...input.firstBuys, ...(input.timelinePoints ?? [])]) {
+  for (const t of history ? [...input.swaps, ...input.firstBuys, ...(input.timelinePoints ?? [])] : []) {
     const c = t.key.split(":")[0];
     const list = timeline.get(c) ?? [];
     list.push({ time: t.time, block: t.block });
@@ -394,23 +403,35 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   // (the fees coming back to a farmer's own token) earns nothing and washing ties up real capital for the season.
   // From version 2, a buy half held for a week (buyVestMs) keeps them after it is sold: capital still sits a week
   const B = R.bonus;
+  const heldMemo = new Map<ScoreSwap, boolean>(); // creator fees, volume and scout fees each ask about the same buys
   const heldBuy = (s: ScoreSwap) => {
-    if (!B || end - s.time < B.buyVestMs) return halfLeft(s.key, s.trader, s.tx, s.tokenRaw);
-    const left = leftAt(s.key, s.trader, s.tx, lastBlockAt(s.key, s.time + B.buyVestMs));
-    return left > 0n && left * 2n >= s.tokenRaw;
+    const hit = heldMemo.get(s);
+    if (hit !== undefined) return hit;
+    let held: boolean;
+    if (!B || end - s.time < B.buyVestMs) held = halfLeft(s.key, s.trader, s.tx, s.tokenRaw);
+    else {
+      const left = leftAt(s.key, s.trader, s.tx, lastBlockAt(s.key, s.time + B.buyVestMs));
+      held = left > 0n && left * 2n >= s.tokenRaw;
+    }
+    heldMemo.set(s, held);
+    return held;
   };
   // (version 2) the share of a sell that sold the wallet's own in-season buys made a week or more before it (LIFO:
-  // a round trip uses up the lot it just bought, so it never qualifies)
+  // a round trip uses up the lot it just bought, so it never qualifies). Worked out for the whole transaction (what it
+  // sold of week-old buys over everything it moved out) and given to each of its sell swaps alike: a sale split into
+  // many swaps shares one old lot between them instead of each claiming all of it
   const buyTime = new Map<string, number>(); // `${key}|${wallet}|${tx}` → when an in-season buy was made
   for (const s of input.swaps) if (s.isBuy && inSeason(s.time)) buyTime.set(`${s.key}|${s.trader}|${s.tx}`, s.time);
   const agedSellShare = (s: ScoreSwap) => {
     if (!B || s.isBuy || s.tokenRaw <= 0n) return 0;
     let aged = 0n;
+    let total = 0n;
     for (const u of usedBy.get(`${s.key}|${s.trader}|${s.tx}`) ?? []) {
+      total += u.take;
       const at = buyTime.get(`${s.key}|${s.trader}|${u.lotTx}`);
       if (at !== undefined && s.time - at >= B.sellMinLotAgeMs) aged += u.take;
     }
-    return Math.min(1, Number((aged * 1_000_000n) / s.tokenRaw) / 1_000_000);
+    return total > 0n ? Math.min(1, Number((aged * 1_000_000n) / total) / 1_000_000) : 0;
   };
 
   // ── creator points ──
@@ -440,6 +461,25 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
   }
+  // the creator's in-season outflows of each token: a sell, or tokens moved to any other wallet (one that then sells
+  // included; a burn is not one), told from earlier ones by the season's first block on that chain
+  const creatorOut = new Set(creatorSold);
+  for (const m of input.moves) {
+    const l = launches.get(m.key);
+    if (!l || m.wallet !== l.launcher || m.delta >= 0n || m.burn) continue;
+    const from = input.seasonStartBlocks.get(m.key.split(":")[0]);
+    if (from !== undefined && m.block >= from) creatorOut.add(m.key);
+  }
+  /**
+   * A dump: tokens moved out during the season and less than half of the creator's own buys is left (fee tokens that
+   * came in after the buys are used up first, so selling those is not one).
+   */
+  const dumped = (l: ScoreLaunch) => {
+    const buys = input.launcherBuys.get(l.key) ?? [];
+    const bought = buys.reduce((a, b) => a + b.tokenRaw, 0n);
+    const left = buys.reduce((a, b) => a + leftOf(l.key, l.launcher, b.tx), 0n);
+    return bought > 0n && creatorOut.has(l.key) && left * 2n < bought;
+  };
   // (version 2) volume milestones: each token's qualified volume is its outside trades with capital at risk, at their
   // own hour's value: buys still held (heldBuy: half held throughout, or for a week), and the share of sells that sold
   // the trader's own buys made a week or more before (so a round trip counts for nothing on either side); each trader
@@ -448,8 +488,11 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   if (B) {
     const used = new Map<string, number>(); // `${creator}|${trader}|${day}` → qualified volume counted so far
     const volume = new Map<string, { usd: number; traders: Set<string> }>();
+    const dumpedKeys = new Set<string>();
+    for (const l of launches.values()) if (dumped(l)) dumpedKeys.add(l.key);
     for (const s of outside) {
       const l = launches.get(s.key)!;
+      if (dumpedKeys.has(s.key)) continue; // a dumped token scores nothing, and uses up no trader's allowance
       const eligible = input.eligible.has(s.trader);
       const atRisk = s.isBuy ? (heldBuy(s) ? 1 : 0) : agedSellShare(s);
       if (atRisk <= 0) continue;
@@ -472,23 +515,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
       if (pts > 0) ensure(launches.get(key)!).volume = { pts, usd: v.usd };
     }
   }
-  // the creator's in-season outflows of each token: a sell, or tokens moved to any other wallet (one that then sells
-  // included; a burn is not one), told from earlier ones by the season's first block on that chain
-  const creatorOut = new Set(creatorSold);
-  for (const m of input.moves) {
-    const l = launches.get(m.key);
-    if (!l || m.wallet !== l.launcher || m.delta >= 0n || m.burn) continue;
-    const from = input.seasonStartBlocks.get(m.key.split(":")[0]);
-    if (from !== undefined && m.block >= from) creatorOut.add(m.key);
-  }
-  for (const t of perToken.values()) {
-    const buys = input.launcherBuys.get(t.l.key) ?? [];
-    const bought = buys.reduce((a, b) => a + b.tokenRaw, 0n);
-    const left = buys.reduce((a, b) => a + leftOf(t.l.key, t.l.launcher, b.tx), 0n);
-    // a dump = tokens moved out during the season and less than half of the creator's own buys is left (fee tokens
-    // that came in after the buys are used up first, so selling those is not one)
-    if (bought > 0n && creatorOut.has(t.l.key) && left * 2n < bought) t.dumped = true;
-  }
+  for (const t of perToken.values()) if (dumped(t.l)) t.dumped = true;
   // per creator: each holder once (their best token), fees capped per trader per day, best 3 tokens per launch day
   const byCreator = new Map<string, TokenCreator[]>();
   for (const t of perToken.values()) {
@@ -715,6 +742,16 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
 /** How many unverified holders count beside `eligible` eligible ones: max(10, 2 × eligible). */
 export function unverifiedAllowance(eligible: number, rules: Rules = RULES_V1): number {
   return Math.max(rules.unverifiedFree, rules.unverifiedPerVerified * eligible);
+}
+
+/**
+ * The fewest eligible holders a token needs to reach `counted` counted holders, however many unverified ones it has:
+ * the real floor behind a "20+ counted holders" gate (7 there, so its "5+ eligible" never decides on its own).
+ */
+export function eligibleNeededFor(counted: number, rules: Rules = RULES_V1): number {
+  let e = 0;
+  while (e + unverifiedAllowance(e, rules) < counted) e++;
+  return e;
 }
 
 /** Counted holders: every eligible one, and unverified ones up to the allowance (a crowd of fresh wallets reaches no threshold alone). */

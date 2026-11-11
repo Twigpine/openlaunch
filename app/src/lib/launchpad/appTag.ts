@@ -6,23 +6,17 @@
  *   - the transaction was sent to the chain's Universal Router and its input ends with the suffix (a wallet sending
  *     its own transaction), or with the suffix followed only by another ERC-8021 suffix (a wallet that appends a
  *     builder code of its own); the same bytes inside the swap's arguments do not count, or
- *   - it was sent to an ERC-4337 EntryPoint, and the user operation of the account the swap is credited to carries
- *     the suffix in its callData (a smart wallet: the app's call, suffix and all, sits inside the operation; ABI
- *     encoding pads that call, so there the suffix is never last and is looked for anywhere in the callData).
+ *   - it was sent to an ERC-4337 EntryPoint, and the user operation of the account the swap is credited to calls the
+ *     Universal Router with the suffix (a smart wallet: the app's call, suffix and all, sits inside the operation; ABI
+ *     encoding pads that call, so there the suffix is never last and the router address and the suffix are looked
+ *     for anywhere in the callData; an operation calling a bot contract or an aggregator does not count).
  * Anything else (an aggregator, a bot contract, another front end's smart-wallet trade) is not in-app.
  *
  * The suffix is public, so anyone can copy it: this is a label for a small, capped points bonus, never proof. It is
  * worked out once per transaction and only its result is kept (the input itself can be kilobytes).
  */
 import { decodeFunctionData, parseAbi, type Hex } from "viem";
-
-/** ERC-4337 EntryPoints (same address on every chain): v0.6, v0.7, v0.8, v0.9. Lowercase; kept equal to attribution.ts. */
-const ENTRY_POINTS: ReadonlySet<string> = new Set([
-  "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
-  "0x0000000071727de22e5e9d8baf0edac6f37da032",
-  "0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
-  "0x433709009b8330fda32311df1c2afa402ed8d009",
-]);
+import { ENTRY_POINTS } from "./attribution.ts";
 
 /** handleOps for v0.6 (UserOperation) and v0.7+ (PackedUserOperation): different tuples, so different selectors. */
 export const HANDLE_OPS_ABI = parseAbi([
@@ -64,7 +58,8 @@ export function appTagOf(p: { to: string | null; input: string; router: string; 
   if (!ENTRY_POINTS.has(to) || !input.includes(needle)) return NONE; // cheap: no suffix anywhere, no operation has it
   try {
     const { args } = decodeFunctionData({ abi: HANDLE_OPS_ABI, data: p.input as Hex });
-    const senders = args[0].filter((op) => op.callData.toLowerCase().includes(needle)).map((op) => op.sender.toLowerCase());
+    const router = bare(p.router);
+    const senders = args[0].filter((op) => { const cd = op.callData.toLowerCase(); return cd.includes(needle) && cd.includes(router); }).map((op) => op.sender.toLowerCase());
     return { direct: false, senders: [...new Set(senders)] };
   } catch {
     return NONE; // handleAggregatedOps, or an input that is not a bundle: not tagged

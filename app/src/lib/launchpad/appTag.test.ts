@@ -52,6 +52,9 @@ test("a smart wallet's operation is in-app only for the account whose own callDa
     assert.equal(swapInApp(tag, "0x00000000000000000000000000000000000000cc", "tx_from"), false, "credited to the bundler");
   }
   assert.deepEqual(appTagOf({ to: EP06, input: bundle06([op06(ACCOUNT, plain)]), router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] });
+  // the suffix on an operation that calls something other than the router (a bot contract, an aggregator) is not in-app
+  const elsewhere = encodeFunctionData({ abi: smartExecute, args: [OTHER as Hex, 0n, (swapCall + tail) as Hex] });
+  assert.deepEqual(appTagOf({ to: EP06, input: bundle06([op06(ACCOUNT, elsewhere)]), router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] });
   assert.deepEqual(appTagOf({ to: EP06, input: "0xdeadbeef" + tail, router: ROUTER, suffix: SUFFIX }), { direct: false, senders: [] }, "not a bundle");
 });
 

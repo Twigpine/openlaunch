@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LATEST_RULES_VERSION, RULES, RULES_V1, RULES_V2, countedHolders, isEligible, rulesFor, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
+import { LATEST_RULES_VERSION, RULES, RULES_V1, RULES_V2, countedHolders, eligibleNeededFor, isEligible, rulesFor, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
 
 const DAY = 86_400_000;
 const START = Date.UTC(2026, 9, 1);
@@ -577,4 +577,46 @@ test("v2 vesting boundary: a swap not credited to anyone yet still places a tran
   assert.equal(r.wallets.get(CREATOR)!.creatorWhy.feesUsd, Math.round(7 * 0.06 * 100) / 100);
   assert.equal(r.wallets.get(w(1))?.scout ?? 0, 0, "the buyer loses its own fee points too");
   assert.deepEqual([...r.wallets.keys()].filter((k) => !run().wallets.has(k)), [], "the uncredited swap scores no one");
+});
+
+// ── final review 2026-11-11 ──────────────────────────────────────────────────
+test("v2 sells: a sale split into many swaps shares one week-old lot between them, it does not count it once per swap", () => {
+  const old = trade(w(1), START + DAY + 3_600_000, 0.01, 30_000, { app: true }); // $20, held 8 days
+  const fresh = trade(w(1), START + 9 * DAY, 0.5, 39_000, { app: true }); // $1,000 the same day as the sale
+  // one transaction selling all of it as 51 swaps of $20: LIFO takes the fresh lot first, so $20 of it is week-old
+  const unit = tokensFor(0.01);
+  const sells = Array.from({ length: 51 }, (_, i) => {
+    const swap: ScoreSwap = { key: L.key, trader: w(1), isBuy: false, quoteRaw: eth(0.01), tokenRaw: unit, block: 39_100, logIndex: 10 + 2 * i, time: START + 9 * DAY + 60_000, tx: "0xsellmany", app: true };
+    const move: Move = { key: L.key, wallet: w(1), block: 39_100, logIndex: 11 + 2 * i, tx: "0xsellmany", delta: -unit };
+    return { swap, move };
+  });
+  const r = v2([old, fresh, ...sells]).wallets.get(w(1))!;
+  assert.ok(Math.abs((r.scoutWhy.sellFeesUsd ?? 0) - 0.2) < 0.011, `sell fees ${r.scoutWhy.sellFeesUsd}: $20 sold at 1%`);
+});
+
+test("v2 creator volume: a dumped token uses up none of a trader's daily allowance", () => {
+  const holders = crowd(51, 6000);
+  const eligibleHolders = wallets(holders.slice(0, 17));
+  const A: ScoreLaunch = { ...L, key: "base:0xdumped" };
+  // the creator bought 1M of A and moved most of it out this season: A is a dump
+  const boughtA = new Map([[A.key, [{ tx: "0xcbA", tokenRaw: 1_000_000n * E18 }]]]);
+  const creatorMoves: Move[] = [
+    { key: A.key, wallet: CREATOR, block: 50, logIndex: 1, tx: "0xcbA", delta: 1_000_000n * E18 },
+    { key: A.key, wallet: CREATOR, block: 3_000, logIndex: 1, tx: "0xdumpA", delta: -700_000n * E18 },
+  ];
+  // 10 eligible traders: each spends their day's $1,000 on A first, then $1,000 on L (for a week)
+  const both = Array.from({ length: 10 }, (_, i) => Array.from({ length: 7 }, (_, d) => [
+    trade(w(9600 + i), START + (2 + d) * DAY + i, 0.5, 70_000 + d * 100 + i * 2, { launch: A }),
+    trade(w(9600 + i), START + (2 + d) * DAY + i + 60_000, 0.5, 70_000 + d * 100 + i * 2 + 1),
+  ]).flat()).flat();
+  const c = scoreSeason(build(holders, { launches: [L, A], swaps: [...holders.map((h) => h.swap), ...both.map((x) => x.swap)], moves: [...holders.flatMap((h) => h.moves), ...both.map((x) => x.move), ...creatorMoves], launcherBuys: boughtA, eligible: new Set([...eligibleHolders, ...both.map((x) => x.swap.trader)]) }), RULES_V2).wallets.get(CREATOR)!;
+  assert.equal(c.creatorWhy.dumped, 1);
+  assert.equal(c.creatorWhy.volumeUsd, 70_000 + 51 * 6, "L gets each trader's full $1,000 a day");
+  assert.equal(c.creatorWhy.volumePts, 100 + 400);
+});
+
+test("the eligible holders a counted-holders gate really needs", () => {
+  assert.equal(eligibleNeededFor(RULES.scoutFeeMinHolders), 7, "20 counted: 6 + 12 = 18 is short, 7 + 14 = 21");
+  assert.equal(eligibleNeededFor(RULES.holdMinHolders), 0, "10 counted: ten unverified holders reach it");
+  assert.equal(eligibleNeededFor(RULES.earlyHoldersTarget), 17, "50 counted: 16 + 32 = 48 is short");
 });
