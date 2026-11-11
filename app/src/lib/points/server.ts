@@ -230,9 +230,12 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
   const price = await quotePricer(usd);
 
   // the season's swaps decide which tokens are in scope
-  const swapRows = await read<{ chain_id: number; token: string; trader: string; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string; usd: number | null; app: boolean }[]>`
+  // every swap of the season: those credited to a trader are scored; the rest (a sender not read yet) only place
+  // transfers in time for the week's vesting (score.timelinePoints)
+  const seasonSwapRows = await read<{ chain_id: number; token: string; trader: string | null; is_buy: boolean; amount0: string; amount1: string; block_number: bigint; log_index: number; tx_hash: string; t: string; usd: number | null; app: boolean }[]>`
     SELECT chain_id, token, trader, is_buy, amount0, amount1, block_number, log_index, tx_hash, block_time AS t, usd, via_app IS TRUE AS app
-      FROM bb_launch_swaps WHERE block_time >= ${season.starts_at} AND block_time < ${until} AND trader IS NOT NULL`;
+      FROM bb_launch_swaps WHERE block_time >= ${season.starts_at} AND block_time < ${until}`;
+  const swapRows = seasonSwapRows.filter((s): s is typeof s & { trader: string } => s.trader !== null);
   const keyOf = (cid: number, token: string) => `${chainKeyOf(cid) ?? cid}:${token}`;
   const scope = new Map<string, { cid: number; token: string }>();
   for (const s of swapRows) scope.set(keyOf(s.chain_id, s.token), { cid: s.chain_id, token: s.token });
@@ -357,6 +360,7 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
     eligible,
     flagged,
     seasonStartBlocks,
+    timelinePoints: seasonSwapRows.filter((s) => s.trader === null).map((s) => ({ key: keyOf(s.chain_id, s.token), block: Number(s.block_number), time: new Date(s.t).getTime() })),
   }, rulesFor(season.rules_version));
 
   const scores = [...result.wallets.values()];

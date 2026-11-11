@@ -202,6 +202,11 @@ export type ScoreInput = {
    * what tells a creator's in-season outflows from earlier ones. A chain missing here counts only swap sells.
    */
   seasonStartBlocks: ReadonlyMap<string, number>;
+  /**
+   * (version 2) more exact (time, block) points that place transfers in time for the week's vesting: the season's
+   * swaps not credited to anyone yet. Never scored as trades.
+   */
+  timelinePoints?: readonly { key: string; block: number; time: number }[];
 };
 
 /** Version 2 adds `volumeUsd` / `volumePts` (creator) and `appFeesUsd` / `sellFeesUsd` (scout); older rows lack them. */
@@ -323,7 +328,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   // known. A bare transfer between that trade and the next is taken as after the moment: in the holder's favour, which
   // cannot be farmed (the tokens moved out and still unsold sit in the token as long as they would have)
   const timeline = new Map<string, { time: number; block: number }[]>();
-  for (const t of [...input.swaps, ...input.firstBuys]) {
+  for (const t of [...input.swaps, ...input.firstBuys, ...(input.timelinePoints ?? [])]) {
     const c = t.key.split(":")[0];
     const list = timeline.get(c) ?? [];
     list.push({ time: t.time, block: t.block });

@@ -563,3 +563,18 @@ test("v2 vesting boundary: a bare transfer after the week keeps the vesting, eve
   // a sell is a trade itself: sold on day 5, never vested
   assert.equal(vested([], [trade(w(1), START + 5 * DAY, 0.5, 35_000, { isBuy: false })]), holdersOnly);
 });
+
+test("v2 vesting boundary: a swap not credited to anyone yet still places a transfer before the week (and is never scored)", () => {
+  const buy = trade(w(1), START + DAY + 3_600_000, 0.5, 30_000); // an eligible trader, $10 fee
+  const eligible = new Set([...gateEligible, w(1)]);
+  const out: Move = { key: L.key, wallet: w(1), block: 31_000, logIndex: 1, tx: "0xoutday2", delta: -buy.move.delta }; // moved out on day 2
+  const run = (timelinePoints?: ScoreInput["timelinePoints"]) =>
+    scoreSeason(build(gate, { swaps: [...gate.map((g) => g.swap), buy.swap], moves: [...gate.flatMap((g) => g.moves), buy.move, out], eligible, timelinePoints }), RULES_V2);
+  // nothing places the transfer: taken as after the week (in the holder's favour)
+  assert.equal(run().wallets.get(CREATOR)!.creatorWhy.feesUsd, 10 + 7 * 0.06);
+  // an uncredited swap on day 3 (block 32,000) shows the transfer came before the week was up
+  const r = run([{ key: L.key, block: 32_000, time: START + 3 * DAY }]);
+  assert.equal(r.wallets.get(CREATOR)!.creatorWhy.feesUsd, Math.round(7 * 0.06 * 100) / 100);
+  assert.equal(r.wallets.get(w(1))?.scout ?? 0, 0, "the buyer loses its own fee points too");
+  assert.deepEqual([...r.wallets.keys()].filter((k) => !run().wallets.has(k)), [], "the uncredited swap scores no one");
+});
