@@ -11,6 +11,8 @@ import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
 import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
+import { appTagOf, swapInApp, type AppTag } from "./appTag";
+import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
 import { TWIG_ADDRESSES } from "./twig";
 import { boostFromTransfer } from "./boost";
 import { pairBurnFromTransfer } from "./pairApply";
@@ -91,16 +93,23 @@ async function timeOf(chain: ChainKey, block: bigint): Promise<string> {
   blockTime.set(k, iso);
   return iso;
 }
-const txFacts = new Map<string, { from: string; to: string | null }>();
-/** Transaction sender and target, lower-cased. Null when the RPC fails twice; the swap is then stored without a trader and `healSwapTraders` retries later. */
-async function txOf(chain: ChainKey, hash: Hex): Promise<{ from: string; to: string | null } | null> {
+/** Sender, target and app tag (appTag.ts: null = the input was not read) of one transaction. Only the tag of the input is kept. */
+type TxFacts = { from: string; to: string | null; tag: AppTag | null };
+const txFacts = new Map<string, TxFacts>();
+/** The app tag of a transaction's input on `chain` (its Universal Router and the app's builder suffix). */
+function tagOf(chain: ChainKey, to: string | null, input: string): AppTag {
+  return appTagOf({ to, input, router: launchpad(chain).v4.universalRouter, suffix: BUILDER_DATA_SUFFIX });
+}
+/** Transaction sender, target and app tag, lower-cased. Null when the RPC fails twice; the swap is then stored without a trader and `healSwapTraders` retries later. */
+async function txOf(chain: ChainKey, hash: Hex): Promise<TxFacts | null> {
   const k = `${chain}:${hash}`;
   const hit = txFacts.get(k);
   if (hit) return hit;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const tx = await publicClient(chain).getTransaction({ hash });
-      const f = { from: tx.from.toLowerCase(), to: tx.to ? tx.to.toLowerCase() : null };
+      const to = tx.to ? tx.to.toLowerCase() : null;
+      const f = { from: tx.from.toLowerCase(), to, tag: tagOf(chain, to, tx.input) };
       if (txFacts.size > 5000) txFacts.clear();
       txFacts.set(k, f);
       return f;
@@ -121,11 +130,12 @@ const RECEIPT_PENDING = "receipt_pending";
 /**
  * Who to credit for one swap (attribution.ts): the sender, or with proof the smart wallet behind an EntryPoint call.
  * `via` null = the transaction itself could not be read; RECEIPT_PENDING = it went to an EntryPoint but the receipt
- * could not be read. Either way the backlog pass tries again later.
+ * could not be read. Either way the backlog pass tries again later. `app`: made in the app (appTag.ts), for the trader
+ * credited here; null while unknown (written as NULL, which never counts as in-app).
  */
-async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token: string): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
+async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token: string): Promise<{ trader: string | null; tx_from: string | null; via: string | null; app: boolean | null }> {
   const tx = await txOf(chain, hash);
-  if (!tx) return { trader: null, tx_from: null, via: null };
+  if (!tx) return { trader: null, tx_from: null, via: null, app: null };
   let logs: ReceiptLog[] | null = null;
   if (tx.to && ENTRY_POINTS.has(tx.to)) {
     const k = `${chain}:${hash}`;
@@ -135,14 +145,14 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token:
         const r = await publicClient(chain).getTransactionReceipt({ hash });
         logs = r.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) }));
       } catch {
-        return { trader: tx.from, tx_from: tx.from, via: RECEIPT_PENDING };
+        return { trader: tx.from, tx_from: tx.from, via: RECEIPT_PENDING, app: null };
       }
       if (receiptLogs.size > 500) receiptLogs.clear();
       receiptLogs.set(k, logs);
     }
   }
   const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs, token });
-  return { trader: a.trader, tx_from: tx.from, via: a.via };
+  return { trader: a.trader, tx_from: tx.from, via: a.via, app: swapInApp(tx.tag, a.trader, a.via) };
 }
 
 // ── apply ────────────────────────────────────────────────────────────────────
@@ -194,8 +204,8 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
     const inserted = await t`
-    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time, usd)
-    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${a.amount0.toString()}, ${a.amount1.toString()},
+    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, via_app, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time, usd)
+    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${who.app}, ${a.amount0.toString()}, ${a.amount1.toString()},
             ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time},
             (SELECT ${absQuote.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
               WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
@@ -472,7 +482,7 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
     }
     attributionTries.delete(key);
     const up = await db<{ trader: string }[]>`
-      UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}
+      UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}, via_app = ${who.app}
        WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING})
        RETURNING trader`;
     if (up.length && who.via !== "tx_from") moved++;
@@ -819,7 +829,7 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
     for (const r of swaps) {
       const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token); // the transaction is cached now
       if (!who.trader) continue;
-      await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
+      await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via}, via_app = ${who.app} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
       healed++;
     }
   }
@@ -884,8 +894,13 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   // the receipt in hand is what attribution needs (sender, destination, logs): give it to traderOf, so crediting a
   // smart wallet's swap here never depends on reading the same receipt a second time from a node that may lag
   const k = `${chain}:${receipt.transactionHash}`; // the same hash the receipt's logs carry, so traderOf finds it
+  // the receipt has no input: the transaction is read for the app tag (twice at most). If that fails, the trade is
+  // still credited from the receipt, with its app tag unknown (NULL, never in-app) rather than held back
+  const to = receipt.to ? receipt.to.toLowerCase() : null;
+  let input: string | null = null;
+  for (let attempt = 0; attempt < 2 && input === null; attempt++) input = (await publicClient(chain).getTransaction({ hash: receipt.transactionHash }).catch(() => null))?.input ?? null;
   if (txFacts.size > 5000) txFacts.clear();
-  txFacts.set(k, { from: receipt.from.toLowerCase(), to: receipt.to ? receipt.to.toLowerCase() : null });
+  txFacts.set(k, { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) });
   if (receiptLogs.size > 500) receiptLogs.clear();
   receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
   const cfg = launchpad(chain);

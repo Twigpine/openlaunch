@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RULES, countedHolders, isEligible, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
+import { LATEST_RULES_VERSION, RULES, RULES_V1, countedHolders, isEligible, rulesFor, notEligibleReason, rankBy, scoreSeason, steadyPrice, whyLine, type FirstBuy, type ScoreInput, type ScoreLaunch, type ScoreSwap } from "./score.ts";
 
 const DAY = 86_400_000;
 const START = Date.UTC(2026, 9, 1);
@@ -419,4 +419,15 @@ test("steady price: median of three, the older of two, the one there is", () => 
   assert.equal(steadyPrice([5, null, null]), 5);
   assert.equal(steadyPrice([null, null, null]), null);
   assert.equal(steadyPrice([0, Number.NaN, 2]), 2);
+});
+
+test("rules versions: a season scores on the version it started with; an unknown one on version 1", () => {
+  assert.equal(rulesFor(1), RULES_V1);
+  assert.equal(rulesFor(undefined), RULES_V1);
+  assert.equal(rulesFor(999), RULES_V1);
+  assert.ok(LATEST_RULES_VERSION >= 1);
+  // the rules travel into the run: a stricter hold gate takes the hold away
+  const holders = [buyer(w(1), START + DAY, 0.003), ...crowd(9, 1000)];
+  assert.equal(scoreSeason(build(holders), RULES_V1).wallets.get(w(1))!.scoutWhy.holds, 1);
+  assert.equal(scoreSeason(build(holders), { ...RULES_V1, holdMinHolders: 11 }).wallets.get(w(1))?.scoutWhy.holds ?? 0, 0);
 });

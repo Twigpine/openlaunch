@@ -1,0 +1,67 @@
+/**
+ * Whether a swap was made in the openlaunch app (pure; node --test loads this directly; relative imports only).
+ *
+ * Every transaction the app sends carries its ERC-8021 builder-code suffix (chainPublic.BUILDER_DATA_SUFFIX) on the
+ * calldata. A swap counts as in-app when:
+ *   - the transaction was sent to the chain's Universal Router and its input carries the suffix (a wallet sending its
+ *     own transaction: the suffix ends the input, unless the wallet appended a builder code of its own after it), or
+ *   - it was sent to an ERC-4337 EntryPoint, and the user operation of the account the swap is credited to carries
+ *     the suffix in its callData (a smart wallet: the app's call, suffix and all, sits inside the operation).
+ * Anything else (an aggregator, a bot contract, another front end's smart-wallet trade) is not in-app.
+ *
+ * The suffix is public, so anyone can copy it: this is a label for a small, capped points bonus, never proof. It is
+ * worked out once per transaction and only its result is kept (the input itself can be kilobytes).
+ */
+import { decodeFunctionData, parseAbi, type Hex } from "viem";
+
+/** ERC-4337 EntryPoints (same address on every chain): v0.6, v0.7, v0.8, v0.9. Lowercase; kept equal to attribution.ts. */
+const ENTRY_POINTS: ReadonlySet<string> = new Set([
+  "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
+  "0x0000000071727de22e5e9d8baf0edac6f37da032",
+  "0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
+  "0x433709009b8330fda32311df1c2afa402ed8d009",
+]);
+
+/** handleOps for v0.6 (UserOperation) and v0.7+ (PackedUserOperation): different tuples, so different selectors. */
+export const HANDLE_OPS_ABI = parseAbi([
+  "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,uint256 callGasLimit,uint256 verificationGasLimit,uint256 preVerificationGas,uint256 maxFeePerGas,uint256 maxPriorityFeePerGas,bytes paymasterAndData,bytes signature)[] ops, address beneficiary)",
+  "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)[] ops, address beneficiary)",
+]);
+
+/** What one transaction says about the app: `direct` for a wallet's own router call, `senders` for smart wallets. */
+export type AppTag = { direct: boolean; senders: readonly string[] };
+
+const NONE: AppTag = { direct: false, senders: [] };
+
+/** The suffix as bare lowercase hex (no 0x), for searching an input. */
+function bare(suffix: string): string {
+  const s = suffix.toLowerCase();
+  return s.startsWith("0x") ? s.slice(2) : s;
+}
+
+/** The app tag of a transaction from its target, input, the chain's Universal Router and the builder suffix. */
+export function appTagOf(p: { to: string | null; input: string; router: string; suffix: string }): AppTag {
+  const to = p.to?.toLowerCase() ?? null;
+  const needle = bare(p.suffix);
+  if (!to || needle.length === 0) return NONE;
+  const input = p.input.toLowerCase();
+  if (to === p.router.toLowerCase()) return { direct: input.includes(needle), senders: [] };
+  if (!ENTRY_POINTS.has(to) || !input.includes(needle)) return NONE; // cheap: no suffix anywhere, no operation has it
+  try {
+    const { args } = decodeFunctionData({ abi: HANDLE_OPS_ABI, data: p.input as Hex });
+    const senders = args[0].filter((op) => op.callData.toLowerCase().includes(needle)).map((op) => op.sender.toLowerCase());
+    return { direct: false, senders: [...new Set(senders)] };
+  } catch {
+    return NONE; // handleAggregatedOps, or an input that is not a bundle: not tagged
+  }
+}
+
+/**
+ * Whether the swap credited to `trader` (by attribution.ts, `via` "userop" when credited to a smart wallet) is
+ * in-app. Null when the transaction's input was not read (unknown: written as NULL, which never counts).
+ */
+export function swapInApp(tag: AppTag | null, trader: string | null, via: string | null): boolean | null {
+  if (tag === null) return null;
+  if (!trader) return null;
+  return via === "userop" ? tag.senders.includes(trader.toLowerCase()) : tag.direct;
+}
