@@ -7,7 +7,7 @@ import { WhoAvatar, WhoName } from "@/components/profile/Who";
 import BoardRefresh from "@/components/points/BoardRefresh";
 import YourStanding from "@/components/points/YourStanding";
 import { memo } from "@/lib/launchpad/memo";
-import { RULES } from "@/lib/points/score";
+import { RULES, rulesFor } from "@/lib/points/score";
 import { boardRows, publicSeason, seasonEnded, seasonFinal, type Board } from "@/lib/points/server";
 import { pageMetadata } from "@/lib/seo";
 
@@ -60,7 +60,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
             <div>
               <p className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-line px-3 text-xs font-medium text-body"><Trophy size={14} className="text-brand" aria-hidden="true" />{season.name}</p>
               <h1 className="mt-4 text-[32px] font-bold leading-[1.1] tracking-[-0.04em] text-ink sm:text-[44px]">Leaderboard</h1>
-              <p className="mt-2 max-w-xl text-sm text-body text-pretty">Real buyers and early finds, read from the chain every hour. Points are reputation: no cash value, not a token. <Link href="/rules#points" className="underline underline-offset-4 hover:text-ink">How points work</Link></p>
+              <p className="mt-2 max-w-xl text-sm text-body text-pretty">Real buyers and early finds, read from the chain every hour. Points are reputation: no cash value, not a token. <Link href="/rules#points" className="underline underline-offset-4 hover:text-ink">How points work</Link>{rulesFor(season.rules_version).bonus ? <> · This season adds <Link href="/rules#bonuses" className="underline underline-offset-4 hover:text-ink">trading bonuses</Link> for trades in the app and creator volume milestones.</> : null}</p>
             </div>
             <div className="text-left sm:text-right">
               {ended ? (

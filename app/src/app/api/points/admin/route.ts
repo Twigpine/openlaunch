@@ -9,7 +9,7 @@ import { currentSeason, endSeasonNow, finalizeIfEnded, hideSeason, previewBoards
 export const dynamic = "force-dynamic";
 
 /** What an admin sees of a season (and whether its final standings are in). */
-const view = (s: Season) => ({ id: s.id, name: s.name, starts_at: s.starts_at, ends_at: s.ends_at, public: s.public, published_at: s.published_at, final: seasonFinal(s) });
+const view = (s: Season) => ({ id: s.id, name: s.name, starts_at: s.starts_at, ends_at: s.ends_at, public: s.public, published_at: s.published_at, final: seasonFinal(s), rules_version: s.rules_version });
 
 /**
  * The admin view: the current season with its shadow boards, and the previous season that went public (so a public

@@ -13,7 +13,7 @@ import { friendlyError } from "@/lib/errors";
 import { nonce } from "@/lib/nonce";
 
 type Row = { rank: number; wallet: string; points: number; eligible: boolean; why: string };
-type SeasonView = { id: number; name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null; final: boolean };
+type SeasonView = { id: number; name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null; final: boolean; rules_version?: number };
 type Preview = { season: SeasonView | null; previous?: SeasonView | null; creator?: Row[]; scout?: Row[]; names?: Record<string, NameEntry>; computed_at?: string | null; wallets?: number; eligible?: number; at: number };
 
 /** What an action did, said when it went through but its answer carried no boards (an older server, a blip). */
@@ -139,7 +139,7 @@ export default function PointsAdmin() {
           <div className={`${card} space-y-3 p-4 text-sm`}>
             {s ? (
               <p className="text-body">
-                <strong className="text-ink">{s.name}</strong> · {new Date(s.starts_at).toUTCString().slice(5, 22)} → {new Date(s.ends_at).toUTCString().slice(5, 22)} UTC ·{" "}
+                <strong className="text-ink">{s.name}</strong> · rules v{s.rules_version ?? 1} · {new Date(s.starts_at).toUTCString().slice(5, 22)} → {new Date(s.ends_at).toUTCString().slice(5, 22)} UTC ·{" "}
                 {s.public ? <span className="font-semibold text-up">public</span> : <span className="font-semibold text-warm-ink">shadow (admins only)</span>} · {data.wallets ?? 0} wallets with points, {data.eligible ?? 0} eligible · computed {data.computed_at ? new Date(data.computed_at).toLocaleTimeString() : "not yet"}
               </p>
             ) : (
