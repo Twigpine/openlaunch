@@ -12,18 +12,18 @@ test("a keyed URL is requested in full but never appears in a viem error", async
     requested.push(String(input));
     return new Response('{"error":"throughput exceeded"}', { status: 429, headers: { "content-type": "application/json" } });
   });
-  assert.equal(k.url, "https://base-mainnet.g.alchemy.com");
+  assert.match(String(k.url), /^https:\/\/base-mainnet\.g\.alchemy\.com\/upstream-\d+$/);
   const client = createPublicClient({ chain: base, transport: http(k.url, { batch: true, retryCount: 0, fetchFn: k.fetchFn }) });
   const err = await client.getBlockNumber().then(() => null, (e: unknown) => e as Error & { details?: string; cause?: unknown });
   assert.ok(err);
   assert.deepEqual(requested, [KEYED]);
   // the message, and everything hanging off the error (cause chain, meta lines, stack)
   for (const text of [err.message, String(err.stack), JSON.stringify(err, Object.getOwnPropertyNames(err)), String((err.cause as Error | undefined)?.message)]) assert.ok(!text.includes("abc123SECRET"), text);
-  assert.match(err.message, /URL: https:\/\/base-mainnet\.g\.alchemy\.com\/?\n/);
+  assert.match(err.message, /URL: https:\/\/base-mainnet\.g\.alchemy\.com\/upstream-\d+\n/);
 });
 
 test("a key in the query string is dropped from the label too", () => {
-  assert.equal(keylessHttp("https://rpc.example.test/?apikey=abc123SECRET").url, "https://rpc.example.test");
+  assert.match(String(keylessHttp("https://rpc.example.test/?apikey=abc123SECRET").url), /^https:\/\/rpc\.example\.test\/upstream-\d+$/);
 });
 
 test("URLs with nothing to hide, unset and unparsable ones pass through unchanged", () => {
@@ -72,4 +72,27 @@ test("two keyed URLs on one host never share a batch: each read goes to its own 
   assert.equal(ga, 10n);
   assert.equal(gb, 11n);
   assert.deepEqual(seen.map((r) => r.url).sort(), ["https://gateway.example.test/arc/abc123SECRET", "https://gateway.example.test/base/abc123SECRET"]);
+});
+
+test("a URL passed through unchanged and a keyed URL on the same host never share a batch", async () => {
+  const seen: string[] = [];
+  const impl = async (input: string | URL | Request, init?: RequestInit) => {
+    const calls = JSON.parse(String(init?.body)) as { id: number }[];
+    seen.push(String(input));
+    return Response.json(calls.map((c) => ({ jsonrpc: "2.0", id: c.id, result: String(input).includes("/v2/") ? "0xb" : "0xa" })));
+  };
+  for (const root of ["https://shared.example.test", "https://shared.example.test/"]) {
+    seen.length = 0;
+    const plain = keylessHttp(root);
+    const keyed = keylessHttp("https://shared.example.test/v2/abc123SECRET", impl);
+    assert.equal(plain.url, root);
+    assert.notEqual(keyed.url, root);
+    // the unchanged URL has no fetchFn of its own: the test gives viem one, as viem would use the global fetch
+    const clientPlain = createPublicClient({ chain: base, transport: http(plain.url, { batch: true, retryCount: 0, fetchFn: impl }) });
+    const clientKeyed = createPublicClient({ chain: base, transport: http(keyed.url, { batch: true, retryCount: 0, fetchFn: keyed.fetchFn }) });
+    const [a, b] = await Promise.all([clientPlain.getGasPrice(), clientKeyed.getGasPrice()]);
+    assert.equal(a, 10n);
+    assert.equal(b, 11n);
+    assert.deepEqual([...seen].sort(), [new URL(root).toString(), "https://shared.example.test/v2/abc123SECRET"].sort());
+  }
 });
