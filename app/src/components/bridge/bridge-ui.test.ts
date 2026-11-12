@@ -319,10 +319,14 @@ test("a Circle transfer is named as Circle's, reads allowance for Circle's spend
   assert.match(hook, /args: \[quote\.address, quote\.approval\.spender\]/);
   assert.match(hook, /const statusUrl = observed \? bridgeStatusUrl\(observed\)/);
   assert.match(hook, /findCctpBurn\(pub, current\)/);
-  // while polling, a failed search for the burn counts as nothing found, so Circle's status is still applied
-  assert.ok(hook.includes("await findCctpBurn(pub, current).catch(() => null)"));
-  // before discarding, the same search must answer: a failed read never passes as proof that nothing was sent
-  assert.ok(hook.includes('current.provider === "cctp" ? findCctpBurn(pub, current) : Promise.resolve(null),'));
+  // Polling only adopts a uniquely identified burn; unavailable reads retain recovery.
+  assert.ok(hook.includes("await findCctpBurn(pub, current)"));
+  assert.ok(hook.includes('const found = scan?.kind === "found" ? scan.hash : null;'));
+  assert.ok(panel.includes("This recovery record stays saved until the transfer is resolved."));
+  assert.ok(panel.includes("Check source wallet activity"));
+  assert.doesNotMatch(panel, /nothing is confirmed on/);
+  // The lock-protected handler refuses Circle even if the button's old visibility was stale.
+  assert.ok(hook.includes('transferIsTerminal(current) || current.provider === "cctp") return;'));
   assert.match(panel, /const circle = \(bridge\.tracked\?\.provider \?\? bridge\.quote\?\.provider\) === "cctp";/);
   assert.match(panel, /const provider = circle \? "Circle CCTP" : "Relay"/);
   assert.match(panel, /href=\{circle \? "https:\/\/developers\.circle\.com\/cctp" : "https:\/\/relay\.link"\}/);

@@ -18,7 +18,7 @@ export function imageRole(v: unknown): ImageRole {
 export function maxBytesFor(role: ImageRole): number {
   return role === "banner" ? BANNER_MAX_BYTES : IMAGE_MAX_BYTES;
 }
-export const IMAGE_UPLOADS_PER_HOUR = 10; // per wallet and per IP
+export const IMAGE_UPLOADS_PER_HOUR = 10; // the anonymous route's IP allowance is twice this (20/hour)
 export const IMAGE_KEY_BYTES = 24;
 
 export type ImageKind = "png" | "jpeg" | "webp" | "gif";
@@ -116,7 +116,7 @@ export function isOwnImageUrl(url: string | null | undefined, publicBase: string
   return rel !== null && new RegExp(`^t/[0-9a-f]{${IMAGE_KEY_BYTES * 2}}\\.webp$`).test(rel);
 }
 
-/** Validate a client-declared wallet before it's used as a rate-limit key. */
+/** Validate the client-declared wallet's shape; this does not prove ownership. */
 export function isWalletParam(v: unknown): v is string {
   return typeof v === "string" && /^0x[0-9a-fA-F]{40}$/.test(v);
 }

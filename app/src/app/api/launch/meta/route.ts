@@ -24,6 +24,7 @@ export async function POST(req: Request) {
     return NextResponse.json(await saveMeta(v.value));
   } catch (err) {
     if (err instanceof MetaConflict) return NextResponse.json({ error: err.message }, { status: 409 });
-    return NextResponse.json({ error: err instanceof Error ? err.message : "failed" }, { status: 502 });
+    // RPC/DB diagnostics can contain credentials, including keyed provider URLs.
+    return NextResponse.json({ error: "metadata save failed" }, { status: 502 });
   }
 }

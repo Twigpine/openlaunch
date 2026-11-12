@@ -25,7 +25,7 @@ function previewUrl(value: string): string | null {
 /**
  * Token image picker: drop zone / tap-to-browse → POST /api/launch/image → https URL into `value`.
  * The URL field stays available for people who already host the image. Wallet must be connected
- * (uploads are rate-limited per wallet server-side). `kind="banner"` picks the wide banner instead of
+ * (uploads are rate-limited per IP server-side). `kind="banner"` picks the wide banner instead of
  * the square logo: a 3:1 drop zone that previews the banner across its full width. `stacked` (from sm up)
  * fills the height it is given, so a logo and a banner side by side end level: the logo's tile sits above
  * its words, and the banner zone drops its fixed 3:1 for the row's height.

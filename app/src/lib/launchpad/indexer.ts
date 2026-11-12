@@ -667,7 +667,8 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(
     CONFIGURED_CHAINS.map(async (c) => {
-      out[c] = await pollLaunches(c).catch((e): LaunchSyncResult => ({ status: "skipped", reason: errMessage(e) }));
+      // The result is public through /api/launch/sync; upstream diagnostics stay private.
+      out[c] = await pollLaunches(c).catch((): LaunchSyncResult => ({ status: "skipped", reason: "sync_failed" }));
       await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, errMessage(e)));
       await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
       await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));
@@ -838,7 +839,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
     return { status: "synced", from: from.toString(), to: to.toString(), head: head.toString(), ...totals, caught_up: from > confirmed };
   } catch (err) {
     const msg = errMessage(err);
-    // the stored message reaches /api/health unauthenticated: never with the upstream URL (a keyed provider URL carries its API key)
+    // Keep keyed URLs out of stored diagnostics; /api/health exposes only a generic failure code.
     await db`UPDATE bb_launch_sync_cursor SET last_run_at = now(), head_block = COALESCE(${knownHead}::bigint, head_block), last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
     throw err;
   }

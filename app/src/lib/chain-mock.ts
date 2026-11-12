@@ -42,6 +42,7 @@ const DEAD_RPC = "http://127.0.0.1:1";
 
 export function publicClient(_key: ChainKey): any {
   const m = getMock();
+  if (m.publicClient) return m.publicClient;
   if (m.transportOutage) {
     return createPublicClient({
       chain: base,

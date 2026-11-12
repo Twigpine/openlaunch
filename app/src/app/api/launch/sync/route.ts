@@ -24,13 +24,13 @@ export async function POST(req: Request) {
       // a boost just indexed: this machine's next lane read is fresh, so the booster sees their place at once
       if (r.boosts) forgetBoostLane();
       return NextResponse.json(r);
-    } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+    } catch {
+      return NextResponse.json({ error: "sync failed" }, { status: 502 });
     }
   }
   try {
     return NextResponse.json(await pollAll());
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+  } catch {
+    return NextResponse.json({ error: "sync failed" }, { status: 502 });
   }
 }

@@ -165,7 +165,7 @@ const SIGN_IN = new Set(["admin/session:POST", "admin/nonce:POST"]);
 test("every handler of every admin route requires the admin session", () => {
   const found: string[] = [];
   for (const file of routes()) {
-    const rel = path.relative(path.join(SRC, "app/api"), path.dirname(file));
+    const rel = path.relative(path.join(SRC, "app/api"), path.dirname(file)).split(path.sep).join("/");
     const s = readFileSync(file, "utf8");
     if (!ADMIN_MARKERS.test(s) && !rel.startsWith("admin")) continue;
     found.push(rel);
