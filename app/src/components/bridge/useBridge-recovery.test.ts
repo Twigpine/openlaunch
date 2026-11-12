@@ -53,7 +53,14 @@ function harness(saved = transfer) {
     getChainId: async () => saved.originChainId,
     getBlockNumber: async () => { state.rpcReads++; return 1_100n; },
     getLogs: async () => [burn],
-    getTransaction: async () => ({ from: address, to: CCTP_TOKEN_MESSENGER, input: transfer.depositData!, value: 0n }),
+    getTransaction: async (args: { hash: Hex }) => {
+      assert.ok(client.isHash(args.hash));
+      return { from: address as string, to: CCTP_TOKEN_MESSENGER, input: transfer.depositData!, value: 0n, nonce: 7 };
+    },
+    getTransactionReceipt: async (args: { hash: Hex }) => {
+      assert.ok(client.isHash(args.hash));
+      return { status: "success" as const, logs: [burn] };
+    },
   };
   const bindings = {
     ...client, actionLock: { current: false }, sending: false, discarding: false, address, tracked: saved,
@@ -128,4 +135,70 @@ test("the actual poll recovers one matching Circle burn, keeps unknown burns, an
   const resolved = reverted.transfers.read(address)!;
   assert.equal(resolved.failureReason, "source-reverted");
   assert.equal(client.transferIsTerminal(resolved), true);
+});
+
+test("a known Circle hash only adopts a verified same-sender, same-nonce replacement", async (t) => {
+  const saved = { ...transfer, sourceHash: otherHash, status: "pending" as const };
+  const unrelatedSender = "0x1111111111111111111111111111111111111111";
+  for (const mismatch of ["nonce", "sender", "missing nonce"] as const) {
+    await t.test(`preserves the original journal on ${mismatch} mismatch`, async () => {
+      const h = harness(saved);
+      const before = h.transfers.read(address);
+      h.pub.getTransaction = async ({ hash: requested }) => ({
+        from: mismatch === "sender" && requested === otherHash ? unrelatedSender : address,
+        to: CCTP_TOKEN_MESSENGER, input: transfer.depositData!, value: 0n,
+        nonce: requested === otherHash ? mismatch === "nonce" ? 8 : mismatch === "missing nonce" ? Number.NaN : 7 : 7,
+      });
+      await assert.rejects(handler("applyStatus", h.bindings)(true), /could not be verified as a replacement/);
+      assert.deepEqual(h.transfers.read(address), before);
+      assert.equal(client.transferIsTerminal(h.transfers.read(address)), false);
+    });
+  }
+
+  for (const unavailableHash of [hash, otherHash]) {
+    await t.test(`preserves the original journal when the ${unavailableHash === hash ? "candidate" : "original"} lookup fails`, async () => {
+      const h = harness(saved);
+      const before = h.transfers.read(address);
+      const readTransaction = h.pub.getTransaction;
+      h.pub.getTransaction = async (args) => {
+        if (args.hash === unavailableHash) throw new Error("Transaction unavailable");
+        return readTransaction(args);
+      };
+      await assert.rejects(handler("applyStatus", h.bindings)(true), /Transaction unavailable/);
+      assert.deepEqual(h.transfers.read(address), before);
+    });
+  }
+
+  const replaced = harness(saved);
+  await handler("applyStatus", replaced.bindings)(true);
+  assert.equal(replaced.transfers.read(address)?.sourceHash, hash);
+  await handler("applyStatus", {
+    ...replaced.bindings,
+    provider: { status: "fulfilled", value: { status: "success", inTxHashes: [hash], txHashes: [] } },
+  })(true);
+  assert.equal(replaced.transfers.read(address)?.status, "success");
+
+  const smartWallet = harness(saved);
+  smartWallet.pub.getTransaction = async () => ({ from: unrelatedSender, to: CCTP_TOKEN_MESSENGER, input: "0x", value: 0n, nonce: 7 });
+  await handler("applyStatus", smartWallet.bindings)(true);
+  assert.equal(smartWallet.transfers.read(address)?.sourceHash, hash, "a same-sender, same-nonce outer replacement still accepts the wallet's exact inner burn event");
+
+  const wrongDeposit = harness(saved);
+  const before = wrongDeposit.transfers.read(address);
+  wrongDeposit.pub.getTransaction = async () => ({ from: address, to: CCTP_TOKEN_MESSENGER, input: "0x", value: 0n, nonce: 7 });
+  wrongDeposit.pub.getTransactionReceipt = async () => ({ status: "success", logs: [] });
+  await assert.rejects(handler("applyStatus", wrongDeposit.bindings)(true), /could not be matched to this deposit/);
+  assert.deepEqual(wrongDeposit.transfers.read(address), before, "matching the transaction nonce never substitutes for matching the burn");
+});
+
+test("a confirmed original Circle hash settles without a replacement lookup", async () => {
+  const h = harness({ ...transfer, sourceHash: hash, status: "pending" });
+  h.pub.getTransaction = async () => { throw new Error("No replacement lookup expected"); };
+  await handler("applyStatus", {
+    ...h.bindings,
+    receipt: { status: "fulfilled", value: { status: "success", transactionHash: hash } },
+    provider: { status: "fulfilled", value: { status: "success", inTxHashes: [hash], txHashes: [] } },
+  })(true);
+  assert.equal(h.transfers.read(address)?.sourceHash, hash);
+  assert.equal(h.transfers.read(address)?.status, "success");
 });

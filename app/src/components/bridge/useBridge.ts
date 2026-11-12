@@ -245,8 +245,20 @@ export function useBridge(open: boolean) {
             const found = scan?.kind === "found" ? scan.hash : null;
             const candidate = !pub ? null : current.provider === "cctp" ? (found && found !== current.sourceHash?.toLowerCase() ? found : null) : replacementSourceHash(current, status, walletHashUnmined);
             if (candidate && pub) {
-              const [chainId, transaction] = await Promise.all([pub.getChainId(), pub.getTransaction({ hash: candidate })]);
+              const originalHash = current.provider === "cctp" ? current.sourceHash : undefined;
+              const [chainId, transaction, original] = await Promise.all([
+                pub.getChainId(),
+                pub.getTransaction({ hash: candidate }),
+                originalHash ? pub.getTransaction({ hash: originalHash }) : Promise.resolve(null),
+              ]);
               if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Tracking will retry.");
+              // Circle burns do not carry this app's request id. An older, identical burn can match every
+              // saved field, so a known hash may only be replaced by the same sender's same-nonce transaction.
+              // If the original disappeared or a smart wallet rebundled it differently, retain its journal:
+              // matching calldata alone cannot prove that the still-unmined transaction was replaced.
+              if (originalHash && (!original || !Number.isSafeInteger(original.nonce) || original.nonce < 0 || original.nonce !== transaction.nonce || original.from.toLowerCase() !== transaction.from.toLowerCase())) {
+                throw new Error("The matching Circle burn could not be verified as a replacement of your submitted transaction. Tracking will retry.");
+              }
               const matched = isMatchingSourceDeposit(current, transaction) || hasMatchingDepositEvent(current, await pub.getTransactionReceipt({ hash: candidate }));
               if (!matched) throw new Error("The source transaction could not be matched to this deposit. Tracking will retry.");
               current = { ...current, sourceHash: candidate };

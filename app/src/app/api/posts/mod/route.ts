@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { moderate } from "@/lib/launchpad/postsServer";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
  * session of the same wallet (moderate checks it), sent from the site's own pages.
  */
 export async function POST(req: Request) {
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`mod:ip:${ip}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   let b: Record<string, unknown>;
   try {

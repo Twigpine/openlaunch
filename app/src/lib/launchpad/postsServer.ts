@@ -2,10 +2,11 @@ import "server-only";
 import { isAddress, type Address, type Hex } from "viem";
 import { publicClient } from "@/lib/chain";
 import { CHAIN_KEY_PATTERN, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { maybeDb } from "@/lib/db";
+import { maybeDb, type Db } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
 import { AUTO_HIDE_REPORTS, POST_DAILY_MAX, POST_MIN_GAP_MS, buildModMessage, buildPostMessage, buildReportMessage, canPostNow, holderTag, isReportReason, tsFresh, validateBody, type ModAction, type Tag } from "./posts";
 import { clampFeedOffset } from "./posts-paging";
+import { rateLimited } from "./editServer";
 
 /** Mute targets: `token:<chain>:<address>`. */
 const TOKEN_TARGET_RE = new RegExp(`^token:(${CHAIN_KEY_PATTERN}):(0x[0-9a-f]{40})$`);
@@ -156,13 +157,26 @@ export async function createPost(p: { chain: ChainKey; token: string; wallet: st
 
   const message = buildPostMessage({ chain: p.chain, token, wallet, nonce: p.nonce, ts: Number(p.ts), parentId, body: v.body });
   if (!(await verify(p.chain, wallet, message, p.signature))) return fail("signature does not match", 401);
-  if (!(await consumeNonce(p.nonce, wallet))) return fail("nonce already used", 401);
-
-  const [row] = await db<RawPost[]>`
-    INSERT INTO bb_posts (chain_id, token, wallet, parent_id, body, tag, signature)
-    VALUES (${cid}, ${token}, ${wallet}, ${parentId}, ${v.body}, ${elig.tag}, ${String(p.signature)})
-    RETURNING id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden`;
-  return { ok: true, post: shape(row) };
+  const nonce = p.nonce;
+  const result = await db.begin(async (tx) => {
+    const sql = tx as unknown as Db;
+    // Distinct signatures can pass the cheap preflight together. Serialize the final
+    // policy read and write for this wallet across every server process and chain.
+    await sql`SELECT pg_advisory_xact_lock(hashtext(${`post:${wallet}`}))`;
+    const [current] = await sql<{ last: string | null; n24: bigint }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > now() - interval '24 hours')::bigint AS n24 FROM bb_posts WHERE wallet = ${wallet}`;
+    const finalGate = canPostNow(current.last ? new Date(current.last).getTime() : null, Number(current.n24), Date.now());
+    if (!finalGate.ok) return fail(finalGate.error, 429);
+    // A refused quota attempt spends no nonce; a failed INSERT rolls its nonce back.
+    const used = await sql`INSERT INTO bb_post_nonces (nonce, wallet) VALUES (${nonce}, ${wallet}) ON CONFLICT (nonce) DO NOTHING RETURNING nonce`;
+    if (used.length === 0) return fail("nonce already used", 401);
+    const [row] = await sql<RawPost[]>`
+      INSERT INTO bb_posts (chain_id, token, wallet, parent_id, body, tag, signature)
+      VALUES (${cid}, ${token}, ${wallet}, ${parentId}, ${v.body}, ${elig.tag}, ${String(p.signature)})
+      RETURNING id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden`;
+    return { ok: true as const, post: shape(row) };
+  });
+  if (result.ok) void db`DELETE FROM bb_post_nonces WHERE created_at < now() - interval '1 hour'`.catch(() => {});
+  return result;
 }
 
 export async function reportPost(p: { postId: unknown; wallet: string; reason: unknown; nonce: unknown; ts: unknown; signature: unknown }): Promise<{ ok: true; hidden: boolean } | Fail> {
@@ -184,6 +198,9 @@ export async function reportPost(p: { postId: unknown; wallet: string; reason: u
   const message = buildReportMessage({ postId, wallet, nonce: p.nonce, ts: Number(p.ts), reason: p.reason });
   if (!(await verify(chain, wallet, message, p.signature))) return fail("signature does not match", 401);
   if (!(await consumeNonce(p.nonce, wallet))) return fail("nonce already used", 401);
+  // Only a fresh signed action may spend this wallet's allowance. Unsigned
+  // claims and replays must never lock another reporter out of moderation.
+  if (rateLimited(`report:wallet:${wallet}`, 20)) return fail("slow down", 429);
   await db`INSERT INTO bb_post_reports (post_id, wallet, reason) VALUES (${postId}, ${wallet}, ${p.reason}) ON CONFLICT DO NOTHING`;
   const [c] = await db<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM bb_post_reports WHERE post_id = ${postId}`;
   const n = Number(c.n);

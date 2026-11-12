@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { isChainKey } from "@/lib/chainPublic";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /** POST {chain, token, wallet} → {nonce, expiresAt}. Only the token's creator gets one. */
 export async function POST(req: Request) {
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`nonce:ip:${ip}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   let b: { chain?: unknown; token?: unknown; wallet?: unknown };
   try {

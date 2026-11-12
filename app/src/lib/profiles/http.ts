@@ -1,6 +1,8 @@
 /**
  * Client IP for rate-limit keys. Fly's proxy sets fly-client-ip; the first x-forwarded-for entry is whatever the
- * client sent, so the fallback is the last one (the hop the proxy appended): a spoofed header never buys a fresh bucket.
+ * client sent, so the fallback is the last one (the hop the proxy appended).
+ * Deployment must strip/overwrite fly-client-ip or append the actual client to XFF;
+ * directly exposed servers cannot authenticate arbitrary forwarding headers.
  */
 export function clientIp(req: Request): string {
   return req.headers.get("fly-client-ip")?.trim() || (req.headers.get("x-forwarded-for") ?? "").split(",").at(-1)?.trim() || "0.0.0.0";

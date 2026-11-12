@@ -74,6 +74,8 @@ beforeEach(() => {
     readContract: async () => token,
     getBlockNumber: async () => 12n,
     getLogs: async () => [],
+    // Main reads calldata alongside the receipt to attribute in-app swaps.
+    getTransaction: async () => ({ from: launcher, to: token, input: "0x" }),
     getTransactionReceipt: async () => ({ status: "success", transactionHash: tx, from: launcher, to: token, logs: [] }),
   };
 });
@@ -172,9 +174,9 @@ test("receipt sync preserves applied, missing and reverted outcomes", async () =
   const response = await syncPost(request(`sync?chain=base&tx=${tx}`));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: "applied", launches: 0, swaps: 0, fees: 0, boosts: 0, tokens: [] });
-  getMock().publicClient = { getTransactionReceipt: async () => { throw new Error(diagnostic); } };
+  getMock().publicClient = { ...getMock().publicClient, getTransactionReceipt: async () => { throw new Error(diagnostic); } };
   assert.deepEqual(await (await syncPost(request(`sync?tx=${tx}`))).json(), { status: "not_found" });
-  getMock().publicClient = { getTransactionReceipt: async () => ({ status: "reverted" }) };
+  getMock().publicClient = { ...getMock().publicClient, getTransactionReceipt: async () => ({ status: "reverted" }) };
   assert.deepEqual(await (await syncPost(request(`sync?tx=${tx}`))).json(), { status: "reverted" });
 });
 

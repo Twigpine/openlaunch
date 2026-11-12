@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/lib/db": ["./scripts/posts-db-test-db.ts"],
+      "@/lib/chain": ["./scripts/posts-db-test-chain.ts"]
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { isChainKey } from "@/lib/chainPublic";
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
 
 /** POST {chain, token, wallet, parentId?, body, nonce, ts, signature} → new post. */
 export async function POST(req: Request) {
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`post:ip:${ip}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   let b: Record<string, unknown>;
   try {
