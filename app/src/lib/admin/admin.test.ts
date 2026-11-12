@@ -206,7 +206,7 @@ test("admin actions: the session is checked before the action, against the walle
 test("sign-in: same-origin, rate-limited, nonce spent only after the signature checks out", () => {
   const s = src("app/api/admin/session/route.ts");
   const post = s.slice(s.indexOf("export async function POST("), s.indexOf("export async function DELETE("));
-  const order = ["fromAdminOrigin(req)", "rateLimited(`admin-signin:ip:", "checkAdminSignIn(", "adminWallets().has(c.wallet)", "adminNonceOpen(c.nonce)", "verifySig(c.wallet, [b.message as string], b.signature, \"base\")", "rateLimited(`admin-signin:wallet:", "consumeAdminNonce(c.nonce)", "createAdminSession(", "res.cookies.set(ADMIN_COOKIE, s.token, adminCookieOptions(s.expiresAt))"];
+  const order = ["fromAdminOrigin(req)", "rateLimited(`admin-signin:ip:", "checkAdminSignIn(", "adminWallets().has(c.wallet)", "adminNonceOpen(c.nonce)", "verifySig(c.wallet, [b.message as string], b.signature, \"base\")", "consumeAdminNonce(c.nonce)", "rateLimited(`admin-signin:wallet:", "createAdminSession(", "res.cookies.set(ADMIN_COOKIE, s.token, adminCookieOptions(s.expiresAt))"];
   let at = -1;
   for (const step of order) {
     const i = post.indexOf(step);

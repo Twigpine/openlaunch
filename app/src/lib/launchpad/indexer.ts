@@ -146,6 +146,11 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token:
 // ── apply ────────────────────────────────────────────────────────────────────
 type Launched = { token: Address; tokenId: bigint; launcher: Address; quote: Address; poolId: Hex; startTick: number; lpFee: number; supply: bigint; metadataURI: string };
 
+// Solidity strings may contain NUL, which Viem preserves but PostgreSQL text
+// cannot store. Remove only that character before writing chain-owned text;
+// a valid launch must not stall every subsequent range or be skipped.
+const postgresText = (value: string) => value.replaceAll("\0", "");
+
 async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launched }): Promise<boolean> {
   const a = log.args;
   const token = a.token.toLowerCase();
@@ -164,7 +169,7 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
     INSERT INTO bb_launches (chain_id, token, token_id, launcher, quote, pool_id, start_tick, lp_fee, supply, metadata_uri, name, symbol,
                              block_number, block_time, tx_hash, log_index, tick, recipients)
     VALUES (${chainIdOf(chain)}, ${token}, ${a.tokenId}, ${a.launcher.toLowerCase()}, ${a.quote.toLowerCase()}, ${a.poolId.toLowerCase()}, ${a.startTick}, ${a.lpFee},
-            ${a.supply.toString()}, ${a.metadataURI}, ${name.slice(0, 64)}, ${symbol.slice(0, 16)},
+            ${a.supply.toString()}, ${postgresText(a.metadataURI)}, ${postgresText(name).slice(0, 64)}, ${postgresText(symbol).slice(0, 16)},
             ${log.blockNumber!}, ${time}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${a.startTick}, ${db.json(recipients)})
     ON CONFLICT (chain_id, token) DO NOTHING
     RETURNING token`;
@@ -708,8 +713,8 @@ export async function healLaunchReads(chain: ChainKey): Promise<number> {
             .catch(() => null)
         : Promise.resolve(null),
     ]);
-    const setName = typeof name === "string" && name !== "?" && name !== r.name ? name.slice(0, 64) : null;
-    const setSymbol = typeof symbol === "string" && symbol !== "?" && symbol !== r.symbol ? symbol.slice(0, 16) : null;
+    const setName = typeof name === "string" && name !== "?" && name !== r.name ? postgresText(name).slice(0, 64) : null;
+    const setSymbol = typeof symbol === "string" && symbol !== "?" && symbol !== r.symbol ? postgresText(symbol).slice(0, 16) : null;
     const setRecipients = recipients && recipients.length > 0 ? recipients : null;
     if (!setName && !setSymbol && !setRecipients) continue;
     await db`

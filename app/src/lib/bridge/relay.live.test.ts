@@ -13,6 +13,9 @@ for (const originChainId of BRIDGE_CHAIN_IDS) for (const destinationChainId of B
   if (originChainId === destinationChainId) continue;
   for (const originAsset of BRIDGE_SEND_ASSETS[originChainId]) for (const destinationAsset of BRIDGE_RECEIVE_ASSETS[destinationChainId]) {
   test(`read-only live Relay ${originChainId}:${originAsset}→${destinationChainId}:${destinationAsset}`, { skip: process.env.RUN_BRIDGE_LIVE_TESTS !== "1" }, async (t) => {
+    // The keyless quote endpoint has a tighter budget than authenticated history.
+    // Pace the optional route sweep so the test does not manufacture upstream 429s.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
     // 25 units of a six-decimal token (USDC, USDG), or 0.01 ETH
     const amount = bridgeCurrency(originChainId, originAsset, "input").decimals === 6 ? "25000000" : "10000000000000000";
     const quote = await getBridgeQuote({ address: "0x1111111111111111111111111111111111111111", originChainId, destinationChainId, originAsset, destinationAsset, amount });
