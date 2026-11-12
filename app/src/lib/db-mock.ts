@@ -26,7 +26,7 @@ type MockState = {
   // itself rather than a hand-rolled stub.
   transportOutage: boolean;
   // What getLaunchTotals' one aggregation over bb_launches returns: a row per (chain, quote).
-  launchTotalsRows: { chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string }[];
+  launchTotalsRows: { chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string; volume_usd?: number; collected_usd?: number; burned_usd?: number; volume_unpriced?: string; collected_unpriced?: string; burned_unpriced?: string }[];
   // What the B20 node (chain-mock's b20Client) answers to totalSupply(), per address; "fail" = that call fails, null = the node is down.
   b20Supply: Record<string, bigint | "fail"> | null;
   b20SupplyReads: number;
@@ -102,7 +102,7 @@ function fakeDb(strings: TemplateStringsArray, ...values: unknown[]): Promise<an
   }
 
   // platform totals (getLaunchTotals)
-  if (sql.includes("FROM bb_launches GROUP BY chain_id, quote")) {
+  if (sql.includes("GROUP BY l.chain_id, l.quote") && sql.includes("AS volume_unpriced")) {
     return Promise.resolve(m.launchTotalsRows as any[]);
   }
 

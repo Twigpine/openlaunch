@@ -11,10 +11,14 @@ import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
 import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
+import { appTagOf, swapInApp, type AppTag } from "./appTag";
+import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
 import { TWIG_ADDRESSES } from "./twig";
 import { boostFromTransfer } from "./boost";
 import { pairBurnFromTransfer } from "./pairApply";
 import { recordPairBurn } from "./pairApplyServer";
+import { captureLiveUsd, healUnpricedUsd } from "./usdLedger";
+import { hourIso } from "./usd-history";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -89,16 +93,23 @@ async function timeOf(chain: ChainKey, block: bigint): Promise<string> {
   blockTime.set(k, iso);
   return iso;
 }
-const txFacts = new Map<string, { from: string; to: string | null }>();
-/** Transaction sender and target, lower-cased. Null when the RPC fails twice; the swap is then stored without a trader and `healSwapTraders` retries later. */
-async function txOf(chain: ChainKey, hash: Hex): Promise<{ from: string; to: string | null } | null> {
+/** Sender, target and app tag (appTag.ts: null = the input was not read) of one transaction. Only the tag of the input is kept. */
+type TxFacts = { from: string; to: string | null; tag: AppTag | null };
+const txFacts = new Map<string, TxFacts>();
+/** The app tag of a transaction's input on `chain` (its Universal Router and the app's builder suffix). */
+function tagOf(chain: ChainKey, to: string | null, input: string): AppTag {
+  return appTagOf({ to, input, router: launchpad(chain).v4.universalRouter, suffix: BUILDER_DATA_SUFFIX });
+}
+/** Transaction sender, target and app tag, lower-cased. Null when the RPC fails twice; the swap is then stored without a trader and `healSwapTraders` retries later. */
+async function txOf(chain: ChainKey, hash: Hex): Promise<TxFacts | null> {
   const k = `${chain}:${hash}`;
   const hit = txFacts.get(k);
   if (hit) return hit;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const tx = await publicClient(chain).getTransaction({ hash });
-      const f = { from: tx.from.toLowerCase(), to: tx.to ? tx.to.toLowerCase() : null };
+      const to = tx.to ? tx.to.toLowerCase() : null;
+      const f = { from: tx.from.toLowerCase(), to, tag: tagOf(chain, to, tx.input) };
       if (txFacts.size > 5000) txFacts.clear();
       txFacts.set(k, f);
       return f;
@@ -119,11 +130,12 @@ const RECEIPT_PENDING = "receipt_pending";
 /**
  * Who to credit for one swap (attribution.ts): the sender, or with proof the smart wallet behind an EntryPoint call.
  * `via` null = the transaction itself could not be read; RECEIPT_PENDING = it went to an EntryPoint but the receipt
- * could not be read. Either way the backlog pass tries again later.
+ * could not be read. Either way the backlog pass tries again later. `app`: made in the app (appTag.ts), for the trader
+ * credited here; null while unknown (written as NULL, which never counts as in-app).
  */
-async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token: string): Promise<{ trader: string | null; tx_from: string | null; via: string | null }> {
+async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token: string): Promise<{ trader: string | null; tx_from: string | null; via: string | null; app: boolean | null }> {
   const tx = await txOf(chain, hash);
-  if (!tx) return { trader: null, tx_from: null, via: null };
+  if (!tx) return { trader: null, tx_from: null, via: null, app: null };
   let logs: ReceiptLog[] | null = null;
   if (tx.to && ENTRY_POINTS.has(tx.to)) {
     const k = `${chain}:${hash}`;
@@ -133,14 +145,14 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token:
         const r = await publicClient(chain).getTransactionReceipt({ hash });
         logs = r.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) }));
       } catch {
-        return { trader: tx.from, tx_from: tx.from, via: RECEIPT_PENDING };
+        return { trader: tx.from, tx_from: tx.from, via: RECEIPT_PENDING, app: null };
       }
       if (receiptLogs.size > 500) receiptLogs.clear();
       receiptLogs.set(k, logs);
     }
   }
   const a = attributeSwap({ from: tx.from, to: tx.to, swapLogIndex, logs, token });
-  return { trader: a.trader, tx_from: tx.from, via: a.via };
+  return { trader: a.trader, tx_from: tx.from, via: a.via, app: swapInApp(tx.tag, a.trader, a.via) };
 }
 
 // ── apply ────────────────────────────────────────────────────────────────────
@@ -179,7 +191,7 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
 type Swap = { id: Hex; sender: Address; amount0: bigint; amount1: bigint; sqrtPriceX96: bigint; liquidity: bigint; tick: number; fee: number };
 
 /** Record one PoolManager swap of a launched token (credited to its trader via traderOf) and roll the launch's totals forward, atomically. */
-async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>): Promise<boolean> {
+async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poolToToken: Map<string, string>, tokenQuote: Map<string, string>): Promise<boolean> {
   const a = log.args;
   const poolId = a.id.toLowerCase();
   const token = poolToToken.get(poolId);
@@ -190,20 +202,33 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const [time, who] = await Promise.all([timeOf(chain, log.blockNumber!), traderOf(chain, log.transactionHash!, log.logIndex!, token)]);
   const bn = log.blockNumber!;
   const li = log.logIndex!;
+  // the trade's USD value at its own hour (bb_quote_usd_hourly; usd-history.ts), fixed once written; no price for that hour = NULL
+  const quote = tokenQuote.get(token) ?? "";
   // One transaction: the swap row and the launch totals commit together or not at all (a failure between
   // the two used to leave a recorded trade whose totals were never applied — and the dedupe then skips it).
   return db.begin(async (tx) => {
     const t = tx as unknown as Db;
     const inserted = await t`
-    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
-    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${a.amount0.toString()}, ${a.amount1.toString()},
-            ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time})
+    INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, via_app, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time, usd)
+    VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${who.app}, ${a.amount0.toString()}, ${a.amount1.toString()},
+            ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time},
+            (SELECT ${absQuote.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+              WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
     ON CONFLICT DO NOTHING
-    RETURNING tx_hash`;
-    if (inserted.length === 0) return false;
+    RETURNING tx_hash, usd`;
+    if (inserted.length === 0) {
+      // already recorded (the wallet's receipt got here first, or an overlap re-read): an app tag that was unknown then
+      // (applyLaunchTx could not read the transaction) is filled now, for the same credited trader
+      if (who.app !== null && who.trader) {
+        await t`UPDATE bb_launch_swaps SET via_app = ${who.app} WHERE chain_id = ${cid} AND tx_hash = ${log.transactionHash!.toLowerCase()} AND log_index = ${li} AND via_app IS NULL AND trader = ${who.trader}`;
+      }
+      return false;
+    }
+    const usd = (inserted[0] as { usd: number | null }).usd ?? 0;
     await t`
     UPDATE bb_launches SET
       volume_quote = volume_quote + ${absQuote.toString()}::numeric,
+      volume_usd = volume_usd + ${usd}::float8,
       buys = buys + ${isBuy ? 1 : 0},
       sells = sells + ${isBuy ? 0 : 1},
       last_trade_at = GREATEST(COALESCE(last_trade_at, ${time}::timestamptz), ${time}::timestamptz),
@@ -269,13 +294,19 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   const bn = log.blockNumber!;
   if (log.eventName === "Collected") {
     const t = log.args.token.toLowerCase();
+    const quote = tokenIdToToken.get(log.args.tokenId.toString())?.quote ?? "";
+    // the quote side's USD value at the collect's own hour (usd-history.ts), as for trades
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, quote_amount, token_amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time})
-      ON CONFLICT DO NOTHING RETURNING tx_hash`;
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, quote_amount, token_amount, block_number, block_time, usd)
+      VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time},
+              (SELECT ${log.args.quoteAmount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
+      ON CONFLICT DO NOTHING RETURNING tx_hash, usd`;
     if (r.length === 0) return false;
+    const usd = (r[0] as { usd: number | null }).usd ?? 0;
     await db`UPDATE bb_launches SET fees_quote_collected = fees_quote_collected + ${log.args.quoteAmount.toString()}::numeric,
-                                    fees_token_collected = fees_token_collected + ${log.args.tokenAmount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${t}`;
+                                    fees_token_collected = fees_token_collected + ${log.args.tokenAmount.toString()}::numeric,
+                                    fees_collected_usd = fees_collected_usd + ${usd}::float8 WHERE chain_id = ${cid} AND token = ${t}`;
     return true;
   }
   if (log.eventName === "Burned") {
@@ -285,12 +316,18 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
     // the rebuild script joins on token), so leave it for the poller, which indexes the launch first.
     if (!info) return false;
     const cur = log.args.currency.toLowerCase();
+    // a burn in the launch's quote gets its USD value at its own hour; a burn of the launched token stays NULL (quote side only)
+    const priceIn = cur === info.quote ? cur : "";
     const r = await db`
-      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time})
-      ON CONFLICT DO NOTHING RETURNING tx_hash`;
+      INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time, usd)
+      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time},
+              (SELECT ${log.args.amount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                WHERE p.chain_id = ${cid} AND p.quote = ${priceIn} AND p.hour = ${hourIso(time)}::timestamptz))
+      ON CONFLICT DO NOTHING RETURNING tx_hash, usd`;
     if (r.length === 0) return false;
-    if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
+    const usd = (r[0] as { usd: number | null }).usd ?? 0;
+    if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric,
+                                                            fees_burned_usd = fees_burned_usd + ${usd}::float8 WHERE chain_id = ${cid} AND token = ${info.token}`;
     else await db`UPDATE bb_launches SET fees_token_burned = fees_token_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
     return true;
   }
@@ -310,15 +347,17 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   return r.length > 0;
 }
 
-async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<string, string>; tokenIdToToken: Map<string, { token: string; quote: string }> }> {
+async function poolMaps(db: Db, chain: ChainKey): Promise<{ poolToToken: Map<string, string>; tokenIdToToken: Map<string, { token: string; quote: string }>; tokenQuote: Map<string, string> }> {
   const rows = await db<{ token: string; pool_id: string; token_id: bigint; quote: string }[]>`SELECT token, pool_id, token_id, quote FROM bb_launches WHERE chain_id = ${chainIdOf(chain)}`;
   const poolToToken = new Map<string, string>();
   const tokenIdToToken = new Map<string, { token: string; quote: string }>();
+  const tokenQuote = new Map<string, string>();
   for (const r of rows) {
     poolToToken.set(r.pool_id, r.token);
     tokenIdToToken.set(r.token_id.toString(), { token: r.token, quote: r.quote });
+    tokenQuote.set(r.token, r.quote);
   }
-  return { poolToToken, tokenIdToToken };
+  return { poolToToken, tokenIdToToken, tokenQuote };
 }
 
 /**
@@ -342,7 +381,9 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   const launchedLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: factory, event: LAUNCHED_EVENT, fromBlock: f, toBlock: t }), from, to);
   for (const l of launchedLogs) if (await applyLaunched(db, chain, l as Log & { args: Launched })) launches++;
 
-  const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
+  const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
+  // this hour's live USD for every quote in use, before the range's trades are priced at their hours (never throws)
+  await captureLiveUsd(db, chain, tokenQuote.values());
   if (poolToToken.size > 0) {
     const ids = [...poolToToken.keys()] as Hex[];
     // every pool id is one topic selector: past the node's cap the id list goes out in slices (the 1001st Robinhood launch stopped the indexer)
@@ -350,7 +391,7 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
     const swapLogs = byChainOrder(
       (await fetchBySelectors(SELECTOR_CAPS, chain, ids, (slice) => fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: slice }, fromBlock: f, toBlock: t }), from, to))) as Log[],
     );
-    for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken)) swaps++;
+    for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken, tokenQuote)) swaps++;
   }
   const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: f, toBlock: t }), from, to);
   for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
@@ -453,7 +494,7 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
     }
     attributionTries.delete(key);
     const up = await db<{ trader: string }[]>`
-      UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}
+      UPDATE bb_launch_swaps SET tx_from = COALESCE(tx_from, ${who.tx_from}), trader = ${who.trader}, trader_via = ${who.via}, via_app = ${who.app}
        WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING})
        RETURNING trader`;
     if (up.length && who.via !== "tx_from") moved++;
@@ -678,6 +719,7 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
       await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
       await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));
       await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, errMessage(e)));
+      await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, errMessage(e)));
       await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, errMessage(e)));
     }),
   );
@@ -801,12 +843,70 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
     for (const r of swaps) {
       const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token); // the transaction is cached now
       if (!who.trader) continue;
-      await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
+      await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via}, via_app = ${who.app} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
       healed++;
     }
   }
   if (healed) console.log(`[launch-sync] healed traders on ${healed} swap(s) on ${chain}`);
   return healed;
+}
+
+const appTagIdleUntil = new Map<ChainKey, number>();
+/**
+ * Fill the app tag (via_app) of the last day's swaps whose transaction could not be read when they were credited
+ * (applyLaunchTx reads it once beside the receipt; a log poll re-reads it only while the swap is in the overlap). Only
+ * settled swaps (credited to their sender or smart wallet); the update keeps the same credited trader. Up to 20
+ * transaction reads a poll; one that fails rests ten minutes (left out of the query meanwhile, so the swaps behind it
+ * are reached); a pass that finds nothing rests five minutes. Swaps
+ * older than a day (and every one from before the column) keep NULL, which never counts as in-app.
+ */
+export async function healAppTags(chain: ChainKey): Promise<number> {
+  const db = maybeDb();
+  if (!db || skipReason(chain)) return 0;
+  if (Date.now() < (appTagIdleUntil.get(chain) ?? 0)) return 0;
+  const cid = chainIdOf(chain);
+  // transactions still resting after a failed read are left out of the query, so a run of unreadable ones at the head
+  // never fills every batch and keeps older swaps from their tag until they pass the day
+  const prefix = `app:${chain}:`;
+  const now = Date.now();
+  const resting: string[] = [];
+  for (const [k, until] of healRestUntil) if (until > now && k.startsWith(prefix)) resting.push(k.slice(prefix.length));
+  type Unknown = { tx_hash: string; log_index: number; trader: string; trader_via: string };
+  const rows = await db<Unknown[]>`
+    SELECT tx_hash, log_index, trader, trader_via FROM bb_launch_swaps
+     WHERE block_time > now() - interval '1 day' AND chain_id = ${cid} AND via_app IS NULL AND trader IS NOT NULL AND trader_via IN ('tx_from', 'userop')
+       AND NOT (tx_hash = ANY(${resting}::text[]))
+     ORDER BY block_time DESC LIMIT 100`;
+  if (rows.length === 0) {
+    appTagIdleUntil.set(chain, Date.now() + ATTRIBUTION_IDLE_MS);
+    return 0;
+  }
+  const byTx = new Map<string, Unknown[]>();
+  for (const r of rows) byTx.set(r.tx_hash, [...(byTx.get(r.tx_hash) ?? []), r]);
+  let tagged = 0;
+  let read = 0;
+  for (const [hash, swaps] of byTx) {
+    if (read >= 20) break;
+    const key = `app:${chain}:${hash}`;
+    // checked again here: a pass running alongside (the loop and a manual sync on one machine) may have just put it to rest
+    if (Date.now() < (healRestUntil.get(key) ?? 0)) continue;
+    read++;
+    const tx = await txOf(chain, hash as Hex);
+    if (!tx || tx.tag === null) {
+      if (healRestUntil.size > 5_000) healRestUntil.clear();
+      healRestUntil.set(key, Date.now() + ATTRIBUTION_TRY_GAP_MS);
+      continue;
+    }
+    healRestUntil.delete(key);
+    for (const r of swaps) {
+      const app = swapInApp(tx.tag, r.trader, r.trader_via);
+      if (app === null) continue;
+      const up = await db`UPDATE bb_launch_swaps SET via_app = ${app} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND via_app IS NULL AND trader = ${r.trader} RETURNING tx_hash`;
+      tagged += up.length;
+    }
+  }
+  if (tagged) console.log(`[launch-sync] filled the app tag on ${tagged} swap(s) on ${chain}`);
+  return tagged;
 }
 
 async function run(chain: ChainKey): Promise<LaunchSyncResult> {
@@ -841,6 +941,8 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
       from = to + 1n;
       chunks++;
     }
+    // trades and fees whose hour has a price by now but had none when they were written (usdLedger.ts; throttled, never throws)
+    await healUnpricedUsd(db, chain);
     return { status: "synced", from: from.toString(), to: to.toString(), head: head.toString(), ...totals, caught_up: from > confirmed };
   } catch (err) {
     const msg = errMessage(err);
@@ -858,49 +960,66 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   const reason = skipReason(chain);
   if (reason) return { status: "skipped", reason };
   const db = maybeDb()!;
-  const receipt = await publicClient(chain).getTransactionReceipt({ hash }).catch(() => null);
+  // the receipt has no input: the transaction is read for the app tag at the same time, once, so the wallet waits no
+  // longer for it. If that read fails, the trade is still credited from the receipt with its tag unknown (NULL), and
+  // the tag is not cached: the log poll reads the transaction again and fills it in (applySwap, on the conflict)
+  const [receipt, sent] = await Promise.all([
+    publicClient(chain).getTransactionReceipt({ hash }).catch(() => null),
+    publicClient(chain).getTransaction({ hash }).catch(() => null),
+  ]);
   if (!receipt) return { status: "not_found" };
   if (receipt.status !== "success") return { status: "reverted" };
   // the receipt in hand is what attribution needs (sender, destination, logs): give it to traderOf, so crediting a
   // smart wallet's swap here never depends on reading the same receipt a second time from a node that may lag
   const k = `${chain}:${receipt.transactionHash}`; // the same hash the receipt's logs carry, so traderOf finds it
+  const to = receipt.to ? receipt.to.toLowerCase() : null;
+  const input = sent?.input ?? null;
   if (txFacts.size > 5000) txFacts.clear();
-  txFacts.set(k, { from: receipt.from.toLowerCase(), to: receipt.to ? receipt.to.toLowerCase() : null });
+  const seeded: TxFacts = { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) };
+  txFacts.set(k, seeded);
   if (receiptLogs.size > 500) receiptLogs.clear();
   receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
-  const cfg = launchpad(chain);
-  const factory = cfg.factory!.toLowerCase();
-  const locker = cfg.locker!.toLowerCase();
-  const pm = cfg.v4.poolManager.toLowerCase();
+  try {
+    const cfg = launchpad(chain);
+    const factory = cfg.factory!.toLowerCase();
+    const locker = cfg.locker!.toLowerCase();
+    const pm = cfg.v4.poolManager.toLowerCase();
 
-  let launches = 0;
-  let swaps = 0;
-  let fees = 0;
-  const tokens: string[] = [];
-  const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
-  for (const l of launched) {
-    if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
-    tokens.push(l.args.token.toLowerCase());
-  }
-  const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
-  const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
-  for (const l of swapLogs) {
-    if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken)) {
-      swaps++;
-      const t = poolToToken.get(l.args.id.toLowerCase());
-      if (t && !tokens.includes(t)) tokens.push(t);
+    let launches = 0;
+    let swaps = 0;
+    let fees = 0;
+    const tokens: string[] = [];
+    const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
+    for (const l of launched) {
+      if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
+      tokens.push(l.args.token.toLowerCase());
     }
-  }
-  const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
-  for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
-  let boosts = 0;
-  const twig = TWIG_ADDRESSES[chain];
-  if (twig) {
-    const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
-    for (const l of burnLogs) {
-      if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
-      else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+    const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
+    // no price capture here: this path runs while the user waits, and a capture can wait on price sources. Its trades take
+    // the hour's price the poller already captured, or are priced by the poller's heal pass a few minutes later.
+    const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
+    for (const l of swapLogs) {
+      if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
+        swaps++;
+        const t = poolToToken.get(l.args.id.toLowerCase());
+        if (t && !tokens.includes(t)) tokens.push(t);
+      }
     }
+    const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
+    for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
+    let boosts = 0;
+    const twig = TWIG_ADDRESSES[chain];
+    if (twig) {
+      const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
+      for (const l of burnLogs) {
+        if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
+        else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+      }
+    }
+    return { status: "applied", launches, swaps, fees, boosts, tokens };
+  } finally {
+    // unknown: the log poll (or healAppTags) reads the transaction again. Only this call's own entry is removed: a sync
+    // of the same transaction running alongside may have cached the real tag meanwhile
+    if (input === null && txFacts.get(k) === seeded) txFacts.delete(k);
   }
-  return { status: "applied", launches, swaps, fees, boosts, tokens };
 }
