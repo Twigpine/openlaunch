@@ -11,6 +11,7 @@ import { tsFresh } from "./posts";
 import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, PAIR_DESCRIPTION_MAX, guardedPairPrice, pairWarmingUp, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
 import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, samplePairSpot, univ3Tokens, univ4Key } from "./pairPrice";
 import { coreQuoteNames } from "./config";
+import { publicError } from "./redact";
 import { ensureRegistry, stockTickers } from "./stocksServer";
 
 /**
@@ -194,7 +195,7 @@ async function inspect(chain: ChainKey, address: string, l: PairListing, others:
   }
   // the pool must give a price now (a v4 pool its spot: its average needs 20 minutes of samples after listing)
   const leg = await readPairLeg(src).catch((e: unknown) => e as Error);
-  if (leg instanceof Error) return fail(`the price pool could not be read: ${leg.message}`, 400);
+  if (leg instanceof Error) return fail(`the price pool could not be read: ${publicError(leg)}`, 400);
   if (leg.spot === null) return fail("the price pool gives no price", 400);
   if (l.price_kind === "univ3" && leg.twap === null) return fail("that pool has no 30-minute oracle history: pick another pool, or a v4 pool", 400);
   // the monitor suspends a pair whose pool holds less than its line: never list one that would start failing at once
@@ -337,7 +338,7 @@ export async function checkPair(r: PairDbRow, chain: ChainKey): Promise<{ health
 }
 async function poolHealth(r: PairDbRow, chain: ChainKey): Promise<PairHealth> {
   const leg = await readPairLeg({ chain, address: r.address, decimals: r.decimals, price_kind: r.price_kind, price_pool: r.price_pool, price_quote: r.price_quote }).catch((e: unknown) => e as Error);
-  if (leg instanceof Error) return { ok: false, hard: false, reason: `Its price pool cannot be read: ${leg.message}.` };
+  if (leg instanceof Error) return { ok: false, hard: false, reason: `Its price pool cannot be read: ${publicError(leg)}` };
   // a v4 pool's average comes from our own minute samples: a pair listed minutes ago has none yet, which is not a failure
   // (only the missing average is excused: a bad spot fails as before, and liquidity is still checked below)
   const warming = leg.twap === null && leg.spot !== null && leg.spot > 0 && pairWarmingUp(r.price_kind, new Date(r.listed_at).getTime(), Date.now());
