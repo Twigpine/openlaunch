@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, type Address, type Hex } from "viem";
 import { APPROVAL_DISCARD_AFTER_MS, APPROVAL_STORAGE_PREFIX, ARC_APPROVAL_CHAIN_ID, ARC_USDC, EXACT_APPROVAL_ABI, RELAY_APPROVAL_SPENDER, USDC_APPROVAL_EVENT, approvalBlocksSubmission, approvalCanDiscard, approvalRequestKey, approvalStorageKey, createApprovalStore, exactApprovalTransaction, hasMatchingApprovalEvent, isMatchingApprovalTransaction, parseStoredApproval, reconcileApproval, serializeApproval, submitExactApproval, validateApprovalMetadata, type ApprovalDependencies, type ApprovalRequest, type TrackedApproval } from "./approval";
-import { BASE_USDC } from "./types";
-import { canApplyApprovalPoll, recoverApprovalFromEvidence } from "./approval";
+import { BASE_USDC, ELYSIUM_USDC, ROBINHOOD_USDG } from "./types";
+import { canApplyApprovalPoll, CCTP_APPROVAL_SPENDER, recoverApprovalFromEvidence } from "./approval";
+import { CCTP_TOKEN_MESSENGER } from "./cctp";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const OTHER = "0x2222222222222222222222222222222222222222" as Address;
@@ -84,7 +85,15 @@ test("Base approvals pin Base USDC and retain independent chain identity", () =>
   assert.notEqual(approvalRequestKey(request), approvalRequestKey(REQUEST));
   assert.throws(() => validateApprovalMetadata({ token: ARC_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
   assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 5042));
-  assert.throws(() => exactApprovalTransaction({ ...request, chainId: 4663 }));
+  // Robinhood Chain approves its own token, USDG, never Base's or Arc's
+  assert.equal(exactApprovalTransaction({ ...request, chainId: 4663 }).to, ROBINHOOD_USDG);
+  assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 4663));
+  assert.throws(() => validateApprovalMetadata({ token: ROBINHOOD_USDG, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
+  // Elysium approves its own USDC, and only on Elysium
+  assert.equal(exactApprovalTransaction({ ...request, chainId: 99901 }).to, ELYSIUM_USDC);
+  assert.deepEqual(validateApprovalMetadata({ token: ELYSIUM_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 99901), { ...request, chainId: 99901 });
+  assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 99901));
+  assert.throws(() => validateApprovalMetadata({ token: ELYSIUM_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS, 8453));
   const unlimited = ((1n << 256n) - 1n).toString();
   assert.throws(() => exactApprovalTransaction({ ...request, amount: unlimited }));
   assert.throws(() => validateApprovalMetadata({ token: BASE_USDC, spender: RELAY_APPROVAL_SPENDER, amount: unlimited }, ADDRESS, 8453));
@@ -356,7 +365,7 @@ test("a confirmed exact replacement recovers a pending hash without resubmitting
   assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, blockTimestamp: evidence.blockTimestamp + 31n }), /clock/);
   assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, hash: HASH } }), /network/);
   for (const changes of [{ to: ADDRESS, input: "0x" as Hex }, { from: OTHER }, { input: exactApprovalTransaction({ ...REQUEST, amount: "1" }).data }, { value: 1n }]) {
-    assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, ...changes } }), /exact USDC approval/);
+    assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, ...changes } }), /exact token approval/);
   }
   assert.throws(() => recoverApprovalFromEvidence({ ...approval, status: "confirmed" }, evidence), /already resolved/);
 });
@@ -369,4 +378,29 @@ test("a delayed missing-receipt poll cannot undo same-hash confirmation or anoth
   for (const status of ["reverted", "insufficient"] as const) assert.equal(canApplyApprovalPoll({ ...observed, status }, observed), false);
   for (const change of [{ approvalHash: OTHER_HASH }, { address: OTHER }, { amount: "1" }, { createdAt: NOW + 1 }, { chainId: 8453 as const }]) assert.equal(canApplyApprovalPoll({ ...observed, ...change }, observed), false);
   assert.equal(canApplyApprovalPoll(null, observed), false);
+});
+
+test("a Circle approval pins Circle's messenger as spender, and no other contract is ever accepted", () => {
+  const circle = { ...REQUEST, spender: CCTP_APPROVAL_SPENDER };
+  assert.deepEqual(validateApprovalMetadata({ token: ARC_USDC, spender: CCTP_TOKEN_MESSENGER, amount: REQUEST.amount }, ADDRESS), circle);
+  // Relay stays the implicit spender, so Relay's records and keys are unchanged
+  assert.deepEqual(validateApprovalMetadata({ token: ARC_USDC, spender: RELAY_APPROVAL_SPENDER, amount: REQUEST.amount }, ADDRESS), REQUEST);
+  assert.equal(approvalRequestKey(REQUEST).includes(CCTP_APPROVAL_SPENDER), false);
+  assert.notEqual(approvalRequestKey(circle), approvalRequestKey(REQUEST));
+  assert.equal(decodeFunctionData({ abi: EXACT_APPROVAL_ABI, data: exactApprovalTransaction(circle).data }).args[0].toLowerCase(), CCTP_APPROVAL_SPENDER);
+  assert.throws(() => validateApprovalMetadata({ token: ARC_USDC, spender: OTHER, amount: REQUEST.amount }, ADDRESS));
+  assert.throws(() => exactApprovalTransaction({ ...REQUEST, spender: OTHER }));
+
+  const approval = tracked({ spender: CCTP_APPROVAL_SPENDER });
+  assert.deepEqual(parseStoredApproval(serializeApproval(approval), ADDRESS), approval);
+  assert.throws(() => parseStoredApproval(serializeApproval(tracked({ spender: OTHER })), ADDRESS));
+  const event = (spender: Address) => ({
+    address: ARC_USDC as Address,
+    topics: encodeEventTopics({ abi: USDC_APPROVAL_EVENT, eventName: "Approval", args: { owner: ADDRESS, spender } }) as Hex[],
+    data: encodeAbiParameters([{ type: "uint256" }], [25_000_000n]),
+  });
+  assert.equal(hasMatchingApprovalEvent(approval, { status: "success", logs: [event(CCTP_TOKEN_MESSENGER)] }), true);
+  // an approval of Relay's depository never stands in for Circle's, nor the reverse
+  assert.equal(hasMatchingApprovalEvent(approval, { status: "success", logs: [event(RELAY_APPROVAL_SPENDER)] }), false);
+  assert.equal(hasMatchingApprovalEvent(tracked(), { status: "success", logs: [event(CCTP_TOKEN_MESSENGER)] }), false);
 });

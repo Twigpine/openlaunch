@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRef, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, LayoutDashboard, LogOut, X } from "lucide-react";
-import { CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, isChainKey, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { BRIDGE_CHAINS, isBridgeChainId } from "@/lib/bridge/types";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import WalletAvatar from "./WalletAvatar";
@@ -37,8 +37,9 @@ function NetworkLogo({ chain }: { chain: ChainKey }) {
  * network the site doesn't support. The chip's name for it pushed the Launch button out of the header, so only the
  * mobile row spells it out.
  */
-function NetworkBadge({ chain }: { chain: ChainKey | null }) {
-  if (!chain) return <span className={styles.networkWarn} aria-hidden>!</span>;
+/** A launch chain shows its logo; a bridge funding network (Ethereum, Arbitrum, Optimism) shows none; anything else warns. */
+function NetworkBadge({ chain, known = false }: { chain: ChainKey | null; known?: boolean }) {
+  if (!chain) return known ? null : <span className={styles.networkWarn} aria-hidden>!</span>;
   return <ChainLogo chain={chain} size={14} className="absolute -right-1 -bottom-1 ring-2 ring-card" />;
 }
 
@@ -115,7 +116,7 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
         title={block ? undefined : key || bridgeNetwork ? `On ${network}` : "Unsupported network. Open to switch"}
         data-unsupported={(!key && !bridgeNetwork) || undefined}
       >
-        <span className={styles.triggerMark}><WalletAvatar address={address} />{block ? <span className={styles.connectionDot} /> : <NetworkBadge chain={key ?? bridgeNetwork?.key ?? null} />}</span>
+        <span className={styles.triggerMark}><WalletAvatar address={address} />{block ? <span className={styles.connectionDot} /> : <NetworkBadge chain={key ?? (bridgeNetwork && isChainKey(bridgeNetwork.key) ? bridgeNetwork.key : null)} known={!!bridgeNetwork} />}</span>
         <span className={styles.triggerAddress}>{shortAddr(address)}</span>
         {block ? <span className={styles.triggerNetwork}>{key || bridgeNetwork ? network : "Switch"}</span> : null}
         <ChevronDown size={13} className={styles.chevron} aria-hidden />

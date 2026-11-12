@@ -9,7 +9,7 @@ const header = read("../HeaderNav.tsx");
 const css = read("./BridgeDialog.module.css");
 
 test("bridge uses bundled official asset marks rather than letter placeholders", () => {
-  for (const asset of ["base.svg", "robinhood-black.svg", "robinhood-white.svg", "ethereum.svg", "arc.svg", "usdc.svg"]) {
+  for (const asset of ["base.svg", "robinhood-black.svg", "robinhood-white.svg", "ethereum.svg", "arc.svg", "arbitrum.svg", "optimism.svg", "usdc.svg"]) {
     assert.ok(panel.includes(`/brand/${asset}`), asset);
     const svg = read(`../../../public/brand/${asset}`);
     assert.match(svg, /<svg\b/);
@@ -24,26 +24,93 @@ test("bridge uses bundled official asset marks rather than letter placeholders",
 });
 
 test("bridge keeps one lazily loaded controller across desktop/mobile and dismissal", () => {
-  assert.match(header, /<BridgeProvider>/);
+  // one provider, in the root layout around the header and every page, so the token page's card is inside it too
+  const layout = read("../../app/layout.tsx");
+  assert.match(layout, /<BridgeProvider>\s*<Header \/>\s*<TxToasts \/>\s*<div className="flex-1 min-w-0">\{children\}<\/div>\s*<Footer \/>\s*<\/BridgeProvider>/);
+  assert.ok(layout.indexOf("<Web3Provider>") < layout.indexOf("<BridgeProvider>"), "inside the wallet provider the controller reads");
+  // the header no longer mounts its own: a second provider would start a second controller
+  assert.doesNotMatch(header, /<BridgeProvider/);
+  for (const file of ["../launchpad/TradePanel.tsx", "./BridgeToBuy.tsx", "../CommandPalette.tsx", "./BridgePageSlot.tsx"]) assert.doesNotMatch(read(file), /<BridgeProvider/, file);
   // desktop: one button, icon-only (its label pushed the Launch button out of the strip)
   assert.match(header, /<BridgeButton compact \/>/);
   assert.match(header, /<BridgeButton block onOpen=\{\(\) => setOpen\(false\)\} \/>/);
   assert.match(provider, /dynamic\(\(\) => import\("\.\/BridgeDialog"\)/);
-  assert.match(provider, /activated \? <BridgeDialog/);
+  // mounted on first use or when the /bridge page registers its slot, and kept mounted after either
+  assert.match(provider, /activated \|\| slot\.node \? <BridgeDialog open=\{open\} onOpenChange=\{setOpen\} restoreFocus=\{restoreFocus\} slot=\{slot\.node\} link=\{slot\.node \? slot\.link : requested\?\.link \?\? null\} linkCount=\{slot\.node \? 0 : requested\?\.count \?\? 0\} \/>/);
   assert.doesNotMatch(provider, /open \? <BridgeDialog/);
 });
 
+test("the /bridge page shows the same controller's panel instead of starting a second one", () => {
+  const page = read("../../app/bridge/page.tsx");
+  const slot = read("./BridgePageSlot.tsx");
+  const store = read("./bridge-slot.ts");
+  // the page only registers an element; nothing in it or its slot runs the bridge hook
+  assert.match(page, /<BridgePageSlot link=\{link\} \/>/);
+  assert.match(page, /const link = parseBridgeLink\(await searchParams\);/);
+  assert.doesNotMatch(page + slot + store, /useBridge|BridgeDialog|sendTransaction/);
+  assert.match(slot, /bridgeSlot\.mount\(node, link\)/);
+  assert.match(store, /return \(\) => \{ if \(current\.node === node\)/, "a stale page cannot withdraw a newer page's slot");
+  assert.equal((panel.match(/useBridge\(/g) ?? []).length, 1, "one hook call serves the dialog and the page");
+  assert.match(panel, /const bridge = useBridge\(open \|\| onPage\);/);
+  assert.match(panel, /onPage \? createPortal\(<section className=\{signal\.pagePanel\} aria-label="Bridge">\{content\}\{footer\}<\/section>, slot\) : null/);
+  assert.match(panel, /<BridgeModal\s+open=\{open && !onPage\}/, "the dialog never opens over the page's own panel");
+  assert.match(provider, /if \(slot\.node && open\) setOpen\(false\);/);
+  assert.match(provider, /page\.querySelector<HTMLElement>\("#bridge-amount"\)\?\.focus/);
+  // a link preselects through the pickers' guarded setters, once, and carries no amount
+  assert.match(panel, /if \(!link \|\| appliedLink\.current === linkKey\) return;/);
+  assert.match(panel, /bridge\.setOriginChainId\(link\.originChainId\);\s+bridge\.setDestinationChainId\(link\.destinationChainId\);/);
+  assert.doesNotMatch(panel, /link\.amount|bridge\.setAmount\(link/);
+});
+
+test("the signal board is decorative and sliding confirms the deposit only", () => {
+  const board = read("./SignalBoard.tsx");
+  const slide = read("./SlideConfirm.tsx");
+  const signalCss = read("./Signal.module.css");
+  // the board says nothing a screen reader needs: the panel's own status text carries it
+  assert.match(board, /<div className=\{styles\.board\} aria-hidden="true">/);
+  assert.match(board, /window\.matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches/);
+  assert.match(board, /if \(still\) paint\(started\);\s+else frame = requestAnimationFrame\(loop\);/);
+  assert.match(board, /return \(\) => \{ cancelAnimationFrame\(frame\); observer\.disconnect\(\); \};/);
+  assert.match(board, /observer\.observe\(rule\);/, "sizing the canvas never re-triggers its own observer");
+  assert.doesNotMatch(board + slide, /setInterval|sendTransaction|useBridge/);
+  assert.equal((panel.match(/<SignalBoard /g) ?? []).length, 3, "form, approval and transfer views");
+  // the slide appears for the deposit alone, and runs the very same guarded path as the button
+  assert.match(panel, /const slideReady = !!b\.address && reviewing && !b\.approvalRequired && !loading && !b\.allowanceLoading;/);
+  assert.match(panel, /\{slideReady \? <SlideConfirm key=\{b\.quote!\.requestId\}[^\n]+onConfirm=\{runWalletAction\} \/> : null\}/);
+  const formSubmit = panel.match(/<form className=\{dotFont\.variable\} onSubmit=\{\(event\) => \{([\s\S]*?)\}\}>/)?.[1] ?? "";
+  assert.match(formSubmit, /event\.preventDefault\(\);/);
+  assert.match(formSubmit, /if \(quoteAction && !actionDisabled\) void b\.requestQuote\(\);/);
+  assert.doesNotMatch(formSubmit, /runWalletAction|\.approve\(|\.confirm\(|connect\(/, "implicit submission can only request a quote");
+  assert.match(panel, /const quoteAction = !!b\.address && !reviewing/);
+  assert.match(panel, /<button\s+type=\{quoteAction \? "submit" : "button"\}\s+className=\{slideReady \? styles\.secondary : styles\.primary\}\s+disabled=\{actionDisabled\}\s+onClick=\{quoteAction \? undefined : runWalletAction\}/, "only the quote action submits the form");
+  assert.equal((panel.match(/b\.confirm\(\)/g) ?? []).length, 1);
+  assert.equal((panel.match(/b\.approve\(\)/g) ?? []).length, 1);
+  // only a release or Enter at the end confirms, read from the live drag, never from movement
+  assert.match(slide, /if \(slideRelease\(at\) === "confirm"\) \{ place\(1\); onConfirm\(\); return; \}/);
+  assert.match(slide, /if \(next\.confirm\) onConfirm\(\);/);
+  assert.equal((slide.match(/onConfirm\(\)/g) ?? []).length, 2);
+  assert.doesNotMatch(slide.slice(slide.indexOf("function move"), slide.indexOf("function up")), /onConfirm/);
+  assert.match(slide, /role="slider" tabIndex=\{0\} aria-label=\{label\} aria-valuemin=\{0\} aria-valuemax=\{100\}/);
+  assert.match(slide, /<p className=\{styles\.slideHint\} aria-live="polite">/);
+  assert.match(signalCss, /\.slideTrack \{[^}]*touch-action: none/);
+  assert.match(signalCss, /prefers-reduced-motion: reduce[\s\S]+\.caption span \{ animation: none; \}/);
+  assert.match(signalCss, /\.coin:focus-visible/);
+  // the dot face loads with the panel only
+  assert.match(read("./dot-font.ts"), /Doto\(\{ subsets: \["latin"\], axes: \["ROND"\], variable: "--font-dots", display: "swap", preload: false \}\)/);
+});
+
 test("bridge review names minimum, separate gas, recipient, risk and expiry", () => {
-  for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0 Openlaunch fee"]) assert.ok(panel.includes(content), content);
-  assert.match(panel, /reviewing \? b.approvalRequired \? b.approve\(\) : b.confirm\(\) : b.requestQuote\(\)/);
+  for (const content of ["Minimum received", "Source gas", "Receiving wallet", "0.5% slippage", "carries risk", "This quote expired", "Refresh quote", "0% Openlaunch fee"]) assert.ok(panel.includes(content), content);
+  assert.match(panel, /if \(reviewing\) void \(b\.approvalRequired \? b\.approve\(\) : b\.confirm\(\)\);/);
   assert.doesNotMatch(panel, /dangerouslySetInnerHTML|setInterval|sendTransaction/);
 });
 
 test("bridge dialog has accessible focus, mobile layout and reduced motion", () => {
   assert.match(panel, /Dialog.Popup[^>]+initialFocus=\{popup\}/);
   assert.match(panel, /finalFocus=\{connecting \? false : restoreFocus\}/);
-  assert.match(panel, /Dialog.Close[^>]+aria-label="Close bridge"/);
-  assert.match(panel, /htmlFor="bridge-amount"/);
+  assert.match(panel, /Dialog.Close[^>]+aria-label=\{closeLabel\}/);
+  assert.match(panel, /closeLabel = "Close bridge"/);
+  assert.match(panel, /htmlFor=\{amountId\}/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /max-height: calc\(100dvh - 16px\)/);
   assert.match(css, /:focus-visible/);
@@ -62,8 +129,13 @@ test("both quote and transfer recipients expose the full address without hover",
   assert.match(css, /input, select, summary\):focus-visible/);
 });
 
-test("bridge selectors expose three networks and label cross-asset conversion and gas", () => {
-  assert.match(panel, /BRIDGE_CHAIN_IDS.map/);
+test("bridge selectors send from every network, receive only on launch chains, and label conversion and gas", () => {
+  assert.match(panel, /const SOURCE_CHAINS: readonly BridgeChainId\[\] = BRIDGE_CHAIN_IDS;/);
+  assert.match(panel, /const DESTINATION_CHAINS: readonly BridgeChainId\[\] = BRIDGE_DESTINATION_IDS;/);
+  assert.match(panel, /const chains = label === "From" \? SOURCE_CHAINS : DESTINATION_CHAINS;/);
+  assert.match(panel, /<Select.GroupLabel className=\{styles.networkGroupLabel\}>Fund from<\/Select.GroupLabel>/);
+  assert.match(panel, /disabled=\{locked \|\| !b.canReverse\} onClick=\{b.reverseRoute\}/);
+  assert.match(panel, /onClick=\{\(\) => b.setOriginChainId\(walletFunding\)\}/);
   assert.match(panel, /Select.Trigger[^>]+aria-label=\{`\$\{label\} network`\}/);
   assert.match(panel, /onChange=\{b.setDestinationChainId\}/);
   assert.match(panel, /onClick=\{b.reverseRoute\}/);
@@ -76,7 +148,7 @@ test("bridge selectors expose three networks and label cross-asset conversion an
 test("network pickers use themed Base UI lists without native browser menus", () => {
   assert.match(panel, /import \{ Select \} from "@base-ui\/react\/select"/);
   assert.doesNotMatch(panel, /<select\b|<option\b/);
-  assert.match(panel, /Select.Root value=\{chain\} items=\{networkItems\} disabled=\{disabled\}/);
+  assert.match(panel, /Select.Root value=\{chain\} items=\{chains.map\(\(id\) => \(\{ value: id, label: BRIDGE_CHAINS\[id\].name \}\)\)\} disabled=\{disabled\}/);
   assert.match(panel, /if \(isBridgeChainId\(value\)\) onChange\(value\)/);
   assert.match(panel, /Select.Portal/);
   assert.match(panel, /alignItemWithTrigger=\{false\}/);
@@ -95,7 +167,11 @@ test("synthetic bridge review is development-only and cannot execute a transacti
 });
 
 test("USDC approval is visibly separate from the bridge and has chain-aware recovery", () => {
-  assert.match(panel, /Approve \$\{nativeAmount\(b.amount\)\} USDC/);
+  // the approval names the token being approved: USDC on Base and Arc, USDG on Robinhood Chain
+  assert.match(panel, /Approve \$\{nativeAmount\(b.amount\)\} \$\{inputCurrency\.symbol\}/);
+  assert.match(panel, /const approvalSymbol = bridgeTokenAsset\(approval\.chainId\) \?\? "token";/);
+  assert.match(panel, /<span>\{approvalSymbol\} approval on \{approvalChain\.name\}<\/span>/);
+  assert.doesNotMatch(panel, /USDC approval|exact USDC amount|\} USDC[<`"]/, "no approval copy assumes the token is USDC");
   assert.match(panel, /Approval alone does not move your funds/);
   assert.match(panel, /No bridge deposit has been requested/);
   assert.match(panel, /Review a fresh quote before bridging/);
@@ -112,12 +188,24 @@ test("USDC approval is visibly separate from the bridge and has chain-aware reco
 test("USDC selectors separate selected token units from native gas and disallow unsafe Robinhood routes", () => {
   assert.match(panel, /AssetSelect label="Send"[^>]+onChange=\{b.setOriginAsset\}/);
   assert.match(panel, /AssetSelect label="Receive"[^>]+onChange=\{b.setDestinationAsset\}/);
-  assert.match(panel, /BRIDGE_ASSETS\[chain\]/);
-  assert.match(panel, /isBridgeAssetSupported\(chain, value\)/);
+  // each picker lists its own side: Elysium's Receive offers HYPE, its Send never does
+  assert.ok(panel.includes(`const side = label === "Send" ? "input" : "output";`));
+  assert.match(panel, /bridgeAssets\(chain, side\)/);
+  assert.match(panel, /isBridgeAssetSupported\(chain, value, side\)/);
+  assert.doesNotMatch(panel, /BRIDGE_ASSETS\b/);
   assert.match(panel, /formatUnits\(b.balance, inputCurrency.decimals\)/);
   assert.match(panel, /formatUnits\(BigInt\(value\), outputCurrency.decimals\)/);
   assert.match(panel, /For gas: \{nativeAmount\(b.nativeBalance\)\} \{origin.symbol\}/);
-  assert.match(panel, /USDC on Robinhood is unavailable/);
+  assert.match(panel, /<details className=\{styles\.routeAvailability\}>[\s\S]*Robinhood supports ETH and USDG[\s\S]*USDC routes on Robinhood are unavailable because they don’t pass our current safety checks\./);
+  assert.match(panel, /chain === 99901 \? <span className=\{styles\.assetRequirement\}>USDC only · Gas in HYPE<\/span>/);
+  // into Elysium, a one-tap switch to HYPE for a wallet with no gas there
+  assert.ok(panel.includes(`{b.destinationChainId === 99901 && b.destinationAsset !== "HYPE" ? <button type="button" className={styles.walletHint} disabled={locked} onClick={() => b.setDestinationAsset("HYPE")}>Gas on Elysium is paid in HYPE. With none there yet, receive HYPE instead</button> : null}`));
+  assert.match(panel, /if \(asset === "HYPE"\) return <Coins/, "HYPE has no bundled mark, so it takes the launch form's coin glyph");
+  assert.ok(panel.includes('if (chain === 99901) return <span className={`${styles.networkMark} ${styles.elysiumMark}`} aria-hidden><Image src="/brand/elysium.png"'));
+  assert.ok(css.includes(".elysiumMark img { border-radius: 7px; }"));
+  // each asset is named in full, and says which token pays its chain's gas
+  assert.match(panel, /\{BRIDGE_ASSET_NAMES\[value\]\} · \{value === BRIDGE_CHAINS\[chain\]\.symbol \? "Gas token" : `Gas in \$\{BRIDGE_CHAINS\[chain\]\.symbol\}`\}/);
+  assert.match(panel, /if \(asset === "USDG"\) return <CircleDollarSign/, "USDG has no bundled logo, so it never borrows USDC's or Ether's");
   assert.match(panel, /uses additional \{origin.symbol\} for gas/);
   assert.match(panel, /const inputCurrency = bridgeTransferInputCurrency\(transfer\)/);
 });
@@ -132,19 +220,52 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(hook, /if \(!transferCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
   assert.match(hook, /if \(!approvalCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
   assert.match(panel, /Keep the Transfer ID below/);
-  assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
+  assert.match(panel, /Openlaunch does not operate \{provider\}, holds no funds in transit, and is not responsible for delays, refunds or losses/);
   assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);
   assert.match(hook, /linkedTimeoutSignal\(signal, 20_000\)/);
   assert.match(hook, /anchorQuoteExpiry\(body, requestedAt\)/);
   assert.match(hook, /setActivity\(activityAfterWalletChange\)/);
   assert.match(hook, /error instanceof TransactionReceiptNotFoundError\) return null/);
-  assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
+  assert.match(hook, /const walletHashUnmined = receipt\.status === "fulfilled" && receipt\.value === null;/);
+  assert.match(hook, /replacementSourceHash\(current, status, walletHashUnmined\)/);
   assert.match(hook, /const messageOf = bridgeErrorMessage;/);
+});
+
+test("the history board only reads: no second bridge, no recovery record, and the ledger is written by the controller alone", () => {
+  const board = read("./BridgeHistory.tsx");
+  const hook = read("./useBridge.ts");
+  const page = read("../../app/bridge/page.tsx");
+  assert.doesNotMatch(board, /useBridge|client-storage|sendTransaction|writeContract|\.record\(|\.forget\(/);
+  assert.ok(board.includes("bridgeLedger.read(address)"));
+  assert.ok(page.includes("<BridgeHistory />"));
+  assert.ok(hook.includes("try { bridgeLedger.record(tracked, quoted); } catch"));
+  assert.match(hook, /transfers\.remove\(address\);\s+try \{ bridgeLedger\.forget\(address, requestId\); \} catch/);
+  assert.match(panel, /historyHref = "\/bridge#transfers"/);
+  assert.match(panel, /href=\{historyHref\}/);
+});
+
+test("bridge, then buy stays two steps: the trade panel card opens and follows the one controller and never sends", () => {
+  const card = read("./BridgeToBuy.tsx");
+  const trade = read("../launchpad/TradePanel.tsx");
+  assert.doesNotMatch(card, /useBridge\b|client-storage|sendTransaction|writeContract|useWriteContract|\.record\(|\.forget\(/);
+  assert.ok(card.includes("useOpenBridge()") && card.includes("useWakeBridge()"));
+  // nothing is shown or looked for until the clock and this wallet's ledger are known
+  assert.ok(card.includes("const ready = now !== 0 && snapshot.entries[wallet] !== undefined;"));
+  assert.ok(card.includes("const row = ready ? followedBridge(rows, destination, asset, now, dismissed) : null;"));
+  assert.ok(card.includes("const scanKey = ready && short && step === \"short\"") && card.includes("if (!wallet || !ready || (step === \"short\" && !short)) return null;"));
+  assert.ok(card.includes("bridgeLedger.read(address)"));
+  assert.ok(trade.includes("<BridgeToBuy "));
+  assert.match(trade, /side === "buy" && isConnected && tradable \? \(\s*<BridgeToBuy /);
+  assert.ok(trade.includes("onArrived={refetchPay}"));
+  assert.ok(provider.includes("const wake = useCallback(() => setActivated(true), []);"), "waking mounts the controller closed so tracking continues");
+  assert.ok(provider.includes("export function useWakeBridge"));
+  assert.ok(provider.includes("if (slot.node && requested) setRequested(null);"), "the /bridge page's route is never overwritten later by an older request");
+  assert.ok(panel.includes("const linkKey = link ? `${linkCount}:${bridgeLinkKey(link)}` : \"\";"), "asking for the same route again re-applies it");
 });
 
 test("quotes update without locking typing or automatically submitting wallet actions", () => {
   const hook = read("./useBridge.ts");
-  assert.match(panel, /useBridge\(open\)/);
+  assert.match(panel, /useBridge\(open \|\| onPage\)/);
   assert.match(hook, /autoQuoteEnabled = open && !!request && !sending && !approvalSending && !approvalPending && !tracked/);
   assert.match(hook, /quoteSession.schedule\(\(\) => \{ void requestQuote\(\); \}\)/);
   assert.match(hook, /\[autoQuoteEnabled, amount, walletChainId, requestQuote, quoteSession\]/);
@@ -153,8 +274,9 @@ test("quotes update without locking typing or automatically submitting wallet ac
   assert.match(hook, /next\.originChainId === inputs\.current\.originChainId[^\n]+next\.amount === inputs\.current\.amount\) return/);
   assert.match(hook, /busy: sending \|\| approvalSending \|\| approvalPending,/);
   assert.match(panel, /const loading = locked \|\| b.quoteLoading/);
-  assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
-  assert.match(panel, /if \(loading \|\| b.allowanceLoading \|\| !b.canQuote\) return/);
+  assert.match(panel, /input id=\{amountId\}[^\n]+disabled=\{locked\}/);
+  assert.match(panel, /const actionDisabled = loading \|\| b\.allowanceLoading \|\| \(!!b\.address && !b\.canQuote\)/);
+  assert.match(panel, /if \(actionDisabled\) return/);
   assert.match(panel, /Your quote updates automatically/);
   assert.match(panel, /rejection.reason === "relay-fee"/);
   assert.match(panel, /rejection.relayFeePercent/);
@@ -187,4 +309,59 @@ test("pending approvals explain missing/queued transactions and accept a verifie
   assert.match(hook, /const health = receipt \? null : await readPendingApprovalHealth/);
   assert.match(hook, /value: APPROVAL_HEALTH_UNAVAILABLE/);
   assert.equal((hook.match(/await assertBridgeWalletQueueClear\(/g) ?? []).length, 2);
+});
+
+test("a Circle transfer is named as Circle's, reads allowance for Circle's spender, and never links to a Relay page", () => {
+  const hook = read("./useBridge.ts");
+  const board = read("./BridgeHistory.tsx");
+  // allowances are read for whichever contract the approval names, never a hard-coded Relay depository
+  assert.doesNotMatch(hook, /RELAY_DEPOSITORY/);
+  assert.match(hook, /args: \[quote\.address, quote\.approval\.spender\]/);
+  assert.match(hook, /const statusUrl = observed \? bridgeStatusUrl\(observed\)/);
+  assert.match(hook, /findCctpBurn\(pub, current\)/);
+  // Polling only adopts a uniquely identified burn; unavailable reads retain recovery.
+  assert.ok(hook.includes("await findCctpBurn(pub, current)"));
+  assert.ok(hook.includes('const found = scan?.kind === "found" ? scan.hash : null;'));
+  assert.ok(panel.includes("This recovery record stays saved until the transfer is resolved."));
+  assert.ok(panel.includes("Check source wallet activity"));
+  assert.doesNotMatch(panel, /nothing is confirmed on/);
+  // The lock-protected handler refuses Circle even if the button's old visibility was stale.
+  assert.ok(hook.includes('transferIsTerminal(current) || current.provider === "cctp") return;'));
+  assert.match(panel, /const circle = \(bridge\.tracked\?\.provider \?\? bridge\.quote\?\.provider\) === "cctp";/);
+  assert.match(panel, /const provider = circle \? "Circle CCTP" : "Relay"/);
+  assert.match(panel, /href=\{circle \? "https:\/\/developers\.circle\.com\/cctp" : "https:\/\/relay\.link"\}/);
+  assert.match(panel, /\{circle \? null : <a className=\{styles\.externalAction\} href=\{\x60https:\/\/relay\.link\/transaction\//);
+  assert.match(panel, /\{circle \? null : <p className=\{styles\.disclaimer\}>Transfer ID/);
+  assert.match(panel, /Circle takes one fixed fee, so this is the exact amount you receive\./);
+  assert.match(board, /entry\.provider === "cctp" \? <span className=\{styles\.via\}>Circle<\/span> : <a href=\{\x60https:\/\/relay\.link\/transaction\//);
+  assert.doesNotMatch(panel, /—/);
+});
+
+test("from an exchange: the guide only reads balances, opens the bridge on a checked route, and never offers a deposit address", () => {
+  const watch = read("./useExchangeWatch.ts");
+  const lib = read("../../lib/bridge/exchange.ts");
+  const review = read("../../app/ui-review-bridge/BridgeReview.tsx");
+  const guide = panel.slice(panel.indexOf("export function ExchangeGuide"), panel.indexOf("function ApprovalProgress"));
+  // read-only: balances through the public clients, nothing that signs, sends or switches
+  for (const source of [watch, lib, guide]) assert.doesNotMatch(source, /sendTransaction|writeContract|useWriteContract|getWalletClient|switchChain|signMessage|signTypedData|fetch\(/);
+  assert.ok(watch.includes("getBalance({ address: who })") && watch.includes('functionName: "balanceOf"'));
+  assert.ok(watch.includes("if (!document.hidden)"), "no reads while the tab is hidden");
+  // the form's link opens it; a guide left open in this tab comes back without taking focus
+  assert.ok(panel.includes('<button type="button" id={exchangeLinkId} className={styles.exchangeLink} disabled={locked} onClick={openGuide}>Funds on an exchange? Withdraw them to this wallet first</button>'));
+  assert.ok(panel.includes('setGuide((open) => open || "resumed")') && panel.includes('focusOnMount: guide === "opened"'));
+  // an arrival opens the bridge through the same guarded setters the pickers use, then ends the watch
+  assert.match(panel, /b\.setOriginChainId\(next\.originChainId\);\s*b\.setOriginAsset\(next\.originAsset\);\s*if \(next\.amount\) b\.setAmount\(next\.amount\);/);
+  assert.ok(panel.includes("const closeGuide = (focus") && panel.includes("clearExchangeWatch();"));
+  // each form names its own link and amount, so the fixture beside the live panel never shares an id
+  assert.ok(panel.includes("const exchangeLinkId = `${idPrefix}-exchange-link`;") && panel.includes("closeGuide(next.kind === \"bridge\" ? amountId : exchangeLinkId)"));
+  assert.ok(guide.includes("exchangeNeedsGas(arrival)"), "a token with no gas beside it is called out");
+  assert.ok(guide.includes("not USDC.e or another bridged version"));
+  assert.ok(guide.includes("navigator.clipboard.writeText(address)") && guide.includes("selection.addRange(range)"), "copy falls back to selecting the address");
+  // the fixture shows the guide from plain props and never starts the live watch
+  assert.doesNotMatch(review, /useExchangeWatch\(/);
+  assert.ok(review.includes("exchangeView={DIALOG_EXCHANGE}"));
+  // Relay deposit addresses stay off: never requested, and a quote carrying one is still refused
+  assert.doesNotMatch(read("../../lib/bridge/relay.ts"), /useDepositAddress/);
+  assert.ok(read("../../lib/bridge/validation.ts").includes('step.kind === "transaction" && isRequestId(step.requestId) && !step.depositAddress'));
+  assert.doesNotMatch(guide, /—/);
 });

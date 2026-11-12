@@ -1,6 +1,6 @@
 import { encodeFunctionData, zeroAddress } from "viem";
 import { getOrderId, type Order } from "./relay-order";
-import { BRIDGE_CHAINS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
+import { BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, bridgeDestinationRefund, bridgeTokens, bridgesNativeCurrency, isDollarAsset, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types";
 import { APPROVAL_ABI, DEPOSIT_ABI, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY } from "./validation";
 
 // Compact, read-only mainnet quote captured with Relay's public example account.
@@ -14,10 +14,12 @@ const extraData = `0x${router.slice(2).padStart(64, "0")}`;
 export const FIXTURE_INPUT: BridgeQuoteRequest = { address: FIXTURE_ADDRESS, originChainId: 8453, destinationChainId: 4663, amount: "10000000000000000" };
 
 export function relayChainsFixture() {
-  return { chains: ([8453, 4663, 5042] as BridgeChainId[]).map((id) => ({
+  return { chains: BRIDGE_CHAIN_IDS.map((id) => ({
     id, vmType: "evm", disabled: false, depositEnabled: true, blockProductionLagging: false,
     protocol: { v2: { chainId: BRIDGE_CHAINS[id].key, depository: RELAY_DEPOSITORY } },
-    currency: { address: zeroAddress, symbol: id === 5042 ? "USDC" : "ETH", decimals: 18, supportsBridging: true },
+    // as Relay lists them: Elysium's native HYPE is not bridgeable there, only its USDC
+    currency: { address: zeroAddress, symbol: BRIDGE_CHAINS[id].symbol as string, decimals: 18, supportsBridging: bridgesNativeCurrency(id) },
+    erc20Currencies: bridgeTokens(id).map((token) => ({ address: token.address.toLowerCase(), symbol: token.symbol as string, decimals: token.decimals as number, supportsBridging: true })),
     contracts: { erc20Router: router }, solverAddresses: ["0xf70da97812cb96acdf810712aa562db8dfa3dbef"],
   })) };
 }
@@ -59,17 +61,20 @@ export function relayRouteFixture(originChainId: BridgeChainId, destinationChain
   const inputCurrency = bridgeCurrency(originChainId, originAsset, "input");
   const outputCurrency = bridgeCurrency(destinationChainId, destinationAsset, "output");
   const erc20 = inputCurrency.address !== zeroAddress;
-  const amount = inputCurrency.symbol === "USDC" ? "25000000" : FIXTURE_INPUT.amount;
-  const feeAmount = inputCurrency.symbol === "USDC" ? "60000" : outputCurrency.symbol === "USDC" ? "24736726855049" : "12330451724044";
-  const amountOut = inputCurrency.symbol === outputCurrency.symbol
+  // USDC and USDG are both dollars: a dollar route delivers the input less its fee, in the output's own decimals
+  const dollarIn = isDollarAsset(inputCurrency.symbol);
+  const dollarOut = isDollarAsset(outputCurrency.symbol);
+  const amount = dollarIn ? "25000000" : FIXTURE_INPUT.amount;
+  const feeAmount = dollarIn ? "60000" : dollarOut ? "24736726855049" : "12330451724044";
+  const amountOut = inputCurrency.symbol === outputCurrency.symbol || (dollarIn && dollarOut)
     ? ((BigInt(amount) - BigInt(feeAmount)) * 10n ** BigInt(outputCurrency.decimals) / 10n ** BigInt(inputCurrency.decimals)).toString()
-    : outputCurrency.symbol === "USDC" ? (238n * 10n ** BigInt(outputCurrency.decimals) / 10n).toString() : "10400000000000000";
+    : dollarOut ? (238n * 10n ** BigInt(outputCurrency.decimals) / 10n).toString() : "10400000000000000";
   const minimumAmount = (BigInt(amountOut) * 9950n / 10000n).toString();
   const input: BridgeQuoteRequest = { address: FIXTURE_ADDRESS, originChainId, destinationChainId, amount, ...(originAsset === undefined ? {} : { originAsset }), ...(destinationAsset === undefined ? {} : { destinationAsset }) };
   const quote = relayQuoteFixture();
   const order = quote.protocol.v2.orderData;
   order.inputs[0].payment = { chainId: source, currency: inputCurrency.address, amount, weight: "1" };
-  order.inputs[0].refunds = [source, destination].map((chainId) => ({ chainId, recipient: input.address, currency: chainId === source ? inputCurrency.address : outputCurrency.address, minimumAmount: "0", deadline: order.output.deadline, extraData }));
+  order.inputs[0].refunds = [source, destination].map((chainId) => ({ chainId, recipient: input.address, currency: chainId === source ? inputCurrency.address : bridgeDestinationRefund(destinationChainId, destinationAsset).address, minimumAmount: "0", deadline: order.output.deadline, extraData }));
   order.output.chainId = destination;
   order.output.payments[0] = { recipient: input.address, currency: outputCurrency.address, minimumAmount, expectedAmount: amountOut };
   quote.protocol.v2.paymentDetails.chainId = source;
@@ -100,7 +105,7 @@ export function relayRouteFixture(originChainId: BridgeChainId, destinationChain
   quote.fees.gas.currency.symbol = BRIDGE_CHAINS[originChainId].symbol;
   quote.fees.relayer.amount = feeAmount;
   quote.fees.gas.amount = originChainId === 5042 ? "3000000000000000" : "671181819574";
-  const orderId = getOrderId(order as Order, { base: "ethereum-vm", robinhood: "ethereum-vm", arc: "ethereum-vm" });
+  const orderId = getOrderId(order as Order, Object.fromEntries(BRIDGE_CHAIN_IDS.map((id) => [BRIDGE_CHAINS[id].key, "ethereum-vm" as const])));
   quote.protocol.v2.orderId = orderId;
   quote.steps[0].items[0].data.data = erc20
     ? encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, inputCurrency.address, BigInt(amount), orderId] })

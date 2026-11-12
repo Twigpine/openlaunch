@@ -1,12 +1,20 @@
 import "server-only";
 import { getOrderId, type Order } from "./relay-order";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, zeroAddress, type Hex } from "viem";
-import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_CHAINS, bridgeCurrency, bridgeDestinationRefund, bridgeFeePercent, bridgeTokens, bridgesNativeCurrency, isBridgeAssetSupported, isBridgeChainId, isBridgeDestination, isDollarAsset, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
 export const RELAY_DEPOSITORY = "0x4cd00e387622c35bddb9b4c962c136462338bc31";
-const RELAY_ROUTER = "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f";
+// Relay's execution routers on every bridge network (the "Cancun" column of its contract-versions table,
+// docs.relay.link/references/api/api_resources/contract-addresses): v3.2 first, then v3. Relay made v3.2 the default on
+// 2026-10-26 and keeps both live through the transition, telling integrators who pin addresses to allow both. A router
+// Relay publishes later is rejected until it is added here: every quote then fails closed, which the opt-in live tests
+// (relay.live.test.ts) show at once.
+export const RELAY_ROUTERS = ["0x0729e2a4716d9f7dd17858d5d504426d228697f7", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f"] as const;
+const isRelayRouter = (value: unknown) => RELAY_ROUTERS.some((router) => sameAddress(value, router));
+/** An order names its router as one ABI word in extraData: twelve zero bytes, then the address. */
+const isRelayRouterWord = (value: unknown) => RELAY_ROUTERS.some((router) => sameAddress(value, `0x${router.slice(2).padStart(64, "0")}`));
 export const DEPOSIT_ABI = parseAbi(["function depositNative(address depositor, bytes32 id) payable"]);
 export const ERC20_DEPOSIT_ABI = parseAbi(["function depositErc20(address depositor, address token, uint256 amount, bytes32 id)"]);
 export const APPROVAL_ABI = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
@@ -14,7 +22,6 @@ export const QUOTE_TTL_MS = 45_000;
 const DEADLINE_MARGIN_MS = 15_000;
 const UINT256_MAX = (1n << 256n) - 1n;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
-const NATIVE_SYMBOLS = { 8453: "ETH", 4663: "ETH", 5042: "USDC" } as const;
 const MAX_TOTAL_LOSS_PERCENT = 5;
 type ObjectValue = Record<string, unknown>;
 
@@ -51,9 +58,11 @@ export function parseBridgeRequest(value: unknown): BridgeQuoteRequest {
     const required = ["address", "originChainId", "destinationChainId", "amount"];
     ensure(required.every((key) => Object.hasOwn(b, key)) && Object.keys(b).every((key) => [...required, "originAsset", "destinationAsset"].includes(key)));
     ensure(typeof b.address === "string" && isAddress(b.address, { strict: false }) && !sameAddress(b.address, zeroAddress));
-    ensure(isBridgeChainId(b.originChainId) && isBridgeChainId(b.destinationChainId) && b.originChainId !== b.destinationChainId);
-    ensure(b.originAsset === undefined || isBridgeAssetSupported(b.originChainId, b.originAsset));
-    ensure(b.destinationAsset === undefined || isBridgeAssetSupported(b.destinationChainId, b.destinationAsset));
+    // funding networks (Ethereum, Arbitrum, Optimism) send but never receive
+    ensure(isBridgeChainId(b.originChainId) && isBridgeDestination(b.destinationChainId) && b.originChainId !== b.destinationChainId);
+    // HYPE arrives on Elysium but is never sent (types.ts): each side is checked against its own list
+    ensure(b.originAsset === undefined || isBridgeAssetSupported(b.originChainId, b.originAsset, "input"));
+    ensure(b.destinationAsset === undefined || isBridgeAssetSupported(b.destinationChainId, b.destinationAsset, "output"));
     const amount = uint(b.amount, true);
     // ERC20 max is an unlimited-allowance sentinel, never an exact approval.
     ensure(sameAddress(bridgeCurrency(b.originChainId, b.originAsset, "input").address, zeroAddress) || BigInt(amount) < UINT256_MAX);
@@ -81,8 +90,14 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
     const contracts = object(chain.contracts);
     ensure(chain.vmType === "evm" && chain.disabled === false && chain.depositEnabled === true && chain.blockProductionLagging !== true);
     ensure(v2.chainId === BRIDGE_CHAINS[id].key && sameAddress(v2.depository, RELAY_DEPOSITORY));
-    ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === NATIVE_SYMBOLS[id] && currency.supportsBridging === true);
-    ensure(sameAddress(contracts.erc20Router, RELAY_ROUTER));
+    ensure(sameAddress(currency.address, zeroAddress) && currency.decimals === 18 && currency.symbol === BRIDGE_CHAINS[id].symbol);
+    if (bridgesNativeCurrency(id)) ensure(currency.supportsBridging === true);
+    else {
+      // Elysium: Relay does not bridge HYPE as a native currency, so the chain stands or falls on its listed USDC instead
+      const listed = list(chain.erc20Currencies).map(object);
+      for (const token of bridgeTokens(id)) ensure(listed.some((entry) => sameAddress(entry.address, token.address) && entry.symbol === token.symbol && entry.decimals === token.decimals && entry.supportsBridging === true));
+    }
+    ensure(isRelayRouter(contracts.erc20Router));
     return chain;
   });
   const solvers = list(selected.find((chain) => chain.id === 8453)!.solverAddresses);
@@ -90,7 +105,7 @@ export function validateRelayChains(value: unknown, route: Pick<BridgeQuoteReque
   return { vmTypes: Object.fromEntries(required.map((id) => [BRIDGE_CHAINS[id].key, "ethereum-vm" as const])), solverAddresses: solvers as string[] };
 }
 
-/** Implements Relay's protocol.v2 input validation for allowlisted ETH / USDC. */
+/** Implements Relay's protocol.v2 input validation for the allowlisted assets (types.ts): ETH, USDC, USDG and, received on Elysium only, HYPE. Gas is always the origin's native currency. */
 export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, chains: RelayChainMetadata, now = Date.now()): BridgeQuote {
   const quote = object(value);
   const protocol = object(object(quote.protocol).v2);
@@ -99,6 +114,8 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   const destination = BRIDGE_CHAINS[input.destinationChainId].key;
   const inputCurrency = bridgeCurrency(input.originChainId, input.originAsset, "input");
   const outputCurrency = bridgeCurrency(input.destinationChainId, input.destinationAsset, "output");
+  // the output itself, except HYPE on Elysium, which Relay delivers by swapping USDC there and so refunds in that USDC
+  const destinationRefund = bridgeDestinationRefund(input.destinationChainId, input.destinationAsset);
   const erc20Input = !sameAddress(inputCurrency.address, zeroAddress);
   ensure(!erc20Input || BigInt(uint(input.amount, true)) < UINT256_MAX);
   const sameAsset = inputCurrency.symbol === outputCurrency.symbol;
@@ -111,8 +128,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   ensure(payment.chainId === source && sameAddress(payment.currency, inputCurrency.address) && uint(payment.amount, true) === input.amount && payment.weight === "1");
   const output = object(order.output);
   ensure(output.chainId === destination && list(output.calls, 0) && list(order.fees, 0));
-  const routerData = `0x${RELAY_ROUTER.slice(2).padStart(64, "0")}`;
-  ensure(sameAddress(output.extraData, routerData));
+  ensure(isRelayRouterWord(output.extraData));
   ensure(typeof output.deadline === "number" && Number.isSafeInteger(output.deadline));
   const expiresAt = Math.min(now + QUOTE_TTL_MS, output.deadline * 1000 - DEADLINE_MARGIN_MS);
   ensure(expiresAt >= now + 5_000);
@@ -123,13 +139,13 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   ensure(BigInt(minimumAmountOut) <= BigInt(amountOut));
   if (sameAsset) ensure(BigInt(amountOut) * inputScale <= BigInt(input.amount) * outputScale);
   ensure(BigInt(minimumAmountOut) >= BigInt(amountOut) * 9950n / 10000n);
-  // A failed fill may refund on either chain, but can never redirect the refund.
+  // A failed fill may refund on either chain, in the registry's currency for each, but can never redirect the refund.
   const refunds = list(orderInput.refunds, 2).map(object);
   ensure(new Set(refunds.map((refund) => refund.chainId)).size === 2);
   for (const refund of refunds) {
     ensure((refund.chainId === source || refund.chainId === destination) && sameAddress(refund.recipient, input.address));
-    const refundCurrency = refund.chainId === source ? inputCurrency.address : outputCurrency.address;
-    ensure(sameAddress(refund.currency, refundCurrency) && uint(refund.minimumAmount) === "0" && refund.deadline === output.deadline && sameAddress(refund.extraData, routerData));
+    const refundCurrency = refund.chainId === source ? inputCurrency.address : destinationRefund.address;
+    ensure(sameAddress(refund.currency, refundCurrency) && uint(refund.minimumAmount) === "0" && refund.deadline === output.deadline && isRelayRouterWord(refund.extraData));
   }
   const paymentDetails = object(protocol.paymentDetails);
   ensure(paymentDetails.chainId === source && sameAddress(paymentDetails.depository, RELAY_DEPOSITORY) && sameAddress(paymentDetails.currency, inputCurrency.address) && uint(paymentDetails.amount) === input.amount);
@@ -165,7 +181,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
 
   const details = object(quote.details);
   ensure(sameAddress(details.sender, input.address) && sameAddress(details.recipient, input.address));
-  const checkCurrency = (value: unknown, chainId: BridgeChainId, amount: string, expected: BridgeCurrency) => {
+  const checkCurrency = (value: unknown, chainId: BridgeChainId, amount: string, expected: Pick<BridgeCurrency, "address" | "decimals"> & { symbol: string }) => {
     const money = object(value);
     const currency = object(money.currency);
     ensure(currency.chainId === chainId && sameAddress(currency.address, expected.address) && currency.decimals === expected.decimals && currency.symbol === expected.symbol && uint(money.amount) === amount);
@@ -177,7 +193,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   const relayerAmount = uint(object(fees.relayer).amount);
   const gasAmount = uint(object(fees.gas).amount);
   checkCurrency(fees.relayer, input.originChainId, relayerAmount, inputCurrency);
-  checkCurrency(fees.gas, input.originChainId, gasAmount, { address: zeroAddress, decimals: 18, symbol: NATIVE_SYMBOLS[input.originChainId] });
+  checkCurrency(fees.gas, input.originChainId, gasAmount, { address: zeroAddress, decimals: 18, symbol: BRIDGE_CHAINS[input.originChainId].symbol });
   ensure(BigInt(relayerAmount) < BigInt(input.amount));
   // Same-symbol USDC still has 6/18-decimal interfaces. Cross multiplication
   // preserves exact fee equality without truncating either amount. ETH↔USDC
@@ -205,6 +221,12 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
       ? "This quote charges more than 5% in bridge fees. Try a different amount or wait for a better quote."
       : "This quote loses more than 5% in fees and price impact. Try a different amount or wait for a better quote.", 422, quoteRejection);
   }
+  // USDC and USDG are both dollars, so their units are compared directly, without the provider's own price estimate:
+  // a dollar-to-dollar route never guarantees less than 95% of what is sent, nor claims to deliver more than 105%.
+  if (!sameAsset && isDollarAsset(inputCurrency.symbol) && isDollarAsset(outputCurrency.symbol)) {
+    const sent = BigInt(input.amount) * outputScale;
+    ensure(BigInt(minimumAmountOut) * inputScale * 100n >= sent * 95n && BigInt(amountOut) * inputScale * 100n <= sent * 105n);
+  }
   return {
     ...input, requestId: step.requestId, amountOut, minimumAmountOut,
     relayFee, sourceGas, totalImpactPercent,
@@ -218,9 +240,8 @@ export function parseRelayStatus(value: unknown): BridgeStatusResponse {
   const response = object(value);
   const statuses: BridgeStatus[] = ["waiting", "depositing", "pending", "submitted", "delayed", "success", "refund", "failure"];
   ensure(statuses.includes(response.status as BridgeStatus));
-  for (const key of ["originChainId", "destinationChainId"]) {
-    if (response[key] !== undefined) ensure(isBridgeChainId(response[key]));
-  }
+  if (response.originChainId !== undefined) ensure(isBridgeChainId(response.originChainId));
+  if (response.destinationChainId !== undefined) ensure(isBridgeDestination(response.destinationChainId));
   const hashes = (value: unknown): Hex[] => {
     if (value === undefined) return [];
     const values = list(value);

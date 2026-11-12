@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, HttpRequestError, InsufficientFundsError, RpcRequestError, SwitchChainError, UnknownRpcError, UserRejectedRequestError, type Address, type Hex } from "viem";
-import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, canReverseBridgeRoute, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
 import { parseBridgeQuoteRejection } from "./client";
-import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
+import { ARC_USDC, BASE_USDC, ELYSIUM_USDC, BRIDGE_CHAIN_IDS, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, isBridgeFundingChain, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const OTHER = "0x2222222222222222222222222222222222222222" as Address;
@@ -66,12 +66,14 @@ test("amount parsing preserves integer precision and never rounds extra decimal 
   assert.equal(bridgeRequestKey(bridgeRequest(ADDRESS, 8453, "0.01", 4663)), bridgeRequestKey(bridgeRequest(ADDRESS, 8453, ".0100", 4663)));
 });
 
-test("all six routes use the input currency precision, never native decimals for Arc ERC20", () => {
+test("every route uses the input currency precision, never native decimals for Arc ERC20, and never ends on a funding network", () => {
   for (const origin of BRIDGE_CHAIN_IDS) for (const destination of BRIDGE_CHAIN_IDS) {
-    const request = bridgeRequest(ADDRESS, origin, origin === 5042 ? "1.000001" : "1.000000000000000001", destination);
-    if (origin === destination) assert.equal(request, null);
+    // Arc and Elysium send six-decimal USDC by default, everything else 18-decimal ETH
+    const six = origin === 5042 || origin === 99901;
+    const request = bridgeRequest(ADDRESS, origin, six ? "1.000001" : "1.000000000000000001", destination);
+    if (origin === destination || isBridgeFundingChain(destination)) assert.equal(request, null);
     else {
-      assert.equal(request?.amount, origin === 5042 ? "1000001" : "1000000000000000001");
+      assert.equal(request?.amount, six ? "1000001" : "1000000000000000001");
       assert.equal(request?.destinationChainId, destination);
     }
   }
@@ -80,6 +82,27 @@ test("all six routes use the input currency precision, never native decimals for
   assert.equal(parseBridgeAmount("0.0000001", 6), null);
   assert.equal(nativeSourceAmount(arcQuote()), 25n * 10n ** 18n);
   assert.notEqual(bridgeRequestKey(bridgeRequest(ADDRESS, 8453, "1", 4663)), bridgeRequestKey(bridgeRequest(ADDRESS, 8453, "1", 5042)));
+});
+
+test("funding networks send but never receive: no reverse, no destination, and a collision picks another launch chain", () => {
+  const fromArbitrum = { originChainId: 42161, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amount: "25" } as const;
+  assert.equal(canReverseBridgeRoute(fromArbitrum), false);
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "reverse" }), fromArbitrum);
+  for (const id of BRIDGE_FUNDING_IDS) assert.deepEqual(changeBridgeRoute({ ...fromArbitrum, originChainId: 8453, destinationChainId: 4663 }, { side: "destination", chainId: id }), { ...fromArbitrum, originChainId: 8453, destinationChainId: 4663 });
+  // choosing the destination as the source cannot swap a funding network into the destination
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "origin", chainId: 8453 }), { originChainId: 8453, destinationChainId: 4663, originAsset: "USDC", destinationAsset: "USDG", amount: "25" });
+  assert.deepEqual(changeBridgeRoute({ ...fromArbitrum, destinationChainId: 4663, destinationAsset: "USDG" }, { side: "origin", chainId: 4663 }), { originChainId: 4663, destinationChainId: 8453, originAsset: "USDG", destinationAsset: "USDC", amount: "" });
+  // moving between funding networks keeps the dollar and the amount
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "origin", chainId: 10 }), { ...fromArbitrum, originChainId: 10 });
+  assert.deepEqual(changeBridgeRoute(fromArbitrum, { side: "origin", chainId: 1 }), { ...fromArbitrum, originChainId: 1 });
+  // and a launch chain still reverses
+  for (const id of BRIDGE_DESTINATION_IDS) assert.equal(canReverseBridgeRoute({ originChainId: id }), true);
+  for (const origin of BRIDGE_FUNDING_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
+    const usdc = bridgeRequest(ADDRESS, origin, "10.5", destination, "USDC", destination === 4663 ? "USDG" : "USDC");
+    assert.equal(usdc?.amount, "10500000");
+    const eth = bridgeRequest(ADDRESS, origin, "0.01", destination, "ETH", destination === 5042 || destination === 99901 ? "USDC" : "ETH");
+    assert.equal(eth?.amount, "10000000000000000");
+  }
 });
 
 test("network selections resolve collisions atomically and never reinterpret ETH amounts as USDC", () => {
@@ -118,8 +141,51 @@ test("asset selectors clear reinterpreted amounts and preserve supported tokens 
   assert.deepEqual(usdc, { ...route, originAsset: "USDC", amount: "" });
   const funded = { ...usdc, amount: "25" };
   assert.deepEqual(changeBridgeRoute(funded, { side: "reverse" }), { ...funded, originChainId: 5042, destinationChainId: 8453 });
-  assert.deepEqual(changeBridgeRoute(funded, { side: "origin", chainId: 4663 }), { ...funded, originChainId: 4663, originAsset: "ETH", amount: "" });
+  // a dollar stays a dollar across chains: Base USDC becomes Robinhood USDG, and the amount is still cleared
+  assert.deepEqual(changeBridgeRoute(funded, { side: "origin", chainId: 4663 }), { ...funded, originChainId: 4663, originAsset: "USDG", amount: "" });
+  assert.deepEqual(changeBridgeRoute(funded, { side: "destination", chainId: 4663 }), { ...funded, destinationChainId: 4663, destinationAsset: "USDG" });
+  const fromRobinhood = { originChainId: 4663, destinationChainId: 8453, originAsset: "USDG", destinationAsset: "ETH", amount: "25" } as const;
+  assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "origin", chainId: 5042 }), { ...fromRobinhood, originChainId: 5042, originAsset: "USDC", amount: "" });
+  assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "reverse" }), { originChainId: 8453, destinationChainId: 4663, originAsset: "ETH", destinationAsset: "USDG", amount: "" });
+  // Ether has no dollar to map to on Arc, so it falls back to the chain's own asset as before
+  assert.deepEqual(changeBridgeRoute({ ...fromRobinhood, originAsset: "ETH" }, { side: "origin", chainId: 5042 }), { ...fromRobinhood, originChainId: 5042, originAsset: "USDC", amount: "" });
   assert.deepEqual(changeBridgeRoute(route, { side: "destination-asset", asset: "ETH" }), route);
+  assert.deepEqual(changeBridgeRoute(fromRobinhood, { side: "origin-asset", asset: "USDC" }), fromRobinhood, "USDC is still not offered on Robinhood Chain");
+});
+
+test("HYPE can be picked to receive on Elysium, and never carried into a send or another chain", () => {
+  const toElysium = { originChainId: 8453, destinationChainId: 99901, originAsset: "USDC", destinationAsset: "USDC", amount: "25" } as const;
+  const hype = changeBridgeRoute(toElysium, { side: "destination-asset", asset: "HYPE" });
+  assert.deepEqual(hype, { ...toElysium, destinationAsset: "HYPE" }, "the amount stays: the source asset did not change");
+  // reversing would send HYPE, so Elysium sends its USDC instead: still USDC, so the amount stands
+  assert.deepEqual(changeBridgeRoute(hype, { side: "reverse" }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amount: "25" });
+  assert.deepEqual(changeBridgeRoute(hype, { side: "destination", chainId: 8453 }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "USDC", amount: "25" });
+  // from Ether, the source becomes USDC, so the amount clears
+  const fromEther = { ...hype, originAsset: "ETH", amount: "0.01" } as const;
+  assert.deepEqual(changeBridgeRoute(fromEther, { side: "reverse" }), { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "ETH", amount: "" });
+  // another destination has no HYPE: it takes that chain's default
+  assert.deepEqual(changeBridgeRoute(hype, { side: "destination", chainId: 4663 }), { ...hype, destinationChainId: 4663, destinationAsset: "ETH" });
+  assert.deepEqual(changeBridgeRoute(hype, { side: "origin", chainId: 42161 }), { ...hype, originChainId: 42161 });
+  const fromElysium = { originChainId: 99901, destinationChainId: 8453, originAsset: "USDC", destinationAsset: "ETH", amount: "25" } as const;
+  assert.deepEqual(changeBridgeRoute(fromElysium, { side: "origin-asset", asset: "HYPE" }), fromElysium, "HYPE is never sent");
+  assert.deepEqual(changeBridgeRoute(toElysium, { side: "destination-asset", asset: "ETH" }), toElysium);
+  assert.deepEqual(changeBridgeRoute({ ...toElysium, destinationChainId: 4663, destinationAsset: "ETH" }, { side: "destination-asset", asset: "HYPE" }), { ...toElysium, destinationChainId: 4663, destinationAsset: "ETH" });
+  assert.equal(bridgeRequest(ADDRESS, 8453, "25", 99901, "USDC", "HYPE").destinationAsset, "HYPE");
+  assert.equal(bridgeRequest(ADDRESS, 99901, "25", 8453, "HYPE", "ETH"), null);
+  assert.equal(bridgeRequest(ADDRESS, 8453, "25", 4663, "USDC", "HYPE"), null);
+});
+
+test("Robinhood USDG is a six-decimal token of its own, never USDC and never Ether", () => {
+  const usdg = bridgeRequest(ADDRESS, 4663, "25.000001", 8453, "USDG", "USDC");
+  assert.equal(usdg?.amount, "25000001");
+  assert.equal(usdg?.originAsset, "USDG");
+  assert.equal(bridgeRequest(ADDRESS, 4663, "1.0000001", 8453, "USDG", "USDC"), null, "a seventh decimal place is refused, not rounded");
+  assert.equal(bridgeRequest(ADDRESS, 8453, "1", 4663, "ETH", "USDG")?.amount, "1000000000000000000");
+  assert.equal(bridgeRequest(ADDRESS, 8453, "1", 5042, "USDG", "USDC"), null, "USDG exists on Robinhood Chain only");
+  assert.equal(bridgeRequest(ADDRESS, 8453, "1", 5042, "USDC", "USDG"), null);
+  // a USDG source has a separate ETH gas balance, like Base USDC and unlike Arc
+  assert.equal(nativeSourceAmount(usdg!), 0n);
+  assert.notEqual(bridgeRequestKey(usdg), bridgeRequestKey({ ...usdg!, originAsset: "ETH" }));
 });
 
 test("Base USDC uses exact pinned ERC20 deposits while reserving separate ETH gas", () => {
@@ -138,7 +204,7 @@ test("Base USDC uses exact pinned ERC20 deposits while reserving separate ETH ga
   ]) assert.throws(() => validateBridgeQuote(changed, q, NOW));
   const unlimited = ((1n << 256n) - 1n).toString();
   const unlimitedQuote: BridgeQuote = { ...q, amount: unlimited, approval: { ...q.approval!, amount: unlimited }, transaction: { ...q.transaction, data: encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [ADDRESS, BASE_USDC, BigInt(unlimited), ORDER] }) } };
-  assert.throws(() => validateBridgeQuote(unlimitedQuote, unlimitedQuote, NOW), /Unlimited USDC approvals/);
+  assert.throws(() => validateBridgeQuote(unlimitedQuote, unlimitedQuote, NOW), /Unlimited token approvals/);
 });
 
 test("asset changes across awaited preflight cancel a reviewed deposit", async () => {
@@ -479,11 +545,29 @@ test("transfer storage restores per wallet including an unknown transaction hash
   assert.equal(restored.read(ADDRESS), null);
 });
 
+test("a token deposit saved without named assets reads back: Elysium's default USDC is written as version three", () => {
+  const depositData = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [ADDRESS, ELYSIUM_USDC, 25_000_000n, ORDER] });
+  const transfer: TrackedBridgeTransfer = { address: ADDRESS, originChainId: 99901, destinationChainId: 8453, amount: "25000000", requestId: REQUEST, destinationHashes: [], status: "pending", createdAt: 1_000_000, depositData, depositKind: "erc20" };
+  const saved = JSON.parse(serializeTransfer(transfer));
+  // version 2 is Arc's alone on read, so this record names its assets and takes version 3
+  assert.deepEqual([saved.version, saved.originAsset, saved.destinationAsset], [3, "USDC", "ETH"]);
+  assert.deepEqual(parseStoredTransfer(serializeTransfer(transfer), ADDRESS), { ...transfer, originAsset: "USDC", destinationAsset: "ETH", sourceHash: undefined });
+  // the old shape for the same record is still refused, which is why it must never be written
+  assert.throws(() => parseStoredTransfer(JSON.stringify({ ...transfer, version: 2 }), ADDRESS));
+  // Arc's own records keep version 2 and read back unchanged
+  const arcData = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [ADDRESS, ARC_USDC, 25_000_000n, ORDER] });
+  const arc: TrackedBridgeTransfer = { ...transfer, originChainId: 5042, depositData: arcData };
+  assert.equal(JSON.parse(serializeTransfer(arc)).version, 2);
+  assert.deepEqual(parseStoredTransfer(serializeTransfer(arc), ADDRESS), { ...arc, sourceHash: undefined });
+});
+
 test("version-one recovery keeps old Base/Robinhood records and accepts every distinct Arc route", () => {
   for (const originChainId of BRIDGE_CHAIN_IDS) for (const destinationChainId of BRIDGE_CHAIN_IDS) {
     if (originChainId === destinationChainId) continue;
     const transfer = { ...tracked(), originChainId, destinationChainId };
-    assert.deepEqual(parseStoredTransfer(serializeTransfer(transfer), ADDRESS), { ...transfer, sourceHash: undefined });
+    // nothing is ever sent to a funding network, so a saved transfer naming one as its destination is corrupt
+    if (isBridgeFundingChain(destinationChainId)) assert.throws(() => parseStoredTransfer(serializeTransfer(transfer), ADDRESS));
+    else assert.deepEqual(parseStoredTransfer(serializeTransfer(transfer), ADDRESS), { ...transfer, sourceHash: undefined });
   }
 });
 

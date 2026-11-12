@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { encodeFunctionData, parseAbi, zeroAddress } from "viem";
 import { APPROVAL_ABI, BridgeApiError, ERC20_DEPOSIT_ABI, RELAY_DEPOSITORY, parseBridgeRequest, validateRelayChains, validateRelayQuote } from "./validation.ts";
 import { getOrderId, type Order } from "./relay-order.ts";
-import { ARC_USDC, BASE_USDC, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
+import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, BRIDGE_DESTINATION_IDS, BRIDGE_FUNDING_IDS, BRIDGE_INPUT_CURRENCIES, BRIDGE_RECEIVE_ASSETS, BRIDGE_SEND_ASSETS, ELYSIUM_USDC, ETHEREUM_USDC, OPTIMISM_USDC, ROBINHOOD_USDG, bridgeCurrency, type BridgeAsset, type BridgeChainId, type BridgeQuoteRequest } from "./types.ts";
 import { BRIDGE_PRIVATE_HEADERS, bridgeErrorResponse, getBridgeQuote, getBridgeStatus, readBridgeJson } from "./relay.ts";
 import { ARC_FIXTURE_NOW, ARC_FIXTURE_ORDER_ID, ARC_OUTBOUND_FIXTURE_NOW, ARC_OUTBOUND_ORDER_ID, BASE_USDC_FIXTURE_NOW, BASE_USDC_ORDER_ID, FIXTURE_INPUT, FIXTURE_NOW, FIXTURE_REQUEST_ID, addApprovalFixture, relayArcOutboundFixture, relayArcQuoteFixture, relayBaseUsdcFixture, relayChainsFixture, relayQuoteFixture, relayRouteFixture } from "./relay.fixture.ts";
 import { parseBridgeQuoteRejection } from "./client.ts";
@@ -415,6 +415,260 @@ test("Base USDC approval cannot borrow Arc's token, use unlimited amount or redi
     if (variant === "unlimited") tx.data = encodeFunctionData({ abi: APPROVAL_ABI, functionName: "approve", args: [RELAY_DEPOSITORY, (1n << 256n) - 1n] });
     if (variant === "wrong spender") tx.data = encodeFunctionData({ abi: APPROVAL_ABI, functionName: "approve", args: [input.address, BigInt(input.amount)] });
     assert.throws(() => validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), BASE_USDC_FIXTURE_NOW), BridgeApiError, variant);
+  }
+});
+
+const USDG_ROUTES: [BridgeChainId, BridgeChainId, BridgeAsset, BridgeAsset][] = [
+  [8453, 4663, "USDC", "USDG"], [8453, 4663, "ETH", "USDG"], [5042, 4663, "USDC", "USDG"],
+  [4663, 8453, "USDG", "USDC"], [4663, 8453, "USDG", "ETH"], [4663, 5042, "USDG", "USDC"],
+];
+
+test("Robinhood USDG routes verify in both directions with an exact approval of the right token", () => {
+  for (const [origin, destination, originAsset, destinationAsset] of USDG_ROUTES) {
+    const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    const validated = validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW);
+    assert.equal(validated.transaction.to, RELAY_DEPOSITORY, route);
+    const sent = bridgeCurrency(origin, originAsset, "input");
+    if (sent.address === zeroAddress) {
+      assert.equal(validated.approval, undefined, route);
+      assert.equal(validated.transaction.value, input.amount, route);
+    } else {
+      // a token source approves exactly the amount, of its own chain's token, to the pinned depository
+      assert.deepEqual(validated.approval, { token: sent.address, spender: RELAY_DEPOSITORY, amount: input.amount }, route);
+      assert.equal(validated.transaction.value, "0", route);
+    }
+    if (originAsset === "USDG") assert.equal(validated.approval?.token, ROBINHOOD_USDG, route);
+  }
+});
+
+test("USDG cannot be swapped for another token, another chain's dollar or other decimals, even when rehashed", () => {
+  const rebound = (origin: BridgeChainId, destination: BridgeChainId, originAsset: BridgeAsset, destinationAsset: BridgeAsset, mutate: (quote: ReturnType<typeof relayQuoteFixture>) => void) => {
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    mutate(quote);
+    const metadata = validateRelayChains(relayChainsFixture(), input);
+    const orderId = getOrderId(quote.protocol.v2.orderData as Order, metadata.vmTypes);
+    quote.protocol.v2.orderId = orderId;
+    const sent = bridgeCurrency(origin, originAsset, "input");
+    if (sent.address !== zeroAddress) quote.steps[0].items[0].data.data = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, sent.address, BigInt(input.amount), orderId] });
+    return () => validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+  };
+  // receiving USDG: the output and the destination refund must be the pinned USDG contract
+  for (const mutate of [
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.output.payments[0].currency = BASE_USDC; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.output.payments[0].currency = zeroAddress; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.inputs[0].refunds[1].currency = zeroAddress; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.details.currencyOut.currency.symbol = "USDC"; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.details.currencyOut.currency.decimals = 18; },
+  ]) assert.throws(rebound(8453, 4663, "USDC", "USDG", mutate), BridgeApiError);
+  // sending USDG: the payment, the source refund and the fee stay in USDG
+  for (const mutate of [
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.inputs[0].payment.currency = BASE_USDC; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.protocol.v2.orderData.inputs[0].refunds[0].currency = zeroAddress; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.relayer.currency.symbol = "USDC"; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.gas.currency.address = ROBINHOOD_USDG; quote.fees.gas.currency.symbol = "USDG"; quote.fees.gas.currency.decimals = 6; },
+  ]) assert.throws(rebound(4663, 8453, "USDG", "USDC", mutate), BridgeApiError);
+  assert.doesNotThrow(rebound(8453, 4663, "USDC", "USDG", () => {}));
+  assert.doesNotThrow(rebound(4663, 8453, "USDG", "USDC", () => {}));
+});
+
+test("funding networks verify into every launch chain, approving exactly their own native USDC", () => {
+  const usdc = { 1: ETHEREUM_USDC, 42161: ARBITRUM_USDC, 10: OPTIMISM_USDC } as const;
+  let routes = 0;
+  for (const origin of BRIDGE_FUNDING_IDS) for (const destination of BRIDGE_DESTINATION_IDS) {
+    for (const originAsset of BRIDGE_SEND_ASSETS[origin]) for (const destinationAsset of BRIDGE_RECEIVE_ASSETS[destination]) {
+      const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+      const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+      const metadata = validateRelayChains(relayChainsFixture(), input);
+      // the solver hub (Base) is always checked alongside the two ends
+      assert.deepEqual(Object.keys(metadata.vmTypes).sort(), [...new Set(["base", quote.protocol.v2.orderData.inputs[0].payment.chainId, quote.protocol.v2.orderData.output.chainId])].sort(), route);
+      const validated = validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+      assert.equal(validated.transaction.to, RELAY_DEPOSITORY, route);
+      assert.equal(validated.transaction.chainId, origin, route);
+      if (originAsset === "USDC") assert.deepEqual(validated.approval, { token: usdc[origin], spender: RELAY_DEPOSITORY, amount: input.amount }, route);
+      else assert.equal(validated.approval, undefined, route);
+      routes++;
+    }
+  }
+  // two assets each into seven launch-chain assets, HYPE on Elysium among them
+  assert.equal(routes, 42);
+});
+
+test("Elysium stands on Relay's USDC listing, since Relay does not bridge its native HYPE", () => {
+  const chains = relayChainsFixture();
+  type Chain = (typeof chains.chains)[number];
+  const elysium = chains.chains.find((chain) => chain.id === 99901)!;
+  assert.deepEqual([elysium.currency.symbol, elysium.currency.supportsBridging], ["HYPE", false]);
+  const route = { originChainId: 99901, destinationChainId: 4663 } as const;
+  assert.deepEqual(Object.keys(validateRelayChains(chains, route).vmTypes).sort(), ["base", "elysium", "robinhood"]);
+  const broken: [string, (chain: Chain) => void][] = [
+    ["no token listing", (chain) => { chain.erc20Currencies = []; }],
+    ["USDC listed but not bridgeable", (chain) => { chain.erc20Currencies[0].supportsBridging = false; }],
+    ["another USDC address", (chain) => { chain.erc20Currencies[0].address = BASE_USDC.toLowerCase(); }],
+    ["wrong decimals", (chain) => { chain.erc20Currencies[0].decimals = 18; }],
+    ["wrong symbol", (chain) => { chain.erc20Currencies[0].symbol = "USDC.e"; }],
+    ["a native currency other than HYPE", (chain) => { chain.currency.symbol = "ETH"; }],
+    ["another depository", (chain) => { chain.protocol.v2.depository = "0x0000000000000000000000000000000000000001"; }],
+  ];
+  for (const [label, change] of broken) {
+    const copy = structuredClone(chains);
+    change(copy.chains.find((chain) => chain.id === 99901)!);
+    assert.throws(() => validateRelayChains(copy, route), BridgeApiError, label);
+  }
+  // the exemption is Elysium's alone: a chain whose native currency the bridge carries still needs Relay to bridge it
+  for (const id of [8453, 4663]) {
+    const copy = structuredClone(chains);
+    copy.chains.find((chain) => chain.id === id)!.currency.supportsBridging = false;
+    assert.throws(() => validateRelayChains(copy, route), BridgeApiError, String(id));
+  }
+});
+
+test("Elysium routes move its USDC both ways, approve only that USDC, and take gas in HYPE", () => {
+  const routes: [BridgeChainId, BridgeChainId, BridgeAsset, BridgeAsset][] = [
+    [8453, 99901, "ETH", "USDC"], [8453, 99901, "USDC", "USDC"], [4663, 99901, "USDG", "USDC"], [5042, 99901, "USDC", "USDC"], [42161, 99901, "USDC", "USDC"], [1, 99901, "ETH", "USDC"],
+    [99901, 8453, "USDC", "USDC"], [99901, 8453, "USDC", "ETH"], [99901, 4663, "USDC", "USDG"], [99901, 5042, "USDC", "USDC"],
+  ];
+  for (const [origin, destination, originAsset, destinationAsset] of routes) {
+    const label = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    if (originAsset !== "ETH") addApprovalFixture(quote, input);
+    const validated = validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW);
+    assert.equal(validated.transaction.chainId, origin, label);
+    if (origin === 99901) {
+      assert.deepEqual(validated.approval, { token: ELYSIUM_USDC, spender: RELAY_DEPOSITORY, amount: input.amount }, label);
+      // gas leaves in HYPE: a fee labelled as any other native currency is refused
+      const ethGas = structuredClone(quote);
+      ethGas.fees.gas.currency.symbol = "ETH";
+      assert.throws(() => validateRelayQuote(ethGas, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW), BridgeApiError, label);
+    }
+    if (destination === 99901) {
+      assert.equal(quote.protocol.v2.orderData.output.payments[0].currency, ELYSIUM_USDC, label);
+      // a refund on Elysium must be its USDC too, never native HYPE (which Relay's HYPE routes refund in USDC)
+      const hypeRefund = structuredClone(quote);
+      hypeRefund.protocol.v2.orderData.inputs[0].refunds[1].currency = zeroAddress;
+      assert.throws(() => validateRelayQuote(hypeRefund, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW), BridgeApiError, label);
+      const hypeOut = structuredClone(quote);
+      hypeOut.protocol.v2.orderData.output.payments[0].currency = zeroAddress;
+      assert.throws(() => validateRelayQuote(hypeOut, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW), BridgeApiError, label);
+    }
+  }
+  // HYPE is never sent, and arrives only on Elysium
+  for (const body of [
+    { originChainId: 99901, destinationChainId: 8453, originAsset: "HYPE" },
+    { originChainId: 99901, destinationChainId: 8453, originAsset: "HYPE", destinationAsset: "ETH" },
+    { originChainId: 8453, destinationChainId: 4663, destinationAsset: "HYPE" },
+    { originChainId: 4663, destinationChainId: 5042, originAsset: "ETH", destinationAsset: "HYPE" },
+    { originChainId: 99901, destinationChainId: 8453, originAsset: "ETH" },
+    { originChainId: 99901, destinationChainId: 1 },
+  ]) assert.throws(() => parseBridgeRequest({ address: FIXTURE_INPUT.address, amount: "1000000", ...body }), (error: unknown) => error instanceof BridgeApiError && error.status === 400, JSON.stringify(body));
+  assert.equal(parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId: 99901, destinationChainId: 8453, amount: "1000000" }).originChainId, 99901);
+  assert.equal(parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId: 8453, destinationChainId: 99901, destinationAsset: "HYPE", amount: "1000000" }).destinationAsset, "HYPE");
+});
+
+test("HYPE arrives on Elysium as its native balance, and a failed fill refunds only in Elysium USDC", () => {
+  const verify = (quote: unknown, input: BridgeQuoteRequest) => validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW);
+  const routes: [BridgeChainId, BridgeAsset][] = [[8453, "ETH"], [8453, "USDC"], [4663, "ETH"], [4663, "USDG"], [5042, "USDC"], [1, "ETH"], [42161, "USDC"], [10, "USDC"]];
+  for (const [origin, originAsset] of routes) {
+    const label = `${origin}:${originAsset}→99901:HYPE`;
+    const { input, quote } = relayRouteFixture(origin, 99901, originAsset, "HYPE");
+    if (originAsset !== "ETH") addApprovalFixture(quote, input);
+    const order = quote.protocol.v2.orderData;
+    // paid out in native HYPE, eighteen decimals, to the wallet itself
+    assert.equal(order.output.payments[0].currency, zeroAddress, label);
+    assert.deepEqual(order.inputs[0].refunds.map((refund) => refund.currency), [bridgeCurrency(origin, originAsset, "input").address, ELYSIUM_USDC], label);
+    const validated = verify(quote, input);
+    assert.equal(validated.destinationAsset, "HYPE", label);
+    assert.equal(validated.transaction.chainId, origin, label);
+    // the Elysium refund is pinned: not native HYPE, not any other token, never the origin's currency on Elysium
+    for (const currency of [zeroAddress, BASE_USDC, bridgeCurrency(origin, originAsset, "input").address]) {
+      if (currency.toLowerCase() === ELYSIUM_USDC.toLowerCase()) continue;
+      const refunded = structuredClone(quote);
+      refunded.protocol.v2.orderData.inputs[0].refunds[1].currency = currency;
+      assert.throws(() => verify(refunded, input), BridgeApiError, `${label} refund ${currency}`);
+    }
+    // nor may the origin refund take Elysium's USDC instead of what was sent
+    const swappedRefund = structuredClone(quote);
+    swappedRefund.protocol.v2.orderData.inputs[0].refunds[0].currency = ELYSIUM_USDC;
+    assert.throws(() => verify(swappedRefund, input), BridgeApiError, label);
+    // a HYPE request paid out in USDC, or labelled as anything but eighteen-decimal HYPE, is refused
+    const usdcOut = structuredClone(quote);
+    usdcOut.protocol.v2.orderData.output.payments[0].currency = ELYSIUM_USDC;
+    assert.throws(() => verify(usdcOut, input), BridgeApiError, label);
+    for (const [key, value] of [["symbol", "USDC"], ["decimals", 6], ["address", ELYSIUM_USDC]] as const) {
+      const relabelled = structuredClone(quote);
+      (relabelled.details.currencyOut.currency as Record<string, unknown>)[key] = value;
+      assert.throws(() => verify(relabelled, input), BridgeApiError, `${label} currencyOut.${key}`);
+    }
+  }
+  // the exception is HYPE's alone: USDC into Elysium still refunds in that USDC, and refuses anything else
+  const { input, quote } = relayRouteFixture(8453, 99901, "USDC", "USDC");
+  addApprovalFixture(quote, input);
+  assert.equal(verify(quote, input).destinationAsset, "USDC");
+  const nativeRefund = structuredClone(quote);
+  nativeRefund.protocol.v2.orderData.inputs[0].refunds[1].currency = zeroAddress;
+  assert.throws(() => verify(nativeRefund, input), BridgeApiError);
+});
+
+test("a funding network is never a destination, and its USDC cannot be swapped for another network's", () => {
+  for (const destinationChainId of BRIDGE_FUNDING_IDS) {
+    for (const originChainId of [8453, 4663, 5042, ...BRIDGE_FUNDING_IDS.filter((id) => id !== destinationChainId)] as BridgeChainId[]) {
+      assert.throws(() => parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId, destinationChainId, amount: "1000000" }), (error: unknown) => error instanceof BridgeApiError && error.status === 400);
+    }
+  }
+  assert.equal(parseBridgeRequest({ address: FIXTURE_INPUT.address, originChainId: 42161, destinationChainId: 4663, originAsset: "USDC", destinationAsset: "USDG", amount: "1000000" }).originChainId, 42161);
+  const rebound = (token: string) => {
+    const { input, quote } = relayRouteFixture(1, 8453, "USDC", "USDC");
+    quote.protocol.v2.orderData.inputs[0].payment.currency = token;
+    quote.protocol.v2.orderData.inputs[0].refunds[0].currency = token;
+    const metadata = validateRelayChains(relayChainsFixture(), input);
+    const orderId = getOrderId(quote.protocol.v2.orderData as Order, metadata.vmTypes);
+    quote.protocol.v2.orderId = orderId;
+    quote.steps[0].items[0].data.data = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, token as `0x${string}`, BigInt(input.amount), orderId] });
+    return () => validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+  };
+  for (const token of [ARBITRUM_USDC, OPTIMISM_USDC, BASE_USDC, zeroAddress]) assert.throws(rebound(token), BridgeApiError, token);
+  assert.doesNotThrow(rebound(ETHEREUM_USDC));
+});
+
+test("a funding network missing from Relay's catalogue, or not yet on the pinned router, fails closed", () => {
+  const input = { address: FIXTURE_INPUT.address, originChainId: 42161, destinationChainId: 8453, amount: "1000000" } as const;
+  const missing = relayChainsFixture();
+  missing.chains = missing.chains.filter((chain) => chain.id !== 42161);
+  assert.throws(() => validateRelayChains(missing, input), BridgeApiError);
+  const moved = relayChainsFixture();
+  moved.chains.find((chain) => chain.id === 42161)!.contracts.erc20Router = "0x000000000000000000000000000000000000dead";
+  assert.throws(() => validateRelayChains(moved, input), BridgeApiError);
+  const renamed = relayChainsFixture();
+  renamed.chains.find((chain) => chain.id === 42161)!.protocol.v2.chainId = "arbitrum-nova";
+  assert.throws(() => validateRelayChains(renamed, input), BridgeApiError);
+  assert.doesNotThrow(() => validateRelayChains(relayChainsFixture(), input));
+});
+
+test("a dollar is counted against a dollar: USDC and USDG routes never guarantee under 95% or claim over 105%", () => {
+  // the provider's own impact estimate stays a mild -0.12% throughout, so only the unit comparison can refuse these
+  const delivering = (origin: BridgeChainId, destination: BridgeChainId, originAsset: BridgeAsset, destinationAsset: BridgeAsset, percent: bigint) => {
+    const { input, quote } = relayRouteFixture(origin, destination, originAsset, destinationAsset);
+    const received = bridgeCurrency(destination, destinationAsset, "output");
+    const expected = BigInt(input.amount) * 10n ** BigInt(received.decimals - 6) * percent / 100n;
+    const minimum = expected * 9950n / 10000n;
+    const payment = quote.protocol.v2.orderData.output.payments[0];
+    payment.expectedAmount = expected.toString();
+    payment.minimumAmount = minimum.toString();
+    quote.details.currencyOut.amount = expected.toString();
+    quote.details.currencyOut.minimumAmount = minimum.toString();
+    quote.details.totalImpact.percent = "-0.12";
+    const metadata = validateRelayChains(relayChainsFixture(), input);
+    const orderId = getOrderId(quote.protocol.v2.orderData as Order, metadata.vmTypes);
+    quote.protocol.v2.orderId = orderId;
+    quote.steps[0].items[0].data.data = encodeFunctionData({ abi: ERC20_DEPOSIT_ABI, functionName: "depositErc20", args: [input.address, bridgeCurrency(origin, originAsset, "input").address, BigInt(input.amount), orderId] });
+    return () => validateRelayQuote(quote, input, metadata, FIXTURE_NOW);
+  };
+  // six decimals on both sides, and six against Arc's eighteen
+  for (const [origin, destination, originAsset, destinationAsset] of [[8453, 4663, "USDC", "USDG"], [4663, 8453, "USDG", "USDC"], [4663, 5042, "USDG", "USDC"], [5042, 4663, "USDC", "USDG"]] as [BridgeChainId, BridgeChainId, BridgeAsset, BridgeAsset][]) {
+    const route = `${origin}:${originAsset}→${destination}:${destinationAsset}`;
+    for (const percent of [96n, 100n, 104n]) assert.doesNotThrow(delivering(origin, destination, originAsset, destinationAsset, percent), `${route} at ${percent}%`);
+    // 95% expected leaves a guaranteed minimum under 95%
+    for (const percent of [50n, 90n, 95n, 106n, 1000n]) assert.throws(delivering(origin, destination, originAsset, destinationAsset, percent), BridgeApiError, `${route} at ${percent}%`);
   }
 });
 

@@ -16,7 +16,7 @@ import ConnectButton from "./ConnectButton";
 import ThemeToggle from "./ThemeToggle";
 import NotificationSettings from "./NotificationSettings";
 import LivePulse from "./launchpad/LivePulse";
-import { BridgeButton, BridgeProvider } from "./bridge/BridgeProvider";
+import { BridgeButton } from "./bridge/BridgeProvider";
 
 const NAV = [
   { href: "/", label: "Launchpad", hint: "Live launches, charts and trades", icon: ChartCandlestick },
@@ -48,14 +48,14 @@ export default function HeaderNav({ pulse }: { pulse: Pulse }) {
   useSearchShortcut(setSearchOpen);
 
   return (
-    <BridgeProvider><MotionConfig reducedMotion="user">
+    <MotionConfig reducedMotion="user">
       <Navbar className="top-0">
         <Desktop pulse={pulse} isActive={isActive} quietCta={heroCtaOnScreen} onSearch={openSearch} />
         <Mobile key={pathname} pulse={pulse} isActive={isActive} onSearch={openSearch} />
       </Navbar>
       {/* outside Navbar: it injects `visible` into its direct children */}
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
-    </MotionConfig></BridgeProvider>
+    </MotionConfig>
   );
 }
 

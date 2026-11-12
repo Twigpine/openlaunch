@@ -203,6 +203,40 @@ test("Arc routing uses its configured server upstream with the same read-only al
   assert.equal(body[1].error.code, -32601);
 });
 
+test("bridge funding networks read through public nodes by default, a keyed URL when set, with the same allowlist", async (t) => {
+  const envs = ["ETHEREUM_RPC_URL", "ARBITRUM_RPC_URL", "OPTIMISM_RPC_URL"] as const;
+  const previous = Object.fromEntries(envs.map((name) => [name, process.env[name]]));
+  t.after(() => { for (const name of envs) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; } });
+  for (const name of envs) delete process.env[name];
+  const seen: unknown[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown, init?: RequestInit) => {
+    seen.push(input);
+    const calls = upstreamBody(init);
+    assert.deepEqual(calls.map((r) => r.method), ["eth_getBalance"]);
+    return Response.json(calls.map((r) => result(r.id, "0x1")));
+  });
+  for (const chain of ["ethereum", "arbitrum", "optimism"]) {
+    const response = await POST(request([call(1, "eth_getBalance"), call(2, "eth_sendRawTransaction")], chain));
+    assert.equal(response.status, 200, chain);
+    const body = await response.json();
+    assert.deepEqual(body[0], result(1, "0x1"));
+    assert.equal(body[1].error.code, -32601, chain);
+  }
+  assert.deepEqual(seen, ["https://ethereum-rpc.publicnode.com", "https://arb1.arbitrum.io/rpc", "https://mainnet.optimism.io"]);
+  process.env.ARBITRUM_RPC_URL = "https://arb-rpc.example.test/private-test-key";
+  await POST(request([call(1, "eth_getBalance")], "arbitrum"));
+  assert.equal(seen.at(-1), "https://arb-rpc.example.test/private-test-key");
+});
+
+test("an unknown chain key is refused before any upstream call", async (t) => {
+  const upstream = t.mock.method(globalThis, "fetch", async () => Response.json(result(1)));
+  for (const chain of ["polygon", "mainnet", "__proto__", "constructor", "1", "ETHEREUM"]) {
+    const response = await POST(request(call(1, "eth_chainId"), chain));
+    assert.equal(response.status, 400, chain);
+  }
+  assert.equal(upstream.mock.callCount(), 0);
+});
+
 test("single allowed reads keep their response shape; empty and oversized batches are rejected", async (t) => {
   const upstream = t.mock.method(globalThis, "fetch", async () => Response.json(result(1)));
   const single = await POST(request(call(1, "eth_chainId")));
