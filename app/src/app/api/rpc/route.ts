@@ -1,4 +1,4 @@
-import { clientIp } from "@/lib/profiles/http";
+import { clientIp, readBody } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
 import { b20RpcUrl, rpcUrl } from "@/lib/chain";
 import { responseHasB20Error } from "@/lib/launchpad/baseStocks";
@@ -73,9 +73,12 @@ export async function POST(req: Request) {
   if (!upstream) return NextResponse.json({ error: "rpc unconfigured" }, { status: 503 });
   const ip = clientIp(req);
   if (!take(ip)) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": "2" } });
+  // Keep contract calldata and the existing 20-call batches, but never buffer an unbounded request.
+  const raw = await readBody(req, 256 * 1024);
+  if (!raw.ok) return NextResponse.json({ error: raw.reason === "too_large" ? "body too large" : "bad json" }, { status: raw.reason === "too_large" ? 413 : 400 });
   let body: Req | Req[];
   try {
-    body = (await req.json()) as Req | Req[];
+    body = JSON.parse(new TextDecoder().decode(raw.bytes)) as Req | Req[];
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }

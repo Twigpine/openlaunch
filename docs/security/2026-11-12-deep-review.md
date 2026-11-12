@@ -32,20 +32,29 @@ This is a recovery-attribution defect with same-wallet/history or stale-head pre
 
 The RPC error regression fixture now supplies transaction calldata lookup, which main added to receipt processing. This fixes the application CI failure caused by combining the earlier tests with current main, without changing receipt processing itself.
 
+### Bounded request bodies
+
+The source-only Strix follow-up identified a low-severity availability issue: JSON routes and image uploads could buffer an oversized body before rejecting it when `Content-Length` was absent or misleading. The image route's file-size check ran after multipart parsing. Small, finite in-process regressions confirmed that the old handler read all 80 chunks of a synthetic 5 MiB stream without cancellation.
+
+The shared body reader now counts actual bytes, rejects an oversized declared length before reading, and cancels the stream at the first overflowing chunk. It releases its reader on success and failure without waiting for an underlying cancellation callback. Parsing happens only after the bounded read succeeds. Limits are 64 KiB for unsigned metadata/edit nonce, 256 KiB for signed posting/reporting/moderation/editing and RPC, and 4 MiB plus 16 KiB of multipart overhead for image uploads. Existing per-role file limits still apply. Oversized requests return 413; malformed bodies keep their validation errors.
+
+Regression checks cover absent and understated size headers, early cancellation, stream errors, lock cleanup, UTF-8 byte accounting, valid image processing, RPC objects/batches and representative smart-wallet envelope sizes. These limits intentionally reject larger payloads; they do not replace ingress timeouts, concurrency controls or deployment-level body limits.
+
 ## Verification
 
 | Check | Result |
 | --- | --- |
-| Application tests on the PR branch plus fixes | 1,522 passed, 85 skipped, 0 failed |
-| Application tests combined with current main | 1,563 passed, 85 skipped, 0 failed |
+| Application tests on the PR branch plus all fixes | 1,555 passed, 85 skipped, 0 failed |
+| Application tests combined with current main | 1,596 passed, 85 skipped, 0 failed |
 | Isolated PostgreSQL integration checks | 9 passed, 0 failed |
 | Actual report-handler regressions | 4 passed; 3 failed against the original implementation |
 | Actual bridge recovery-controller checks | 13 passed |
+| Body-reader, JSON/RPC and image-handler checks | 41 passed; both new image-stream cases failed before the fix |
 | TypeScript | Passed |
 | ESLint | No errors; 5 existing Open Graph image warnings |
 | Production build combined with current main | Passed; 3 existing image-storage tracing warnings |
 
-Executed on Windows with Node 24.19.0. The merged production build used a dedicated locked dependency install; an initial attempt with a shared dependency junction failed Turbopack's filesystem boundary and was replaced by that install. GitHub CI separately verifies Node 22/Linux after push. The skipped tests comprise existing live-provider checks and the new explicit PostgreSQL opt-in test.
+Executed on Windows with Node 24.19.0. The merged production build used a dedicated locked dependency install; an initial attempt with a shared dependency junction failed Turbopack's filesystem boundary and was replaced by that install. The body-limit follow-up build passed after clearing its isolated generated cache, which retained a CSS worker startup failure. GitHub CI separately verifies Node 22/Linux after push. The skipped tests comprise existing live-provider checks and the new explicit PostgreSQL opt-in test.
 
 The PostgreSQL test requires an explicitly configured loopback `POSTS_TEST_DATABASE_URL` and `RUN_POSTS_DB_TESTS=1`. Run it from `app` with:
 
@@ -60,5 +69,7 @@ It creates and removes only a randomly named test schema. Test adapters replace 
 Semgrep 1.184.0 scanned a read-only combined-source snapshot using the installed Trail of Bits workflow, with telemetry disabled. Fifteen configurations completed; the generic YAML configuration failed to load, and the Next.js-specific configuration scanned no files. Applicable JavaScript, TypeScript, React, Node, secrets, GitHub Actions, Python, Docker and third-party rules were included. Rule timeouts and partial parsing remain coverage gaps, including Docker and several TSX files. The 190 deduplicated matches were reviewed as test harness patterns, formatting/performance preferences or false positives; none established an additional actionable vulnerability. No product suppressions were added.
 
 The dependency collector assessed 30 direct and 513 registry-verified transitive packages at locked versions and reported no known advisories. Publisher and repository metadata coverage was partial; maintenance/concentration signals are not confirmed vulnerabilities. Transitive install scripts were not assessed.
+
+Strix v1.7.1 at `685bbc8138d35fc9fe378ac37ec0d9198b9c46a3` completed a source-only review of the combined snapshot including the earlier fixes in `03bc2b0`. A local adapter used a network-disabled container, excluded credentials and repository metadata, and disabled browser/proxy tooling and telemetry. The model connection ran outside that container. It reported one low-severity body-buffering finding, independently reproduced and fixed above, and no additional confirmed critical/high/medium findings in the reviewed paths. Application regressions were executed separately, not inside Strix. This was not a live penetration test, a complete contract audit or a production load test.
 
 These checks do not certify the application or deployed contracts. Deployment ingress, historical credential exposure, third-party protocols, live settlement, full contract invariant campaigns and unknown vulnerabilities remain outside the demonstrated results. Deployed contract sources, dependency pins and CI policy were not changed.

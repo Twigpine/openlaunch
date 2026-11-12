@@ -3,7 +3,7 @@ import { rateLimited } from "@/lib/launchpad/editServer";
 import { BANNER_MAX_BYTES, IMAGE_UPLOADS_PER_HOUR, checkUpload, imageRole, isWalletParam, maxBytesFor, randomImageKey } from "@/lib/launchpad/images";
 import { toBannerWebp, toLogoWebp } from "@/lib/launchpad/imageProcess";
 import { imageUploadsEnabled, putImage } from "@/lib/launchpad/imageStore";
-import { clientIp } from "@/lib/profiles/http";
+import { clientIp, readBody } from "@/lib/profiles/http";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,13 +22,14 @@ export async function POST(req: Request) {
   if (!imageUploadsEnabled()) return NextResponse.json({ error: "uploads not configured" }, { status: 503 });
   const ip = clientIp(req);
   if (rateLimited(`img:ip:${ip}`, IMAGE_UPLOADS_PER_HOUR * 2, HOUR)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  const declared = Number(req.headers.get("content-length") || 0);
-  // the role is inside the body, so the early check allows the larger (banner) cap; the real cap is applied below
-  if (declared > BANNER_MAX_BYTES + 16 * 1024) return NextResponse.json({ error: "image must be ≤ 4 MB" }, { status: 413 });
+  // The role is inside multipart data. Bound the whole stream before parsing, allowing
+  // the larger banner cap plus form overhead; a missing/false size header is not trusted.
+  const body = await readBody(req, BANNER_MAX_BYTES + 16 * 1024);
+  if (!body.ok) return NextResponse.json({ error: body.reason === "too_large" ? "image must be ≤ 4 MB" : "bad form" }, { status: body.reason === "too_large" ? 413 : 400 });
 
   let form: FormData;
   try {
-    form = await req.formData();
+    form = await new Response(new Blob([body.bytes as Uint8Array<ArrayBuffer>]), { headers: { "content-type": req.headers.get("content-type") ?? "" } }).formData();
   } catch {
     return NextResponse.json({ error: "bad form" }, { status: 400 });
   }

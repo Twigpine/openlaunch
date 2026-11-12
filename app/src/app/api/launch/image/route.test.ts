@@ -139,4 +139,33 @@ test("image upload route validates images and limits anonymous callers by truste
     }
     assert.notEqual(keys[0], keys[1]);
   });
+
+  for (const declared of [undefined, "10"]) {
+    await t.test(`stops reading oversized multipart streams with ${declared === undefined ? "no" : "an understated"} size header`, async () => {
+      const before = stored.length;
+      const chunk = new Uint8Array(64 * 1024);
+      const availableChunks = 80;
+      let chunksRead = 0;
+      let cancelled = false;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (chunksRead === availableChunks) controller.close();
+          else { chunksRead++; controller.enqueue(chunk); }
+        },
+        cancel() { cancelled = true; },
+      }, { highWaterMark: 0 });
+      const req = new Request("http://localhost/api/launch/image", {
+        method: "POST", body, duplex: "half",
+        headers: { "content-type": "multipart/form-data; boundary=test", "x-forwarded-for": "192.0.2.10", ...(declared === undefined ? {} : { "content-length": declared }) },
+      } as RequestInit & { duplex: "half" });
+      const response = await POST(req);
+      assert.equal(response.status, 413, `read ${chunksRead}/${availableChunks} chunks; cancelled=${cancelled}`);
+      assert.deepEqual(await response.json(), { error: "image must be ≤ 4 MB" });
+      assert.equal(chunksRead, Math.floor((BANNER_MAX_BYTES + 16 * 1024) / chunk.length) + 1);
+      assert.ok(chunksRead < availableChunks, "the parser must not drain the rest of the request");
+      assert.equal(cancelled, true);
+      assert.equal(body.locked, false);
+      assert.equal(stored.length, before);
+    });
+  }
 });
