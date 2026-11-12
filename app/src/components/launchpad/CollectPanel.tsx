@@ -1,5 +1,7 @@
 "use client";
 
+import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfig, useReadContracts } from "wagmi";
@@ -103,10 +105,10 @@ export default function CollectPanel({
       setPhase({ k: "sent", hash, what, currency });
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
-      await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
+      const synced = await syncTransaction(chain, hash);
       void mine.refetch();
       router.refresh();
-      toast({ kind: "collect", title: what === "collect" ? `Fees collected for ${symbol}` : "Claimed", sub: isBurnOnly ? "Burned on the spot" : "Paid to the beneficiaries" });
+      toast({ kind: "collect", title: what === "collect" ? `Fees collected for ${symbol}` : "Claimed", sub: synced.status !== "applied" ? INDEX_PENDING_COPY : isBurnOnly ? "Burned on the spot" : "Paid to the beneficiaries" });
       setPhase({ k: "idle" });
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });

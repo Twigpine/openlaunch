@@ -31,7 +31,7 @@ import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage, p
 import { coreQuoteNames } from "./config.ts";
 import { hasDelegatecall, implementationOf1167 } from "./pairProbe.ts";
 
-const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
+const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8").replaceAll("\r\n", "\n");
 const TWIG = "0x6ac18bcf4ede02591d4917452700ea5eaaea13c1";
 const DEAD = "0x000000000000000000000000000000000000dEaD";
 const E18 = 10n ** 18n;
@@ -172,24 +172,30 @@ test("nothing holds a token's place for good: unpaid applications expire after 4
   assert.match(src("loop.ts"), /void revaluePairBurns\(\)/);
 });
 
-test("burns: the fact first, then its value, then the total; each step heals on the next pass", () => {
+test("burns: atomic facts and replay values, then deferred valuation under the chain lock", () => {
   const s = src("pairApplyServer.ts");
   const rec = s.slice(s.indexOf("export async function recordPairBurn"), s.indexOf("async function valueBurn"));
-  assert.ok(rec.indexOf("INSERT INTO bb_pair_burns") < rec.indexOf("await valueBurn("), "inserted before any price read");
-  assert.match(rec, /if \(cur && cur\.usd === null\) await valueBurn/, "a re-fed burn is only valued if it still has no value");
-  assert.match(rec, /await settleApplication\(row\.application_id\);/);
-  assert.match(s, /AND usd IS NULL RETURNING tx_hash/);
+  assert.ok(rec.indexOf("INSERT INTO bb_pair_burns") < rec.indexOf("await settleApplication(db, row.application_id)"));
+  assert.doesNotMatch(rec, /await valueBurn|await gitlawbUsdParts/, "ingestion never waits for an external price while holding its transaction");
+  assert.match(rec, /await replayValue\(db, chain, "pair"/);
+  assert.match(rec, /Boolean\(prior\?\.valuation_pending\)/, "repeated recovery cannot erase pending historical valuation");
+  assert.match(s, /AND usd IS NULL AND NOT valuation_pending RETURNING tx_hash/);
   assert.match(s, /SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = \$\{appId\} AND status = 'open'/, "a landed burn spends its lock: the next quote is for what is still due");
   assert.match(s, /JOIN bb_pair_applications a ON a\.id = b\.application_id WHERE b\.usd IS NULL/, "unvalued burns are valued later");
-  assert.match(s, /precheck = COALESCE\(\$\{pre \? db\.json\(pre\) : null\}, precheck\)/, "another review sees the token as it is now");
+  assert.match(s, /precheck = COALESCE\(\$\{pre \? locked\.json\(pre\) : null\}, precheck\)/, "another review sees the token as it is now, after rechecking payment state under the chain lock");
 });
 
 test("the fee step never offers to send again while a sent transfer is not indexed", () => {
   const page = src("../../components/launchpad/PairApplication.tsx");
-  assert.match(page, /if \(!address \|\| !q \|\| lock\.current \|\| waiting\) return;/);
+  assert.match(page, /if \(!address \|\| !q \|\| lock\.current \|\| !sentReady \|\| waiting \|\| app\.payment_reorg\) return;/);
   assert.match(page, /const waiting = sent !== null && !indexed && app\.status === "open";/);
   assert.match(page, /window\.sessionStorage\.setItem\(sentKey, h\)/, "kept across a reload");
-  assert.match(page, /\{app\.status === "open" && waiting \? \(/);
+  assert.match(page, /\{app\.payment_reorg \? \(/, "a canonical payment shortfall takes precedence over the fee action");
+  assert.match(page, /\) : app\.status === "open" && waiting \? \(/);
+  assert.equal((page.match(/sessionStorage\.removeItem\(sentKey\)/g) ?? []).length, 1, "only remember(null) may clear the sent hash; provisional indexing must keep it across a later reorg and reload");
+  const recheck = page.slice(page.indexOf("async function recheck()"), page.indexOf("async function getQuote()"));
+  assert.match(recheck, /await syncTransaction\(FEE_CHAIN, sent\)/);
+  assert.doesNotMatch(recheck, /writeContract|sendTransaction|signMessage/, "rechecking a payment never resubmits it");
   // a reverted transfer sent nothing: the guard is lifted so the applicant can try again
   assert.match(page, /if \(rc\.status !== "success"\) \{\n\s*remember\(null\);/);
 });
@@ -207,7 +213,7 @@ test("a burn sent before its application existed never counts, and is never retr
   const s = src("pairApplyServer.ts");
   const value = s.slice(s.indexOf("async function valueBurn"), s.indexOf("async function settleApplication"));
   assert.match(value, /if \(sentAt\.getTime\(\) < new Date\(app\.created_at\)\.getTime\(\)\) return;/);
-  assert.match(s, /WHERE b\.usd IS NULL AND b\.block_time >= a\.created_at LIMIT 20/);
+  assert.match(s, /WHERE b\.usd IS NULL AND NOT b\.valuation_pending AND b\.block_time >= a\.created_at LIMIT 20/);
 });
 
 test("llms.txt explains the application fee only while applications are open", () => {
@@ -229,8 +235,9 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   // a paid fee is never recorded as waived
   assert.match(decide, /if \(decision === "waive" && isPaid\(app\.paid_usd, app\.fee_usd\)\) return fail\(/);
   // and the claim itself re-checks it, so a burn settling between the check and the claim cannot be waived away
-  assert.match(decide, /WHERE id = \$\{id\} AND status = \$\{app\.status\} AND \(\$\{decision\} <> 'waive' OR \(paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\n\s*AND \(quote_until IS NULL OR quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\n\s*AND \(last_quote_until IS NULL OR last_quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\)\) RETURNING id/);
-  assert.match(decide, /const restore = \(\) => db`\s*UPDATE bb_pair_applications SET\s*status = CASE WHEN \$\{app\.status\} = 'open' AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was (as paid when a burn settled meanwhile)");
+  assert.match(decide, /AND \(\$\{decision\} = 'reject' OR NOT payment_reorg\) AND \(\$\{decision\} <> 'waive' OR \(paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\n\s*AND \(quote_until IS NULL OR quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\n\s*AND \(last_quote_until IS NULL OR last_quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\)\) RETURNING id/);
+  assert.match(decide, /const restore = \(\) => withIndexLock\(PAIR_FEE_CHAIN/, "restoring a failed listing shares the canonical payment lock");
+  assert.match(decide, /CASE WHEN NOT payment_reorg AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE 'open' END/, "an intervening reorg cannot restore stale paid status");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /\{!isPaid\(a\.paid_usd, a\.fee_usd\) && !a\.settling_until \? <button type="button" disabled=\{!address \|\| busy\} onClick=\{\(\) => void decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</, "only offered when the fee is not paid and not being paid");
   assert.match(src("../../components/launchpad/PairApplication.tsx"), /app\.status === "approved" && app\.paid_usd < app\.fee_usd \* 0\.98 \? <p className="text-sm text-up">\{app\.paid_usd > 0 \? PAIR_APPLY_COPY\.waivedRest\(app\.paid_usd\) : PAIR_APPLY_COPY\.waived\}/, "a partial payment is shown, and only the rest is waived");
@@ -252,7 +259,7 @@ test("a fee is never waived while the applicant may be paying it: under a live q
   const s = src("pairApplyServer.ts");
   const decide = s.slice(s.indexOf("export async function reviewApplication"));
   const guard = decide.indexOf('if (decision === "waive" && settling !== null) return fail(');
-  assert.ok(guard > decide.indexOf("const settling = settlingUntil(app);") && guard < decide.indexOf("const claimed = await db`"), "checked before the claim");
+  assert.ok(guard > decide.indexOf("const settling = settlingUntil(app);") && guard < decide.indexOf("const claimed = await withIndexLock("), "checked before the claim");
   // from the latest quote's end, which a landed burn does not erase: a second transfer under the same quote holds it too
   assert.match(s, /const ends = \[r\.quote_until, r\.last_quote_until\]\.filter\(\(d\) => d\)\.map\(\(d\) => new Date\(d!\)\.getTime\(\)\);\n\s*return pairSettlingUntil\(ends\.length \? Math\.max\(\.\.\.ends\) : null, Date\.now\(\)\);/);
   assert.match(s, /quote_until = now\(\) \+ \$\{`\$\{PAIR_QUOTE_LOCK_MS \/ 1000\} seconds`\}::interval,\n\s*last_quote_until = now\(\) \+ \$\{`\$\{PAIR_QUOTE_LOCK_MS \/ 1000\} seconds`\}::interval\n/, "every quote records its end twice");
@@ -285,7 +292,7 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   assert.match(s, /x_status = 'verified' AND NOT hidden AND deleted_at IS NULL/);
   assert.match(s, /WHERE id = \$\{id\} AND status = 'open' AND \(quote_until IS NULL OR quote_until <= now\(\)\) RETURNING \*/);
   const decide = s.slice(s.indexOf("export async function reviewApplication"));
-  const claimAt = decide.indexOf("AND status = ${app.status} AND (${decision} <> 'waive'");
+  const claimAt = decide.indexOf("const claimed = await withIndexLock(PAIR_FEE_CHAIN");
   const listAt = decide.indexOf("await writeListing(chain, app.address,");
   assert.ok(claimAt >= 0 && listAt >= 0 && claimAt < listAt, "the decision is claimed before anything is listed");
   assert.match(decide, /if \(claimed\.length === 0\) return fail\("this application changed meanwhile: reload", 409\);/);
@@ -293,7 +300,7 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   assert.match(decide, /decision === "reject" \? \["paid", "open", "changes"\]/, "an admin can close an application nobody pays for");
   assert.match(src("../../../db/schema.sql"), /CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications \(chain_id, address\) WHERE status IN \('open', 'paid', 'changes'\);/);
   const idx = src("indexer.ts");
-  assert.equal(idx.match(/else await applyPairBurn\(chain, l as/g)?.length, 2, "both the range scan and the receipt path record pair fees");
+  assert.equal(idx.match(/else await applyPairBurn\(db, chain, l as/g)?.length, 2, "both paths record pair fees in the caller's canonical transaction");
   assert.match(src("../../app/api/pairs/precheck/route.ts"), /if \(!applicationsOpen\(\)\)/);
 });
 
@@ -328,7 +335,8 @@ test("the forms: the applicant picks the token's chain, signs and pays on Base; 
   const page = src("../../components/launchpad/PairApplication.tsx");
   assert.match(page, /buildPairApplyMessage\(\{ action, chain: app\.chain,/);
   assert.match(page, /body: JSON\.stringify\(\{ action, chain: app\.chain,/);
-  assert.equal(page.match(/\/api\/launch\/sync\?chain=\$\{FEE_CHAIN\}&tx=/g)?.length, 2, "the fee transfer is indexed on Base");
+  assert.equal(page.match(/await syncTransaction\(FEE_CHAIN, (sent|hash)\)/g)?.length, 2, "both the first receipt and the existing-hash retry are indexed on Base");
+  assert.match(page, /const FEE_CHAIN = PAIR_FEE_CHAIN;/);
   assert.doesNotMatch(page, /\bCHAIN\b/);
   const admin = src("../../components/launchpad/PairsAdmin.tsx");
   assert.match(admin, /const wallet = await walletOnChain\(config, CHAINS\[PAIR_FEE_CHAIN\]\.id\);/);
@@ -346,7 +354,7 @@ test("review fixes: a wallet on another chain switches first; Base-only burns; n
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /const wallet = await walletOnChain\(config, CHAINS\.base\.id\);/);
   assert.match(src("../../components/admin/AdminSignIn.tsx"), /const wallet = await walletOnChain\(config, CHAINS\.base\.id\);/);
   // a fee is paid on Base only, even if a TWIG-like token turns up elsewhere one day
-  assert.match(src("pairApplyServer.ts"), /export async function recordPairBurn\([^)]*\)[^{]*\{\n\s*const db = maybeDb\(\);\n[^\n]*\n\s*if \(!db \|\| chain !== PAIR_FEE_CHAIN\) return false;/);
+  assert.match(src("pairApplyServer.ts"), /export async function recordPairBurn\([^)]*db: Db, blockHash: string\)[^{]*\{\n[^\n]*\n\s*if \(!db \|\| chain !== PAIR_FEE_CHAIN\) return false;/);
   // a pair never borrows a stock ticker, nor a name listed on another chain
   assert.equal(pairSymbolProblem("TSLA", [], ["TSLA", "NVDA"]), "TSLA is a stock's ticker");
   assert.equal(pairSymbolProblem("museworld", ["MUSEWORLD"]), "another listed pair is already museworld");

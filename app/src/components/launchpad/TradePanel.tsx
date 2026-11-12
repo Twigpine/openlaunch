@@ -1,5 +1,7 @@
 "use client";
 
+import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
@@ -238,9 +240,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, poolId, feeR
       setPhase({ k: "sent", hash });
       const rc = await pub.waitForTransactionReceipt({ hash });
       if (rc.status !== "success") throw new Error("Transaction reverted on-chain.");
-      await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
+      const synced = await syncTransaction(chain, hash);
       setPhase({ k: "done", hash, side });
-      toast({ kind: side, title: side === "buy" ? `You bought ${quote_ ? fmtCompact(Number(quote_.out) / 1e18) : ""} ${symbol}` : `You sold ${fmtCompact(Number(amountIn) / 1e18)} ${symbol}`, sub: `Confirmed on ${CHAIN_LABEL}`, chain, token, symbol, celebrate: side === "buy" });
+      toast({ kind: side, title: side === "buy" ? `You bought ${quote_ ? fmtCompact(Number(quote_.out) / 1e18) : ""} ${symbol}` : `You sold ${fmtCompact(Number(amountIn) / 1e18)} ${symbol}`, sub: synced.status === "applied" ? `Confirmed on ${CHAIN_LABEL}` : INDEX_PENDING_COPY, chain, token, symbol, celebrate: side === "buy" });
       setAmount("");
       setQuote(null);
       void eth.refetch();

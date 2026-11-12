@@ -57,7 +57,7 @@ after(() => {
 
 async function query(sql: string, values: unknown[]): Promise<unknown[]> {
   if (sql.includes("INSERT INTO bb_launch_meta")) return [{ token }];
-  if (sql.includes("SELECT cursor_block FROM bb_launch_sync_cursor")) return [{ cursor_block: 0n }];
+  if (sql.includes("SELECT cursor_block")) return [{ cursor_block: 0n, reorg_version: 1, reorg_generation: 0n, rebuilding_until: null }];
   if (sql.includes("last_error = ?")) lastError = String(values[1]);
   if (sql.includes("last_error = NULL")) lastError = null;
   if (sql.includes("select chain_id, cursor_block, head_block")) return [{ chain_id: 8453, cursor_block: 10n, head_block: 12n, last_run_at: "2026-01-01T00:00:00Z", last_error: lastError }];
@@ -73,10 +73,11 @@ beforeEach(() => {
   getMock().publicClient = {
     readContract: async () => token,
     getBlockNumber: async () => 12n,
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ number: blockNumber, hash: tx, timestamp: 1_700_000_000n }),
     getLogs: async () => [],
     // Main reads calldata alongside the receipt to attribute in-app swaps.
     getTransaction: async () => ({ from: launcher, to: token, input: "0x" }),
-    getTransactionReceipt: async () => ({ status: "success", transactionHash: tx, from: launcher, to: token, logs: [] }),
+    getTransactionReceipt: async () => ({ status: "success", transactionHash: tx, blockNumber: 10n, blockHash: tx, from: launcher, to: token, logs: [] }),
   };
 });
 

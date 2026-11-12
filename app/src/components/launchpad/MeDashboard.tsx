@@ -1,5 +1,7 @@
 "use client";
 
+import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Flame, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
@@ -143,8 +145,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       const hash = await wallet.writeContract(request);
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
-      await fetch(`/api/launch/sync?chain=${l.chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
-      toast({ kind: "collect", title: `Fees collected for ${l.symbol}`, sub: isBurnOnly(l.recipients) ? "Burned on the spot" : "Paid to the beneficiaries", chain: l.chain, token: l.token, symbol: l.symbol });
+      const synced = await syncTransaction(l.chain, hash);
+      toast({ kind: "collect", title: `Fees collected for ${l.symbol}`, sub: synced.status !== "applied" ? INDEX_PENDING_COPY : isBurnOnly(l.recipients) ? "Burned on the spot" : "Paid to the beneficiaries", chain: l.chain, token: l.token, symbol: l.symbol });
       await load();
     } catch (e) {
       toast({ kind: "info", title: `Collect failed for ${l.symbol}`, sub: friendlyError(e) });

@@ -43,9 +43,9 @@ async function fixture(t: { after: (fn: () => void) => void }) {
   const rows = new Map<string, Row>();
   const state = { name: "Name", symbol: "SYM", logs: [launched("ipfs://metadata")], cursor: 0n, failReads: false };
   getMock().publicClient = {
-    getTransactionReceipt: async () => ({ status: "success", transactionHash: HASH, from: LAUNCHER, to: FACTORY, logs: state.logs }),
+    getTransactionReceipt: async () => ({ status: "success", transactionHash: HASH, blockNumber: 100n, blockHash: HASH, from: LAUNCHER, to: FACTORY, logs: state.logs }),
     getTransaction: async () => ({ from: LAUNCHER, to: FACTORY }),
-    getBlock: async () => ({ timestamp: 1_700_000_000n }),
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ number: blockNumber, hash: HASH, timestamp: 1_700_000_000n }),
     getBlockNumber: async () => 102n,
     getLogs: async ({ address }: { address: string | string[] }) => address === FACTORY ? parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: state.logs }) : [],
     readContract: async ({ functionName }: { functionName: string }) => {
@@ -70,7 +70,7 @@ async function fixture(t: { after: (fn: () => void) => void }) {
       if (values[0] !== null) row.name = String(values[0]);
       if (values[1] !== null) row.symbol = String(values[1]);
     }
-    if (sql.includes("SELECT cursor_block")) return [{ cursor_block: state.cursor }];
+    if (sql.includes("SELECT cursor_block")) return [{ cursor_block: state.cursor, reorg_version: 1, reorg_generation: 0n, rebuilding_until: null }];
     if (sql.includes("SET cursor_block =")) state.cursor = BigInt(values[0] as bigint);
     return [];
   };

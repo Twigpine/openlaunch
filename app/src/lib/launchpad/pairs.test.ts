@@ -264,7 +264,10 @@ test("one list of core quotes and core names, shared by the admin picker, the se
 test("monitor: never writes over an admin's change, pins the code it first sees, and ignores core-quote price outages", () => {
   const s = src("pairsServer.ts");
   assert.match(s, /AND status = \$\{r\.status\} AND status_by = \$\{r\.status_by\} AND date_trunc\('milliseconds', status_at\) = date_trunc\('milliseconds', \$\{new Date\(r\.status_at\)\}::timestamptz\)\s*RETURNING address/);
-  assert.match(s, /if \(done\.length === 0\) continue;/);
+  const publish = s.slice(s.indexOf("const publishCheck ="), s.indexOf("if (sourceIndex) await withIndexLock"));
+  assert.match(publish, /if \(done\.length === 0\) return;/);
+  assert.ok(publish.indexOf("if (done.length === 0) return;") < publish.indexOf("INSERT INTO bb_pair_events"), "a lost optimistic claim cannot write a monitor event");
+  assert.match(s, /if \(sourceIndex\) await withIndexLock\(chain, publishCheck\)/, "launch-derived monitor results share the canonical index lock");
   assert.match(s, /code_hash = COALESCE\(code_hash, \$\{code\}\)/);
   // missing code is soft (one lagging node can answer 0x); different code is hard
   assert.match(s, /if \(hash === null\) return \{ health: \{ ok: false, hard: false,/);

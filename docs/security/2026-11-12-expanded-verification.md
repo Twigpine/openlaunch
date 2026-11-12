@@ -67,7 +67,7 @@ Raw reports, source manifests, trace archives, negative-control logs and local i
 ## Remaining limits
 
 - Authenticated Relay history needs an API key. Public quotes and mocked history tests cannot substitute for that integration check.
-- Canonical-chain reconciliation remains a separate indexer correctness concern. Confirmation margins and overlapping reads are not a proof of rollback/reconciliation after a reorg. This pass does not claim that problem is fixed; its evidence and implementation requirements are retained in the private audit workspace.
+- Canonical-chain reconciliation was a separate concern in this pass. The subsequent [reorg recovery follow-up](2026-11-12-reorg-recovery.md) implements and tests rollback/replay against a real local database, and documents the required one-time historical rebuild. Those results are separate from the test counts above.
 - Rate-limit counters remain process-local. The nonce fixes prevent replay charging but do not provide a distributed quota or prove deployment ingress trust.
 - Existing immutable contracts retain the documented preinitialization availability and external-token behavior assumptions. No tested principal-withdrawal or reserve-conservation violation was demonstrated; finite tests and bytecode comparisons are not formal proofs.
 - Real wallet extensions, mobile/hardware wallets, actual cross-chain settlement, third-party incident behavior, production load limits, historical credential exposure and unknown vulnerabilities remain outside these results.

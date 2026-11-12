@@ -2,7 +2,7 @@ import "server-only";
 import { isAddress, type Address } from "viem";
 import { publicClient } from "@/lib/chain";
 import { chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { maybeDb, uniqueViolation } from "@/lib/db";
+import { maybeDb, uniqueViolation, type Db } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
 import { isOwnImageUrl } from "./images";
 import { imagePublicBase } from "./imageStore";
@@ -12,6 +12,7 @@ import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, PAIR_DESCRIPTION_MAX, gu
 import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, samplePairSpot, univ3Tokens, univ4Key } from "./pairPrice";
 import { coreQuoteNames } from "./config";
 import { ensureRegistry, stockTickers } from "./stocksServer";
+import { withIndexLock } from "./indexer-lock";
 
 /**
  * Server half of community pairs (pairs.ts): the list as every request sees it (prices included, refreshed in the
@@ -379,6 +380,8 @@ export async function pairsTick(now = Date.now()): Promise<void> {
        WHERE (chain_id, address) IN (
          SELECT chain_id, address FROM bb_pairs
           WHERE chain_id = ANY(${PAIR_CHAINS.map((c) => chainIdOf(c))}) AND status <> 'delisted' AND NOT (status = 'suspended' AND status_by = 'admin')
+            AND (price_kind <> 'launch' OR EXISTS (SELECT 1 FROM bb_launch_sync_cursor c
+                  WHERE c.chain_id = bb_pairs.chain_id AND c.reorg_version = 1 AND c.rebuilding_until IS NULL))
             AND (checked_at IS NULL OR checked_at < now() - ${`${Math.round(PAIR_MONITOR_EVERY_MS / 1000)} seconds`}::interval)
           ORDER BY checked_at NULLS FIRST LIMIT 5 FOR UPDATE SKIP LOCKED)
       RETURNING *`;
@@ -386,22 +389,40 @@ export async function pairsTick(now = Date.now()): Promise<void> {
     for (const r of claimed) {
       const chain = chainKeyOf(r.chain_id);
       if (!chain) continue;
+      type IndexState = { reorg_generation: bigint; reorg_version: number; rebuilding_until: bigint | null };
+      const sourceIndex = r.price_kind === "launch" ? (await db<IndexState[]>`
+        SELECT reorg_generation, reorg_version, rebuilding_until FROM bb_launch_sync_cursor WHERE chain_id = ${r.chain_id}`)[0] : null;
+      if (r.price_kind === "launch" && (!sourceIndex || sourceIndex.reorg_version !== 1 || sourceIndex.rebuilding_until !== null)) continue;
       const { health, code } = await checkPair(r, chain).catch(() => ({ health: null, code: null }));
       const step = nextPairStatus({ status: r.status, status_by: r.status_by, status_at: new Date(r.status_at).getTime(), failing_since: r.failing_since ? new Date(r.failing_since).getTime() : null }, health, Date.now());
-      // only if nothing changed the row while it was checked (an admin's suspension must never be written over); a JS Date holds
-      // milliseconds and Postgres microseconds, so the timestamps are compared at milliseconds
-      const done = await db`UPDATE bb_pairs SET status = ${step.status}, status_by = ${step.status_by}, status_at = to_timestamp(${step.status_at / 1000}), failing_since = ${step.failing_since === null ? null : new Date(step.failing_since)},
+      const publishCheck = async (locked: Db) => {
+        if (sourceIndex) {
+          const [current] = await locked<IndexState[]>`
+            SELECT reorg_generation, reorg_version, rebuilding_until FROM bb_launch_sync_cursor WHERE chain_id = ${r.chain_id}`;
+          if (!current || current.reorg_version !== 1 || current.rebuilding_until !== null || BigInt(current.reorg_generation) !== BigInt(sourceIndex.reorg_generation)) {
+            // Retry after recovery instead of counting a temporarily absent launch as a failing price source.
+            await locked`UPDATE bb_pairs SET checked_at = NULL WHERE chain_id = ${r.chain_id} AND address = ${r.address}
+              AND date_trunc('milliseconds', checked_at) = date_trunc('milliseconds', ${new Date(r.checked_at!)}::timestamptz)`;
+            return;
+          }
+        }
+        // only if nothing changed the row while it was checked (an admin's suspension must never be written over); a JS Date holds
+        // milliseconds and Postgres microseconds, so the timestamps are compared at milliseconds
+        const done = await locked`UPDATE bb_pairs SET status = ${step.status}, status_by = ${step.status_by}, status_at = to_timestamp(${step.status_at / 1000}), failing_since = ${step.failing_since === null ? null : new Date(step.failing_since)},
                  status_reason = ${step.changed ? step.reason : r.status_reason}, code_hash = COALESCE(code_hash, ${code})
                  WHERE chain_id = ${r.chain_id} AND address = ${r.address} AND status = ${r.status} AND status_by = ${r.status_by} AND date_trunc('milliseconds', status_at) = date_trunc('milliseconds', ${new Date(r.status_at)}::timestamptz)
                  RETURNING address`;
-      if (done.length === 0) continue;
-      if (step.changed) {
-        changed = true;
-        await db`INSERT INTO bb_pair_events (chain_id, address, status, reason, actor) VALUES (${r.chain_id}, ${r.address}, ${step.status}, ${step.reason}, 'monitor')`;
-        console.log(`[pairs] ${r.symbol} ${r.status} → ${step.status}: ${step.reason}`);
-      } else if (health && !health.ok) {
-        console.warn(`[pairs] ${r.symbol} failing: ${health.reason}`);
-      }
+        if (done.length === 0) return;
+        if (step.changed) {
+          changed = true;
+          await locked`INSERT INTO bb_pair_events (chain_id, address, status, reason, actor) VALUES (${r.chain_id}, ${r.address}, ${step.status}, ${step.reason}, 'monitor')`;
+          console.log(`[pairs] ${r.symbol} ${r.status} → ${step.status}: ${step.reason}`);
+        } else if (health && !health.ok) {
+          console.warn(`[pairs] ${r.symbol} failing: ${health.reason}`);
+        }
+      };
+      if (sourceIndex) await withIndexLock(chain, publishCheck);
+      else await publishCheck(db);
     }
     if (changed) await reloadPairs();
   } finally {

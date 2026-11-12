@@ -19,6 +19,9 @@ import { pairBurnFromTransfer } from "./pairApply";
 import { recordPairBurn } from "./pairApplyServer";
 import { captureLiveUsd, healUnpricedUsd } from "./usdLedger";
 import { hourIso } from "./usd-history";
+import { indexAtomic } from "./indexer-lock";
+import { observeBlock, observeLog, withCanonicalIndex } from "./indexer-canonical";
+import { replayValue } from "./indexer-reorg-db";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -82,16 +85,9 @@ function skipReason(chain: ChainKey): string | null {
 }
 
 // ── caches (per process; cheap) ──────────────────────────────────────────────
-const blockTime = new Map<string, string>();
 async function timeOf(chain: ChainKey, block: bigint): Promise<string> {
-  const k = `${chain}:${block}`;
-  const hit = blockTime.get(k);
-  if (hit) return hit;
-  const b = await publicClient(chain).getBlock({ blockNumber: block });
-  const iso = new Date(Number(b.timestamp) * 1000).toISOString();
-  if (blockTime.size > 5000) blockTime.clear();
-  blockTime.set(k, iso);
-  return iso;
+  const b = await observeBlock(chain, block);
+  return new Date(Number(b.timestamp) * 1000).toISOString();
 }
 /** Sender, target and app tag (appTag.ts: null = the input was not read) of one transaction. Only the tag of the input is kept. */
 type TxFacts = { from: string; to: string | null; tag: AppTag | null };
@@ -143,6 +139,8 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token:
     if (!logs) {
       try {
         const r = await publicClient(chain).getTransactionReceipt({ hash });
+        if (r.transactionHash.toLowerCase() !== hash.toLowerCase() || r.status !== "success") throw new Error("attribution receipt identity mismatch");
+        await observeLog(chain, { blockNumber: r.blockNumber, blockHash: r.blockHash, removed: false });
         logs = r.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) }));
       } catch {
         return { trader: tx.from, tx_from: tx.from, via: RECEIPT_PENDING, app: null };
@@ -155,6 +153,11 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token:
   return { trader: a.trader, tx_from: tx.from, via: a.via, app: swapInApp(tx.tag, a.trader, a.via) };
 }
 
+function clearIndexCaches(): void {
+  txFacts.clear(); receiptLogs.clear();
+  attributionTries.clear(); attributionIdleUntil.clear(); healRestUntil.clear();
+}
+
 // ── apply ────────────────────────────────────────────────────────────────────
 type Launched = { token: Address; tokenId: bigint; launcher: Address; quote: Address; poolId: Hex; startTick: number; lpFee: number; supply: bigint; metadataURI: string };
 
@@ -164,6 +167,7 @@ type Launched = { token: Address; tokenId: bigint; launcher: Address; quote: Add
 const postgresText = (value: string) => value.replaceAll("\0", "");
 
 async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launched }): Promise<boolean> {
+  await observeLog(chain, log);
   const a = log.args;
   const token = a.token.toLowerCase();
   const client = publicClient(chain);
@@ -185,6 +189,7 @@ async function applyLaunched(db: Db, chain: ChainKey, log: Log & { args: Launche
             ${log.blockNumber!}, ${time}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${a.startTick}, ${db.json(recipients)})
     ON CONFLICT (chain_id, token) DO NOTHING
     RETURNING token`;
+  await db`DELETE FROM bb_launch_recovery WHERE chain_id = ${chainIdOf(chain)} AND token = ${token}`;
   return rows.length > 0;
 }
 
@@ -196,6 +201,7 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const poolId = a.id.toLowerCase();
   const token = poolToToken.get(poolId);
   if (!token) return false;
+  const block = await observeLog(chain, log);
   const cid = chainIdOf(chain);
   const isBuy = a.amount0 < 0n; // swapper paid quote (currency0)
   const absQuote = a.amount0 < 0n ? -a.amount0 : a.amount0;
@@ -204,16 +210,20 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const li = log.logIndex!;
   // the trade's USD value at its own hour (bb_quote_usd_hourly; usd-history.ts), fixed once written; no price for that hour = NULL
   const quote = tokenQuote.get(token) ?? "";
+  const replay = await replayValue(db, chain, "swap", log.transactionHash!, Number(li), bn, time, block.hash, {
+    token, pool_id: poolId, amount0: a.amount0.toString(), amount1: a.amount1.toString(),
+    sqrt_price_x96: a.sqrtPriceX96.toString(), tick: a.tick, is_buy: isBuy,
+  });
   // One transaction: the swap row and the launch totals commit together or not at all (a failure between
   // the two used to leave a recorded trade whose totals were never applied — and the dedupe then skips it).
-  return db.begin(async (tx) => {
-    const t = tx as unknown as Db;
+  return indexAtomic(db, async (t) => {
     const inserted = await t`
     INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, tx_from, trader_via, via_app, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time, usd)
     VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${who.trader}, ${who.tx_from}, ${who.via}, ${who.app}, ${a.amount0.toString()}, ${a.amount1.toString()},
             ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time},
-            (SELECT ${absQuote.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
-              WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
+            CASE WHEN ${replay !== null} THEN ${replay?.usd ?? null}::float8 ELSE
+              (SELECT ${absQuote.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz) END)
     ON CONFLICT DO NOTHING
     RETURNING tx_hash, usd`;
     if (inserted.length === 0) {
@@ -250,6 +260,7 @@ async function applyBoost(db: Db, chain: ChainKey, log: Log & { args: TransferAr
     [locker],
   );
   if (!row) return false;
+  await observeLog(chain, log);
   const time = await timeOf(chain, log.blockNumber!);
   const rows = await db`
     INSERT INTO bb_boosts (chain_id, tx_hash, log_index, booster, amount, tag, block_number, block_time)
@@ -260,7 +271,7 @@ async function applyBoost(db: Db, chain: ChainKey, log: Log & { args: TransferAr
 }
 
 /** Record one TWIG transfer to 0x…dEaD as a pair-application fee when its amount names an application (pairApply.ts, tag kind 3). */
-async function applyPairBurn(chain: ChainKey, log: Log & { args: TransferArgs }, locker: string): Promise<boolean> {
+async function applyPairBurn(db: Db, chain: ChainKey, log: Log & { args: TransferArgs }, locker: string): Promise<boolean> {
   const twig = TWIG_ADDRESSES[chain];
   if (!twig) return false;
   const row = pairBurnFromTransfer(
@@ -270,7 +281,8 @@ async function applyPairBurn(chain: ChainKey, log: Log & { args: TransferArgs },
     [locker],
   );
   if (!row) return false;
-  return recordPairBurn(chain, row, new Date(await timeOf(chain, log.blockNumber!)));
+  const block = await observeLog(chain, log);
+  return recordPairBurn(chain, row, new Date(await timeOf(chain, log.blockNumber!)), db, block.hash);
 }
 
 type FeeLog = Log &
@@ -282,10 +294,11 @@ type FeeLog = Log &
   );
 
 async function applyFee(pool: Db, chain: ChainKey, log: FeeLog, tokenIdToToken: Map<string, { token: string; quote: string }>): Promise<boolean> {
+  await observeLog(chain, log);
   const cid = chainIdOf(chain);
   const time = await timeOf(chain, log.blockNumber!);
   // event row + launch fee totals in one transaction (same reasoning as applySwap)
-  return pool.begin(async (tx) => applyFeeIn(tx as unknown as Db, chain, cid, time, log, tokenIdToToken)) as Promise<boolean>;
+  return indexAtomic(pool, (db) => applyFeeIn(db, chain, cid, time, log, tokenIdToToken));
 }
 
 async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, log: FeeLog, tokenIdToToken: Map<string, { token: string; quote: string }>): Promise<boolean> {
@@ -295,12 +308,17 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   if (log.eventName === "Collected") {
     const t = log.args.token.toLowerCase();
     const quote = tokenIdToToken.get(log.args.tokenId.toString())?.quote ?? "";
+    const replay = await replayValue(db, chain, "fee", tx, Number(li), bn, time, log.blockHash!, {
+      kind: "collected", token_id: log.args.tokenId.toString(), token: t, quote: quote || null, currency: null, account: null,
+      amount: null, quote_amount: log.args.quoteAmount.toString(), token_amount: log.args.tokenAmount.toString(),
+    });
     // the quote side's USD value at the collect's own hour (usd-history.ts), as for trades
     const r = await db`
       INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, quote_amount, token_amount, block_number, block_time, usd)
       VALUES (${cid}, ${tx}, ${li}, 'collected', ${log.args.tokenId}, ${t}, ${log.args.quoteAmount.toString()}, ${log.args.tokenAmount.toString()}, ${bn}, ${time},
-              (SELECT ${log.args.quoteAmount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
-                WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz))
+              CASE WHEN ${replay !== null} THEN ${replay?.usd ?? null}::float8 ELSE
+                (SELECT ${log.args.quoteAmount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                  WHERE p.chain_id = ${cid} AND p.quote = ${quote} AND p.hour = ${hourIso(time)}::timestamptz) END)
       ON CONFLICT DO NOTHING RETURNING tx_hash, usd`;
     if (r.length === 0) return false;
     const usd = (r[0] as { usd: number | null }).usd ?? 0;
@@ -318,11 +336,16 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
     const cur = log.args.currency.toLowerCase();
     // a burn in the launch's quote gets its USD value at its own hour; a burn of the launched token stays NULL (quote side only)
     const priceIn = cur === info.quote ? cur : "";
+    const replay = await replayValue(db, chain, "fee", tx, Number(li), bn, time, log.blockHash!, {
+      kind: "burned", token_id: log.args.tokenId.toString(), token: info.token, quote: info.quote, currency: cur, account: null,
+      amount: log.args.amount.toString(), quote_amount: null, token_amount: null,
+    });
     const r = await db`
       INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time, usd)
       VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time},
-              (SELECT ${log.args.amount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
-                WHERE p.chain_id = ${cid} AND p.quote = ${priceIn} AND p.hour = ${hourIso(time)}::timestamptz))
+              CASE WHEN ${replay !== null} THEN ${replay?.usd ?? null}::float8 ELSE
+                (SELECT ${log.args.amount.toString()}::numeric / power(10::numeric, p.decimals) * p.usd FROM bb_quote_usd_hourly p
+                  WHERE p.chain_id = ${cid} AND p.quote = ${priceIn} AND p.hour = ${hourIso(time)}::timestamptz) END)
       ON CONFLICT DO NOTHING RETURNING tx_hash, usd`;
     if (r.length === 0) return false;
     const usd = (r[0] as { usd: number | null }).usd ?? 0;
@@ -383,7 +406,8 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
 
   const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
   // this hour's live USD for every quote in use, before the range's trades are priced at their hours (never throws)
-  await captureLiveUsd(db, chain, tokenQuote.values());
+  // Price capture happens before the canonical transaction: its price sources
+  // may use this pool too, and must not starve writers holding its connections.
   if (poolToToken.size > 0) {
     const ids = [...poolToToken.keys()] as Hex[];
     // every pool id is one topic selector: past the node's cap the id list goes out in slices (the 1001st Robinhood launch stopped the indexer)
@@ -402,7 +426,7 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
     const burnLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: twig as Address, event: ERC20_TRANSFER_EVENT, args: { to: DEAD }, fromBlock: f, toBlock: t }), from, to);
     for (const l of burnLogs) {
       if (await applyBoost(db, chain, l as Log & { args: TransferArgs }, locker.toLowerCase())) boosts++;
-      else await applyPairBurn(chain, l as Log & { args: TransferArgs }, locker.toLowerCase());
+      else await applyPairBurn(db, chain, l as Log & { args: TransferArgs }, locker.toLowerCase());
     }
   }
   // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
@@ -431,8 +455,11 @@ const healRestUntil = new Map<string, number>(); // `${chain}:${tx}` whose trans
  * UPDATEs re-test that the row is still open, so two machines running the same batch change each row once.
  */
 export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<number> {
-  const db = maybeDb();
-  if (!db || skipReason(chain)) return 0;
+  if (skipReason(chain)) return 0;
+  return withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches, (db) => attributeBacklogIn(db, chain, batch));
+}
+
+async function attributeBacklogIn(db: Db, chain: ChainKey, batch: number): Promise<number> {
   // after the deploy day there is almost never anything to check: an empty pass rests a few minutes instead of
   // querying every 15 s poll on every machine
   if (Date.now() < (attributionIdleUntil.get(chain) ?? 0)) return 0;
@@ -506,7 +533,7 @@ export async function attributeBacklog(chain: ChainKey, batch = 100): Promise<nu
 // ── holders ──────────────────────────────────────────────────────────────────
 type TransferLog = Log & { args: { from: Address; to: Address; value: bigint } };
 
-type RawReceiptLog = { address: string; topics: Hex[]; data: Hex; blockNumber: Hex; transactionHash: Hex; logIndex: Hex; removed?: boolean };
+type RawReceiptLog = { address: string; topics: Hex[]; data: Hex; blockNumber: Hex; blockHash: Hex; transactionHash: Hex; logIndex: Hex; removed?: boolean };
 
 /**
  * A token's Transfer logs in one block, read from the block's receipts (eth_getBlockReceipts is not subject to the
@@ -524,7 +551,7 @@ async function transfersFromBlockReceipts(chain: ChainKey, token: string, block:
       const logs = (r as { logs?: unknown } | null)?.logs;
       if (!Array.isArray(logs)) return null;
       for (const l of logs as Partial<RawReceiptLog>[]) {
-        if (typeof l?.address !== "string" || !Array.isArray(l.topics) || typeof l.data !== "string" || typeof l.blockNumber !== "string" || typeof l.transactionHash !== "string" || typeof l.logIndex !== "string") return null;
+        if (typeof l?.address !== "string" || !Array.isArray(l.topics) || typeof l.data !== "string" || typeof l.blockNumber !== "string" || typeof l.blockHash !== "string" || typeof l.transactionHash !== "string" || typeof l.logIndex !== "string") return null;
         if (l.address.toLowerCase() === want && !l.removed) raw.push(l as RawReceiptLog);
       }
     }
@@ -553,10 +580,8 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
   const cid = chainIdOf(chain);
   // one address list for every launched token, bisected by block like every other fetch; only when a SINGLE block is over
   // the node's result cap does the token list split, and one token still over the cap in one block (a contract spamming
-  // Transfer events; a few USDC of gas on Arc) has that block's holder update skipped rather than the chain's indexing
-  // wedging on it. Launches, swaps and fees are fetched separately and unaffected. That token's holder balances stay off
-  // by that block's transfers (balances are accumulated deltas, so nothing recomputes them), which is why the skip is
-  // logged as an alert rather than a warning: it is a deliberate degradation to look at, not a transient.
+  // Transfer events) falls back to full block receipts. If neither RPC method can supply the complete block,
+  // fail the atomic range and leave its cursor unchanged so the next attempt can recover every balance delta.
   const oneBlockOrRange = async (addrs: string[], a: bigint, b: bigint): Promise<TransferLog[]> => {
     try {
       return (await client.getLogs({ address: addrs as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: a, toBlock: b })) as TransferLog[];
@@ -564,11 +589,10 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
       if (a !== b || !isRangeTooLarge(err)) throw err; // a range: let fetchLogsSplit halve the blocks
       if (addrs.length <= 1) {
         // one token, one block, over the cap: the block's receipts are not capped, so read the token's Transfer logs from
-        // them; only if the node has no receipts method is the block skipped (an alert, since the balances stay off by it)
+        // them. Without that method, retry the range instead of checkpointing incomplete holder balances.
         const recovered = await transfersFromBlockReceipts(chain, addrs[0], a);
         if (recovered !== null) return recovered;
-        console.error(`[alert] launch-sync ${chain}: Transfer logs of ${addrs[0]} in block ${a} exceed the node's result cap and eth_getBlockReceipts is unavailable; that block's holder update for the token is skipped and its holder balances are off by it from now on`);
-        return [];
+        throw new Error(`Transfer logs in block ${a} exceed the RPC cap and block receipts are unavailable; retry without advancing the canonical cursor`);
       }
       const mid = Math.ceil(addrs.length / 2);
       return [...(await oneBlockOrRange(addrs.slice(0, mid), a, b)), ...(await oneBlockOrRange(addrs.slice(mid), a, b))];
@@ -577,6 +601,7 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
   // every token address is one selector: past the node's cap the address list goes out in slices (log-range.ts)
   const logs = byChainOrder((await fetchBySelectors(SELECTOR_CAPS, chain, tokens, (slice) => fetchLogsSplit((a, b) => oneBlockOrRange(slice, a, b), from, to))) as TransferLog[]);
   if (logs.length === 0) return 0;
+  for (const log of logs) await observeLog(chain, log);
   const rows = logs.map((l) => ({
     chain_id: cid,
     tx_hash: l.transactionHash!.toLowerCase(),
@@ -649,19 +674,15 @@ const BACKFILL_CHUNKS_PER_CALL = 25;
  * Runs after every poll; costs a bounded number of getLogs calls per run.
  */
 export async function backfillHolders(chain: ChainKey): Promise<{ tokens: number; chunks: number; transfers: number } | null> {
-  const pool = maybeDb();
-  if (!pool || skipReason(chain)) return null;
-  // one backfill per chain across all machines: session-level advisory lock on a reserved connection
-  const reserved = await pool.reserve();
-  const db = reserved as unknown as Db;
-  try {
-    const [{ ok }] = await db<{ ok: boolean }[]>`SELECT pg_try_advisory_lock(hashtext(${`holders-backfill-${chain}`})) AS ok`;
-    if (!ok) return null;
-    return await backfillHoldersLocked(db, chain);
-  } finally {
-    await db`SELECT pg_advisory_unlock(hashtext(${`holders-backfill-${chain}`}))`.catch(() => {});
-    reserved.release();
+  if (skipReason(chain)) return null;
+  const total = { tokens: 0, chunks: 0, transfers: 0 };
+  for (let i = 0; i < BACKFILL_CHUNKS_PER_CALL; i++) {
+    const r = await withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches,
+      (db) => backfillHoldersLocked(db, chain));
+    if (!r) break;
+    total.tokens = r.tokens; total.chunks += r.chunks; total.transfers += r.transfers;
   }
+  return total.chunks ? total : null;
 }
 
 async function backfillHoldersLocked(db: Db, chain: ChainKey): Promise<{ tokens: number; chunks: number; transfers: number } | null> {
@@ -681,9 +702,10 @@ async function backfillHoldersLocked(db: Db, chain: ChainKey): Promise<{ tokens:
   }, cursor + 1n);
   let chunks = 0;
   let transfers = 0;
-  while (from <= cursor && chunks < BACKFILL_CHUNKS_PER_CALL) {
+  while (from <= cursor && chunks < 1) {
     let to = from + SYNC_CHUNK_BLOCKS - 1n;
     if (to > cursor) to = cursor;
+    await observeBlock(chain, to);
     transfers += await applyTransfers(db, chain, tokens, from, to);
     const mark = to >= cursor ? SYNCED_FOREVER : to;
     await db`UPDATE bb_launches SET holders_synced_block = ${mark} WHERE chain_id = ${cid} AND token = ANY(${tokens})`;
@@ -732,8 +754,11 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
  * Re-reads a few of the newest such rows on every poll and rewrites them once the reads succeed.
  */
 export async function healLaunchReads(chain: ChainKey): Promise<number> {
-  const db = maybeDb();
-  if (!db || skipReason(chain)) return 0;
+  if (skipReason(chain)) return 0;
+  return withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches, (db) => healLaunchReadsIn(db, chain));
+}
+
+async function healLaunchReadsIn(db: Db, chain: ChainKey): Promise<number> {
   const cid = chainIdOf(chain);
   const rows = await db<{ token: string; token_id: bigint; name: string; symbol: string; lp_fee: number; recipients: unknown }[]>`
     SELECT token, token_id, name, symbol, lp_fee, recipients FROM bb_launches
@@ -777,8 +802,11 @@ export async function healLaunchReads(chain: ChainKey): Promise<number> {
  * symbol is stored: what may be shown is decided at read time, so a change to the reserved list applies to old rows.
  */
 export async function healQuoteTokens(chain: ChainKey): Promise<number> {
-  const db = maybeDb();
-  if (!db || skipReason(chain)) return 0;
+  if (skipReason(chain)) return 0;
+  return withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches, (db) => healQuoteTokensIn(db, chain));
+}
+
+async function healQuoteTokensIn(db: Db, chain: ChainKey): Promise<number> {
   const cid = chainIdOf(chain);
   const rows = await db<{ quote: string }[]>`
     SELECT l.quote FROM bb_launches l
@@ -816,8 +844,11 @@ export async function healQuoteTokens(chain: ChainKey): Promise<number> {
  * ranking cannot tell whether they were outside trades. Re-reads a bounded batch of the newest ones per poll.
  */
 export async function healSwapTraders(chain: ChainKey): Promise<number> {
-  const db = maybeDb();
-  if (!db || skipReason(chain)) return 0;
+  if (skipReason(chain)) return 0;
+  return withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches, (db) => healSwapTradersIn(db, chain));
+}
+
+async function healSwapTradersIn(db: Db, chain: ChainKey): Promise<number> {
   const cid = chainIdOf(chain);
   const rows = await db<{ tx_hash: string; log_index: number; token: string }[]>`
     SELECT tx_hash, log_index, token FROM bb_launch_swaps
@@ -861,8 +892,11 @@ const appTagIdleUntil = new Map<ChainKey, number>();
  * older than a day (and every one from before the column) keep NULL, which never counts as in-app.
  */
 export async function healAppTags(chain: ChainKey): Promise<number> {
-  const db = maybeDb();
-  if (!db || skipReason(chain)) return 0;
+  if (skipReason(chain)) return 0;
+  return withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches, (db) => healAppTagsIn(db, chain));
+}
+
+async function healAppTagsIn(db: Db, chain: ChainKey): Promise<number> {
   if (Date.now() < (appTagIdleUntil.get(chain) ?? 0)) return 0;
   const cid = chainIdOf(chain);
   // transactions still resting after a failed read are left out of the query, so a run of unreadable ones at the head
@@ -912,42 +946,45 @@ export async function healAppTags(chain: ChainKey): Promise<number> {
 async function run(chain: ChainKey): Promise<LaunchSyncResult> {
   const reason = skipReason(chain);
   if (reason) return { status: "skipped", reason };
-  const db = maybeDb()!;
+  const pool = maybeDb()!;
   const cid = chainIdOf(chain);
-  // the chain head as read this run: recorded even when the run then fails, so /api/health shows a stuck chain's real lag
-  // (head_block used to move only on success, so a chain that failed every run kept reporting its last small lag)
   let knownHead: bigint | null = null;
   try {
-    await db`INSERT INTO bb_launch_sync_cursor (chain_id) VALUES (${cid}) ON CONFLICT DO NOTHING`;
-    const [{ cursor_block }] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
-    const head = await publicClient(chain).getBlockNumber();
-    knownHead = head;
-    const confirmed = head - confirmations(chain);
+    // Price providers can consult the DB pool. Do this before holding a canonical
+    // transaction, not while four chains each hold a connection waiting for it.
+    const quotes = await pool<{ quote: string }[]>`SELECT DISTINCT quote FROM bb_launches WHERE chain_id = ${cid}`;
+    await captureLiveUsd(pool, chain, quotes.map((r) => r.quote));
     const deploy = launchDeployBlock(chain);
-    let from = cursor_block > 0n ? cursor_block - syncOverlapBlocks() : deploy;
-    if (from < deploy) from = deploy;
     const totals = { launches: 0, swaps: 0, fees: 0, boosts: 0 };
-    let chunks = 0;
-    let to = from;
-    while (from <= confirmed && chunks < SYNC_MAX_CHUNKS_PER_CALL) {
-      to = from + SYNC_CHUNK_BLOCKS - 1n;
-      if (to > confirmed) to = confirmed;
-      const r = await applyRange(db, chain, from, to);
-      totals.launches += r.launches;
-      totals.swaps += r.swaps;
-      totals.fees += r.fees;
-      totals.boosts += r.boosts;
-      await db`UPDATE bb_launch_sync_cursor SET cursor_block = ${to}, head_block = ${head}, last_run_at = now(), last_error = NULL WHERE chain_id = ${cid}`;
-      from = to + 1n;
-      chunks++;
+    let nextFrom: bigint | null = null;
+    let result: LaunchSyncResult = { status: "synced", ...totals };
+    for (let chunk = 0; chunk < SYNC_MAX_CHUNKS_PER_CALL; chunk++) {
+      const r = await withCanonicalIndex(chain, deploy, clearIndexCaches, async (db, head, current) => {
+        knownHead = head;
+        const confirmed = head - confirmations(chain);
+        let from = nextFrom === null ? current.cursor_block - syncOverlapBlocks() :
+          (nextFrom > current.cursor_block + 1n ? current.cursor_block + 1n : nextFrom);
+        if (from < deploy) from = deploy;
+        if (from > confirmed) return { from, to: current.cursor_block, head, done: true, launches: 0, swaps: 0, fees: 0, boosts: 0 };
+        const to = from + SYNC_CHUNK_BLOCKS - 1n < confirmed ? from + SYNC_CHUNK_BLOCKS - 1n : confirmed;
+        await observeBlock(chain, to);
+        const applied = await applyRange(db, chain, from, to);
+        await db`UPDATE bb_launch_sync_cursor SET cursor_block = GREATEST(cursor_block, ${to}), head_block = ${head},
+          last_run_at = now(), last_error = NULL,
+          rebuilding_until = CASE WHEN rebuilding_until <= ${to} THEN NULL ELSE rebuilding_until END WHERE chain_id = ${cid}`;
+        return { from, to, head, done: to >= confirmed, ...applied };
+      });
+      totals.launches += r.launches; totals.swaps += r.swaps; totals.fees += r.fees; totals.boosts += r.boosts;
+      nextFrom = r.to + 1n;
+      result = { status: "synced", from: nextFrom.toString(), to: r.to.toString(), head: r.head.toString(), ...totals, caught_up: r.done };
+      if (r.done) break;
     }
-    // trades and fees whose hour has a price by now but had none when they were written (usdLedger.ts; throttled, never throws)
-    await healUnpricedUsd(db, chain);
-    return { status: "synced", from: from.toString(), to: to.toString(), head: head.toString(), ...totals, caught_up: from > confirmed };
+    await withCanonicalIndex(chain, deploy, clearIndexCaches, (db) => healUnpricedUsd(db, chain));
+    return result;
   } catch (err) {
     const msg = errMessage(err);
-    // Keep keyed URLs out of stored diagnostics; /api/health exposes only a generic failure code.
-    await db`UPDATE bb_launch_sync_cursor SET last_run_at = now(), head_block = COALESCE(${knownHead}::bigint, head_block), last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
+    await pool`UPDATE bb_launch_sync_cursor SET last_run_at = now(), head_block = COALESCE(${knownHead}::bigint, head_block),
+      last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
     throw err;
   }
 }
@@ -959,67 +996,70 @@ export type ApplyLaunchTxResult = { status: "applied" | "not_found" | "reverted"
 export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLaunchTxResult> {
   const reason = skipReason(chain);
   if (reason) return { status: "skipped", reason };
-  const db = maybeDb()!;
-  // the receipt has no input: the transaction is read for the app tag at the same time, once, so the wallet waits no
-  // longer for it. If that read fails, the trade is still credited from the receipt with its tag unknown (NULL), and
-  // the tag is not cached: the log poll reads the transaction again and fills it in (applySwap, on the conflict)
-  const [receipt, sent] = await Promise.all([
-    publicClient(chain).getTransactionReceipt({ hash }).catch(() => null),
-    publicClient(chain).getTransaction({ hash }).catch(() => null),
-  ]);
-  if (!receipt) return { status: "not_found" };
-  if (receipt.status !== "success") return { status: "reverted" };
-  // the receipt in hand is what attribution needs (sender, destination, logs): give it to traderOf, so crediting a
-  // smart wallet's swap here never depends on reading the same receipt a second time from a node that may lag
-  const k = `${chain}:${receipt.transactionHash}`; // the same hash the receipt's logs carry, so traderOf finds it
-  const to = receipt.to ? receipt.to.toLowerCase() : null;
-  const input = sent?.input ?? null;
-  if (txFacts.size > 5000) txFacts.clear();
-  const seeded: TxFacts = { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) };
-  txFacts.set(k, seeded);
-  if (receiptLogs.size > 500) receiptLogs.clear();
-  receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
-  try {
-    const cfg = launchpad(chain);
-    const factory = cfg.factory!.toLowerCase();
-    const locker = cfg.locker!.toLowerCase();
-    const pm = cfg.v4.poolManager.toLowerCase();
+  return withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches, async (db) => {
+    // the receipt has no input: the transaction is read for the app tag at the same time, once, so the wallet waits no
+    // longer for it. If that read fails, the trade is still credited from the receipt with its tag unknown (NULL), and
+    // the tag is not cached: the log poll reads the transaction again and fills it in (applySwap, on the conflict)
+    const [receipt, sent] = await Promise.all([
+      publicClient(chain).getTransactionReceipt({ hash }).catch(() => null),
+      publicClient(chain).getTransaction({ hash }).catch(() => null),
+    ]);
+    if (!receipt) return { status: "not_found" };
+    if (receipt.status !== "success") return { status: "reverted" };
+    if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("receipt identity mismatch");
+    await observeLog(chain, { blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, removed: false });
+    // the receipt in hand is what attribution needs (sender, destination, logs): give it to traderOf, so crediting a
+    // smart wallet's swap here never depends on reading the same receipt a second time from a node that may lag
+    const k = `${chain}:${receipt.transactionHash}`; // the same hash the receipt's logs carry, so traderOf finds it
+    const to = receipt.to ? receipt.to.toLowerCase() : null;
+    const input = sent?.input ?? null;
+    if (txFacts.size > 5000) txFacts.clear();
+    const seeded: TxFacts = { from: receipt.from.toLowerCase(), to, tag: input === null ? null : tagOf(chain, to, input) };
+    txFacts.set(k, seeded);
+    if (receiptLogs.size > 500) receiptLogs.clear();
+    receiptLogs.set(k, receipt.logs.map((l) => ({ address: l.address, topics: l.topics as readonly string[], logIndex: Number(l.logIndex) })));
+    try {
+      const cfg = launchpad(chain);
+      const factory = cfg.factory!.toLowerCase();
+      const locker = cfg.locker!.toLowerCase();
+      const pm = cfg.v4.poolManager.toLowerCase();
 
-    let launches = 0;
-    let swaps = 0;
-    let fees = 0;
-    const tokens: string[] = [];
-    const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
-    for (const l of launched) {
-      if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
-      tokens.push(l.args.token.toLowerCase());
-    }
-    const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
-    // no price capture here: this path runs while the user waits, and a capture can wait on price sources. Its trades take
-    // the hour's price the poller already captured, or are priced by the poller's heal pass a few minutes later.
-    const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
-    for (const l of swapLogs) {
-      if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
-        swaps++;
-        const t = poolToToken.get(l.args.id.toLowerCase());
-        if (t && !tokens.includes(t)) tokens.push(t);
+      let launches = 0;
+      let swaps = 0;
+      let fees = 0;
+      const tokens: string[] = [];
+      const launched = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs.filter((l) => l.address.toLowerCase() === factory) });
+      for (const l of launched) {
+        if (await applyLaunched(db, chain, l as unknown as Log & { args: Launched })) launches++;
+        tokens.push(l.args.token.toLowerCase());
       }
-    }
-    const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
-    for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
-    let boosts = 0;
-    const twig = TWIG_ADDRESSES[chain];
-    if (twig) {
-      const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
-      for (const l of burnLogs) {
-        if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
-        else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+      const { poolToToken, tokenIdToToken, tokenQuote } = await poolMaps(db, chain);
+      // no price capture here: this path runs while the user waits, and a capture can wait on price sources. Its trades take
+      // the hour's price the poller already captured, or are priced by the poller's heal pass a few minutes later.
+      const swapLogs = parseEventLogs({ abi: POOL_MANAGER_ABI, eventName: "Swap", logs: receipt.logs.filter((l) => l.address.toLowerCase() === pm) });
+      for (const l of swapLogs) {
+        if (await applySwap(db, chain, l as unknown as Log & { args: Swap }, poolToToken, tokenQuote)) {
+          swaps++;
+          const t = poolToToken.get(l.args.id.toLowerCase());
+          if (t && !tokens.includes(t)) tokens.push(t);
+        }
       }
+      const feeLogs = parseEventLogs({ abi: LAUNCH_LOCKER_ABI, logs: receipt.logs.filter((l) => l.address.toLowerCase() === locker) });
+      for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
+      let boosts = 0;
+      const twig = TWIG_ADDRESSES[chain];
+      if (twig) {
+        const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
+        for (const l of burnLogs) {
+          if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
+          else await applyPairBurn(db, chain, l as unknown as Log & { args: TransferArgs }, locker);
+        }
+      }
+      return { status: "applied", launches, swaps, fees, boosts, tokens };
+    } finally {
+      // unknown: the log poll (or healAppTags) reads the transaction again. Only this call's own entry is removed: a sync
+      // of the same transaction running alongside may have cached the real tag meanwhile
+      if (input === null && txFacts.get(k) === seeded) txFacts.delete(k);
     }
-    return { status: "applied", launches, swaps, fees, boosts, tokens };
-  } finally {
-    // unknown: the log poll (or healAppTags) reads the transaction again. Only this call's own entry is removed: a sync
-    // of the same transaction running alongside may have cached the real tag meanwhile
-    if (input === null && txFacts.get(k) === seeded) txFacts.delete(k);
-  }
+  });
 }

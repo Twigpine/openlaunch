@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/lib/db": ["./scripts/reorg-db-test-db.ts"],
+      "@/lib/chain": ["./scripts/reorg-db-test-chain.ts"]
+    }
+  }
+}

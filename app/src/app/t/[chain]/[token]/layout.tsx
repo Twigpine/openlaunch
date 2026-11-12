@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import { isAddress } from "viem";
 import { isChainKey } from "@/lib/chainPublic";
-import { getLaunch } from "@/lib/launchpad/queries";
-import { memo } from "@/lib/launchpad/memo";
+import { isKnownLaunchRoute } from "@/lib/launchpad/launch-recovery";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function TokenLayout({ params, children }: { params: Promise<{ chain: string; token: string }>; children: React.ReactNode }) {
   const { chain, token } = await params;
   if (!isChainKey(chain) || !isAddress(token)) notFound();
-  const exists = await memo(`launch-exists:${chain}:${token.toLowerCase()}`, 3_000, async () => Boolean(await getLaunch(chain, token)));
-  if (!exists) notFound();
+  // Do not cache a miss: receipt ingestion/reinclusion can make this route ready immediately.
+  if (!await isKnownLaunchRoute(chain, token)) notFound();
   return children;
 }

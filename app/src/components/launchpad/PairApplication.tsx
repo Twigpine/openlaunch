@@ -1,5 +1,7 @@
 "use client";
 
+import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig, useChainId, useReadContract, useSwitchChain } from "wagmi";
@@ -43,6 +45,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
   // a transfer this browser sent for this application: until the indexer records it, nothing offers to send again
   const sentKey = `pair-fee-sent:${initial.id}`;
   const [sent, setSent] = useState<Hex | null>(null);
+  const [sentReady, setSentReady] = useState(false);
   // read after mount (the server render has no storage): a reload mid-indexing still shows "Sent", never the button
   useEffect(() => {
     const id = setTimeout(() => {
@@ -52,6 +55,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       } catch {
         // storage unavailable
       }
+      setSentReady(true);
     }, 0);
     return () => clearTimeout(id);
   }, [sentKey]);
@@ -77,16 +81,8 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       // keep what is shown
     }
   }, [app.id]);
-  useEffect(() => {
-    // the sent transfer is in the application's burns: the guard has done its job
-    if (sent && app.burns.some((b) => b.tx_hash === sent.toLowerCase())) {
-      try {
-        window.sessionStorage.removeItem(sentKey);
-      } catch {
-        // nothing stored
-      }
-    }
-  }, [app.burns, sent, sentKey]);
+  // Keep the sent hash after provisional indexing: a later reorg can remove the burn,
+  // and a reload must still offer Check again instead of another payment.
   useEffect(() => {
     const t = setInterval(() => {
       setNow(nowMs());
@@ -125,7 +121,8 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
     if (!sent || busy) return;
     setBusy("recheck");
     try {
-      await fetch(`/api/launch/sync?chain=${FEE_CHAIN}&tx=${sent}`, { method: "POST" }).catch(() => {});
+      const synced = await syncTransaction(FEE_CHAIN, sent);
+      if (synced.status !== "applied") setMsg({ ok: false, text: INDEX_PENDING_COPY });
       await reload();
     } finally {
       setBusy(null);
@@ -150,7 +147,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
 
   async function pay() {
     const q = app.quote;
-    if (!address || !q || lock.current || waiting) return;
+    if (!address || !q || lock.current || !sentReady || waiting || app.payment_reorg) return;
     // the amount must name THIS application in its last digits: never send TWIG that would pay for another one
     if (pairApplicationOf(BigInt(q.amount)) !== app.id) {
       setMsg({ ok: false, text: "That amount does not name this application. Nothing was sent." });
@@ -177,8 +174,8 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
         setMsg({ ok: false, text: e instanceof Error && /reverted/.test(e.message) ? e.message : "Sent. Its confirmation is not in yet: this page updates when it is indexed." });
         return;
       }
-      await fetch(`/api/launch/sync?chain=${FEE_CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
-      setMsg({ ok: true, text: "Sent. It counts once indexed (seconds)." });
+      const synced = await syncTransaction(FEE_CHAIN, hash);
+      setMsg({ ok: synced.status === "applied", text: synced.status === "applied" ? "Sent. It counts once indexed (seconds)." : INDEX_PENDING_COPY });
       await reload();
       void bal.refetch();
     } catch (e) {
@@ -226,7 +223,9 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       <div className={`${card} space-y-3 p-5`}>
         <h2 className="text-sm font-semibold text-ink">2 · The fee: ${app.fee_usd} in TWIG</h2>
         <p className="text-sm text-body">{PAIR_APPLY_COPY.feeRule(app.fee_usd)}</p>
-        {app.status === "open" && waiting ? (
+        {app.payment_reorg ? (
+          <div className="space-y-2"><p className="text-sm text-warm-ink">A fee payment needs another check. Its payment history is being checked. Check the original transaction before paying again.</p>{sent ? <button type="button" onClick={() => void recheck()} disabled={busy !== null} className={btn.secondarySm}>{busy === "recheck" ? "Checking…" : "Check again"}</button> : null}</div>
+        ) : app.status === "open" && waiting ? (
           <div className="space-y-2">
             <p className="text-sm text-ink">Sent. Waiting for it to be indexed, usually seconds: this page updates by itself.</p>
             <button type="button" onClick={() => void recheck()} disabled={busy !== null} className={btn.secondarySm}>{busy === "recheck" ? "Checking…" : "Check again"}</button>
@@ -246,7 +245,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
                 </p>
               ) : null}
               <p className="text-xs text-warm-ink">{PAIR_APPLY_COPY.sentFinal}</p>
-              <button type="button" onClick={() => void pay()} disabled={!address || busy !== null || left === 0 || Boolean(short)} className={btn.primary}>{!address ? "Connect a wallet to pay" : busy === "pay" ? "Sending…" : `Send ${group(q.twig)} TWIG to 0x…dEaD`}</button>
+              <button type="button" onClick={() => void pay()} disabled={!address || !sentReady || busy !== null || left === 0 || Boolean(short)} className={btn.primary}>{!address ? "Connect a wallet to pay" : !sentReady ? "Checking sent payments…" : busy === "pay" ? "Sending…" : `Send ${group(q.twig)} TWIG to 0x…dEaD`}</button>
             </div>
           )
         ) : (
