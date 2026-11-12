@@ -94,6 +94,21 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
     assert.equal((await submit(await payload())).status, 429);
     assert.equal(await postCount(), 1);
   });
+  for (const skewMs of [-60_000, 60_000]) await t.test(`posting gaps use database time when the app clock is skewed by ${skewMs}ms`, async (t) => {
+    await clear();
+    const realNow = Date.now;
+    t.mock.method(Date, "now", () => realNow() + skewMs);
+    assert.equal((await submit(await payload())).status, 200);
+    const immediate = await submit(await payload());
+    assert.equal(immediate.status, 429, "an app clock ahead of PostgreSQL must not bypass the posting gap");
+    assert.match((await immediate.json()).error, /^wait \d+s between posts$/);
+    assert.equal(await postCount(), 1);
+    assert.equal(await nonceCount(), 1);
+    await sql`UPDATE bb_posts SET created_at = clock_timestamp() - interval '21 seconds'`;
+    assert.equal((await submit(await payload())).status, 200, "an app clock behind PostgreSQL must not extend the posting gap");
+    assert.equal(await postCount(), 2);
+    assert.equal(await nonceCount(), 2);
+  });
   await t.test("a post queued beyond the gap is timestamped after its wallet lock is released", { timeout: 45_000 }, async () => {
     await clear();
     const locker = await sql.reserve();
@@ -126,8 +141,10 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
       await queued?.catch(() => {});
     }
   });
-  await t.test("distinct signed nonces cannot bypass the gap concurrently", async () => {
+  for (const skewMs of [0, -60_000, 60_000]) await t.test(`distinct signed nonces cannot bypass the gap concurrently with app clock skew ${skewMs}ms`, async (t) => {
     await clear();
+    const realNow = Date.now;
+    t.mock.method(Date, "now", () => realNow() + skewMs);
     barrier(2);
     const inputs = await Promise.all([payload(), payload()]);
     const responses = await Promise.all(inputs.map(submit));

@@ -5,6 +5,10 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as launchJournal from "../../lib/launchpad/pending-launch";
 import { waitForTrackedReceipt } from "../../lib/launchpad/transaction-receipt";
+import { encodeAbiParameters, encodeEventTopics, type TransactionReceipt } from "viem";
+import { ERC20_TRANSFER_EVENT } from "../../lib/launchpad/abi";
+import { BOOST_TOKEN, BOOST_DEAD, boostAmount, boostWholeOf, boostShowsNow } from "../../lib/launchpad/boost";
+import { boostReceiptAmount } from "../../lib/launchpad/boost-receipt";
 
 /**
  * Execute the actual component handlers with inert dependencies. This avoids a
@@ -256,31 +260,124 @@ test("a later launch revert preserves its independent first-buy reference", asyn
   assert.equal(h.sends(), 1);
 });
 
-for (const reason of ["repriced", "cancelled", "replaced", "invalid"]) test(`actual boost handler handles ${reason} receipt without syncing the original hash`, async () => {
-  const pending: unknown[] = [];
-  const phases: { k: string }[] = [];
-  const settled: unknown[][] = [];
+const boostTag = 123n;
+const boostLocker = `0x${"44".repeat(20)}`;
+function boostReceipt(raw = boostAmount(300_000n, boostTag)): TransactionReceipt {
+  return { status: "success", transactionHash: secondHash, logs: [{ address: BOOST_TOKEN, transactionHash: secondHash, blockNumber: 1n, logIndex: 0, removed: false,
+    data: encodeAbiParameters([{ type: "uint256" }], [raw]),
+    topics: encodeEventTopics({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", args: { from: launcher, to: BOOST_DEAD } }),
+  }] } as unknown as TransactionReceipt;
+}
+function boostHarness(reason: string, receipt: TransactionReceipt, options: { waitError?: boolean; syncStatus?: string; syncWait?: Promise<void> } = {}) {
+  const pending: ({ hash: string; whole: bigint; replaced?: boolean } | null)[] = [];
+  const phases: { k: string; hash?: string; whole?: bigint; raw?: bigint; shows?: boolean }[] = [];
+  const synced: string[] = [];
+  const effects: string[] = [];
+  let sends = 0;
   const original = { hash: launchHash, from: launcher, to: launcher, nonce: 7, input: "0xab", value: 0n };
   const pub = {
     simulateContract: async () => ({ request: {} }),
     waitForTransactionReceipt: async ({ onReplaced }: { onReplaced: (event: unknown) => void }) => {
       onReplaced({ reason: reason === "invalid" ? "repriced" : reason, replacedTransaction: original,
-        transaction: { ...original, hash: secondHash, nonce: reason === "invalid" ? 8 : 7 }, transactionReceipt: { transactionHash: secondHash } });
-      return { status: "success", transactionHash: secondHash, logs: [] };
+        transaction: { ...original, hash: secondHash, nonce: reason === "invalid" ? 8 : 7, input: reason === "repriced" || reason === "invalid" ? original.input : "0xcd" }, transactionReceipt: { transactionHash: secondHash } });
+      if (options.waitError) throw new Error("Receipt timeout");
+      return receipt;
     },
+    getTransactionReceipt: async () => receipt,
   };
-  const send = handler("./BoostDialog.tsx", "send", {
-    address: launcher, raw: 100n, whole: 100n, busy: false, lock: { current: false }, chainId: 8453, BASE: { id: 8453 }, config: {},
-    getPublicClient: () => pub, getWalletClient: async () => ({ writeContract: async () => launchHash }), waitForTrackedReceipt,
-    BOOST_TOKEN: launcher, ERC20_TRANSFER_ABI: [], DEAD: launcher, BUILDER_DATA_SUFFIX: "0x", setPhase: (p: { k: string }) => phases.push(p),
-    onPending: (value: unknown) => pending.push(value), showsAfter: () => true, settle: async (...args: unknown[]) => { settled.push(args); }, friendlyError: (error: Error) => error.message,
-  });
-  await send();
-  if (reason === "repriced") { assert.equal(settled[0]?.[0], secondHash); assert.deepEqual({ ...pending.at(-1) as object }, { hash: secondHash, whole: 100n }); }
-  else {
-    assert.deepEqual(settled, []);
-    assert.equal(phases.at(-1)?.k, reason === "invalid" ? "unconfirmed" : "error");
-    if (reason === "invalid") assert.deepEqual({ ...pending.at(-1) as object }, { hash: launchHash, whole: 100n });
-    else assert.equal(pending.at(-1), null);
+  const bindings: Record<string, unknown> = {
+    address: launcher, raw: boostAmount(100_000n, boostTag), whole: 100_000n, busy: false, lock: { current: false }, chainId: 8453, BASE: { id: 8453 }, config: {},
+    getPublicClient: () => pub, getWalletClient: async () => ({ writeContract: async () => { sends++; return launchHash; } }), waitForTrackedReceipt,
+    BOOST_TOKEN, ERC20_TRANSFER_ABI: [], DEAD: BOOST_DEAD, BUILDER_DATA_SUFFIX: "0x", BOOST_CHAIN: "base", tag: boostTag,
+    setPhase: (p: { k: string }) => { phases.push(p); bindings.phase = p; bindings.busy = ["preparing", "signing", "sent", "unconfirmed"].includes(p.k); },
+    onPending: (value: typeof pending[number]) => pending.push(value), showsAfter: () => false, friendlyError: (error: Error) => error.message,
+    boostReceiptAmount, boostWholeOf, boostShowsNow, launchpad: () => ({ locker: boostLocker }), entry: { full: true, cutoff: String(boostAmount(200_000n, boostTag)) }, current: 0n, inLane: false,
+    syncTransaction: async (_chain: string, hash: string) => { synced.push(hash); await options.syncWait; return { status: options.syncStatus ?? "applied" }; }, INDEX_PENDING_COPY: "Still indexing",
+    symbol: "TEST", token: "token", groupWhole: String, toast: () => effects.push("toast"), bal: { refetch: () => effects.push("balance") }, onBoosted: () => effects.push("boost"),
+  };
+  bindings.settle = handler("./BoostDialog.tsx", "settle", bindings);
+  bindings.settleReceipt = handler("./BoostDialog.tsx", "settleReceipt", bindings);
+  return { send: handler("./BoostDialog.tsx", "send", bindings), checkAgain: handler("./BoostDialog.tsx", "checkAgain", bindings), bindings, pending, phases, synced, effects, pub, sends: () => sends };
+}
+
+test("actual changed boost retains its hash through indexing and settles the actual burn amount", async () => {
+  let finish!: () => void;
+  const h = boostHarness("replaced", boostReceipt(), { syncWait: new Promise<void>((resolve) => { finish = resolve; }) });
+  const sending = h.send();
+  while (!h.synced.length) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual({ ...h.pending.at(-1) }, { hash: secondHash, whole: 300_000n, replaced: true });
+  await h.send();
+  assert.equal(h.sends(), 1, "the replacement cannot invite a second wallet send while indexing");
+  finish(); await sending;
+  assert.deepEqual(h.synced, [secondHash]);
+  assert.equal(h.pending.at(-1), null);
+  assert.equal(h.phases.at(-1)?.k, "done");
+  assert.equal(h.phases.at(-1)?.whole, 300_000n);
+  assert.equal(h.phases.at(-1)?.raw, boostAmount(300_000n, boostTag));
+  assert.equal(h.phases.at(-1)?.shows, true, "the original amount would not enter this lane");
+});
+
+test("changed boost totals actual fractional burns for lane eligibility", async () => {
+  const raw = boostAmount(100_000n, boostTag) + 10n ** 12n;
+  const receipt = boostReceipt(raw);
+  receipt.logs.push({ ...receipt.logs[0], logIndex: 1 });
+  const h = boostHarness("replaced", receipt);
+  h.bindings.entry = { full: true, cutoff: String(2n * raw) };
+  await h.send();
+  assert.equal(h.phases.at(-1)?.raw, 2n * raw);
+  assert.equal(h.phases.at(-1)?.shows, true, "do not drop fractional TWIG or a second matching burn");
+});
+
+for (const syncStatus of ["pending", "error"]) test(`changed boost survives ${syncStatus} indexing and close/reopen without resending`, async () => {
+  const options = { syncStatus };
+  const h = boostHarness("replaced", boostReceipt(), options);
+  await h.send();
+  assert.equal(h.phases.at(-1)?.k, "unconfirmed");
+  assert.deepEqual({ ...h.pending.at(-1) }, { hash: secondHash, whole: 300_000n, replaced: true });
+  h.bindings.phase = { k: "unconfirmed", ...h.pending.at(-1), checking: false, note: null }; // the dialog's actual reopen initializer
+  await h.send(); assert.equal(h.sends(), 1);
+  options.syncStatus = "applied";
+  await h.checkAgain();
+  assert.deepEqual(h.synced, [secondHash, secondHash]);
+  assert.equal(h.phases.at(-1)?.whole, 300_000n);
+  assert.equal(h.pending.at(-1), null);
+});
+
+test("changed callback followed by timeout retains the replacement for a later receipt recheck", async () => {
+  const h = boostHarness("replaced", boostReceipt(), { waitError: true });
+  await h.send();
+  assert.equal(h.phases.at(-1)?.k, "unconfirmed");
+  assert.equal(h.pending.at(-1)?.hash, secondHash);
+  assert.equal(h.pending.at(-1)?.replaced, true);
+  await h.send(); assert.equal(h.sends(), 1);
+  await h.checkAgain();
+  assert.deepEqual(h.synced, [secondHash]);
+  assert.equal(h.phases.at(-1)?.whole, 300_000n);
+});
+
+for (const reason of ["repriced", "cancelled", "reverted", "invalid", "unknown", "wrong-hash", "malformed"]) test(`actual boost resolves ${reason} only with matching receipt evidence`, async () => {
+  const rc = boostReceipt();
+  if (reason === "cancelled") rc.logs = [];
+  if (reason === "reverted") rc.status = "reverted";
+  if (reason === "unknown") rc.status = "unknown" as TransactionReceipt["status"];
+  if (reason === "wrong-hash") rc.transactionHash = launchHash;
+  if (reason === "malformed") rc.logs[0].data = "0x";
+  const h = boostHarness(["repriced", "cancelled", "invalid"].includes(reason) ? reason : "replaced", rc);
+  await h.send();
+  if (reason === "repriced") {
+    assert.deepEqual(h.synced, [secondHash]);
+    assert.equal(h.phases.at(-1)?.k, "done");
+    assert.equal(h.phases.at(-1)?.whole, 100_000n, "unchanged repricing keeps the submitted amount");
+  } else if (reason === "cancelled" || reason === "reverted") {
+    assert.equal(h.pending.at(-1), null, "known receipt outcome resolves the guard");
+    assert.equal(h.phases.at(-1)?.k, "error");
+    assert.equal(h.phases.at(-1)?.hash, secondHash, "the resolved replacement keeps its explorer reference");
+    assert.deepEqual(h.synced, []);
+    assert.ok(!h.effects.includes("toast"));
+  } else {
+    assert.equal(h.phases.at(-1)?.k, "unconfirmed");
+    assert.equal(h.pending.at(-1)?.hash, reason === "invalid" ? launchHash : secondHash);
+    assert.deepEqual(h.synced, []);
+    await h.send(); assert.equal(h.sends(), 1);
   }
 });

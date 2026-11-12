@@ -144,8 +144,9 @@ export async function createPost(p: { chain: ChainKey; token: string; wallet: st
   // policy before crypto (cheap first)
   const [st] = await db<{ comments_muted: boolean }[]>`SELECT comments_muted FROM bb_token_settings WHERE chain_id = ${cid} AND token = ${token}`;
   if (st?.comments_muted) return fail("comments are off for this token", 403);
-  const [rate] = await db<{ last: string | null; n24: bigint }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > now() - interval '24 hours')::bigint AS n24 FROM bb_posts WHERE wallet = ${wallet}`;
-  const gate = canPostNow(rate.last ? new Date(rate.last).getTime() : null, Number(rate.n24), now);
+  // Stored post times and both gap checks use the database clock, regardless of app-host clock skew.
+  const [rate] = await db<{ last: string | null; n24: bigint; db_now: string }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > clock_timestamp() - interval '24 hours')::bigint AS n24, clock_timestamp() AS db_now FROM bb_posts WHERE wallet = ${wallet}`;
+  const gate = canPostNow(rate.last ? new Date(rate.last).getTime() : null, Number(rate.n24), new Date(rate.db_now).getTime());
   if (!gate.ok) return fail(gate.error, 429);
   if (parentId !== null) {
     const [parent] = await db<{ id: bigint; parent_id: bigint | null }[]>`SELECT id, parent_id FROM bb_posts WHERE id = ${parentId} AND chain_id = ${cid} AND token = ${token} AND NOT hidden`;
@@ -163,8 +164,8 @@ export async function createPost(p: { chain: ChainKey; token: string; wallet: st
     // Distinct signatures can pass the cheap preflight together. Serialize the final
     // policy read and write for this wallet across every server process and chain.
     await sql`SELECT pg_advisory_xact_lock(hashtext(${`post:${wallet}`}))`;
-    const [current] = await sql<{ last: string | null; n24: bigint }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > clock_timestamp() - interval '24 hours')::bigint AS n24 FROM bb_posts WHERE wallet = ${wallet}`;
-    const finalGate = canPostNow(current.last ? new Date(current.last).getTime() : null, Number(current.n24), Date.now());
+    const [current] = await sql<{ last: string | null; n24: bigint; db_now: string }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > clock_timestamp() - interval '24 hours')::bigint AS n24, clock_timestamp() AS db_now FROM bb_posts WHERE wallet = ${wallet}`;
+    const finalGate = canPostNow(current.last ? new Date(current.last).getTime() : null, Number(current.n24), new Date(current.db_now).getTime());
     if (!finalGate.ok) return fail(finalGate.error, 429);
     // A refused quota attempt spends no nonce; a failed INSERT rolls its nonce back.
     const used = await sql`INSERT INTO bb_post_nonces (nonce, wallet) VALUES (${nonce}, ${wallet}) ON CONFLICT (nonce) DO NOTHING RETURNING nonce`;

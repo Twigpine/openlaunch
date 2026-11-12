@@ -77,7 +77,7 @@ test("sent means sent: an unread receipt locks the dialog instead of inviting a 
   const body = dialog.slice(dialog.indexOf("async function send()"), dialog.indexOf("async function settle("));
   // the hash is handed to the panel before the receipt wait, and a failed wait is "unconfirmed", never "error"
   assert.ok(body.indexOf("onPending({ hash, whole })") < body.indexOf("waitForTrackedReceipt"));
-  assert.match(body, /catch \{\n\s*\/\/ sent, outcome unknown[^\n]*\n\s*setPhase\(\{ k: "unconfirmed", hash, whole, checking: false, note: null \}\);\n\s*return;/);
+  assert.match(body, /catch \{\n\s*\/\/ sent, outcome unknown[^\n]*\n\s*setPhase\(\{ k: "unconfirmed", hash, whole, replaced, checking: false, note: null \}\);\n\s*return;/);
   assert.match(dialog, /const busy = phase\.k === "preparing" \|\| phase\.k === "signing" \|\| phase\.k === "sent" \|\| phase\.k === "unconfirmed";/);
   assert.match(dialog, /useState<Phase>\(pending \? \{ k: "unconfirmed", \.\.\.pending, checking: false, note: null \} : \{ k: "idle" \}\)/);
   // the panel owns the pending hash, so closing and reopening keeps the lock
@@ -187,7 +187,9 @@ test("the lane moves only when something happens, and reduced motion keeps only 
 
 test("CodeRabbit round 1: the done screen, admin errors and the agent formula", () => {
   // both ways a receipt can arrive settle with the same rule: never a hard-coded "it shows"
-  assert.equal((dialog.match(/await settle\(hash, whole, (?:rc|result\.receipt)\.status === "success", showsAfter\(whole\)\);/g) ?? []).length, 2);
+  assert.equal((dialog.match(/await settleReceipt\(/g) ?? []).length, 2, "send and recheck share receipt settlement");
+  assert.match(dialog, /await settle\(hash, whole, rc\.status === "success", showsAfter\(whole\)\);/);
+  assert.match(dialog, /boostShowsNow\(entry, current, actual, inLane\)/, "replacement lane result uses actual receipt amount");
   assert.doesNotMatch(dialog, /settle\([^)]*, true\)/);
   assert.match(dialog, /const showsAfter = \(w: bigint\): boolean => !tagOk \|\| boostShowsNow\(entry, current, boostAmount\(w, tag\), inLane\);/);
   // an error page that is not JSON still reports the HTTP failure; a bad lane read never throws from the effect
@@ -408,7 +410,7 @@ test("the token page shows what the lane brought: clicks in the same 24 hours, f
 
 test("after a confirmed boost the booster can share it on X: its own post, in a new tab", () => {
   const done = dialog.slice(dialog.indexOf('{phase.k === "done" ? ('), dialog.indexOf(") : ("));
-  assert.match(done, /<a href=\{boostShareUrl\(symbol, boostAmount\(phase\.whole, tag\), `\$\{SITE_URL\}\/t\/\$\{BOOST_CHAIN\}\/\$\{token\}`\)\} target="_blank" rel="noreferrer" className=\{btn\.secondarySm\}>Share on X/);
+  assert.match(done, /<a href=\{boostShareUrl\(symbol, phase\.raw \?\? boostAmount\(phase\.whole, tag\), `\$\{SITE_URL\}\/t\/\$\{BOOST_CHAIN\}\/\$\{token\}`\)\} target="_blank" rel="noreferrer" className=\{btn\.secondarySm\}>Share on X/);
   assert.equal((dialog.match(/boostShareUrl\(/g) ?? []).length, 1, "only on the done screen");
 });
 

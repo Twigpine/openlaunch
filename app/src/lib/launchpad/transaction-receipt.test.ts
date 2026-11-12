@@ -46,3 +46,14 @@ test("a timeout after a verified repricing has already retained the replacement 
   await assert.rejects(waitForTrackedReceipt(pub, hash, (h) => retained.push(h)), /timeout/);
   assert.deepEqual(retained, [replacement]);
 });
+
+test("changed replacement tracking is opt-in, identity-bound, and survives a receipt timeout", async () => {
+  const retained: string[] = [];
+  const changedEvent = { ...event, reason: "replaced", transaction: { ...next, input: "0xffff" } };
+  const pub = { waitForTransactionReceipt: async ({ onReplaced }: { onReplaced: (event: object) => void }) => { onReplaced(changedEvent); throw Error("timeout"); } } as unknown as Pick<PublicClient, "waitForTransactionReceipt">;
+  await assert.rejects(waitForTrackedReceipt(pub, hash, () => assert.fail("not a repricing"), (h) => retained.push(h)), /timeout/);
+  assert.deepEqual(retained, [replacement]);
+  for (const transaction of [{ ...changedEvent.transaction, nonce: 8 }, { ...changedEvent.transaction, from: `0x${"34".repeat(20)}` }]) {
+    await assert.rejects(waitForTrackedReceipt(reader({ ...changedEvent, transaction }), hash, () => assert.fail(), () => assert.fail("unverified identity")), /could not be matched/);
+  }
+});
