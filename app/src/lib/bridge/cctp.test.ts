@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, pad, parseAbi, type Address, type Hex } from "viem";
 import { CCTP_BURN_ABI, CCTP_BURN_EVENT, CCTP_FORWARD_HOOK, CCTP_TOKEN_MESSENGER, cctpAmountOut, cctpBurnData, cctpBurnFee, cctpRoute, isCctpBurnLog } from "./cctp";
-import { bridgeStatusUrl, CCTP_SCAN_BLOCKS, findCctpBurn, hasMatchingDepositEvent, isMatchingSourceDeposit, parseStoredTransfer, serializeTransfer, submitBridgeDeposit, validateBridgeQuote, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
+import { bridgeStatusUrl, CCTP_NOT_SEEN, CCTP_SCAN_BLOCKS, DISCARD_AFTER_MS, findCctpBurn, hasMatchingDepositEvent, isMatchingSourceDeposit, parseStoredTransfer, serializeTransfer, submitBridgeDeposit, transferCanDiscard, validateBridgeQuote, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { ARBITRUM_USDC, ARC_USDC, BASE_USDC, ETHEREUM_USDC, OPTIMISM_USDC, bridgeFeePercent, type BridgeQuote, type BridgeQuoteRequest } from "./types";
 
 const WALLET = "0x6376ca7e839f1c3dd7f23cc8a1a58329f60db125" as const;
@@ -172,19 +172,24 @@ test("a burn the wallet never reported is found by its own event, once, inside t
     getBlockNumber: async () => latest,
     getLogs: async (args: { fromBlock: bigint; toBlock: bigint; args: unknown }) => { calls.push(args); return logs; },
   });
-  assert.equal(await findCctpBurn(reader(1_050n, [burnLog({ amount: 1n }), burnLog()]), TRANSFER), HASH);
+  const range = { fromBlock: 1_000n, toBlock: 1_050n, headBlock: 1_050n, complete: true };
+  assert.deepEqual(await findCctpBurn(reader(1_050n, [burnLog({ amount: 1n }), burnLog()]), TRANSFER), { kind: "found", hash: HASH, ...range });
   assert.deepEqual(calls.at(-1), { address: CCTP_TOKEN_MESSENGER, event: CCTP_BURN_EVENT[0], args: { burnToken: ARBITRUM_USDC, depositor: WALLET }, fromBlock: 1_000n, toBlock: 1_050n });
-  await findCctpBurn(reader(1_000_000n, []), TRANSFER);
+  assert.deepEqual(await findCctpBurn(reader(1_000_000n, []), TRANSFER), { kind: "not-found", fromBlock: 1_000n, toBlock: 1_000n + CCTP_SCAN_BLOCKS, headBlock: 1_000_000n, complete: false });
   assert.equal(calls.at(-1)!.toBlock, 1_000n + CCTP_SCAN_BLOCKS);
   // the same burn in two logs is one burn; two different burns are ambiguous
-  assert.equal(await findCctpBurn(reader(1_050n, [burnLog(), burnLog()]), TRANSFER), HASH);
-  assert.equal(await findCctpBurn(reader(1_050n, [burnLog(), { ...burnLog(), transactionHash: `0x${"cd".repeat(32)}` as Hex }]), TRANSFER), null);
-  assert.equal(await findCctpBurn(reader(1_050n, [burnLog({ depositor: OTHER })]), TRANSFER), null);
+  assert.deepEqual(await findCctpBurn(reader(1_050n, [burnLog(), burnLog()]), TRANSFER), { kind: "found", hash: HASH, ...range });
+  const otherHash = `0x${"cd".repeat(32)}` as Hex;
+  assert.deepEqual(await findCctpBurn(reader(1_050n, [burnLog(), { ...burnLog(), transactionHash: otherHash }]), TRANSFER), { kind: "ambiguous", hashes: [HASH, otherHash], ...range });
+  assert.deepEqual(await findCctpBurn(reader(1_050n, [burnLog({ depositor: OTHER })]), TRANSFER), { kind: "not-found", ...range });
+  assert.deepEqual(await findCctpBurn({ getBlockNumber: async () => 1_050n, getLogs: async () => [{ ...burnLog(), transactionHash: null }] }, TRANSFER), { kind: "ambiguous", hashes: [], ...range });
   const before = calls.length;
-  assert.equal(await findCctpBurn(reader(999n, [burnLog()]), TRANSFER), null);
-  assert.equal(await findCctpBurn(reader(1_050n, [burnLog()]), { ...TRANSFER, sourceBlock: undefined }), null);
-  assert.equal(await findCctpBurn(reader(1_050n, [burnLog()]), { ...TRANSFER, provider: undefined }), null);
+  assert.deepEqual(await findCctpBurn(reader(999n, [burnLog()]), TRANSFER), { kind: "unavailable", reason: "head-before-source" });
+  assert.deepEqual(await findCctpBurn(reader(1_050n, [burnLog()]), { ...TRANSFER, sourceBlock: undefined }), { kind: "unavailable", reason: "missing-source-block" });
+  assert.deepEqual(await findCctpBurn(reader(1_050n, [burnLog()]), { ...TRANSFER, provider: undefined }), { kind: "unavailable", reason: "unsupported-route" });
   assert.equal(calls.length, before);
+  assert.deepEqual(await findCctpBurn({ ...reader(1_050n, []), getBlockNumber: async () => { throw new Error("offline"); } }, TRANSFER), { kind: "unavailable", reason: "rpc-error" });
+  assert.deepEqual(await findCctpBurn({ ...reader(1_050n, []), getLogs: async () => { throw new Error("log range refused"); } }, TRANSFER), { kind: "unavailable", reason: "rpc-error" });
 });
 
 test("a Circle deposit records its provider and the block to look from, and still sends if that block is unknown", async () => {
@@ -204,4 +209,26 @@ test("a Circle deposit records its provider and the block to look from, and stil
   assert.equal(unknown.kind, "sent");
   assert.equal(saved[0].provider, "cctp");
   assert.equal(saved[0].sourceBlock, undefined);
+});
+
+test("Circle recovery keeps an uncertain broadcast after the discard timeout", async (t) => {
+  const now = TRANSFER.createdAt + DISCARD_AFTER_MS + 60_000;
+  const reader = { getBlockNumber: async () => 1_100n, getLogs: async () => [burnLog()] };
+  const cases = [
+    { name: "missing source block", transfer: { ...TRANSFER, sourceBlock: undefined }, reader },
+    { name: "multiple matching burns", transfer: TRANSFER, reader: { ...reader, getLogs: async () => [burnLog(), { ...burnLog(), transactionHash: `0x${"cd".repeat(32)}` as Hex }] } },
+    { name: "burn beyond the scan window", transfer: TRANSFER, reader: { getBlockNumber: async () => 1_000n + CCTP_SCAN_BLOCKS + 2n, getLogs: async ({ toBlock }: { toBlock: bigint }) => toBlock > 1_000n + CCTP_SCAN_BLOCKS ? [burnLog()] : [] } },
+    { name: "empty complete scan still permits a future burn", transfer: TRANSFER, reader: { ...reader, getLogs: async () => [] } },
+    { name: "single matching burn", transfer: TRANSFER, reader },
+  ];
+  for (const example of cases) await t.test(example.name, async () => {
+    const burn = await findCctpBurn(example.reader, example.transfer);
+    assert.equal(transferCanDiscard(example.transfer, { requestId: TRANSFER.requestId, status: CCTP_NOT_SEEN, sourceMined: burn.kind === "found" || burn.kind === "ambiguous", observedAt: now }, now), false);
+  });
+});
+
+test("a known Circle source hash cannot expire into a safe discard, even days later", () => {
+  const now = TRANSFER.createdAt + 7 * 24 * 60 * 60_000;
+  const transfer = { ...TRANSFER, sourceHash: HASH };
+  assert.equal(transferCanDiscard(transfer, { requestId: TRANSFER.requestId, status: CCTP_NOT_SEEN, sourceMined: false, observedAt: now }, now), false);
 });

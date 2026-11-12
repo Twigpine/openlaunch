@@ -254,13 +254,14 @@ export const DISCARD_AFTER_MS = 15 * 60_000;
 export type ProviderObservation = { requestId: Hex; status: BridgeStatusResponse; sourceMined: boolean; observedAt: number };
 
 /**
- * Bounded escape hatch for a deposit that never happened: the provider still
+ * Relay-only escape hatch for a deposit that never happened: the provider still
  * reports "waiting" with no deposit, no wallet hash is mined, and the order
  * deadline (about a minute) is long past. A record with any on-chain evidence,
- * or a stale observation, keeps blocking until it settles.
+ * or a stale observation, keeps blocking until it settles. Circle burns have no
+ * deadline: even a complete empty scan cannot rule out a later confirmation.
  */
 export function transferCanDiscard(transfer: TrackedBridgeTransfer | null, observation: ProviderObservation | null, now: number): boolean {
-  if (!transfer || transferIsTerminal(transfer) || !observation || observation.requestId !== transfer.requestId) return false;
+  if (!transfer || transfer.provider === "cctp" || transferIsTerminal(transfer) || !observation || observation.requestId !== transfer.requestId) return false;
   if (observation.status.status !== "waiting" || observation.status.inTxHashes.length > 0 || observation.status.txHashes.length > 0 || observation.sourceMined) return false;
   return now - transfer.createdAt >= DISCARD_AFTER_MS && now - observation.observedAt <= 60_000 && now >= observation.observedAt;
 }
@@ -486,7 +487,7 @@ export function bridgeStatusUrl(transfer: TrackedBridgeTransfer): string | null 
   return `/api/bridge/status?${params}`;
 }
 
-/** What a Circle record says before any burn is known: nothing seen yet. */
+/** Local waiting placeholder before a Circle hash is known; not an observation from Circle or proof of no burn. */
 export const CCTP_NOT_SEEN: BridgeStatusResponse = { status: "waiting", inTxHashes: [], txHashes: [] };
 
 type LogReader = {
@@ -496,19 +497,33 @@ type LogReader = {
 /** Blocks searched after the saved source block: about 40 minutes on Arbitrum, hours elsewhere. */
 export const CCTP_SCAN_BLOCKS = 9_999n;
 
+type CctpScanRange = { fromBlock: bigint; toBlock: bigint; headBlock: bigint; complete: boolean };
+export type CctpBurnScan = (
+  | { kind: "found"; hash: Hex }
+  | { kind: "ambiguous"; hashes: Hex[] }
+  | { kind: "not-found" }
+) & CctpScanRange | { kind: "unavailable"; reason: "unsupported-route" | "missing-source-block" | "head-before-source" | "rpc-error" };
+
 /**
- * The hash of this record's burn found on the source network, for a wallet that never returned one or replaced it
- * (speed-up). Only Circle's own event from the pinned messenger, matching every saved field, counts; two matches are
- * ambiguous and return null so tracking keeps waiting rather than guess.
+ * Recovery evidence for a wallet that never returned a hash or replaced it (speed-up). Only Circle's own event
+ * matching every saved field counts. Ambiguity, unavailable reads, and the bounded range are explicit: none means
+ * that no burn happened. Even a complete range describes this head only, not a transaction still waiting to mine.
  */
-export async function findCctpBurn(reader: LogReader, transfer: TrackedBridgeTransfer): Promise<Hex | null> {
+export async function findCctpBurn(reader: LogReader, transfer: TrackedBridgeTransfer): Promise<CctpBurnScan> {
   const route = transfer.provider === "cctp" ? cctpRoute(transfer) : null;
-  if (!route || !transfer.sourceBlock) return null;
-  const from = BigInt(transfer.sourceBlock);
-  const latest = await reader.getBlockNumber();
-  if (latest < from) return null;
-  const to = latest - from > CCTP_SCAN_BLOCKS ? from + CCTP_SCAN_BLOCKS : latest;
-  const logs = await reader.getLogs({ address: CCTP_TOKEN_MESSENGER, event: CCTP_BURN_EVENT[0], args: { burnToken: route.burnToken, depositor: transfer.address }, fromBlock: from, toBlock: to });
-  const hashes = [...new Set(logs.filter((log) => isCctpBurnLog(log, transfer) && isHash(log.transactionHash)).map((log) => log.transactionHash!.toLowerCase()))];
-  return hashes.length === 1 ? hashes[0] as Hex : null;
+  if (!route) return { kind: "unavailable", reason: "unsupported-route" };
+  if (!transfer.sourceBlock) return { kind: "unavailable", reason: "missing-source-block" };
+  try {
+    const fromBlock = BigInt(transfer.sourceBlock);
+    const headBlock = await reader.getBlockNumber();
+    if (headBlock < fromBlock) return { kind: "unavailable", reason: "head-before-source" };
+    const toBlock = headBlock - fromBlock > CCTP_SCAN_BLOCKS ? fromBlock + CCTP_SCAN_BLOCKS : headBlock;
+    const range = { fromBlock, toBlock, headBlock, complete: toBlock === headBlock };
+    const logs = await reader.getLogs({ address: CCTP_TOKEN_MESSENGER, event: CCTP_BURN_EVENT[0], args: { burnToken: route.burnToken, depositor: transfer.address }, fromBlock, toBlock });
+    const matches = logs.filter((log) => isCctpBurnLog(log, transfer));
+    const hashes = [...new Set(matches.flatMap((log) => isHash(log.transactionHash) ? [log.transactionHash.toLowerCase() as Hex] : []))];
+    if (matches.length === 0) return { kind: "not-found", ...range };
+    if (hashes.length === 1 && matches.every((log) => isHash(log.transactionHash))) return { kind: "found", hash: hashes[0], ...range };
+    return { kind: "ambiguous", hashes, ...range };
+  } catch { return { kind: "unavailable", reason: "rpc-error" }; }
 }

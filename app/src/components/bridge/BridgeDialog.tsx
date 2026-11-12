@@ -656,12 +656,14 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
       {circle ? null : <a className={styles.externalAction} href={`https://relay.link/transaction/${transfer.requestId}`} target="_blank" rel="noreferrer">View transfer on Relay<ArrowUpRight size={17} aria-hidden /></a>}
       <div className={styles.explorerLinks}>
         {transfer.sourceHash ? <a href={`${origin.explorer}/tx/${transfer.sourceHash}`} target="_blank" rel="noreferrer">Source transaction <ArrowUpRight size={12} aria-hidden /></a> : null}
+        {circle && !transfer.sourceHash && !terminal ? <a href={`${origin.explorer}/address/${transfer.address}`} target="_blank" rel="noreferrer">Check source wallet activity <ArrowUpRight size={12} aria-hidden /></a> : null}
         {success && transfer.destinationHashes[0] ? <a href={`${destination.explorer}/tx/${transfer.destinationHashes[0]}`} target="_blank" rel="noreferrer">Destination transaction <ArrowUpRight size={12} aria-hidden /></a> : null}
       </div>
+      {circle && !terminal ? <p className={styles.disclaimer}>This recovery record stays saved until the transfer is resolved. A Circle burn can confirm later even when none is found now. Check your wallet or source explorer for the transaction hash, and keep it for support.</p> : null}
       {b.canReset ? <button type="button" className={styles.newTransfer} onClick={b.reset}>New bridge<ChevronRight size={15} aria-hidden /></button> : null}
       {b.canDiscard ? <details className={styles.approvalRecovery}>
         <summary>No deposit after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
-        <p>{provider} has not seen a deposit for this transfer and nothing is confirmed on {origin.name}. If your wallet shows the transaction as dropped or cancelled, you can discard this record and start over.{circle ? "" : " Keep the Transfer ID below in case you need Relay support."}</p>
+        <p>{provider} has not reported a deposit for this transfer. If your wallet shows the transaction as dropped or cancelled, you can discard this record and start over. Keep the Transfer ID below in case you need Relay support.</p>
         <button type="button" className={styles.newTransfer} disabled={b.discarding} onClick={b.discard}>{b.discarding ? "Checking the transfer…" : "Discard this transfer"}</button>
       </details> : null}
       {circle ? null : <p className={styles.disclaimer}>Transfer ID <span className={styles.requestId}>{transfer.requestId}</span></p>}

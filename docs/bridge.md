@@ -150,6 +150,14 @@ USDC to USDC into Base or Arc is also quoted through Circle's Cross-Chain Transf
 - **Recovery.** If Circle's forward stalls, the transfer shows Delayed and tracking continues. A quote can switch providers as costs change. Since each provider uses a different spender, the new quote can require a separate exact-amount approval.
 - Checked with unit tests for the route rules, the calldata and every tampered field, the event match, the fee parser and its bounds, quote selection, the status mapping against Circle's real record, the stored record, the approval spender and the log search. The opt-in live test quotes all eight routes from Circle, matches a real forwarded Ethereum to Arc burn (`0x0095…ce01`) against this bridge's own calldata, and reads it from Circle as delivered with its mint hash. `/ui-review-bridge` has a "quote from: Circle" toggle for its quote, pending and arrived scenes, and a Circle row in the history board. No wallet signed anything; a small real Circle transfer is still needed before this is described as exercised.
 
+### Circle recovery safeguards and live-test pacing (2026-11-12)
+
+Nonterminal Circle records stay saved until the transfer resolves; they cannot be discarded after a timeout. The discard handler checks the saved provider again under the wallet lock, including when the UI has stale state. Circle burns have no order deadline, so even a complete empty scan cannot rule out a later confirmation. The panel explains this and links to source-wallet activity when no transaction hash is known. A verified source revert remains terminal; Relay and approval recovery keep their existing behavior.
+
+Burn discovery distinguishes a unique match, ambiguous matches, no match within the scanned range, and unavailable evidence. Successful scans report their bounds and whether they reached the observed head. Before replacing a known Circle hash, recovery verifies that the original and candidate transactions have the same sender and nonce, then validates the exact deposit. Missing or mismatched evidence preserves the original journal. Hashless discovery still depends on the bounded scan; a dropped original or smart-wallet rebundling with a different outer nonce can remain unresolved.
+
+The optional Relay live route sweep spaces quote requests by 1.5 seconds to respect the tighter keyless endpoint budget. It still surfaces provider failures without relaxing quote validation. Public quote checks do not verify authenticated Relay history, which requires an API key, or demonstrate live settlement.
+
 ### Bridge, then buy (2026-11-10)
 
 A buyer on a token page who is short of what the buy pays with is offered the bridge, then the buy. These are two separate steps with two separate wallet prompts. An atomic bridge-and-buy is not built: a Relay destination call runs from Relay's contract, not the buyer's wallet, so it would need its own reviewed design.

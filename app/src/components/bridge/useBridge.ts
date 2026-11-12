@@ -238,20 +238,33 @@ export function useBridge(open: boolean) {
             const status = provider.value;
             // The candidate must still be this wallet's exact deposit for this order. Circle never reports another hash, so a
             // Circle burn the wallet did not return (or replaced) is looked for in the messenger's own events instead.
-            // That search is a fallback: when its reads fail (a rate limit, a refused log range) it counts as nothing found
-            // this time, so Circle's own answer is still applied and the next poll searches again.
+            // A failed or ambiguous search cannot choose a recovery hash. Keep the record and retry; absence in a
+            // bounded scan is never evidence that an uncertain Circle broadcast is safe to discard.
             const walletHashUnmined = receipt.status === "fulfilled" && receipt.value === null;
-            const found = pub && current.provider === "cctp" && status.status === "waiting" && (!current.sourceHash || walletHashUnmined) ? await findCctpBurn(pub, current).catch(() => null) : null;
+            const scan = pub && current.provider === "cctp" && status.status === "waiting" && (!current.sourceHash || walletHashUnmined) ? await findCctpBurn(pub, current) : null;
+            const found = scan?.kind === "found" ? scan.hash : null;
             const candidate = !pub ? null : current.provider === "cctp" ? (found && found !== current.sourceHash?.toLowerCase() ? found : null) : replacementSourceHash(current, status, walletHashUnmined);
             if (candidate && pub) {
-              const [chainId, transaction] = await Promise.all([pub.getChainId(), pub.getTransaction({ hash: candidate })]);
+              const originalHash = current.provider === "cctp" ? current.sourceHash : undefined;
+              const [chainId, transaction, original] = await Promise.all([
+                pub.getChainId(),
+                pub.getTransaction({ hash: candidate }),
+                originalHash ? pub.getTransaction({ hash: originalHash }) : Promise.resolve(null),
+              ]);
               if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Tracking will retry.");
+              // Circle burns do not carry this app's request id. An older, identical burn can match every
+              // saved field, so a known hash may only be replaced by the same sender's same-nonce transaction.
+              // If the original disappeared or a smart wallet rebundled it differently, retain its journal:
+              // matching calldata alone cannot prove that the still-unmined transaction was replaced.
+              if (originalHash && (!original || !Number.isSafeInteger(original.nonce) || original.nonce < 0 || original.nonce !== transaction.nonce || original.from.toLowerCase() !== transaction.from.toLowerCase())) {
+                throw new Error("The matching Circle burn could not be verified as a replacement of your submitted transaction. Tracking will retry.");
+              }
               const matched = isMatchingSourceDeposit(current, transaction) || hasMatchingDepositEvent(current, await pub.getTransactionReceipt({ hash: candidate }));
               if (!matched) throw new Error("The source transaction could not be matched to this deposit. Tracking will retry.");
               current = { ...current, sourceHash: candidate };
             }
             next = mergeBridgeStatus(current, status);
-            setObservation({ requestId: current.requestId, status, sourceMined: receipt.status === "rejected" || (receipt.status === "fulfilled" && receipt.value !== null), observedAt: Date.now() });
+            setObservation({ requestId: current.requestId, status, sourceMined: receipt.status === "rejected" || (receipt.status === "fulfilled" && receipt.value !== null) || scan?.kind === "found" || scan?.kind === "ambiguous", observedAt: Date.now() });
           }
           if (stopped) return;
           if (persist) {
@@ -615,7 +628,7 @@ export function useBridge(open: boolean) {
     throw error;
   });
 
-  // Both discards re-read Relay and the source chain under the wallet lock. The
+  // Relay discard re-reads the provider and source chain under the wallet lock. The
   // observation that showed the button only decides visibility, never removal.
   async function discard() {
     if (actionLock.current || sending || discarding || !address || !tracked || !canDiscard || !navigator.locks) return;
@@ -625,20 +638,19 @@ export function useBridge(open: boolean) {
       await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
         if (!lock) throw new Error("Another bridge action is in progress. Try again in a moment.");
         const current = transfers.read(address);
-        if (current?.requestId !== requestId || transferIsTerminal(current)) return;
+        if (current?.requestId !== requestId || transferIsTerminal(current) || current.provider === "cctp") return;
         const statusUrl = bridgeStatusUrl(current);
         const status = statusUrl ? await fetch(statusUrl, { cache: "no-store", signal: linkedTimeoutSignal(undefined, 15_000) }).then(responseBody).then(validateBridgeStatus) : CCTP_NOT_SEEN;
         let sourceMined = false;
         const pub = getPublicClient(config, { chainId: current.originChainId });
-        if (current.sourceHash || current.provider === "cctp") {
+        if (current.sourceHash) {
           if (!pub) throw new Error("Could not connect to the source network. Try again.");
-          const [chainId, receipt, burn] = await Promise.all([
+          const [chainId, receipt] = await Promise.all([
             pub.getChainId(),
-            current.sourceHash ? receiptOrNull(pub, current.sourceHash) : Promise.resolve(null),
-            current.provider === "cctp" ? findCctpBurn(pub, current) : Promise.resolve(null),
+            receiptOrNull(pub, current.sourceHash),
           ]);
           if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Try again.");
-          sourceMined = receipt !== null || burn !== null;
+          sourceMined = receipt !== null;
         }
         const fresh = { requestId, status, sourceMined, observedAt: Date.now() };
         setObservation(fresh);
