@@ -41,8 +41,9 @@ test("price impact uses the pool's own spot and fee, and a big move takes a seco
 
 test("our on-chain chart is the default; GeckoTerminal is checked only when asked for and framed safely", () => {
   assert.match(chart, /useState<"onchain" \| "gecko">\("onchain"\)/);
-  assert.doesNotMatch(chart, /useEffect/, "no lookup on page load");
-  assert.match(chart, /if \(next === "gecko" && lookup !== "ready" && lookup !== "checking"\) void check\(\);/);
+  assert.match(chart, /if \(source !== "gecko" \|\| !valid \|\| !hasTrades\) return;/, "no lookup before selecting GeckoTerminal");
+  assert.match(chart, /if \(next === "gecko"\) \{\s*setLookup\("checking"\);\s*setAttempt\(\(value\) => value \+ 1\);/);
+  assert.match(chart, /active = false; clearTimeout\(timeout\); controller.abort\(\)/, "abandoned lookups cannot replace another source or token");
   assert.match(chart, /referrerPolicy="no-referrer"/);
   assert.doesNotMatch(chart, /allow-top-navigation|dangerouslySetInnerHTML|useAccount/);
   assert.match(page, /hasTrades=\{l\.buys \+ l\.sells > 0\}/);
