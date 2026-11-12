@@ -27,7 +27,7 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
   assert.ok(receiptCheck >= 0, "Launch receipt status check must remain");
   assert.ok(buyCall >= 0, "Optional first buy call must remain");
   assert.ok(receiptCheck < buyCall, "The receipt status check must run before the first buy");
-  assert.match(source, /if \(buyHash\) await fetch\(`\/api\/launch\/sync\?chain=\$\{chain\}&tx=\$\{buyHash\}/);
+  assert.match(source, /if \(buyHash\) await syncTransaction\(chain, buyHash\)/);
   assert.match(source, /Launched, but the first buy did not go through/);
   assert.match(source, /buying: "Launched! Buying your first tokens…"/);
 });

@@ -228,6 +228,48 @@ test("applySignedEdit: already-used nonce is rejected (401)", async () => {
   assert.equal(r.status, 401, "reused nonce should be 401");
 });
 
+test("applySignedEdit: replayed valid signatures cannot exhaust the creator's edit allowance", async () => {
+  resetMock();
+  const m = getMock();
+  const wallet = "0x" + "ac".repeat(20);
+  m.launcherRows[TOKEN] = { launcher: wallet, name: "Replay fixture", symbol: "RPL" };
+  m.verifyResult = true;
+  const first = "b".repeat(32);
+  const fresh = "c".repeat(32);
+  for (const nonce of [first, fresh]) m.nonceRows[nonce] = {
+    nonce, used_at: null, wallet, token: TOKEN, chain_id: 8453, expires_at: EXPIRES_AT_ISO,
+  };
+  assert.equal((await ed.applySignedEdit(editRequest({ wallet, nonce: first }))).ok, true);
+  for (let i = 0; i < 10; i++) {
+    const replay = await ed.applySignedEdit(editRequest({ wallet, nonce: first }));
+    assert.equal(replay.ok, false);
+    assert.equal(replay.status, 401, "a consumed nonce cannot spend a wallet allowance");
+  }
+  assert.equal((await ed.applySignedEdit(editRequest({ wallet, nonce: fresh }))).ok, true);
+});
+
+test("applySignedEdit: ten fresh signed edits retain the wallet limit and over-quota nonces are consumed", async () => {
+  resetMock();
+  const m = getMock();
+  const wallet = "0x" + "ad".repeat(20);
+  m.launcherRows[TOKEN] = { launcher: wallet, name: "Quota fixture", symbol: "QTA" };
+  m.verifyResult = true;
+  for (let i = 0; i < 11; i++) {
+    const nonce = i.toString(16).padStart(32, "d");
+    m.nonceRows[nonce] = { nonce, used_at: null, wallet, token: TOKEN, chain_id: 8453, expires_at: EXPIRES_AT_ISO };
+    const response = await ed.applySignedEdit(editRequest({ wallet, nonce }));
+    if (i < 10) assert.equal(response.ok, true);
+    else {
+      assert.equal(response.ok, false);
+      assert.equal(response.status, 429);
+      assert.notEqual(m.nonceRows[nonce].used_at, null);
+      const replay = await ed.applySignedEdit(editRequest({ wallet, nonce }));
+      assert.equal(replay.ok, false);
+      assert.equal(replay.status, 401);
+    }
+  }
+});
+
 // ── Finding 1: rateLimited keyed on unproven wallet ──
 
 test("rateLimited: 10 hits on a wallet key 429s the 11th (the DoS mechanism)", () => {

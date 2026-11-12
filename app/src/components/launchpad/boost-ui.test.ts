@@ -4,7 +4,8 @@ import path from "node:path";
 import test from "node:test";
 
 // Source contracts for Boost (like earn-ui.test.ts): they hold the rules that keep a paid lane honest in place.
-const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+// Git may check these sources out with CRLF; the contracts below describe code, not checkout line endings.
+const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const dialog = read("./BoostDialog.tsx");
 const panel = read("./BoostPanel.tsx");
 const lane = read("./BoostedLane.tsx");
@@ -82,7 +83,7 @@ test("sent means sent: an unread receipt locks the dialog instead of inviting a 
   // the panel owns the pending hash, so closing and reopening keeps the lock
   assert.match(panel, /pending=\{pending\} onPending=\{setPending\}/);
   // only a receipt settles it, and the sync call indexes it at once
-  assert.match(dialog, /await fetch\(`\/api\/launch\/sync\?chain=\$\{BOOST_CHAIN\}&tx=\$\{hash\}`, \{ method: "POST" \}\)/);
+  assert.match(dialog, /await syncTransaction\(BOOST_CHAIN, hash\)/);
 });
 
 test("the dialog says where the TWIG goes, that it is final, and that the ranking is untouched", () => {

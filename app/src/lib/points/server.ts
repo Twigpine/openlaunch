@@ -40,7 +40,7 @@ import { LATEST_RULES_VERSION, isEligible, notEligibleReason, rankBy, rulesFor, 
  */
 
 /** `rules_version`: the scoring rules the season runs on (score.rulesFor), fixed when it starts. */
-export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null; rules_version: number };
+export type Season = { id: number; slug: string; name: string; starts_at: string; ends_at: string; public: boolean; computed_at: string | null; computed_until: string | null; published_at: string | null; rules_version: number; reorg_invalidated_at?: string | null };
 export type Board = "creator" | "scout";
 export type BoardRow = { rank: number; wallet: string; points: number; why: string };
 export type WalletPoints = { creator: number; scout: number; total: number; eligible: boolean; rank_creator: number | null; rank_scout: number | null; why_creator: string; why_scout: string; computed_at: string };
@@ -82,6 +82,27 @@ export type { ComputeResult } from "./log";
 /** The chains the indexer reads (configured, with a deploy block): the ones a season's data comes from. */
 const indexedChains = () => CONFIGURED_CHAINS.filter((c) => launchDeployBlock(c) > 0n);
 
+export type IndexSnapshot = { chain_id: number; reorg_generation: bigint; reorg_version: number; rebuilding_until: bigint | null }[];
+
+/** Read before any scoring input, and lock the same rows before publishing, in ascending chain order. */
+async function indexSnapshot(db: Db, lock = false): Promise<IndexSnapshot> {
+  return lock
+    ? await db<IndexSnapshot>`SELECT chain_id, reorg_generation, reorg_version, rebuilding_until FROM bb_launch_sync_cursor ORDER BY chain_id FOR UPDATE`
+    : await db<IndexSnapshot>`SELECT chain_id, reorg_generation, reorg_version, rebuilding_until FROM bb_launch_sync_cursor ORDER BY chain_id`;
+}
+
+export function indexSnapshotReady(rows: IndexSnapshot, required: readonly number[]): boolean {
+  return rows.every((r) => r.reorg_version === 1 && r.rebuilding_until === null)
+    && required.every((cid) => rows.some((r) => r.chain_id === cid));
+}
+
+/** Generation equality rejects an old computation even if the replay has already reached the old cursor again. */
+export function sameIndexSnapshot(before: IndexSnapshot, after: IndexSnapshot): boolean {
+  return before.length === after.length && before.every((r, i) => r.chain_id === after[i].chain_id
+    && BigInt(r.reorg_generation) === BigInt(after[i].reorg_generation)
+    && r.reorg_version === after[i].reorg_version && r.rebuilding_until === after[i].rebuilding_until);
+}
+
 /**
  * The time every indexer has read through: the least of their cursor blocks' timestamps (ms), or null when one cannot
  * be told (no cursor yet, a node that does not answer). Final standings wait for it to pass the season's end.
@@ -103,10 +124,11 @@ async function indexedThrough(read: Db): Promise<number | null> {
 }
 
 const lastBlockCache = new Map<string, bigint>();
+let lastBlockCacheGeneration = "";
 /**
  * The last block on a chain whose time is before `ms` (transfers carry blocks, not times). Bracketed by the indexed
  * swaps on either side of `ms` (checked against the node), then searched on block timestamps (lastBlockBetween: a
- * few reads, not one per halving). Cached, as the past does not move. Throws when the node does not answer (the run
+ * few reads, not one per halving). Cached within an index generation. Throws when the node does not answer (the run
  * is skipped and tried again).
  */
 async function lastBlockBefore(read: Db, chain: ChainKey, ms: number): Promise<bigint> {
@@ -200,6 +222,15 @@ export async function quoteUsdAtHour(read: Db, ms: number): Promise<Map<string, 
 /** `read` runs the season's reads one after another (a reserved connection); `write` (the pool) runs the replace. */
 export async function computeSeason(read: Db, write: Db, season: Season): Promise<ComputeResult> {
   const t0 = Date.now();
+  const snapshot = await indexSnapshot(read);
+  const requiredChains = indexedChains().map(chainIdOf);
+  if (!indexSnapshotReady(snapshot, requiredChains)) return { skipped: "waiting for canonical index recovery" };
+  // Each worker observes the persisted generations itself; another worker's in-memory cache clear is insufficient.
+  const cacheGeneration = snapshot.map((r) => `${r.chain_id}:${r.reorg_generation}`).join(",");
+  if (lastBlockCacheGeneration !== cacheGeneration) {
+    lastBlockCache.clear();
+    lastBlockCacheGeneration = cacheGeneration;
+  }
   const start = new Date(season.starts_at).getTime();
   const end = new Date(season.ends_at).getTime();
   const now = Date.now();
@@ -397,6 +428,10 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
 
   const wrote = await write.begin(async (tx) => {
     const t = tx as unknown as Db;
+    // Always chain cursors before the season row, matching rollbackChain. A reorg either commits before this
+    // check (and this run is refused) or waits until this publication commits, then invalidates it atomically.
+    const currentIndex = await indexSnapshot(t, true);
+    if (!indexSnapshotReady(currentIndex, requiredChains) || !sameIndexSnapshot(snapshot, currentIndex)) return false;
     // the season as it is now, locked: a publish (which restarts the clock and drops the shadow rows), an end or a
     // restart that landed while this run was reading means its rows describe a window that no longer exists
     const [cur] = await t<{ starts_at: Date | string; ends_at: Date | string; published_at: Date | string | null }[]>`
@@ -415,10 +450,10 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
                AS u(w, c, s, tot, e, rc, rs, b)`; // booleans and nullable ints travel as text: the driver does not type those arrays
     }
     // how far this run vouches for: final only once every indexer has read past the end
-    await t`UPDATE bb_seasons SET computed_at = now(), computed_until = ${new Date(covered).toISOString()} WHERE id = ${season.id}`;
+    await t`UPDATE bb_seasons SET computed_at = now(), computed_until = ${new Date(covered).toISOString()}, reorg_invalidated_at = NULL WHERE id = ${season.id}`;
     return true;
   });
-  if (!wrote) return { skipped: "the season changed while it was being computed (the next run uses the new window)" };
+  if (!wrote) return { skipped: "the season or canonical index changed while it was being computed" };
   if (dropped) console.log(`[points] ${season.slug}: ${dropped} token(s) without a price left out of this run`);
   if (noEndPrice.size) console.warn(`[points] ${season.slug}: no hourly price in the week before the end for ${[...noEndPrice].join(", ")}: valued at the price now`);
   return { wallets: rows.length, eligible: rows.filter((r) => r.eligible).length, ms: Date.now() - t0, read: { swaps: seasonSwapRows.length, firstBuys: firstRows.length, moves: moveRows.length, linked: linkedRows.length } };
@@ -427,6 +462,16 @@ export async function computeSeason(read: Db, write: Db, season: Season): Promis
 let running = false;
 let lastCheck = 0;
 const EVERY_MS = 60 * 60_000;
+
+/** A reorg can invalidate older holdings in every later season, including an already finalized historical one. */
+export async function invalidatedSeason(): Promise<Season | null> {
+  const db = maybeDb();
+  if (!db) return null;
+  const [season] = await db<Season[]>`
+    SELECT id, slug, name, starts_at, ends_at, public, computed_at, computed_until, published_at, rules_version, reorg_invalidated_at
+      FROM bb_seasons WHERE reorg_invalidated_at IS NOT NULL AND starts_at <= now() ORDER BY starts_at, id LIMIT 1`;
+  return season ?? null;
+}
 
 /** Compute one season under the cross-machine lock (reads on the reserved connection, the replace on the pool). */
 async function computeLocked(season: Season): Promise<ComputeResult | null> {
@@ -463,7 +508,7 @@ export async function computePointsIfDue(): Promise<ComputeResult | null> {
   lastCheck = Date.now();
   running = true;
   try {
-    const season = await currentSeason();
+    const season = (await invalidatedSeason()) ?? (await currentSeason());
     if (!season || seasonFinal(season)) return null;
     if (season.computed_at && Date.now() - new Date(season.computed_at).getTime() < EVERY_MS && !seasonEnded(season)) return null;
     return await computeLocked(season);
@@ -474,7 +519,7 @@ export async function computePointsIfDue(): Promise<ComputeResult | null> {
 
 /** Admin "recompute now": refused once a season's final standings exist. */
 export async function recomputeNow(): Promise<ComputeResult | { error: string } | null> {
-  const season = await currentSeason();
+  const season = (await invalidatedSeason()) ?? (await currentSeason());
   if (!season) return { error: "no season" };
   if (seasonFinal(season)) return { error: `${season.name} has ended; its final standings stay as they are` };
   return computeLocked(season);

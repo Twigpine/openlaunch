@@ -657,3 +657,49 @@ ALTER TABLE bb_launch_swaps ADD COLUMN IF NOT EXISTS via_app boolean;
 -- the scoring rules a season runs on (score.rulesFor): a season keeps the version it was started with, so a rule
 -- added later never changes a season already running. Every season before this column scores on version 1
 ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS rules_version integer NOT NULL DEFAULT 1;
+-- Canonical index recovery. Version 0 is legacy hashless history: the indexer
+-- rebuilds chain facts from the deployment block, preserving authored records.
+ALTER TABLE bb_launch_sync_cursor ADD COLUMN IF NOT EXISTS reorg_version integer NOT NULL DEFAULT 0;
+ALTER TABLE bb_launch_sync_cursor ADD COLUMN IF NOT EXISTS reorg_generation bigint NOT NULL DEFAULT 0;
+ALTER TABLE bb_launch_sync_cursor ADD COLUMN IF NOT EXISTS rebuilding_until bigint;
+CREATE TABLE IF NOT EXISTS bb_launch_blocks (
+  chain_id integer NOT NULL,
+  block_number bigint NOT NULL,
+  block_hash text NOT NULL,
+  PRIMARY KEY (chain_id, block_number)
+);
+CREATE TABLE IF NOT EXISTS bb_launch_recovery (
+  chain_id integer NOT NULL,
+  token text NOT NULL,
+  tx_hash text NOT NULL,
+  reason text NOT NULL CHECK (reason IN ('reorg', 'rebuilding')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain_id, token)
+);
+-- Valuations belong to an exact event and placement, not to whichever live
+-- quote happens to exist during recovery. Retain them separately from facts.
+CREATE TABLE IF NOT EXISTS bb_launch_replay_values (
+  chain_id integer NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('swap', 'fee', 'pair')),
+  tx_hash text NOT NULL,
+  log_index integer NOT NULL,
+  block_number bigint NOT NULL,
+  block_time timestamptz NOT NULL,
+  block_hash text,
+  payload jsonb NOT NULL,
+  usd double precision,
+  priced_by text,
+  PRIMARY KEY (chain_id, kind, tx_hash, log_index, block_number)
+);
+CREATE TABLE IF NOT EXISTS bb_launch_reorgs (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  chain_id integer NOT NULL,
+  from_block bigint NOT NULL,
+  old_cursor bigint NOT NULL,
+  observed_head bigint NOT NULL,
+  reason text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE bb_seasons ADD COLUMN IF NOT EXISTS reorg_invalidated_at timestamptz;
+ALTER TABLE bb_pair_applications ADD COLUMN IF NOT EXISTS payment_reorg boolean NOT NULL DEFAULT false;
+ALTER TABLE bb_pair_burns ADD COLUMN IF NOT EXISTS valuation_pending boolean NOT NULL DEFAULT false;

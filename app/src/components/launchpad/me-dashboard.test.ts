@@ -56,7 +56,8 @@ test("fee collection and full signed metadata editing keep their existing transa
   assert.match(source, /functionName: "collect", args: \[BigInt\(l\.token_id\)\], account: address, dataSuffix: BUILDER_DATA_SUFFIX/);
   assert.match(source, /wallet\.writeContract\(request\)/);
   assert.match(source, /waitForTransactionReceipt\(\{ hash \}\)/);
-  assert.match(source, /\/api\/launch\/sync\?chain=\$\{l\.chain\}&tx=\$\{hash\}/);
+  assert.match(source, /const synced = await syncTransaction\(l\.chain, hash\);/);
+  assert.match(source, /synced\.status !== "applied" \? INDEX_PENDING_COPY/, "a sent collection keeps honest feedback while its index is pending");
   assert.match(source, /if \(hasFees\(pending\[key\(l\)\]\)\) await collect\(l\)/);
   assert.match(source, /<EditTokenSheet/);
   for (const field of ["description", "image_url", "website", "x_handle"]) {

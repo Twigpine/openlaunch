@@ -152,21 +152,23 @@ test("prices must be positive and finite, and text is quoted safely", () => {
 });
 
 test("the indexer prices each trade and fee at its own hour, in the same transaction as the totals", () => {
-  const src = readFileSync(path.join(process.cwd(), "src/lib/launchpad/indexer.ts"), "utf8");
+  const src = readFileSync(path.join(process.cwd(), "src/lib/launchpad/indexer.ts"), "utf8").replace(/\r\n/g, "\n");
   const swap = src.slice(src.indexOf("async function applySwap("), src.indexOf("type TransferArgs"));
-  assert.match(swap, /return db\.begin\(async \(tx\) => \{[\s\S]*INSERT INTO bb_launch_swaps \([^)]*, usd\)[\s\S]*FROM bb_quote_usd_hourly p[\s\S]*p\.hour = \$\{hourIso\(time\)\}::timestamptz[\s\S]*RETURNING tx_hash, usd[\s\S]*volume_usd = volume_usd \+ \$\{usd\}::float8/);
+  assert.match(swap, /return indexAtomic\(db, async \(t\) => \{[\s\S]*INSERT INTO bb_launch_swaps \([^)]*, usd\)[\s\S]*FROM bb_quote_usd_hourly p[\s\S]*p\.hour = \$\{hourIso\(time\)\}::timestamptz[\s\S]*RETURNING tx_hash, usd[\s\S]*volume_usd = volume_usd \+ \$\{usd\}::float8/);
+  const atomic = readFileSync(path.join(process.cwd(), "src/lib/launchpad/indexer-lock.ts"), "utf8");
+  assert.match(atomic, /if \(tx\.savepoint\) return tx\.savepoint\(work\)/);
+  assert.match(atomic, /return db\.begin\(/);
   const fee = src.slice(src.indexOf("async function applyFeeIn("), src.indexOf("async function poolMaps("));
   assert.match(fee, /'collected'[\s\S]*FROM bb_quote_usd_hourly p[\s\S]*fees_collected_usd = fees_collected_usd \+ \$\{usd\}::float8/);
   assert.match(fee, /const priceIn = cur === info\.quote \? cur : "";[\s\S]*p\.quote = \$\{priceIn\}[\s\S]*fees_burned_usd = fees_burned_usd \+ \$\{usd\}::float8/);
-  // the poller captures this hour's live prices before any trade in its range is priced
-  const range = src.slice(src.indexOf("async function applyRange("), src.indexOf("async function applyRange(") + 4000);
-  const capture = range.indexOf("await captureLiveUsd(db, chain, tokenQuote.values())");
-  assert.ok(capture > 0 && range.indexOf("applySwap(db, chain,") > capture, "applyRange: capture before swaps");
+  // Price providers may borrow DB connections: capture before the canonical transaction.
+  const run = src.slice(src.indexOf("async function run(chain: ChainKey)"), src.indexOf("export async function applyLaunchTx("));
+  const capture = run.indexOf("await captureLiveUsd(pool, chain,");
+  assert.ok(capture > 0 && run.indexOf("await withCanonicalIndex(") > capture, "capture precedes canonical transaction and swaps");
   // the receipt path (the user is waiting) never fetches prices: the poller's heal pass prices what it could not
   const receipt = src.slice(src.indexOf("export async function applyLaunchTx("));
   assert.doesNotMatch(receipt, /captureLiveUsd\(/);
-  const run = src.slice(src.indexOf("async function run(chain: ChainKey)"), src.indexOf("export async function applyLaunchTx("));
-  assert.match(run, /await healUnpricedUsd\(db, chain\);\n\s*return \{ status: "synced"/, "the heal pass runs after every sync, outside the chunk loop");
+  assert.match(run, /await withCanonicalIndex\(chain, deploy, clearIndexCaches, \(db\) => healUnpricedUsd\(db, chain\)\);\n\s*return result;/, "the heal pass runs after every sync under the same canonical lock");
 });
 
 test("the live capture never stores a community pair (or an unlisted token); the heal pass skips pairs and changes each row once", async () => {

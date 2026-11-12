@@ -17,7 +17,7 @@ function source(path: string): string {
 for (
   const { file, bucket, mustPrecede } of [
     { file: "./launch/sync/route.ts", bucket: "sync:ip", mustPrecede: "pollAll()" },
-    { file: "./launch/meta/route.ts", bucket: "meta:ip", mustPrecede: "req.json()" },
+    { file: "./launch/meta/route.ts", bucket: "meta:ip", mustPrecede: "readBody(" },
     { file: "./presence/route.ts", bucket: "presence:ip", mustPrecede: "recordBeacon(" },
     { file: "./boost/seen/route.ts", bucket: "boost-seen:ip", mustPrecede: "readJson(" },
   ]

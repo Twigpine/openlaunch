@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
 import { DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { rateLimited } from "@/lib/launchpad/editServer";
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
   // Unauthenticated and the most expensive route in the app (a tx-less call
   // fans out over every configured chain: log ranges, heals and backfills),
   // so it gets the same per-IP bucket as the other write endpoints.
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`sync:ip:${ip}`, 10)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const u = new URL(req.url);
   const tx = u.searchParams.get("tx");
@@ -24,13 +25,13 @@ export async function POST(req: Request) {
       // a boost just indexed: this machine's next lane read is fresh, so the booster sees their place at once
       if (r.boosts) forgetBoostLane();
       return NextResponse.json(r);
-    } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+    } catch {
+      return NextResponse.json({ error: "sync failed" }, { status: 502 });
     }
   }
   try {
     return NextResponse.json(await pollAll());
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+  } catch {
+    return NextResponse.json({ error: "sync failed" }, { status: 502 });
   }
 }

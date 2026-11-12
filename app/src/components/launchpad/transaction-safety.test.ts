@@ -91,7 +91,7 @@ for (const status of ["reverted", "success"]) {
         setPhase: (phase: { k: string; message?: string }) => phases.push(phase),
         getPublicClient: () => ({ simulateContract: async () => ({ request: {} }), waitForTransactionReceipt: async () => ({ status }) }),
         getWalletClient: async () => ({ writeContract: async () => "0xhash" }),
-        fetch: async () => { effects.push("sync"); },
+        syncTransaction: async () => { effects.push("sync"); return { status: "applied", tokens: [] }; },
         mine: { refetch: () => effects.push("balance") }, router: { refresh: () => effects.push("refresh") },
         toast: () => effects.push("success toast"), friendlyError: (error: Error) => error.message,
       });
@@ -117,7 +117,7 @@ for (const status of ["reverted", "success"]) {
       setBusy: (value: string | null) => busyStates.push(value),
       getPublicClient: () => ({ simulateContract: async () => ({ request: {} }), waitForTransactionReceipt: async () => ({ status }) }),
       getWalletClient: async () => ({ writeContract: async () => "0xhash" }),
-      fetch: async () => { effects.push("sync"); }, load: async () => { effects.push("reload"); },
+      syncTransaction: async () => { effects.push("sync"); return { status: "applied", tokens: [] }; }, load: async () => { effects.push("reload"); },
       isBurnOnly: () => false, friendlyError: (error: Error) => error.message,
       toast: (message: { kind: string }) => effects.push(message.kind === "collect" ? "success toast" : "failure toast"),
     });
@@ -134,3 +134,41 @@ test("preparing a trade disables the same controls as signing and confirming", (
   assert.match(source, /<input[^>]*disabled=\{busy\}/);
   assert.match(source, /if \(!v\[0\] \|\| busy\) return/);
 });
+
+for (const status of ["pending", "error", "reverted", "applied"]) {
+  test(`boost ${status} indexing retains its sent guard until indexing succeeds`, async () => {
+    const pending: unknown[] = [];
+    const phases: { k: string }[] = [];
+    const effects: string[] = [];
+    const settle = handler("./BoostDialog.tsx", "settle", {
+      onPending: (value: unknown) => pending.push(value),
+      setPhase: (value: { k: string }) => phases.push(value),
+      syncTransaction: async () => ({ status }), INDEX_PENDING_COPY: "Still indexing", BOOST_CHAIN: "base",
+      symbol: "TEST", token: "token", groupWhole: String,
+      toast: () => effects.push("toast"), bal: { refetch: () => effects.push("balance") }, onBoosted: () => effects.push("boost"),
+    });
+    await settle("0xhash", 100n, true, true);
+    if (status === "applied") {
+      assert.deepEqual(pending, [null]);
+      assert.equal(phases.at(-1)?.k, "done");
+      assert.deepEqual(effects, ["toast", "balance", "boost"]);
+    } else {
+      assert.deepEqual(pending, [], "an indexing result cannot release the existing sent hash");
+      assert.equal(phases.at(-1)?.k, "unconfirmed");
+      assert.deepEqual(effects, [], "do not claim a lane change before the indexer applies it");
+    }
+  });
+}
+
+for (const state of [{ sentReady: false, waiting: false, payment_reorg: false }, { sentReady: true, waiting: true, payment_reorg: false }, { sentReady: true, waiting: false, payment_reorg: true }]) {
+  test(`pair fee recovery blocks a new wallet action: ${JSON.stringify(state)}`, async () => {
+    let started = false;
+    const pay = handler("./PairApplication.tsx", "pay", {
+      app: { quote: {}, payment_reorg: state.payment_reorg }, address: "wallet", lock: { current: false },
+      sentReady: state.sentReady, waiting: state.waiting,
+      pairApplicationOf: () => { started = true; throw Error("must not reach preflight"); },
+    });
+    await pay();
+    assert.equal(started, false);
+  });
+}

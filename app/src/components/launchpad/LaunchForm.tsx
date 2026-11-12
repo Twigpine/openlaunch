@@ -34,6 +34,9 @@ import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
 import WalletPicker from "@/components/WalletPicker";
 import { randomHex } from "@/lib/nonce";
+import { syncTransaction, type TransactionSync } from "@/lib/launchpad/sync-client";
+import { pendingLaunch, pendingLaunchServer, rememberPendingLaunch, subscribePendingLaunch } from "@/lib/launchpad/pending-launch";
+import TokenRecovery from "./TokenRecovery";
 
 /**
  * Launch flow — honest states, nothing claimed before the chain says so:
@@ -50,6 +53,7 @@ type Phase =
   | { k: "buying"; hash: Hex; step: "quote" | "approve" | "sign" } // hash = the confirmed launch
   | { k: "buying"; hash: Hex; step: "sent"; buyHash: Hex }
   | { k: "indexing"; hash: Hex }
+  | { k: "pending" }
   | { k: "done"; hash: Hex; token: string }
   | { k: "error"; message: string };
 
@@ -256,6 +260,8 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
   // the server answers 409 and launch() rotates BOTH (a key is locked to the details it was first registered with).
   const metaKeyRef = useRef<Hex | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
+  const sentAttempt = useSyncExternalStore(subscribePendingLaunch, pendingLaunch, pendingLaunchServer);
+  const launchLock = useRef(false);
 
   // Starting cap: entered in dollars whenever the quote has a USD price, else in quote units (lib/launchpad/market-cap.ts).
   // The tick is always computed from the quote-denominated cap; every figure shown leads with dollars.
@@ -349,7 +355,8 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
   const hasRow = (payout: string) => rows.some((r) => r.payout.trim().toLowerCase() === payout.toLowerCase());
 
   async function launch() {
-    if (!valid || !address || !cfg.factory || startTick === null) return;
+    if (!valid || !address || !cfg.factory || startTick === null || launchLock.current || pendingLaunch()) return;
+    launchLock.current = true;
     const FACTORY_ADDRESS = cfg.factory;
     let salt = saltRef.current ?? (saltRef.current = randomSalt());
     let metaKey = metaKeyRef.current ?? (metaKeyRef.current = randomSalt());
@@ -419,9 +426,13 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
       setPhase({ k: "signing" });
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
       const hash = await wallet.writeContract(request);
+      rememberPendingLaunch({ chain, hash, token: meta.token ?? null });
       setPhase({ k: "sent", hash });
       const receipt = await pub.waitForTransactionReceipt({ hash });
-      if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
+      if (receipt.status !== "success") {
+        rememberPendingLaunch(null);
+        throw new Error("Transaction reverted on-chain.");
+      }
       const [ev] = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs });
       const token = (ev?.args.token ?? meta.token ?? "").toLowerCase();
 
@@ -440,8 +451,13 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
       }
 
       setPhase({ k: "indexing", hash });
-      await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
-      if (buyHash) await fetch(`/api/launch/sync?chain=${chain}&tx=${buyHash}`, { method: "POST" }).catch(() => {});
+      const synced = await syncTransaction(chain, hash);
+      if (buyHash) await syncTransaction(chain, buyHash);
+      if (synced.status !== "applied" || !synced.tokens.includes(token)) {
+        setPhase({ k: "pending" });
+        return;
+      }
+      rememberPendingLaunch(null);
       setPhase({ k: "done", hash, token });
       toast({ kind: "launch", title: `${name.trim()} is live on ${CHAIN_LABEL}`, sub: "Liquidity locked forever. Taking you to your token.", chain, token, symbol: symbolClean, celebrate: true });
       if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "Buy confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
@@ -449,8 +465,28 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
       startNav();
       router.push(`/t/${chain}/${token}`);
     } catch (err) {
-      setPhase({ k: "error", message: friendlyError(err) });
+      // Once a hash exists, a timeout or indexing failure is recovery, never permission to send a second launch.
+      setPhase(pendingLaunch() ? { k: "pending" } : { k: "error", message: friendlyError(err) });
+    } finally {
+      launchLock.current = false;
     }
+  }
+
+  function recoverLaunch(result: TransactionSync) {
+    const attempt = pendingLaunch();
+    if (!attempt) return;
+    if (result.status === "reverted") {
+      rememberPendingLaunch(null);
+      setPhase({ k: "error", message: "The launch transaction reverted on-chain. You can review the form and try again." });
+      return;
+    }
+    if (result.status !== "applied") return;
+    const token = attempt.token ? result.tokens.find((t) => t === attempt.token?.toLowerCase()) : result.tokens[0];
+    if (!token) return;
+    rememberPendingLaunch(null);
+    setPhase({ k: "done", hash: attempt.hash, token });
+    startNav();
+    router.push(`/t/${attempt.chain}/${token}`);
   }
 
 
@@ -490,6 +526,8 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
   );
   // what a preset opens at once the price snaps to the pool's tick spacing, in the quote: "$25K" opens at 9.433 ETH
   const presetOpens = (v: number) => cap(fdvForStartTick(startTickForFdv(capToQuote(v, entry), quote.decimals), quote.decimals)).detail;
+
+  if (sentAttempt && (phase.k === "idle" || phase.k === "pending")) return <TokenRecovery chain={sentAttempt.chain} hash={sentAttempt.hash} reason="pending" onResult={recoverLaunch} />;
 
   return (
     <div className="grid lg:grid-cols-[minmax(0,1fr)_23rem] gap-6 lg:gap-10 items-start">
@@ -1080,6 +1118,7 @@ function SubmitButton({
     sent: `Confirming on ${chainLabel}…`,
     buying: "Launched! Buying your first tokens…",
     indexing: "Almost there…",
+    pending: "Checking your sent launch…",
     done: "Launched!",
   };
   const busy = busyLabel[phase.k];

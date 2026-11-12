@@ -1,5 +1,7 @@
 "use client";
 
+import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useConfig, useReadContract, useSwitchChain } from "wagmi";
@@ -118,13 +120,18 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
 
   /** A final answer for a sent boost: indexed and done, or reverted (sending again is then safe). */
   async function settle(hash: Hex, whole: bigint, ok: boolean, shows: boolean) {
-    onPending(null);
     if (!ok) {
+      onPending(null);
       setPhase({ k: "error", message: "The transfer reverted on-chain. No TWIG was sent; you can try again." });
       return;
     }
     // index it now rather than at the next poll: the lane and this page show it straight away
-    await fetch(`/api/launch/sync?chain=${BOOST_CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
+    const synced = await syncTransaction(BOOST_CHAIN, hash);
+    if (synced.status !== "applied") {
+      setPhase({ k: "unconfirmed", hash, whole, checking: false, note: INDEX_PENDING_COPY });
+      return;
+    }
+    onPending(null);
     setPhase({ k: "done", hash, whole, shows });
     toast({ kind: "info", title: `${symbol} is boosted`, sub: `${groupWhole(whole)} TWIG sent to 0x…dEaD`, chain: BOOST_CHAIN, token, symbol });
     void bal.refetch();
