@@ -7,3 +7,12 @@
 export function redactUrls(message: string): string {
   return message.replace(/\b(?:https?|wss?):\/\/[^\s"'`<>)\]]+/gi, "<url>");
 }
+
+/**
+ * An error as an API response or a stored, publicly shown reason may carry it: its first line alone (viem puts the
+ * request URL, the request body and the node's own answer on the lines after it), with any URL removed, and bounded.
+ */
+export function publicError(err: unknown, fallback = "failed"): string {
+  const message = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  return redactUrls(message.split("\n")[0]).trim().slice(0, 200) || fallback;
+}

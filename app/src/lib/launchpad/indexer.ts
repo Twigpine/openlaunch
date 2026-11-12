@@ -708,7 +708,8 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(
     CONFIGURED_CHAINS.map(async (c) => {
-      out[c] = await pollLaunches(c).catch((e): LaunchSyncResult => ({ status: "skipped", reason: errMessage(e) }));
+      // the reason is returned by POST /api/launch/sync, unauthenticated: never with the upstream URL
+      out[c] = await pollLaunches(c).catch((e): LaunchSyncResult => ({ status: "skipped", reason: redactUrls(errMessage(e)) }));
       await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, errMessage(e)));
       await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
       await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));

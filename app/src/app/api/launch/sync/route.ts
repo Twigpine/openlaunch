@@ -3,6 +3,7 @@ import { DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { applyLaunchTx, pollAll } from "@/lib/launchpad/indexer";
 import { forgetBoostLane } from "@/lib/launchpad/boostServer";
+import { publicError } from "@/lib/launchpad/redact";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +26,13 @@ export async function POST(req: Request) {
       if (r.boosts) forgetBoostLane();
       return NextResponse.json(r);
     } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+      // never the raw message: a failed RPC read quotes the upstream URL, and a keyed provider URL carries its API key
+      return NextResponse.json({ error: publicError(err, "sync failed") }, { status: 502 });
     }
   }
   try {
     return NextResponse.json(await pollAll());
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "sync failed" }, { status: 502 });
+    return NextResponse.json({ error: publicError(err, "sync failed") }, { status: 502 });
   }
 }

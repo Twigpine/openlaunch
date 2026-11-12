@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { MetaConflict, saveMeta, validateMeta } from "@/lib/launchpad/meta";
 import { LAUNCHPAD_CONFIGURED } from "@/lib/launchpad/config";
+import { publicError } from "@/lib/launchpad/redact";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json(await saveMeta(v.value));
   } catch (err) {
     if (err instanceof MetaConflict) return NextResponse.json({ error: err.message }, { status: 409 });
-    return NextResponse.json({ error: err instanceof Error ? err.message : "failed" }, { status: 502 });
+    // never the raw message: predictToken is an RPC read, and its failure quotes the upstream URL (a keyed one carries its API key)
+    return NextResponse.json({ error: publicError(err) }, { status: 502 });
   }
 }
