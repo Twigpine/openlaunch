@@ -8,7 +8,7 @@ import { setPostsTestDb, type Db } from "../../../scripts/posts-db-test-db.ts";
 import { setPostsTestClient } from "../../../scripts/posts-db-test-chain.ts";
 import { buildPostMessage } from "./posts.ts";
 
-// Opt-in, real PostgreSQL concurrency checks. The URL must be loopback. Each run owns a
+// Opt-in, real PostgreSQL concurrency checks. The URL must be loopback, with a port and no options. Each run owns a
 // random schema and drops only that schema; it never reads application environment files.
 // RUN_POSTS_DB_TESTS=1 POSTS_TEST_DATABASE_URL=postgres://...@127.0.0.1:PORT/audit
 // npx tsx --conditions=react-server --tsconfig tsconfig.posts-db-test.json --test src/lib/launchpad/postsServer.db.test.ts
@@ -16,18 +16,34 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
   const endpoint = process.env.POSTS_TEST_DATABASE_URL;
   assert.ok(endpoint, "POSTS_TEST_DATABASE_URL is required for the opted-in test");
   const parsed = new URL(endpoint);
-  assert.ok(["postgres:", "postgresql:"].includes(parsed.protocol) && ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname), "integration database must be an explicit loopback PostgreSQL instance");
+  assert.ok(["postgres:", "postgresql:"].includes(parsed.protocol)
+    && ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)
+    && parsed.port && !parsed.search && !parsed.hash,
+  "posting tests require an explicit loopback PostgreSQL host and port, without URL options");
   const schema = `post_security_${randomBytes(8).toString("hex")}`;
+  assert.match(schema, /^post_security_[0-9a-f]{16}$/);
   const root = postgres(endpoint, { max: 1, onnotice: () => {} });
-  await root.unsafe(`CREATE SCHEMA ${schema}`);
   const sql = postgres(endpoint, { max: 8, connection: { search_path: schema }, onnotice: () => {} });
+  let schemaCreated = false;
   t.after(async () => {
     setPostsTestDb(null);
-    await sql.end({ timeout: 5 });
-    assert.match(schema, /^post_security_[0-9a-f]{16}$/);
-    await root.unsafe(`DROP SCHEMA ${schema} CASCADE`);
-    await root.end({ timeout: 5 });
+    try {
+      await sql.end({ timeout: 5 });
+    } finally {
+      try {
+        if (schemaCreated) {
+          assert.match(schema, /^post_security_[0-9a-f]{16}$/);
+          await root.unsafe(`DROP SCHEMA ${schema} CASCADE`);
+        }
+      } finally {
+        await root.end({ timeout: 5 });
+      }
+    }
   });
+  await root.unsafe(`CREATE SCHEMA ${schema}`);
+  schemaCreated = true;
+  const [scope] = await sql<{ schema: string }[]>`SELECT current_schema() AS schema`;
+  assert.equal(scope.schema, schema, "posting fixture writes must use the owned schema");
   await sql.unsafe(`
     CREATE TABLE bb_launches (chain_id integer, token text, launcher text, supply numeric);
     CREATE TABLE bb_token_settings (chain_id integer, token text, comments_muted boolean);
