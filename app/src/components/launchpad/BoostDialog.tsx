@@ -1,6 +1,7 @@
 "use client";
 
 import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+import { waitForTrackedReceipt } from "@/lib/launchpad/transaction-receipt";
 
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
@@ -99,18 +100,27 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
       const wallet = await getWalletClient(config, { chainId: BASE.id });
       const { request } = await pub.simulateContract({ address: BOOST_TOKEN as `0x${string}`, abi: ERC20_TRANSFER_ABI, functionName: "transfer", args: [DEAD, raw], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
       setPhase({ k: "signing" });
-      const hash = await wallet.writeContract(request);
+      let hash = await wallet.writeContract(request);
       onPending({ hash, whole });
       setPhase({ k: "sent", hash, whole });
-      let rc;
+      let result;
       try {
-        rc = await pub.waitForTransactionReceipt({ hash });
+        result = await waitForTrackedReceipt(pub, hash, (replacement) => {
+          hash = replacement;
+          onPending({ hash, whole });
+          setPhase({ k: "sent", hash, whole });
+        });
       } catch {
         // sent, outcome unknown: never an error that would let the same TWIG be sent twice
         setPhase({ k: "unconfirmed", hash, whole, checking: false, note: null });
         return;
       }
-      await settle(hash, whole, rc.status === "success", showsAfter(whole));
+      if (result.changed) {
+        onPending(null);
+        setPhase({ k: "error", message: "This boost was replaced by a different transaction. Review its outcome in your wallet before boosting again." });
+        return;
+      }
+      await settle(hash, whole, result.receipt.status === "success", showsAfter(whole));
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
     } finally {
@@ -144,6 +154,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
     setPhase({ ...phase, checking: true, note: null });
     try {
       const rc = await getPublicClient(config, { chainId: BASE.id })!.getTransactionReceipt({ hash });
+      if (rc.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("Receipt hash mismatch");
       await settle(hash, whole, rc.status === "success", showsAfter(whole));
     } catch {
       setPhase({ k: "unconfirmed", hash, whole, checking: false, note: "Not confirmed yet. Check your wallet's activity before sending anything again." });

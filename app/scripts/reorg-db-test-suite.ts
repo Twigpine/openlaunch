@@ -8,6 +8,7 @@ import { setDb, type Db } from './reorg-db-test-db';
 import { setClient } from './reorg-db-test-chain';
 import * as indexer from '../src/lib/launchpad/indexer';
 import { withCanonicalIndex } from '../src/lib/launchpad/indexer-canonical';
+import { IndexLockBusyError } from '../src/lib/launchpad/indexer-lock';
 import { A, B, CREATOR, ALICE, BOB, ZERO, standardModel, hash, type ChainModel } from './reorg-db-test-model';
 import { BEFORE_EXECUTION_EVENT, USER_OPERATION_EVENT, ENTRY_POINTS } from '../src/lib/launchpad/attribution';
 import { directChecks } from './reorg-db-test-direct';
@@ -262,6 +263,7 @@ export async function runReorgDbTests(t: TestContext, endpoint: string) {
                         clearTimeout(timer);
                 }
                 const concurrent = indexer.applyLaunchTx('base', hash('new-swap'));
+                void concurrent.catch(() => {}); // observed below, including the pre-fix 5s timeout
                 let waiting = 0;
                 try {
                     for (let i = 0; i < 20; i++) {
@@ -271,6 +273,9 @@ export async function runReorgDbTests(t: TestContext, endpoint: string) {
                             break;
                         await new Promise(r => setTimeout(r, 50));
                     }
+                    // A normal RPC stall may outlive the independent 5s table-lock
+                    // timeout. The chain wait budget must permit this handoff.
+                    await new Promise(r => setTimeout(r, 5500));
                 }
                 finally {
                     release();
@@ -278,6 +283,48 @@ export async function runReorgDbTests(t: TestContext, endpoint: string) {
                 await Promise.all([first, concurrent]);
                 assert.ok(waiting > 0, 'second PostgreSQL transaction should visibly wait on the shared chain lock');
                 return { waitingWorkers: waiting, ...await compareOracle('race', f.db, f.model) };
+            });
+            await check('advisory timeout changes no canonical state and the same receipt can be retried', async () => {
+                const f = await indexedOld('locktimeout');
+                f.model.branch = 'new';
+                activate(f.db, f.model);
+                const before = await snapshot(f.db);
+                const cursor = await f.db`SELECT * FROM bb_launch_sync_cursor ORDER BY chain_id`;
+                let release!: () => void, entered!: () => void;
+                const hold = new Promise<void>(resolve => { release = resolve; });
+                const inside = new Promise<void>(resolve => { entered = resolve; });
+                const blocker = f.db.begin(async locked => {
+                    await locked`SELECT pg_advisory_xact_lock(hashtext('launch-index:base'))`;
+                    entered();
+                    await hold;
+                });
+                try {
+                    await Promise.race([inside, blocker.then(() => { throw Error('blocking transaction ended before its lock'); })]);
+                    await assert.rejects(indexer.applyLaunchTx('base', hash('new-swap')), IndexLockBusyError);
+                    assert.deepEqual(await snapshot(f.db), before);
+                    assert.deepEqual(await f.db`SELECT * FROM bb_launch_sync_cursor ORDER BY chain_id`, cursor);
+                } finally {
+                    release();
+                    await blocker;
+                }
+                const retried = await indexer.applyLaunchTx('base', hash('new-swap'));
+                assert.equal(retried.status, 'applied');
+                await indexer.pollLaunches('base');
+                return compareOracle('locktimeout', f.db, f.model);
+            });
+            await check('holder backfill stops after one empty chunk ahead of the poller cursor', async () => {
+                const f = await indexedOld('emptybackfill');
+                activate(f.db, f.model);
+                await f.db`UPDATE bb_launches SET holders_synced_block=9223372036854775807 WHERE chain_id=8453`;
+                await f.db`UPDATE bb_launches SET holders_synced_block=NULL,block_number=103 WHERE chain_id=8453 AND token=${B}`;
+                const [cursor] = await f.db`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id=8453`;
+                assert.equal(BigInt(cursor.cursor_block), 102n);
+                f.model.calls.length = 0;
+                assert.equal(await indexer.backfillHolders('base'), null);
+                assert.equal(f.model.calls.filter(method => method === 'eth_blockNumber').length, 1, 'one canonical transaction, not 25 empty repeats');
+                assert.equal(f.model.calls.filter(method => method === 'eth_getLogs').length, 0);
+                const [pending] = await f.db`SELECT holders_synced_block FROM bb_launches WHERE chain_id=8453 AND token=${B}`;
+                assert.equal(pending.holders_synced_block, null);
             });
             await check('fork arriving between range observation and commit rolls back the entire unit', async () => {
                 const db = await database('midfork'), m = standardModel();

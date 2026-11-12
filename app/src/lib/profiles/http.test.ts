@@ -25,6 +25,41 @@ test("readBody accepts exactly the byte limit and releases its reader", async ()
   assert.deepEqual(await readBody(new Request("http://localhost/"), 4), { ok: true, bytes: new Uint8Array(0) });
 });
 
+test("readBody copies tiny views before a producer reuses their backing storage", async () => {
+  const backing = new Uint8Array(1024 * 1024);
+  const view = backing.subarray(100, 101);
+  let next = 1;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (next > 4) { controller.close(); return; }
+      view[0] = next++;
+      controller.enqueue(view);
+    },
+  }, { highWaterMark: 0 });
+  const request = new Request("http://localhost/", { method: "POST", body, duplex: "half" } as RequestInit);
+  assert.deepEqual(await readBody(request, 4), { ok: true, bytes: Uint8Array.of(1, 2, 3, 4) });
+  assert.equal(request.body?.locked, false);
+});
+
+test("readBody tolerates empty chunks and bounds a stream of single-byte chunks", { timeout: 5_000 }, async () => {
+  const bytes = Uint8Array.from({ length: 16_384 }, (_, i) => i % 251);
+  const chunks = Array.from(bytes, (byte) => [new Uint8Array(0), Uint8Array.of(byte)]).flat();
+  const { request, state } = streamed(chunks);
+  assert.deepEqual(await readBody(request, bytes.length), { ok: true, bytes });
+  assert.equal(state.cancelled, 0);
+  assert.equal(request.body?.locked, false);
+});
+
+test("readBody cancels an overflowing tiny-chunk stream after empty chunks without waiting for cancellation", { timeout: 1_000 }, async () => {
+  const { request, state } = streamed([
+    ...Array.from({ length: 256 }, () => new Uint8Array(0)),
+    ...Array.from({ length: 256 }, () => Uint8Array.of(1)),
+  ], undefined, () => new Promise<void>(() => {}));
+  assert.deepEqual(await readBody(request, 8), { ok: false, reason: "too_large" });
+  assert.deepEqual(state, { pulled: 265, cancelled: 1 });
+  assert.equal(request.body?.locked, false);
+});
+
 test("readBody rejects declared oversize without pulling any bytes", async () => {
   const { request, state } = streamed([Uint8Array.of(1), Uint8Array.of(2)], "999999999999999999999999999999");
   assert.deepEqual(await readBody(request, 4), { ok: false, reason: "too_large" });

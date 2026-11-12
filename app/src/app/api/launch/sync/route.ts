@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { applyLaunchTx, pollAll } from "@/lib/launchpad/indexer";
+import { IndexLockBusyError } from "@/lib/launchpad/indexer-lock";
 import { forgetBoostLane } from "@/lib/launchpad/boostServer";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,8 @@ export async function POST(req: Request) {
       // a boost just indexed: this machine's next lane read is fresh, so the booster sees their place at once
       if (r.boosts) forgetBoostLane();
       return NextResponse.json(r);
-    } catch {
+    } catch (error) {
+      if (error instanceof IndexLockBusyError) return NextResponse.json({ status: "pending" }, { status: 202, headers: { "Retry-After": "2", "Cache-Control": "no-store" } });
       return NextResponse.json({ error: "sync failed" }, { status: 502 });
     }
   }

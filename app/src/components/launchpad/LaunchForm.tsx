@@ -35,7 +35,8 @@ import { startNav } from "@/components/RouteProgress";
 import WalletPicker from "@/components/WalletPicker";
 import { randomHex } from "@/lib/nonce";
 import { syncTransaction, type TransactionSync } from "@/lib/launchpad/sync-client";
-import { pendingLaunch, pendingLaunchServer, rememberPendingLaunch, subscribePendingLaunch } from "@/lib/launchpad/pending-launch";
+import { archivePendingLaunch, captureLaunchIdentity, launchNonceFinalized, pendingLaunch, pendingLaunchServer, recentLaunches, recentLaunchesServer, rememberFirstBuy, rememberPendingLaunch, subscribePendingLaunch, type FirstBuyOutcome } from "@/lib/launchpad/pending-launch";
+import { waitForTrackedReceipt } from "@/lib/launchpad/transaction-receipt";
 import TokenRecovery from "./TokenRecovery";
 
 /**
@@ -101,7 +102,7 @@ const CHAIN_COPY: Record<ChainKey, { blurb: string; stock: { pays: string; badge
   },
 };
 
-type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
+type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void; recordBuy: (buy: Omit<FirstBuyOutcome, "symbol">) => void };
 
 function parseBuyAmount(v: string, decimals: number): bigint | null | undefined {
   try {
@@ -160,15 +161,23 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
     dataSuffix: BUILDER_DATA_SUFFIX,
   });
   setPhase({ k: "buying", hash: launchHash, step: "sign" });
-  const h = await wallet.writeContract(request);
+  let h = await wallet.writeContract(request);
+  ctx.recordBuy({ hash: h, status: "pending" });
   setPhase({ k: "buying", hash: launchHash, step: "sent", buyHash: h });
-  const rc = await pub.waitForTransactionReceipt({ hash: h });
-  if (rc.status !== "success") throw new Error("The buy reverted on-chain.");
+  const { receipt: rc, changed } = await waitForTrackedReceipt(pub, h, (hash) => {
+    h = hash;
+    ctx.recordBuy({ hash: h, status: "pending" });
+    setPhase({ k: "buying", hash: launchHash, step: "sent", buyHash: h });
+  });
+  if (changed) { ctx.recordBuy({ hash: rc.transactionHash, status: "replaced" }); throw new Error("The first buy was replaced by a different transaction. Check its outcome in your wallet."); }
+  if (rc.status !== "success") { ctx.recordBuy({ hash: h, status: "reverted" }); throw new Error("The buy reverted on-chain."); }
   // the executed amount can be below the quote (down to the slippage floor): read it off the receipt
   const received = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: rc.logs })
     .filter((l) => l.address.toLowerCase() === tokenAddr.toLowerCase() && l.args.to.toLowerCase() === address.toLowerCase())
     .reduce((sum, l) => sum + l.args.value, 0n);
-  return received > 0n ? { hash: h, out: received, exact: true } : { hash: h, out, exact: false };
+  const bought = received > 0n ? { hash: h, out: received, exact: true } : { hash: h, out, exact: false };
+  ctx.recordBuy({ hash: h, status: "confirmed", amount: bought.out.toString(), exact: bought.exact });
+  return bought;
 }
 
 /** `hypeUsd`: HYPE's live price (server, hypePrice.ts), filled into the static HYPE quote the way the server fills GITLAWB's. */
@@ -261,6 +270,7 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
   const metaKeyRef = useRef<Hex | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
   const sentAttempt = useSyncExternalStore(subscribePendingLaunch, pendingLaunch, pendingLaunchServer);
+  const savedLaunches = useSyncExternalStore(subscribePendingLaunch, recentLaunches, recentLaunchesServer);
   const launchLock = useRef(false);
 
   // Starting cap: entered in dollars whenever the quote has a USD price, else in quote units (lib/launchpad/market-cap.ts).
@@ -425,12 +435,20 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
 
       setPhase({ k: "signing" });
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
-      const hash = await wallet.writeContract(request);
+      let hash = await wallet.writeContract(request);
       rememberPendingLaunch({ chain, hash, token: meta.token ?? null });
       setPhase({ k: "sent", hash });
-      const receipt = await pub.waitForTransactionReceipt({ hash });
+      const identity = await captureLaunchIdentity(pub, chain, hash, address);
+      if (identity && pendingLaunch()?.hash === hash) rememberPendingLaunch({ ...pendingLaunch()!, identity });
+      const { receipt, changed } = await waitForTrackedReceipt(pub, hash, (replacement) => {
+        const attempt = pendingLaunch();
+        if (attempt?.hash === hash) rememberPendingLaunch({ ...attempt, hash: replacement, ...(attempt.identity ? { identity: { ...attempt.identity, hash: replacement } } : {}) });
+        hash = replacement;
+        setPhase({ k: "sent", hash });
+      });
+      if (changed) throw new Error("The launch was replaced. Keep its reference until the replacement is finalized.");
       if (receipt.status !== "success") {
-        rememberPendingLaunch(null);
+        archivePendingLaunch(hash, "reverted");
         throw new Error("Transaction reverted on-chain.");
       }
       const [ev] = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs });
@@ -442,7 +460,7 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
       let bought: { out: bigint; exact: boolean } | null = null;
       if (initialBuyRaw && ev?.args.token) {
         try {
-          const r = await firstBuy({ pub, wallet, address, V4: cfg.v4, quote, feePips, CHAIN, setPhase }, ev.args.token, hash, initialBuyRaw);
+          const r = await firstBuy({ pub, wallet, address, V4: cfg.v4, quote, feePips, CHAIN, setPhase, recordBuy: (buy) => rememberFirstBuy(hash, { ...buy, symbol: symbolClean }) }, ev.args.token, hash, initialBuyRaw);
           buyHash = r.hash;
           bought = { out: r.out, exact: r.exact };
         } catch (err) {
@@ -450,6 +468,9 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
         }
       }
 
+      // A confirmed purchase is independent of indexer availability, and its journal survives this view and reloads.
+      if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "Buy confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
+      if (buyProblem) toast({ kind: "info", title: "Your launch was sent; the first buy needs attention", sub: buyProblem, chain, token, symbol: symbolClean });
       setPhase({ k: "indexing", hash });
       const synced = await syncTransaction(chain, hash);
       if (buyHash) await syncTransaction(chain, buyHash);
@@ -457,11 +478,9 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
         setPhase({ k: "pending" });
         return;
       }
-      rememberPendingLaunch(null);
+      archivePendingLaunch(hash, "indexed", token);
       setPhase({ k: "done", hash, token });
       toast({ kind: "launch", title: `${name.trim()} is live on ${CHAIN_LABEL}`, sub: "Liquidity locked forever. Taking you to your token.", chain, token, symbol: symbolClean, celebrate: true });
-      if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "Buy confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
-      if (buyProblem) toast({ kind: "info", title: "Launched, but the first buy did not go through", sub: `${buyProblem} You can buy on the token page.`, chain, token, symbol: symbolClean });
       startNav();
       router.push(`/t/${chain}/${token}`);
     } catch (err) {
@@ -472,21 +491,34 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
     }
   }
 
-  function recoverLaunch(result: TransactionSync) {
+  function recoverLaunch(hash: Hex, result: TransactionSync) {
     const attempt = pendingLaunch();
-    if (!attempt) return;
+    if (!attempt || attempt.hash !== hash) return;
     if (result.status === "reverted") {
-      rememberPendingLaunch(null);
+      archivePendingLaunch(hash, "reverted");
       setPhase({ k: "error", message: "The launch transaction reverted on-chain. You can review the form and try again." });
       return;
     }
     if (result.status !== "applied") return;
     const token = attempt.token ? result.tokens.find((t) => t === attempt.token?.toLowerCase()) : result.tokens[0];
     if (!token) return;
-    rememberPendingLaunch(null);
+    archivePendingLaunch(hash, "indexed", token);
     setPhase({ k: "done", hash: attempt.hash, token });
     startNav();
     router.push(`/t/${attempt.chain}/${token}`);
+  }
+
+  async function resolveLaunch(hash: Hex): Promise<boolean> {
+    const attempt = pendingLaunch();
+    if (!attempt || attempt.hash !== hash || !address || launchLock.current) return false;
+    const pub = getPublicClient(config, { chainId: CHAINS[attempt.chain].id });
+    if (!pub || !await launchNonceFinalized(pub, attempt, address)) return false;
+    // Re-read after the RPC: a stale check cannot archive a different active attempt.
+    if (pendingLaunch() !== attempt || !archivePendingLaunch(hash, "nonce-finalized")) return false;
+    saltRef.current = null;
+    metaKeyRef.current = null;
+    setPhase({ k: "idle" });
+    return true;
   }
 
 
@@ -527,10 +559,15 @@ export default function LaunchForm({ ethUsd, hypeUsd = null, initialChain = DEFA
   // what a preset opens at once the price snaps to the pool's tick spacing, in the quote: "$25K" opens at 9.433 ETH
   const presetOpens = (v: number) => cap(fdvForStartTick(startTickForFdv(capToQuote(v, entry), quote.decimals), quote.decimals)).detail;
 
-  if (sentAttempt && (phase.k === "idle" || phase.k === "pending")) return <TokenRecovery chain={sentAttempt.chain} hash={sentAttempt.hash} reason="pending" onResult={recoverLaunch} />;
+  if (sentAttempt && (phase.k === "idle" || phase.k === "pending")) return <TokenRecovery chain={sentAttempt.chain} hash={sentAttempt.hash} reason="pending" firstBuy={sentAttempt.firstBuy} onResult={(result) => recoverLaunch(sentAttempt.hash, result)} onArchive={sentAttempt.identity ? () => resolveLaunch(sentAttempt.hash) : undefined} />;
 
   return (
     <div className="grid lg:grid-cols-[minmax(0,1fr)_23rem] gap-6 lg:gap-10 items-start">
+      {savedLaunches.length ? <details className={`${card} p-4 lg:col-span-2`}>
+        <summary className="cursor-pointer text-sm font-semibold text-ink">Recent launch transactions</summary>
+        <p className="mt-3 text-xs text-muted">The last ten references in this browser session stay available for chain-history checks. They do not block a different launch.</p>
+        {savedLaunches.map((attempt) => <TokenRecovery key={`${attempt.chain}:${attempt.hash}`} chain={attempt.chain} hash={attempt.hash} reason="reference" firstBuy={attempt.firstBuy} token={attempt.token} />)}
+      </details> : null}
       <form
         id="launch-form"
         className="min-w-0"

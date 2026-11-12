@@ -105,14 +105,56 @@ test("launch-pool monitor discards a health result when recovery changed its sou
 test("launch-pool monitor avoids price reads while its source is rebuilding", async (t) => {
   offline(t);
   let rpcReads = 0;
+  let released = false;
+  const checkedAt = new Date();
   getMock().publicClient = { getCode: async () => { rpcReads++; return "0x"; } };
-  getMock().query = async (sql) => {
-    if (sql.includes("UPDATE bb_pairs SET checked_at = now()")) return [{ chain_id: 8453, address: TOKEN, price_kind: "launch" }];
+  getMock().query = async (sql, values) => {
+    if (sql.includes("UPDATE bb_pairs SET checked_at = now()")) return [{ chain_id: 8453, address: TOKEN, price_kind: "launch", checked_at: checkedAt }];
     if (sql.includes("SELECT reorg_generation")) return [{ ...ready, rebuilding_until: 200n }];
+    if (sql.includes("UPDATE bb_pairs SET checked_at = NULL")) {
+      assert.match(sql, /date_trunc\('milliseconds', checked_at\)/);
+      assert.deepEqual(values, [8453, TOKEN, checkedAt]);
+      released = true;
+    }
     return [];
   };
   await pairsTick(monitorClock += 61_000);
   assert.equal(rpcReads, 0);
+  assert.equal(released, true, "the current claim is eligible again after recovery");
+});
+
+for (const failure of ["cursor read", "advisory timeout"]) test(`pair monitor releases ${failure} and continues its claimed batch`, async (t) => {
+  offline(t);
+  const secondToken = "0x3333333333333333333333333333333333333333";
+  const checkedAt = new Date();
+  const row = { chain_id: 8453, symbol: "TEST", status: "listed", status_by: "admin", status_at: new Date(Date.now() - 3 * 86_400_000),
+    failing_since: new Date(Date.now() - 3 * 86_400_000), checked_at: checkedAt, price_kind: "launch", code_hash: null };
+  let snapshots = 0, locks = 0;
+  const released: string[] = [], updated: string[] = [];
+  getMock().publicClient = { getCode: async () => "0x" };
+  getMock().query = async (sql, values) => {
+    if (sql.includes("UPDATE bb_pairs SET checked_at = now()")) return [{ ...row, address: TOKEN }, { ...row, address: secondToken }];
+    if (sql.includes("SELECT reorg_generation")) {
+      if (++snapshots === 1 && failure === "cursor read") throw Error("synthetic cursor outage");
+      return [ready];
+    }
+    if (sql.includes("pg_advisory_xact_lock") && ++locks === 1 && failure === "advisory timeout") throw { code: "55P03" };
+    if (sql.includes("UPDATE bb_pairs SET checked_at = NULL")) {
+      assert.match(sql, /date_trunc\('milliseconds', checked_at\)/);
+      assert.deepEqual(values, [8453, TOKEN, checkedAt]);
+      released.push(String(values[1]));
+    }
+    if (sql.includes("UPDATE bb_pairs SET status =")) {
+      assert.match(sql, /date_trunc\('milliseconds', checked_at\)/);
+      assert.ok(values.includes(secondToken));
+      updated.push(secondToken);
+      return [{ address: secondToken }];
+    }
+    return [];
+  };
+  await pairsTick(monitorClock += 61_000);
+  assert.deepEqual(released, [TOKEN]);
+  assert.deepEqual(updated, [secondToken]);
 });
 
 test("launch-pool monitor still records a sustained failure when its source generation is unchanged", async (t) => {

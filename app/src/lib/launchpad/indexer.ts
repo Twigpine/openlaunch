@@ -679,7 +679,7 @@ export async function backfillHolders(chain: ChainKey): Promise<{ tokens: number
   for (let i = 0; i < BACKFILL_CHUNKS_PER_CALL; i++) {
     const r = await withCanonicalIndex(chain, launchDeployBlock(chain), clearIndexCaches,
       (db) => backfillHoldersLocked(db, chain));
-    if (!r) break;
+    if (!r || r.chunks === 0) break;
     total.tokens = r.tokens; total.chunks += r.chunks; total.transfers += r.transfers;
   }
   return total.chunks ? total : null;

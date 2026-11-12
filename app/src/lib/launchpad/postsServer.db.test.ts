@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import postgres from "postgres";
 import { verifyMessage } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { setPostsTestDb, type Db } from "../../../scripts/posts-db-test-db.ts";
 import { setPostsTestClient } from "../../../scripts/posts-db-test-chain.ts";
-import { buildPostMessage } from "./posts.ts";
+import { POST_MIN_GAP_MS, buildPostMessage } from "./posts.ts";
 
 // Opt-in, real PostgreSQL concurrency checks. The URL must be loopback, with a port and no options. Each run owns a
 // random schema and drops only that schema; it never reads application environment files.
@@ -23,7 +24,7 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
   const schema = `post_security_${randomBytes(8).toString("hex")}`;
   assert.match(schema, /^post_security_[0-9a-f]{16}$/);
   const root = postgres(endpoint, { max: 1, onnotice: () => {} });
-  const sql = postgres(endpoint, { max: 8, connection: { search_path: schema }, onnotice: () => {} });
+  const sql = postgres(endpoint, { max: 8, connection: { search_path: schema, application_name: schema }, onnotice: () => {} });
   let schemaCreated = false;
   t.after(async () => {
     setPostsTestDb(null);
@@ -92,6 +93,38 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
     assert.equal((await submit(await payload())).status, 200);
     assert.equal((await submit(await payload())).status, 429);
     assert.equal(await postCount(), 1);
+  });
+  await t.test("a post queued beyond the gap is timestamped after its wallet lock is released", { timeout: 45_000 }, async () => {
+    await clear();
+    const locker = await sql.reserve();
+    let locked = false;
+    let queued: Promise<Response> | undefined;
+    try {
+      await locker`SELECT pg_advisory_lock(hashtext(${`post:${wallet}`}))`;
+      locked = true;
+      queued = submit(await payload());
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const [state] = await root`SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE application_name = ${schema} AND wait_event = 'advisory'`;
+        if (state.waiting > 0) break;
+        assert.ok(Date.now() < deadline, "the actual posting transaction must be waiting on the wallet lock");
+        await delay(10);
+      }
+      await delay(POST_MIN_GAP_MS + 100);
+      const [clock] = await root`SELECT clock_timestamp() AS released_at`;
+      await locker`SELECT pg_advisory_unlock(hashtext(${`post:${wallet}`}))`;
+      locked = false;
+      const response = await queued;
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal((await submit(await payload())).status, 429, "lock wait must not backdate a post and permit an immediate second post");
+      assert.ok(new Date(result.post.created_at).getTime() >= new Date(clock.released_at).getTime(), "created_at must use insertion time, not transaction-start time");
+      assert.equal(await postCount(), 1);
+    } finally {
+      if (locked) await locker`SELECT pg_advisory_unlock(hashtext(${`post:${wallet}`}))`;
+      locker.release();
+      await queued?.catch(() => {});
+    }
   });
   await t.test("distinct signed nonces cannot bypass the gap concurrently", async () => {
     await clear();

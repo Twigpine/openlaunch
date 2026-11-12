@@ -92,8 +92,7 @@ async function indexSnapshot(db: Db, lock = false): Promise<IndexSnapshot> {
 }
 
 export function indexSnapshotReady(rows: IndexSnapshot, required: readonly number[]): boolean {
-  return rows.every((r) => r.reorg_version === 1 && r.rebuilding_until === null)
-    && required.every((cid) => rows.some((r) => r.chain_id === cid));
+  return required.every((cid) => rows.some((r) => r.chain_id === cid && r.reorg_version === 1 && r.rebuilding_until === null));
 }
 
 /** Generation equality rejects an old computation even if the replay has already reached the old cursor again. */

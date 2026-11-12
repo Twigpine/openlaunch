@@ -43,6 +43,47 @@ FROM bb_pair_applications WHERE payment_reorg;
 
 A payment marked for reconciliation requires checking the canonical receipt and original application/quote evidence. Do not ask the applicant to burn again, clear the flag merely to unblock review, or substitute a current price without validating its historical basis. Removed payments remain flagged even if the replacement chain never includes them.
 
+### Reconcile a verified re-included payment
+
+This is an operator procedure for a database maintainer, not a public API or an automatic repricing path. Review the evidence and proposed changes before executing them, and rehearse the transaction on a restored database copy. A valid historical valuation must be established first; the application does not supply missing evidence or grant approval simply because a row is marked pending.
+
+1. **Find both the current facts and the archive.** A removed burn no longer appears in `bb_pair_burns`. The following read-only queries associate archived evidence with the affected application, including a payment whose transaction never returned to the canonical chain:
+
+   ```sql
+   SELECT a.id, a.code, a.status, a.fee_usd, a.paid_usd, a.created_at,
+          a.quote_price_usd, a.quote_at, a.quote_until, a.last_quote_until,
+          r.chain_id, r.tx_hash, r.log_index, r.block_number, r.block_time,
+          r.block_hash, r.payload, r.usd, r.priced_by
+   FROM bb_pair_applications a
+   JOIN bb_launch_replay_values r
+     ON r.kind = 'pair' AND r.payload->>'application_id' = a.id::text
+   WHERE a.payment_reorg
+   ORDER BY a.id, r.tx_hash, r.log_index, r.block_number;
+
+   SELECT b.*, c.block_hash
+   FROM bb_pair_burns b
+   JOIN bb_pair_applications a ON a.id = b.application_id
+   LEFT JOIN bb_launch_blocks c
+     ON c.chain_id = b.chain_id AND c.block_number = b.block_number
+   WHERE a.payment_reorg
+   ORDER BY b.application_id, b.tx_hash, b.log_index;
+   ```
+
+2. **Verify the payment independently.** Fees are TWIG burns on Base, even when the application lists a pair on another chain. Check the successful canonical receipt, block hash/time, TWIG contract, burn destination, sender, application tag, log index and whole-TWIG amount against `pairBurnFromTransfer` and the original application. Require the canonical burn time to be at or after the application's creation time, and exclude configured locker senders as `pairBurnFromTransfer(skip)` does. Validate the sender against the canonical event; it does not have to be the applicant. The current indexed event must match that receipt. Archive rows describe prior observations; their presence does not prove current canonical inclusion. If the burn is absent, still pending, or has a different application/tag, keep reconciliation blocked and preserve the archive. Never insert an archived event as a new canonical fact.
+
+3. **Establish the historical USD value.** A locked quote is usable only with retained evidence of its price and validity interval covering the canonical burn time. A `live` valuation needs verifiable evidence of the historical price used under the fee policy. Recalculate from the verified whole-TWIG amount and that price using `pairBurnUsd`'s rules; require a finite positive result. Current application quote fields may have been cleared when the original payment consumed the quote, so they are not a substitute for the original quote evidence. Do not infer a new quote window, copy an archive's USD value solely because its hash matches, or use today's market price. Without sufficient evidence, leave `valuation_pending` and `payment_reorg` set.
+
+4. **Apply the reviewed repair atomically.** Pause all application/indexer/payment-review writers and maintenance jobs, take a backup, then use one transaction with the same lock order as `withIndexLock`: the `launch-index:base` advisory lock, the raw-event table locks, the Base cursor row, and the affected application row. Confirm recovery version 1, `rebuilding_until IS NULL`, and the reviewed recovery generation/checkpoint. Recheck the canonical receipt/block before committing; abort if identity, placement or recovery generation changed. Within that transaction:
+   - Update only the verified current burn's `usd` and `priced_by` (`quote` or `live` according to the evidence), and set its `valuation_pending` to false. Match the complete reviewed row identity and prior values, and require exactly one affected row. Retain all archive evidence.
+   - Recompute the application's `paid_usd` from `COALESCE(sum(usd), 0)` over its **current** `bb_pair_burns`, never from the archive or the previous aggregate. Check every remaining `valuation_pending` row for the application.
+   - Clear `payment_reorg` only if no pending valuations remain and the current total meets `fee_usd * (1 - PAIR_FEE_TOLERANCE)` (currently 0.98 of the fee). Otherwise keep it true. A verified but insufficient payment does not authorize another burn or an automatic waiver.
+   - Apply the payment-state transitions used by `settleApplication`/rollback: an `open` application meeting the fee may become `paid`, setting `paid_at` if absent; a `paid` application falling below the fee becomes `open` with `paid_at = NULL`. Preserve authored `changes`, `approved`, `rejected` and `expired` decisions, review counts and decision metadata. Normal review APIs still enforce their existing eligibility checks.
+   - Using the original application status captured under the row lock, clear an open application's consumed `quote_twig`, `quote_price_usd`, `quote_at` and `quote_until`, before applying any open-to-paid transition, as `valueBurn` does, while preserving `last_quote_until`. Record the before/after rows and evidence in the operator's change record. Roll back the entire transaction on any failed check.
+
+5. **Verify before resuming normal operation.** Read the repaired burn, the recomputed total, the remaining pending valuations and the application's flags/status in the transaction, then verify them again after commit. Resume the current writer version and confirm the application page no longer reports reconciliation only when the above eligibility conditions hold. Approval/listing still goes through the normal signed review flow; this procedure never directly lists a pair. Do not simply clear `valuation_pending` and wait for the background repricer: that would value the payment with a new price, and `revaluePairBurns` intentionally excludes pending valuations.
+
+If the payment was not re-included, or its historical price cannot be verified, this procedure has no successful repair branch. Keep the application blocked with its original transaction evidence for an explicit maintainer resolution; do not erase the reconciliation flags to manufacture eligibility.
+
 ## Reproducible verification
 
 | Check | Result |

@@ -22,6 +22,10 @@ for (const status of [429, 502]) test(`HTTP ${status} cannot throw a sent transa
   t.mock.method(globalThis, "fetch", async () => new Response("unavailable", { status }));
   assert.deepEqual(await syncTransaction("base", hash), { status: "error" });
 });
+test("retryable index contention preserves the original sent transaction", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ status: "pending" }, { status: 202, headers: { "Retry-After": "2" } }));
+  assert.deepEqual(await syncTransaction("base", hash), { status: "pending" });
+});
 test("network and malformed JSON failures remain recoverable", async (t) => {
   const fetch = t.mock.method(globalThis, "fetch", async () => { throw new Error("offline"); });
   assert.deepEqual(await syncTransaction("base", hash), { status: "error" });

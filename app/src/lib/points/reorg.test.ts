@@ -14,6 +14,13 @@ test("points refuse unvalidated, rebuilding or missing required chains", () => {
   assert.equal(indexSnapshotReady([row()], [8453, 5042002]), false);
 });
 
+test("an unconfigured cursor cannot block otherwise ready required chains", () => {
+  const unrelated = { ...row(), chain_id: 5042002, reorg_version: 0, rebuilding_until: 200n };
+  assert.equal(indexSnapshotReady([row(), unrelated], [8453]), true);
+  assert.equal(indexSnapshotReady([row(), unrelated], [8453, 5042002]), false);
+  assert.equal(indexSnapshotReady([unrelated], [8453]), false);
+});
+
 test("points compare the generation, not whether a replay regained its old height", () => {
   assert.equal(sameIndexSnapshot([row()], [row()]), true);
   assert.equal(sameIndexSnapshot([row()], [row(1n)]), false);
@@ -21,7 +28,7 @@ test("points compare the generation, not whether a replay regained its old heigh
   assert.equal(sameIndexSnapshot([row()], [row(), { ...row(), chain_id: 5042002 }]), false);
 });
 
-function fixture(t: TestContext, current: IndexSnapshot) {
+function fixture(t: TestContext, current: IndexSnapshot, initial: IndexSnapshot = [row()]) {
   resetMock();
   resetEthPriceCache();
   t.mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
@@ -34,7 +41,7 @@ function fixture(t: TestContext, current: IndexSnapshot) {
   const queries: string[] = [];
   getMock().query = async (sql) => {
     queries.push(sql);
-    if (sql.includes("reorg_generation")) return sql.includes("FOR UPDATE") ? current : [row()];
+    if (sql.includes("reorg_generation")) return sql.includes("FOR UPDATE") ? current : initial;
     if (sql.includes("FROM bb_seasons") && sql.includes("FOR UPDATE")) return [season];
     return [];
   };
@@ -59,6 +66,14 @@ test("unchanged generation publishes after cursor locks then season lock and cle
   const deletion = f.queries.findIndex((q) => q.includes("DELETE FROM bb_points"));
   assert.ok(chainLock >= 0 && seasonLock > chainLock && deletion > seasonLock);
   assert.ok(f.queries.some((q) => q.includes("reorg_invalidated_at = NULL")));
+});
+
+test("season computation can publish with an unchanged unrelated unready cursor", async (t) => {
+  const snapshot = [row(), { ...row(), chain_id: 5042002, reorg_version: 0, rebuilding_until: 200n }];
+  const f = fixture(t, snapshot, snapshot);
+  const result = await computeSeason(f.db, f.db, f.season);
+  assert.equal("wallets" in result && result.wallets, 0);
+  assert.ok(f.queries.some((q) => q.includes("DELETE FROM bb_points")));
 });
 
 test("historical invalidated seasons are selected independently of the latest season", async () => {

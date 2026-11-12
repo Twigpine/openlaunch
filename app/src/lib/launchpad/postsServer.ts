@@ -163,15 +163,15 @@ export async function createPost(p: { chain: ChainKey; token: string; wallet: st
     // Distinct signatures can pass the cheap preflight together. Serialize the final
     // policy read and write for this wallet across every server process and chain.
     await sql`SELECT pg_advisory_xact_lock(hashtext(${`post:${wallet}`}))`;
-    const [current] = await sql<{ last: string | null; n24: bigint }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > now() - interval '24 hours')::bigint AS n24 FROM bb_posts WHERE wallet = ${wallet}`;
+    const [current] = await sql<{ last: string | null; n24: bigint }[]>`SELECT max(created_at) AS last, count(*) FILTER (WHERE created_at > clock_timestamp() - interval '24 hours')::bigint AS n24 FROM bb_posts WHERE wallet = ${wallet}`;
     const finalGate = canPostNow(current.last ? new Date(current.last).getTime() : null, Number(current.n24), Date.now());
     if (!finalGate.ok) return fail(finalGate.error, 429);
     // A refused quota attempt spends no nonce; a failed INSERT rolls its nonce back.
     const used = await sql`INSERT INTO bb_post_nonces (nonce, wallet) VALUES (${nonce}, ${wallet}) ON CONFLICT (nonce) DO NOTHING RETURNING nonce`;
     if (used.length === 0) return fail("nonce already used", 401);
     const [row] = await sql<RawPost[]>`
-      INSERT INTO bb_posts (chain_id, token, wallet, parent_id, body, tag, signature)
-      VALUES (${cid}, ${token}, ${wallet}, ${parentId}, ${v.body}, ${elig.tag}, ${String(p.signature)})
+      INSERT INTO bb_posts (chain_id, token, wallet, parent_id, body, tag, signature, created_at)
+      VALUES (${cid}, ${token}, ${wallet}, ${parentId}, ${v.body}, ${elig.tag}, ${String(p.signature)}, clock_timestamp())
       RETURNING id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden`;
     return { ok: true as const, post: shape(row) };
   });

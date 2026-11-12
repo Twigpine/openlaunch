@@ -130,6 +130,21 @@ for (const [kind, failure] of failures) {
   });
 }
 
+test("receipt sync reports advisory contention as pending without exposing database diagnostics", async () => {
+  const queries: string[] = [];
+  getMock().query = async (sql, values) => {
+    queries.push(sql);
+    if (sql.includes("pg_advisory_xact_lock")) throw Object.assign(new Error(diagnostic), { code: "55P03" });
+    return query(sql, values);
+  };
+  const response = await syncPost(request(`sync?chain=base&tx=${tx}`));
+  assert.equal(response.status, 202);
+  assert.equal(response.headers.get("retry-after"), "2");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), { status: "pending" });
+  assert.equal(queries.some((sql) => sql.includes("LOCK TABLE") || sql.includes("INSERT INTO bb_launch_sync_cursor")), false);
+});
+
 test("metadata success preserves the URI and predicted token", async () => {
   const response = await metaPost(request("meta", input));
   assert.equal(response.status, 200);

@@ -1,7 +1,7 @@
 /**
  * Client IP for rate-limit keys. Fly's proxy sets fly-client-ip; the first x-forwarded-for entry is whatever the
  * client sent, so the fallback is the last one (the hop the proxy appended).
- * Deployment must strip/overwrite fly-client-ip or append the actual client to XFF;
+ * Ingress must overwrite fly-client-ip with the actual client IP, or strip it and append the actual client to XFF;
  * directly exposed servers cannot authenticate arbitrary forwarding headers.
  */
 export function clientIp(req: Request): string {
@@ -21,7 +21,7 @@ export async function readBody(req: Request, maxBytes: number): Promise<BodyRead
   if (!req.body) return { ok: true, bytes: new Uint8Array(0) };
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try { reader = req.body.getReader(); } catch { return { ok: false, reason: "invalid" }; }
-  const chunks: Uint8Array[] = [];
+  let bytes = new Uint8Array(0);
   let size = 0;
   let complete = false;
   try {
@@ -29,18 +29,21 @@ export async function readBody(req: Request, maxBytes: number): Promise<BodyRead
       const { done, value } = await reader.read();
       if (done) break;
       if (!(value instanceof Uint8Array)) return { ok: false, reason: "invalid" };
+      if (value.byteLength === 0) continue;
       if (value.byteLength > maxBytes - size) return { ok: false, reason: "too_large" };
+      // Copy each view now: retaining it could pin an arbitrarily large backing buffer,
+      // and an entry per tiny chunk would add memory beyond the byte budget.
+      if (size + value.byteLength > bytes.byteLength) {
+        const capacity = Math.min(maxBytes, Math.max(size + value.byteLength, 8_192, bytes.byteLength * 2));
+        const grown = new Uint8Array(capacity);
+        grown.set(bytes);
+        bytes = grown;
+      }
+      bytes.set(value, size);
       size += value.byteLength;
-      chunks.push(value);
     }
     complete = true;
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const c of chunks) {
-      bytes.set(c, at);
-      at += c.byteLength;
-    }
-    return { ok: true, bytes };
+    return { ok: true, bytes: bytes.subarray(0, size) };
   } catch {
     return { ok: false, reason: "invalid" };
   } finally {

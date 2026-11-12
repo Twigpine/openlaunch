@@ -9,6 +9,7 @@ import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PositionManager} from "@uniswap/v4-periphery/src/PositionManager.sol";
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IPositionDescriptor} from "@uniswap/v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "@uniswap/v4-periphery/src/interfaces/external/IWETH9.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
@@ -210,23 +211,27 @@ contract LaunchLockerHandler is Test {
     }
 
     function rejectWithdrawal(uint256 positionSeed) public {
-        uint256 id = ids[positionSeed % 4];
+        uint256 i = positionSeed % 4;
+        uint256 id = ids[i];
+        PoolKey memory key = factory.poolKeyOf(tokens[i]);
         (bool moved,) = address(posm)
             .call(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(locker), address(this), id));
         assertFalse(moved, "outsider cannot move the NFT");
         (bool approved,) = address(posm).call(abi.encodeWithSignature("approve(address,uint256)", address(this), id));
         assertFalse(approved, "outsider cannot approve the NFT");
-        bytes[] memory params = new bytes[](1);
+        bytes[] memory params = new bytes[](2);
         params[0] = abi.encode(id, uint256(1), uint128(0), uint128(0), bytes(""));
-        (bool decreased,) = address(posm)
+        params[1] = abi.encode(key.currency0, key.currency1, address(this));
+        (bool decreased, bytes memory result) = address(posm)
             .call(
                 abi.encodeWithSignature(
                     "modifyLiquidities(bytes,uint256)",
-                    abi.encode(abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY)), params),
+                    abi.encode(abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR)), params),
                     block.timestamp
                 )
             );
         assertFalse(decreased, "outsider cannot remove principal");
+        assertEq(result, abi.encodeWithSelector(IPositionManager.NotApproved.selector, address(this)));
         rejectedWithdrawals++;
     }
 
