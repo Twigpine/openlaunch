@@ -11,6 +11,7 @@ import { gitlawbUsd } from "./gitlawbServer";
 import { twapTick } from "./gitlawb";
 import { gitlawbLinkedUsd } from "./twig";
 import { poolIdOf, quotePerToken } from "./math";
+import { publicError } from "./redact";
 import { PAIR_MIN_SAMPLED_S, PAIR_TWAP_WINDOW_S, guardedPairPrice, pairPriceFromSqrt, pairPriceFromTick, sortsBelow, timeWeightedPrice, twapSpan, type PairPriceKind } from "./pairs";
 
 /**
@@ -136,7 +137,7 @@ export async function readPairUsd(src: PairPriceSource): Promise<PairPriceReadin
     const error = usd !== null ? undefined : leg.twap === null ? "no 30-minute average from its pool yet" : core.usd === null ? "its core quote has no price right now" : "its pool gave no price";
     return { usd, spot: leg.spot, twap: leg.twap, source: g.source, deviation: g.deviation, ...(error ? { error } : {}) };
   } catch (e) {
-    return { usd: null, spot: null, twap: null, source: null, deviation: null, error: e instanceof Error ? e.message : String(e) };
+    return { usd: null, spot: null, twap: null, source: null, deviation: null, error: publicError(e) };
   }
 }
 

@@ -735,14 +735,17 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(
     CONFIGURED_CHAINS.map(async (c) => {
-      // The result is public through /api/launch/sync; upstream diagnostics stay private.
-      out[c] = await pollLaunches(c).catch((): LaunchSyncResult => ({ status: "skipped", reason: "sync_failed" }));
-      await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, errMessage(e)));
-      await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, errMessage(e)));
-      await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, errMessage(e)));
-      await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, errMessage(e)));
-      await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, errMessage(e)));
-      await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, errMessage(e)));
+      // The result is public through /api/launch/sync; keep diagnostics in redacted server logs.
+      out[c] = await pollLaunches(c).catch((e): LaunchSyncResult => {
+        console.warn(`[launch-sync] poll ${c}:`, redactUrls(errMessage(e)));
+        return { status: "skipped", reason: "sync_failed" };
+      });
+      await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, redactUrls(errMessage(e))));
+      await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, redactUrls(errMessage(e))));
+      await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, redactUrls(errMessage(e))));
+      await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, redactUrls(errMessage(e))));
+      await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, redactUrls(errMessage(e))));
+      await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, redactUrls(errMessage(e))));
     }),
   );
   return out;
