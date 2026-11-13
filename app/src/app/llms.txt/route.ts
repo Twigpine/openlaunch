@@ -134,7 +134,10 @@ ${pairApplySection()}
 - GET  ${SITE_URL}/api/launch/meta/<token>
 - POST ${SITE_URL}/api/launch/sync?chain=base|robinhood|arc|elysium&tx=0x…   (index a tx you just sent)
 - GET  ${SITE_URL}/api/health
-Pages: / (list, ?chain=), /launch (?chain=), /t/<chain>/<token> (trade + fees), /rules, /agents.
+- GET  ${SITE_URL}/api/stats?window=7d|30d|90d|all&chain=base|robinhood|arc|elysium&format=json|csv
+  Launches, trades, trade-time USD volume, creator fees and burns per chain and UTC day. available:false means the
+  database is unset or the aggregate read failed; the empty shapes are not facts. CSV is one row per UTC day.
+Pages: / (list, ?chain=), /launch (?chain=), /t/<chain>/<token> (trade + fees), /stats (protocol totals + daily series), /rules, /agents.
 `;
   return new Response(body, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
 }
