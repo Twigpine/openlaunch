@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/Twigpine/openlaunch/compare/v1.0.0...v1.0.1) (2026-11-13)
+
+
+### Security
+
+* **guard:** block changes to the release and deploy tooling ([2d7f45c](https://github.com/Twigpine/openlaunch/commit/2d7f45c7a1ada64ef72cb71d7a7495f8a8f7f450))
+
 ## [1.0.0](https://github.com/Twigpine/openlaunch/releases/tag/v1.0.0) (2026-11-13)
 
 The first versioned release. The site footer shows the running version, linked to its release notes, and
