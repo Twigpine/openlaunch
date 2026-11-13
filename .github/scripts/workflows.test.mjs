@@ -17,6 +17,8 @@ const workflows = Object.fromEntries(readdirSync(dir).filter((name) => /\.ya?ml$
 /** Lines that are not comments, with their trailing comments kept (a pinned action names its release there). */
 const lines = (text) => text.split("\n").filter((line) => !/^\s*#/.test(line));
 const guard = workflows["pr-guard.yml"];
+/** A workflow's `on:` section (its key may be quoted): the rest of that line and every indented or blank line under it. */
+const triggers = (text) => /^["']?on["']?:(.*(?:\n(?:[ \t]+.*|[ \t]*(?=\n)))*)/m.exec(lines(text).join("\n"))?.[1] ?? "";
 /** Every shell command a workflow runs: `run: command`, or the lines of a `run: |` block. */
 function commands(text) {
   const out = [];
@@ -50,8 +52,8 @@ test("every action is pinned to a full commit SHA, with its release in a comment
 
 test("only the guard runs in the base repository's context on outside input", () => {
   for (const [name, text] of Object.entries(workflows)) {
-    // a trigger name, not a word inside another key: release-please.yml's `permission-issues:` is an App token input
-    const privileged = /(?<![\w-])(pull_request_target|workflow_run|issue_comment|pull_request_review(_comment)?|discussion(_comment)?|issues)\s*:/.test(lines(text).join("\n"));
+    // read in the `on:` section only: there `issues:` is a trigger, while under `permissions:` it is a token scope
+    const privileged = /\b(pull_request_target|workflow_run|issue_comment|pull_request_review(_comment)?|discussion(_comment)?|issues)\s*:/.test(triggers(text));
     assert.equal(privileged, name === "pr-guard.yml", name);
   }
 });
@@ -60,33 +62,26 @@ test("no workflow asks for a write permission, and none reads a secret", () => {
   for (const [name, text] of Object.entries(workflows)) {
     const body = lines(text).join("\n");
     assert.match(body, /^permissions:/m, `${name} sets permissions at the top`);
-    if (name === "release-please.yml") continue; // the one exception, held to exactly what it needs by the next test
-    assert.doesNotMatch(body, /:\s*write\b|write-all/, name);
     assert.doesNotMatch(body, /\bsecrets\.|\bsecrets\[/, name);
+    if (name === "release-please.yml") continue; // the one job that writes, held to exactly what it needs by the next test
+    assert.doesNotMatch(body, /:\s*write\b|write-all/, name);
   }
 });
 
-test("release-please alone may write, only through its App token, in the release environment, on main", () => {
-  const body = lines(workflows["release-please.yml"]).join("\n");
+test("release-please alone may write: its job's own token, on pushes to main, to exactly what it needs", () => {
+  const text = workflows["release-please.yml"];
+  const body = lines(text).join("\n");
   assert.match(body, /^on:\n {2}push:\n {4}branches: \[main\]\n\npermissions: \{\}$/m, "pushes to main only, and the workflow's token has nothing");
-  assert.match(body, /^ {4}environment: release$/m, "the App's key is a secret of the release environment, which only main can use");
-  assert.match(body, /^ {4}permissions: \{\}$/m, "the job's own token has nothing either");
-  // every write is an input of the App token action: what that token may do, and nothing more
-  const writes = body.split("\n").filter((line) => /:\s*write\b|write-all/.test(line)).map((line) => line.trim());
-  assert.deepEqual(writes, ["permission-contents: write", "permission-pull-requests: write", "permission-issues: write"]);
-  assert.deepEqual([...body.matchAll(/^\s*(permission-[a-z-]+):/gm)].map((m) => m[1]), ["permission-contents", "permission-pull-requests", "permission-issues"]);
-  assert.deepEqual([...body.matchAll(/\bsecrets\.([A-Za-z_]+)/g)].map((m) => m[1]), ["RELEASE_APP_CLIENT_ID", "RELEASE_APP_PRIVATE_KEY"]);
-  assert.doesNotMatch(body, /\bsecrets\[/);
-  // the token stays this repository's and is revoked when the job ends
-  assert.doesNotMatch(body, /^\s*(owner|repositories|skip-token-revoke):/m);
-  // it runs no code from the repository: no checkout, no shell, and exactly these two pinned actions
+  // the job's own token, created for the run and gone after it: write access to these three scopes and nothing else
+  assert.match(body, /^ {4}permissions:\n {6}contents: write\n {6}pull-requests: write\n {6}issues: write\n {4}steps:$/m);
+  assert.deepEqual(body.split("\n").filter((line) => /:\s*write\b|write-all/.test(line)).map((line) => line.trim()), ["contents: write", "pull-requests: write", "issues: write"]);
+  // no stored secret and no environment: nothing long-lived to protect
+  assert.doesNotMatch(body, /\bsecrets\.|\bsecrets\[|^\s*environment:/m);
+  assert.match(body, /token: \$\{\{ github\.token \}\}/);
+  // it runs no code from the repository: no checkout, no shell, and exactly this one pinned action
   assert.doesNotMatch(body, /actions\/checkout@/);
-  assert.deepEqual(commands(workflows["release-please.yml"]), []);
-  assert.deepEqual([...body.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]), [
-    "actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
-    "googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7",
-  ]);
-  assert.match(body, /token: \$\{\{ steps\.token\.outputs\.token \}\}/);
+  assert.deepEqual(commands(text), []);
+  assert.deepEqual([...body.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]), ["googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7"]);
 });
 
 test("the pull request title reaches its check only through an environment variable", () => {

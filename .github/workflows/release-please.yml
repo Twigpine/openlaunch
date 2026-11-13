@@ -5,11 +5,12 @@ name: release-please
 # merges that pull request, it tags the merge commit and publishes the GitHub Release. Deploying stays a separate,
 # manual step (app/README.md, Releasing).
 #
-# The job's own token has no permissions. Writes go through a token of the openlaunch-release GitHub App, minted for
-# this job only, limited to this repository, to contents, pull requests and issues (release-please labels its pull
-# requests), and revoked when the job ends. Its key is a secret of the `release` environment, which only main can use.
-# An App token, unlike the job's own, lets the release pull request start ci and pr-guard. The App cannot push to main
-# past the branch rules. .github/scripts/workflows.test.mjs keeps this file to exactly that.
+# It uses the job's own GITHUB_TOKEN: created for this run, gone when it ends, so there is no stored secret to protect.
+# Only this job gets write access: to push the release pull request's branch and publish the release (contents), to
+# open and update that pull request (pull requests), and to label it (issues). The token cannot push to main past the
+# branch rules. GitHub does not start other workflows for what this token does, so a maintainer starts the release pull
+# request's checks by hand before merging it (re-run them, or close and reopen the pull request).
+# .github/scripts/workflows.test.mjs keeps this file to exactly that.
 
 on:
   push:
@@ -26,21 +27,14 @@ jobs:
     name: release-please
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: release
-    permissions: {}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
-      - name: mint a short-lived release token
-        id: token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-pull-requests: write
-          permission-issues: write
       - name: release-please
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ steps.token.outputs.token }}
+          token: ${{ github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

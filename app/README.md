@@ -50,8 +50,9 @@ version and commit.
 1. After each merge, release-please keeps one pull request titled `chore: release X.Y.Z` up to date: the version in
    `package.json` and `package-lock.json`, and the new `CHANGELOG.md` entry. Edit the notes there if needed; they are
    public: no hostnames, secrets, wallet keys or unfixed vulnerabilities.
-2. A maintainer reviews and merges it (pr-guard asks for an owner's approval). release-please then tags the merge
-   commit `vX.Y.Z` and publishes the GitHub Release.
+2. A maintainer starts its checks (GitHub does not start workflows for what release-please's token does: re-run the
+   checks on the pull request, or close and reopen it), approves it (pr-guard asks for an owner's approval) and merges
+   it. release-please then tags the merge commit `vX.Y.Z` and publishes the GitHub Release.
 3. Deploy, by hand, from an up-to-date `main` (`git pull`): `deploy.sh --dry-run`, then `deploy.sh`, through the
    maintainers' checker below. `deploy.sh` refuses anything but a clean `main` equal to `origin/main` whose tag is on
    GitHub and whose release is published; it takes the contract addresses from the hash-pinned deployment records and
