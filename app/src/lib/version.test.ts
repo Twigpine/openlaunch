@@ -45,3 +45,9 @@ test("the image is told its commit, the footer links the release, and the deploy
   assert.match(deploy, /git ls-remote origin "refs\/tags\/\$TAG\^\{\}"/);
   assert.doesNotMatch(deploy, /^\s*(git (push|tag)|fly secrets)/m);
 });
+
+test("release notes start from the last annotated release, never a stray lightweight tag", () => {
+  const notes = read("../../scripts/release-notes.mjs");
+  assert.match(notes, /git\("describe", "--abbrev=0", "--match", "v\[0-9\]\*", `\$\{to\}\^`\)/);
+  assert.doesNotMatch(notes, /"describe"[^)]*"--tags"/);
+});

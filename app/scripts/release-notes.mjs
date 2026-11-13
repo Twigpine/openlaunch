@@ -4,7 +4,7 @@
  * only this checkout's git history (no network, no token) and prints Markdown to stdout. A maintainer writes the summary
  * above the list and publishes the release on GitHub.
  *
- *   node app/scripts/release-notes.mjs                 # since the newest v* tag before HEAD
+ *   node app/scripts/release-notes.mjs                 # since the newest annotated v* tag before HEAD
  *   node app/scripts/release-notes.mjs --from cf21523  # since a given commit (the first release has no tag to start from)
  */
 import { execFileSync } from "node:child_process";
@@ -25,9 +25,11 @@ const to = ref(arg("to"), "--to") ?? "HEAD";
 let from = ref(arg("from"), "--from");
 if (!from) {
   try {
-    from = git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", `${to}^`);
+    // annotated tags only (no --tags): a release is an annotated tag, and a stray lightweight v* tag must never become the
+    // starting point, or the notes would silently drop every pull request between the real release and that tag
+    from = git("describe", "--abbrev=0", "--match", "v[0-9]*", `${to}^`);
   } catch {
-    throw new Error("no earlier v* tag: pass --from <commit> for the first release");
+    throw new Error("no earlier annotated v* tag: pass --from <commit> for the first release");
   }
 }
 const version = JSON.parse(git("show", `${to}:app/package.json`)).version;
