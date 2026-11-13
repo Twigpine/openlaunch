@@ -1,6 +1,6 @@
 # MCP server
 
-openlaunch serves a small, read-only [Model Context Protocol](https://modelcontextprotocol.io) server over HTTP at
+openlaunch serves a small, read-only Model Context Protocol (MCP) server over HTTP at
 
 ```
 https://openlaunch.lol/api/mcp
