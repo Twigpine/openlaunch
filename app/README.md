@@ -55,3 +55,9 @@ running version and commit.
    checks that production reports the new version and commit. Then run `scripts/smoke.sh`.
 
 A bad release is fixed by a new patch release, never by moving or deleting a tag.
+
+The release tooling (`scripts/deploy.sh`, `smoke.sh`, `release-notes.mjs`, `migrate.mjs` and `scripts/lib/`, the
+`Dockerfile`, `.dockerignore` and `fly.toml`) is blocked by pr-guard for everyone: it runs with the deploy credentials or
+against the production database, so it changes only in a pull request of its own that a maintainer merges with the
+guard bypassed. Maintainers also deploy through a checker kept outside the repository, which compares these files with
+the fingerprints of the last reviewed release before it runs `deploy.sh`.

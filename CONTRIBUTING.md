@@ -43,6 +43,10 @@ your code. It has two answers besides "passed":
     (`contracts/script/check-deployed-sources.sh`, `contracts/script/check-arc-factory.sh`), to `.gitmodules`, or
     anything added under `contracts/lib/`.
   - `ci-config`: anything under `.github/`, or a `CODEOWNERS` file.
+  - `release-tooling`: the release and deploy tooling: `app/scripts/deploy.sh`, `smoke.sh`, `release-notes.mjs`,
+    `migrate.mjs` and anything under `app/scripts/lib/`, plus `app/Dockerfile`, `app/.dockerignore` and `app/fly.toml`.
+    These run with the deploy credentials or against the production database, so a maintainer changes them in a pull
+    request of their own.
   - `dev-machine`: editor, agent or git hook configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
   - `registry-config`: package manager configuration (`.npmrc` and the like).
   - `secret-file`, `secret`: a key, wallet or `.env` file, or a credential anywhere in the diff.
