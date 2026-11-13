@@ -35,16 +35,25 @@ export default function LaunchMechanism() {
   // totals roll to their new value when a launch or trade lands (static on first paint and under reduced motion)
   const count = (value: number) => <LiveNumber value={value} />;
   // some quote has no price right now: the dollar sums undercount, so say "≈" instead of showing a confident smaller number
-  const usdNote = t.usd_partial ? "Some launches are quoted in an asset with no USD price right now; dollar totals exclude them until it returns." : undefined;
+  const usdNote = t.usd_partial ? "Some trades have no recorded USD value and their quote asset has no USD price right now; dollar totals leave them out until it returns." : undefined;
   // `live` figures roll as they change (compact); the rest stay exact text. Both carry the same "≈" guard.
   const usd = (v: number, live = false) => (live ? <LiveNumber value={v} format={COMPACT_USD} prefix={t.usd_partial ? "≈" : undefined} /> : `${t.usd_partial ? "≈" : ""}${fmtUsd(v)}`);
   // the compact figure rounds, so its tooltip carries the exact sum and says what kind of number it is
-  const usdTitle = (v: number, what: string) => usdNote ?? `${fmtUsd(v)} · ${what} valued at current rates`;
+  // trade-time USD (lib/launchpad/trade-time-usd.ts): each trade and fee at the hour it happened; the ones with no recorded
+  // value (community pairs, stocks before Nov 10, 2026, an hour not priced yet) at today's rate; unlisted tokens have no USD
+  const usdTitle = (v: number, what: string) => usdNote ?? `${fmtUsd(v)} · ${what}, each valued in USD at the hour it happened (community-pair trades, and any without a recorded value, at today's rate)`;
   const usdChars = USD_CHARS + (t.usd_partial ? 1 : 0);
   const gitlawbBurnedExact = `${fmtUnitsExact(t.gitlawb_burned, GITLAWB_DECIMALS)} ${GITLAWB_SYMBOL}`; // every digit of the raw amount, no float
   // TWIG burned: its own figure (the GITLAWB behind it stays in the TWIG contract), shown once there is any; null-safe for a poll from an older machine
   const twigBurned = t.twig_burned ?? "0";
   const twigBurnedExact = `${fmtUnitsExact(twigBurned, TWIG_DECIMALS)} ${TWIG_SYMBOL}`;
+  // boosts send TWIG to 0x…dEaD too: the label says where each part came from once there is any boost (null-safe for an older machine)
+  const twigBoosted = BigInt(t.twig_boost_burned ?? "0");
+  // never below zero: mid rolling deploy the two figures can come from machines a release apart
+  const twigFees = BigInt(twigBurned) > twigBoosted ? BigInt(twigBurned) - twigBoosted : 0n;
+  const twigBurnedWhy = twigBoosted > 0n
+    ? `Sent to 0x…dEaD on Base: ${fmtQuote(twigFees.toString(), TWIG_DECIMALS, TWIG_SYMBOL)} from the trading fees of TWIG-quoted launches, ${fmtQuote(twigBoosted.toString(), TWIG_DECIMALS, TWIG_SYMBOL)} by boosts`
+    : "Sent to 0x…dEaD by TWIG-quoted launches on Base";
   return <section aria-label="Network totals" className={styles.panel}>
     <dl className={styles.readings}>
       <Reading lead label="Trades" note="buys and sells, all on-chain" chars={countChars(t.trades)}>{count(t.trades)}</Reading>
@@ -63,7 +72,7 @@ export default function LaunchMechanism() {
         <div><dt className="text-muted">Fees to recipients</dt><dd className="mt-1 font-mono text-up tnum" title={usdNote}>{usd(t.fees_to_creators_usd)}</dd></div>
         <div><dt className="text-muted">Fees burned</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={usdNote}>{usd(t.fees_burned_usd)}</dd></div>
         <div className="col-span-2"><dt className="flex items-center gap-1.5 text-muted" title="Sent to 0x…dEaD by GITLAWB-quoted launches on Base and Robinhood Chain"><GitlawbMark size={14} />GITLAWB burned</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={gitlawbBurnedExact}>{fmtQuote(t.gitlawb_burned, GITLAWB_DECIMALS, GITLAWB_SYMBOL)}</dd></div>
-        {BigInt(twigBurned) > 0n ? <div className="col-span-2"><dt className="flex items-center gap-1.5 text-muted" title="Sent to 0x…dEaD by TWIG-quoted launches on Base"><TwigMark size={14} />TWIG burned</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={twigBurnedExact}>{fmtQuote(twigBurned, TWIG_DECIMALS, TWIG_SYMBOL)}</dd></div> : null}
+        {BigInt(twigBurned) > 0n ? <div className="col-span-2"><dt className="flex items-center gap-1.5 text-muted" title={twigBurnedWhy}><TwigMark size={14} />TWIG burned</dt><dd className="mt-1 font-mono text-warm-ink tnum" title={twigBurnedExact}>{fmtQuote(twigBurned, TWIG_DECIMALS, TWIG_SYMBOL)}</dd></div> : null}
       </dl>
       {/* the "≈" explained in the open: a title alone cannot be reached by touch or keyboard */}
       {usdNote ? <p className="mb-2 max-w-2xl text-pretty text-[11px] leading-relaxed text-body">≈ {usdNote}</p> : null}

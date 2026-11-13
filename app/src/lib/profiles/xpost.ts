@@ -82,8 +82,9 @@ export function postTextFor(username: string, code: string, brandX: string, doma
 }
 
 /** X's compose link with the post text filled in. */
-export function intentUrl(text: string): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
+export function intentUrl(text: string, extra: { url?: string; via?: string } = {}): string {
+  const tail = `${extra.url ? `&url=${encodeURIComponent(extra.url)}` : ""}${extra.via ? `&via=${encodeURIComponent(extra.via)}` : ""}`;
+  return `https://x.com/intent/post?text=${encodeURIComponent(text)}${tail}`;
 }
 
 /** The token X's own embed widget sends with tweet-result requests. */

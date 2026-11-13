@@ -1,0 +1,76 @@
+/* Earn dialog. Same visual language as the bridge panel (BridgeDialog.module.css): raised sheet, hairline rules, one primary action. */
+.backdrop { position: fixed; inset: 0; z-index: 80; background: color-mix(in srgb, var(--color-scrim) 45%, transparent); opacity: 1; transition: opacity 180ms ease-out; }
+.backdrop[data-starting-style], .backdrop[data-ending-style] { opacity: 0; }
+.panel { position: fixed; z-index: 81; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 26px 28px 20px; border: 1px solid var(--color-line); border-radius: 24px; background: var(--color-raised); color: var(--color-ink); box-shadow: var(--shadow-dialog); outline: none; scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; transition: opacity 180ms ease-out, transform 220ms cubic-bezier(.16, 1, .3, 1); }
+.panel[data-starting-style], .panel[data-ending-style] { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.98); }
+.panel ::selection { background: var(--color-brand-soft); color: var(--color-brand); }
+/* the review page shows the panel in place, not as a modal */
+.static { position: relative; top: auto; left: auto; transform: none; max-height: none; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.title { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: -.035em; font-weight: 650; }
+.close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin: -4px -8px -4px 0; border-radius: 50%; color: var(--color-muted); cursor: pointer; }
+.description { margin: 6px 0 20px; color: var(--color-muted); font-size: 14px; line-height: 1.5; text-wrap: pretty; }
+
+.figures { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); }
+.figures > div { min-width: 0; padding: 14px 16px; }
+.figures > div + div { border-left: 1px solid var(--color-line); }
+.figureLabel { display: block; color: var(--color-muted); font-size: 12px; line-height: 1.5; }
+.figureValue { display: block; margin-top: 2px; font-size: 24px; font-weight: 600; line-height: 1.25; letter-spacing: -.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.figureValue small { margin-left: 4px; color: var(--color-muted); font-size: 13px; font-weight: 500; letter-spacing: 0; }
+.figureHint { display: block; margin-top: 4px; color: var(--color-muted); font-size: 11px; line-height: 1.5; }
+
+.tabs { margin-top: 20px; }
+.amountSection { padding: 20px 0 16px; }
+.smallLabel { display: block; font-size: 12px; font-weight: 500; color: var(--color-muted); line-height: 1.5; }
+.amountRow { display: flex; align-items: center; gap: 16px; margin-top: 4px; }
+.amountRow input { display: block; min-width: 0; width: 100%; border: 0; border-radius: 4px; background: transparent; color: var(--color-ink); caret-color: var(--color-brand); font-size: 36px; line-height: 1.35; letter-spacing: -.035em; font-variant-numeric: tabular-nums; font-weight: 500; }
+.amountRow input::placeholder { color: var(--color-muted); }
+.currency { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; font-size: 18px; font-weight: 550; }
+.balanceRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--color-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.max { min-height: 28px; padding: 0 10px; border: 1px solid var(--color-line-strong); border-radius: 999px; color: var(--color-ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+
+.facts { display: grid; gap: 9px; padding: 16px 0; border-top: 1px solid var(--color-line); font-size: 12px; }
+.facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.facts dt { color: var(--color-body); }
+.facts dd { display: inline-flex; align-items: center; gap: 4px; margin: 0; text-align: right; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.facts a { display: inline-flex; align-items: center; gap: 3px; text-underline-offset: 3px; }
+
+.notice { margin: 4px 0 14px; padding-left: 12px; border-left: 2px solid var(--color-brand); color: var(--color-body); font-size: 12px; line-height: 1.65; }
+.paused { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 14px; padding: 12px; border-radius: 10px; background: var(--color-warm-soft); color: var(--color-warm-ink); font-size: 12px; line-height: 1.6; }
+.paused svg, .error svg { flex-shrink: 0; margin-top: 2px; }
+.error { display: flex; align-items: flex-start; gap: 8px; min-width: 0; margin: 4px 0 14px; padding: 12px; color: var(--color-down-ink); background: var(--color-down-soft); border-radius: 8px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.error > span { flex: 1; min-width: 0; }
+
+.primary { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; width: 100%; padding: 12px 16px; border: 1px solid transparent; border-radius: 12px; background: var(--color-brand); color: var(--color-inverse); font-size: 14px; font-weight: 600; cursor: pointer; transition: background 160ms, transform 160ms cubic-bezier(.16, 1, .3, 1); }
+.primary:disabled { cursor: not-allowed; background: var(--color-paper); border-color: var(--color-line); color: var(--color-muted); }
+.disclaimer { margin-top: 12px; color: var(--color-muted); font-size: 11px; line-height: 1.65; text-wrap: pretty; }
+
+.done { margin: 8px 0 4px; text-align: center; }
+.doneIcon { display: inline-flex; align-items: center; justify-content: center; height: 52px; width: 52px; border-radius: 50%; background: var(--color-up-soft); color: var(--color-up); }
+.done h3 { margin: 14px 0 8px; font-size: 20px; font-weight: 600; letter-spacing: -.025em; }
+.done p { color: var(--color-body); font-size: 13px; line-height: 1.65; }
+.waitIcon { background: var(--color-warm-soft); color: var(--color-warm-ink); }
+.actions { display: grid; gap: 12px; margin-top: 18px; }
+.actions .externalAction, .actions .notice { margin: 0; }
+.externalAction { display: flex; align-items: center; justify-content: space-between; min-height: 46px; margin-top: 18px; padding: 0 14px; border: 1px solid var(--color-line-strong); border-radius: 10px; font-size: 13px; font-weight: 500; transition: background 160ms; }
+.secondary { display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; margin-top: 10px; color: var(--color-brand); font-size: 13px; font-weight: 500; cursor: pointer; }
+
+.footer { display: flex; justify-content: space-between; gap: 12px; padding-top: 16px; margin-top: 18px; border-top: 1px solid var(--color-line); font-size: 11px; color: var(--color-muted); }
+.footer a { display: inline-flex; align-items: center; gap: 3px; text-underline-offset: 3px; }
+.spinner { animation: earn-spin 1s linear infinite; }
+@keyframes earn-spin { to { transform: rotate(360deg); } }
+.panel :is(button, a, input, summary):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 4px; }
+@media (hover: hover) and (pointer: fine) {
+  .close:hover, .externalAction:hover { color: var(--color-ink); background: var(--color-paper); }
+  .max:not(:disabled):hover { border-color: var(--color-brand); color: var(--color-brand); }
+  .primary:not(:disabled):hover { background: var(--color-brand-strong); }
+  .facts a:hover, .footer a:hover { text-decoration: underline; }
+}
+.primary:not(:disabled):active { transform: scale(.97); }
+@media (max-width: 520px) {
+  .panel:not(.static) { width: 100%; top: auto; bottom: 0; left: 0; max-height: calc(100dvh - 16px); transform: none; padding: 24px 22px calc(20px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; border-bottom: 0; box-shadow: var(--shadow-sheet); }
+  .panel:not(.static)[data-starting-style], .panel:not(.static)[data-ending-style] { transform: translateY(16px); }
+  .amountRow input { font-size: 32px; }
+  .figureValue { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .panel, .backdrop, .primary { transition: none; } .spinner { animation: none; } }

@@ -35,7 +35,7 @@ export default function LaunchHero({ configured }: { configured: boolean }) {
         <div className={styles.copyArea}>
           <Link href="/rules#launchpad" className={HERO.chip}>
             <ChainLogoStack chains={VISIBLE_CHAINS} size={18} />
-            <span className="truncate text-body">Free to launch on Base, Robinhood Chain and Arc</span>
+            <span className="truncate text-body">Free to launch on Base, Robinhood Chain, Arc and Elysium</span>
             <ArrowRight size={12} aria-hidden="true" className="shrink-0 text-muted transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
           </Link>
           <h1 className={HERO.headline}>
@@ -45,7 +45,7 @@ export default function LaunchHero({ configured }: { configured: boolean }) {
           </h1>
           <p className={HERO.copy}>
             {/* the brand as a plain word, once, above the fold: the title and footer alone read as a domain */}
-            <Link href="/about" className="font-semibold text-ink hover:text-brand underline decoration-line-strong underline-offset-4">openlaunch</Link> is the free, open-source launchpad on Base, Robinhood Chain and Arc. One transaction: your token, a Uniswap v4 pool, and a liquidity position locked forever. 100% of the supply goes into the pool at launch. You only pay gas.
+            <Link href="/about" className="font-semibold text-ink hover:text-brand underline decoration-line-strong underline-offset-4">openlaunch</Link> is the free, open-source launchpad on Base, Robinhood Chain, Arc and Elysium. One transaction: your token, a Uniswap v4 pool, and a liquidity position locked forever. 100% of the supply goes into the pool at launch. You only pay gas.
           </p>
           <div className={HERO.actions}>
             {/* the header watches this id: while it is on screen the header CTA stays quiet (one filled blue per screen) */}

@@ -56,11 +56,6 @@ export function isProfileModAction(v: unknown): v is ProfileModAction {
   return typeof v === "string" && (PROFILE_MOD_ACTIONS as readonly string[]).includes(v);
 }
 
-/** Admin read of the review queue (it lists claimed, not yet verified X handles, so it is signed too). */
-export function buildProfileAdminListMessage(p: { wallet: string; nonce: string; ts: number }): string {
-  return [`${PROFILE_DOMAIN} moderation`, ``, `Action: list profiles`, `Admin: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
-}
-
 /**
  * The message an admin wallet signs for one moderation action on one profile. Approving or rejecting an X post also
  * names the claim (its code) the admin looked at, so the action can never land on a different claim.

@@ -357,6 +357,20 @@ export const ERC20_MIN_ABI = [
   },
 ] as const;
 
+/** ERC-20 transfer, alone: the one call a boost makes (TWIG to 0x…dEaD, boost.ts). Kept apart so no other flow can reach it by accident. */
+export const ERC20_TRANSFER_ABI = [
+  {
+    type: "function",
+    name: "transfer",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "value", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
 /** Typed event items (viem getLogs wants AbiEvent, not an ABI index). */
 export const LAUNCHED_EVENT = LAUNCH_FACTORY_ABI.find((x) => x.type === "event" && x.name === "Launched")! as Extract<(typeof LAUNCH_FACTORY_ABI)[number], { type: "event" }>;
 export const POOL_SWAP_EVENT = POOL_MANAGER_ABI[0];

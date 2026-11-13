@@ -4,6 +4,8 @@ import { POST } from "../../app/api/bridge/quote/route.ts";
 import { GET } from "../../app/api/bridge/status/route.ts";
 import { BASE_USDC } from "./types.ts";
 import { FIXTURE_INPUT, FIXTURE_NOW, addApprovalFixture, relayChainsFixture, relayRouteFixture } from "./relay.fixture.ts";
+// these requests stand for ones Fly Proxy delivered: clientIp reads fly-client-ip only on a Fly Machine
+process.env.FLY_APP_NAME ??= "openlaunch-test";
 
 function quoteRequest(body: string, ip: string, headers: Record<string, string> = {}) {
   return new Request("https://openlaunch.example/api/bridge/quote", { method: "POST", body, headers: { "Content-Type": "application/json", "fly-client-ip": ip, ...headers } });

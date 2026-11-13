@@ -2,12 +2,13 @@ import "server-only";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { isAddress, recoverMessageAddress, type Address, type Hex } from "viem";
 import { publicClient } from "@/lib/chain";
-import { CHAIN_KEYS, CHAIN_LABELS, DEFAULT_CHAIN, isChainKey, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_LABELS, DEFAULT_CHAIN, isChainKey, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, type Db } from "@/lib/db";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { adminWallets } from "@/lib/launchpad/postsServer";
-import { buildProfileAdminListMessage, buildProfileDeleteMessage, buildProfileMessage, buildProfileModMessage, isNonce, isProfileModAction, tsFresh } from "./auth";
+import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
+import { buildProfileDeleteMessage, buildProfileMessage, buildProfileModMessage, isNonce, isProfileModAction, tsFresh } from "./auth";
 import { avatarUrl, validateProfile } from "./validate";
 import { X_CODE_TTL_MS, intentUrl, isXCode, judgePost, makeXCode, parsePostUrl, postTextFor, type CodeRow } from "./xpost";
 import { fetchPostFacts } from "./xFetch";
@@ -191,16 +192,16 @@ async function codeChains(wallet: string, first: ChainKey): Promise<ChainKey[] |
   const here = await check(first);
   if (here === null) return null;
   if (here) return [first]; // deployed where it signed: that is all we need
-  const chains: ChainKey[] = [];
-  for (const c of CHAIN_KEYS.filter((k) => k !== first)) {
-    const there = await check(c);
-    if (there === null) return null;
-    if (there) chains.push(c);
-  }
+  // only the chains the site runs on (all of them in development), in parallel: a chain in the registry that is not switched
+  // on here must not be able to slow down or fail every smart-wallet signature on the others
+  const others = VISIBLE_CHAINS.filter((k) => k !== first);
+  const found = await Promise.all(others.map(check));
+  if (found.some((x) => x === null)) return null;
+  const chains: ChainKey[] = others.filter((_, i) => found[i]);
   return chains;
 }
 
-type SigCheck = "ok" | "bad" | "down" | { switchTo: ChainKey };
+export type SigCheck = "ok" | "bad" | "down" | { switchTo: ChainKey };
 
 /**
  * Whether `signature` is the wallet's over any one of `messages`. A plain wallet's signature is recovered locally, for
@@ -209,7 +210,7 @@ type SigCheck = "ok" | "bad" | "down" | { switchTo: ChainKey };
  * Safe bind the chain id into what they sign), and only where it is deployed or, if it is deployed nowhere yet,
  * through its ERC-6492 wrapper. Deployed only elsewhere → ask the person to switch chains.
  */
-async function verifySig(wallet: string, messages: readonly string[], signature: unknown, signedOn: unknown): Promise<SigCheck> {
+export async function verifySig(wallet: string, messages: readonly string[], signature: unknown, signedOn: unknown): Promise<SigCheck> {
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) return "bad";
   // the zero address has no key and no code: an ERC-6492 check compares ecrecover's failure value (0x0) to it and
   // passes for a garbage signature, so nothing is ever accepted as signed by it
@@ -582,13 +583,10 @@ export type ReviewRow = {
   post_id: string | null;
 };
 
-/** The review queue, for a signed admin read (it lists claimed, not yet verified handles). */
-export async function listProfilesForReview(r: Signed, limit = 100): Promise<{ ok: true; pending: ReviewRow[]; recent: ReviewRow[] } | Fail> {
+/** The review queue (it lists claimed, not yet verified handles): the route serves it to an admin session only. */
+export async function listProfilesForReview(limit = 100): Promise<{ ok: true; pending: ReviewRow[]; recent: ReviewRow[] } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
-  if (typeof r.wallet !== "string" || !adminWallets().has(r.wallet.toLowerCase())) return fail("not an admin", 403);
-  const a = await admit(db, r, (wallet, nonce, ts) => buildProfileAdminListMessage({ wallet, nonce, ts }));
-  if (!a.ok) return a;
   const [pending, recent] = await Promise.all([
     db<ReviewRow[]>`
       SELECT p.wallet, p.username, p.display_name, p.x_handle, p.x_status, p.hidden, p.points_flag, p.created_at, c.code, c.post_id

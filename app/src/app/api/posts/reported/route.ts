@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { adminWallets, listReported } from "@/lib/launchpad/postsServer";
+import { listReported } from "@/lib/launchpad/postsServer";
+import { requireAdmin } from "@/lib/admin/session";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/posts/reported?wallet= — the moderation queue. Reads are public data anyway; listed only for admin wallets to keep it out of casual view. */
+/** GET /api/posts/reported — the moderation queue (hidden posts included): an admin session only. */
 export async function GET(req: Request) {
-  const w = (new URL(req.url).searchParams.get("wallet") ?? "").toLowerCase();
-  if (!adminWallets().has(w)) return NextResponse.json({ error: "admin only" }, { status: 403 });
-  return NextResponse.json({ posts: await listReported() }, { headers: { "cache-control": "no-store" } });
+  const a = await requireAdmin(req);
+  if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
+  return NextResponse.json({ posts: await listReported() }, { headers: { "cache-control": "private, no-store" } });
 }

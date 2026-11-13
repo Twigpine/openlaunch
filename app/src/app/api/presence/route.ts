@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { looksLikeBot, prunePresence, readPulse, recordBeacon, visitorHash } from "@/lib/launchpad/presence";
 import { memo } from "@/lib/launchpad/memo";
@@ -16,7 +17,7 @@ let lastPrune = 0;
 export async function POST(req: Request) {
   const ua = req.headers.get("user-agent") ?? "";
   if (looksLikeBot(ua)) return NextResponse.json(await readPulse(), { headers: { "cache-control": "no-store" } });
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   // The visitor hash mixes in the UA, which the caller fully controls: without
   // a bucket, rotating UAs mints a fresh bb_presence row per request and
   // inflates visits. 30/min leaves normal beaconing (~every few seconds) alone.

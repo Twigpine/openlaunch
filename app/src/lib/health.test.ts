@@ -44,3 +44,12 @@ test("lagBlocks never negative / null-safe", () => {
   assert.equal(lagBlocks(5, 10), 0);
   assert.equal(lagBlocks(null, 10), null);
 });
+
+test("health says which release is running, and nothing when it does not know", () => {
+  const known = healthBody({ ...base, version: "1.0.0", commit: "df3e410" }).body;
+  assert.equal(known.version, "1.0.0");
+  assert.equal(known.commit, "df3e410");
+  const unknown = healthBody(base).body;
+  assert.equal(unknown.version, null);
+  assert.equal(unknown.commit, null);
+});

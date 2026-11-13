@@ -7,7 +7,7 @@ export function TwigMark({ size = 16, className = "" }: { size?: number; classNa
 }
 
 /**
- * Badge for tokens paired with TWIG, the Base form's GITLAWB wrapper (lib/launchpad/twig.ts). Same geometry as the
+ * Badge for tokens paired with TWIG, the GITLAWB wrapper on Base (lib/launchpad/twig.ts; no longer offered in the form). Same geometry as the
  * GITLAWB badge so either sits in any row: "sm" is 20px tall and fits a text-sm line. Near-black like the logo tile,
  * white text, a light hairline in dark mode so it still reads as a chip on a dark page. `collapse` shows the mark
  * alone on phones, keeping the label for screen readers.

@@ -31,7 +31,7 @@ const tables = new Map<string, Set<string>>();
 for (const m of schema.matchAll(/CREATE TABLE IF NOT EXISTS (bb_\w+) \(([\s\S]*?)\n\);/g)) {
   const cols = new Set<string>();
   for (const line of m[2].split("\n")) {
-    const col = /^\s*([a-z_]\w*)\s+(?:text|bigint|bigserial|integer|int|numeric|boolean|timestamptz|date|uuid|jsonb|text\[\])\b/.exec(line);
+    const col = /^\s*([a-z_]\w*)\s+(?:text|bigint|bigserial|integer|int|numeric|boolean|timestamptz|date|uuid|jsonb|double|text\[\])\b/.exec(line);
     if (col && !/^(CHECK|UNIQUE|PRIMARY)$/i.test(col[1])) cols.add(col[1]);
   }
   tables.set(m[1], cols);

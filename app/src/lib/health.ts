@@ -19,10 +19,16 @@ export type HealthInput = {
   /** additional chains (first one goes in `sync` for backwards compatibility) */
   chains?: SyncHealthInput[];
   lagAlertBlocks?: LagAlertBlocks;
+  /** The running release and the commit it was built from (lib/version.ts); null when unknown. */
+  version?: string | null;
+  commit?: string | null;
 };
 
 export type HealthBody = {
   ok: boolean;
+  /** What is running: the release (package.json) and its commit. Both public: the repository and its tags are. */
+  version: string | null;
+  commit: string | null;
   db: boolean;
   chain: boolean;
   launchpad: boolean;
@@ -63,6 +69,8 @@ export function healthBody(i: HealthInput): { status: number; body: HealthBody }
     status,
     body: {
       ok: alerts.length === 0,
+      version: i.version ?? null,
+      commit: i.commit ?? null,
       db: i.dbConfigured ? i.dbOk : false,
       chain: i.chain,
       launchpad: i.launchpad,

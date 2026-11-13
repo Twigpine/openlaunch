@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
-import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
-import { buildProfileAdminListMessage, buildProfileModMessage, type ProfileModAction } from "@/lib/profiles/auth";
+import { buildProfileModMessage, type ProfileModAction } from "@/lib/profiles/auth";
 import type { ReviewRow } from "@/lib/profiles/server";
 import { CHAINS, DEFAULT_CHAIN, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
@@ -15,17 +15,17 @@ import { nonce } from "@/lib/nonce";
 
 /**
  * Profiles for an admin: X posts waiting for a person (X did not answer when they were submitted), each shown with
- * the exact code that was issued for it, and the newest profiles. Loading the queue and every action is an
- * admin-wallet signature (the queue lists claimed, unverified handles).
+ * the exact code that was issued for it, and the newest profiles. The queue loads with the admin session (it lists
+ * claimed, unverified handles, so it is never public); every action is also an admin-wallet signature.
  */
 export default function ProfileQueue() {
-  const { address } = useHydratedAccount();
+  const { address } = useAdminAccount();
   const config = useConfig();
   const { chainId } = useAccount();
   // the chain the wallet signs on (a smart-wallet admin is checked there)
   const chain: ChainKey = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === chainId) ?? DEFAULT_CHAIN;
-  // the queue is read with one admin wallet's signature and shown only while that wallet is connected; a load that
-  // finishes after a switch never replaces another wallet's queue
+  // the queue is shown only while the signed-in admin wallet is connected; a load that finishes after a switch never
+  // replaces what another wallet sees
   const me = address?.toLowerCase() ?? "";
   const [loaded, setLoaded] = useState<{ wallet: string; pending: ReviewRow[]; recent: ReviewRow[] } | null>(null);
   const [failed, setFailed] = useState<{ wallet: string; message: string } | null>(null);
@@ -49,13 +49,12 @@ export default function ProfileQueue() {
     if (!address) return;
     setBusy(true);
     try {
-      const s = await signed((n, ts) => buildProfileAdminListMessage({ wallet: address, nonce: n, ts }));
-      const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "list", chain, wallet: address, ...s }) });
+      const res = await fetch("/api/profile/admin", { cache: "no-store" });
       const d = (await res.json()) as { pending?: ReviewRow[]; recent?: ReviewRow[]; error?: string };
       if (!res.ok) throw new Error(d.error ?? "not allowed");
       setErr(null);
       const who = address.toLowerCase();
-      if (current.current === who) setLoaded({ wallet: who, pending: d.pending ?? [], recent: d.recent ?? [] }); // signed by a wallet no longer connected: dropped
+      if (current.current === who) setLoaded({ wallet: who, pending: d.pending ?? [], recent: d.recent ?? [] }); // loaded for a wallet no longer connected: dropped
     } catch (e) {
       setErr(friendlyError(e));
     } finally {
@@ -73,7 +72,7 @@ export default function ProfileQueue() {
       const res = await fetch("/api/profile/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, target, reason, claim, chain, wallet: address, ...s }) });
       const d = (await res.json()) as { error?: string; row?: ReviewRow | null };
       if (!res.ok) throw new Error(d.error ?? "failed");
-      // the answer carries the profile as it is now: patch the queue in place (Reload is the one signed list read)
+      // the answer carries the profile as it is now: patch the queue in place
       const who = address.toLowerCase();
       if (current.current === who) {
         const now = d.row ?? null;
@@ -131,7 +130,7 @@ export default function ProfileQueue() {
     <section className="space-y-3" aria-labelledby="profile-queue">
       <div className="flex items-center justify-between gap-3">
         <h2 id="profile-queue" className="text-lg font-semibold text-ink">Profiles</h2>
-        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void load()}>{data ? "Reload" : "Load profiles"} (signature)</button>
+        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void load()}>{data ? "Reload" : "Load profiles"}</button>
       </div>
       {err ? <p className={`${card} p-4 text-sm text-down-ink`}>{err}</p> : null}
       {data ? (

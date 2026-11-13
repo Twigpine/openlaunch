@@ -17,7 +17,7 @@ import { hasChainPage } from "@/lib/launchpad/config";
 export const metadata: Metadata = pageMetadata({
   path: "/about",
   title: `About ${BRAND}`,
-  description: `${BRAND} is a free, open-source token launchpad on Base, Robinhood Chain and Arc. What it does, who builds it, and which channels are official.`,
+  description: `${BRAND} is a free, open-source token launchpad on Base, Robinhood Chain, Arc and Elysium. What it does, who builds it, and which channels are official.`,
 });
 
 const DIFFERENCES = [
@@ -36,7 +36,7 @@ export default function AboutPage() {
         eyebrow="About"
         icon={<Info />}
         title={`What ${BRAND} is`}
-        description={<>{BRAND} is a free, open-source token launchpad. One transaction deploys a fixed-supply ERC-20, opens a Uniswap v4 pool at the market cap you pick and locks 100% of the supply as liquidity, forever. It runs on Base, Robinhood Chain and Arc.</>}
+        description={<>{BRAND} is a free, open-source token launchpad. One transaction deploys a fixed-supply ERC-20, opens a Uniswap v4 pool at the market cap you pick and locks 100% of the supply as liquidity, forever. It runs on Base, Robinhood Chain, Arc and Elysium.</>}
       >
         <Link href="/launch" className={shell.action}>Launch a token <ArrowRight size={15} aria-hidden="true" /></Link>
         <Link href="/rules" className={shell.textLink}>How it works <ArrowRight size={14} aria-hidden="true" /></Link>

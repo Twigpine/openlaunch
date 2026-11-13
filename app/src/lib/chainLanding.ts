@@ -1,5 +1,5 @@
 /**
- * Copy for the per-chain landing pages (/base, /robinhood, /arc), pure (node --test loads this).
+ * Copy for the per-chain landing pages (/base, /robinhood, /arc, /elysium), pure (node --test loads this).
  * Each page answers one search ("token launchpad on Base", "launch a token on Arc") with its own
  * title, heading and canonical, instead of a ?chain= view that search engines fold into "/".
  * Facts only (CONTRIBUTING.md "Facts over scores"): what the chain is, what a launch there quotes in,
@@ -41,9 +41,16 @@ export const CHAIN_LANDING: Record<ChainKey, ChainLandingCopy> = {
     intro: "Arc is Circle's layer 1, where USDC is the gas token. A launch here deploys a fixed-supply ERC-20, opens a USDC-quoted Uniswap v4 pool on Arc and locks all of the supply in it, in one transaction.",
     gas: "USDC",
   },
+  elysium: {
+    title: "Free token launchpad on Elysium (HYPE)",
+    description: "Launch a token on Elysium, the Hyperliquid L2, in one transaction. Quoted in HYPE or USDC, zero platform fee, all supply locked in Uniswap v4 forever.",
+    heading: "Launch a token on Elysium",
+    intro: "Elysium is Kinetiq's layer 2 for Hyperliquid, where HYPE is the gas token. A launch here deploys a fixed-supply ERC-20, opens a Uniswap v4 pool on Elysium and locks all of the supply in it, in one transaction.",
+    gas: "HYPE",
+  },
 };
 
-/** The landing page path for a chain: /base, /robinhood, /arc. */
+/** The landing page path for a chain: /base, /robinhood, /arc, /elysium. */
 export function chainLandingPath(chain: ChainKey): string {
   return `/${chain}`;
 }

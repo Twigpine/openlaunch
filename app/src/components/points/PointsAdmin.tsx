@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
-import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
 import { buildPointsAdminMessage, normalizeSeasonDays, normalizeSeasonId, type PointsAdminAction } from "@/lib/points/auth";
 import type { NameEntry } from "@/lib/profiles/server";
@@ -13,12 +13,11 @@ import { friendlyError } from "@/lib/errors";
 import { nonce } from "@/lib/nonce";
 
 type Row = { rank: number; wallet: string; points: number; eligible: boolean; why: string };
-type SeasonView = { id: number; name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null; final: boolean };
+type SeasonView = { id: number; name: string; starts_at: string; ends_at: string; public: boolean; published_at: string | null; final: boolean; rules_version?: number };
 type Preview = { season: SeasonView | null; previous?: SeasonView | null; creator?: Row[]; scout?: Row[]; names?: Record<string, NameEntry>; computed_at?: string | null; wallets?: number; eligible?: number; at: number };
 
 /** What an action did, said when it went through but its answer carried no boards (an older server, a blip). */
 const DONE: Record<PointsAdminAction, string> = {
-  preview: "Loaded",
   start: "Season started (hidden)",
   publish: "Published",
   unpublish: "Boards hidden",
@@ -29,15 +28,16 @@ const DONE: Record<PointsAdminAction, string> = {
 /**
  * Season controls for an admin: start a season (not public), see the shadow boards (eligible or not, with why), publish
  * when the trial week looks right, recompute now, end early; and show or hide the previous public season while the
- * next one runs hidden. Every action is one admin signature (its answer carries the boards).
+ * next one runs hidden. The boards load with the admin session; every action is one admin signature as well (its
+ * answer carries the boards).
  */
 export default function PointsAdmin() {
-  const { address } = useHydratedAccount();
+  const { address } = useAdminAccount();
   const { chainId } = useAccount();
   const config = useConfig();
   const chain: ChainKey = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].id === chainId) ?? DEFAULT_CHAIN;
-  // the preview is read with one admin wallet's signature and shown only while that wallet is connected; an action
-  // or preview that finishes after a switch is dropped
+  // the boards are shown only while the signed-in admin wallet is connected; a load or an action that finishes after
+  // a switch is dropped
   const me = address?.toLowerCase() ?? "";
   const [loaded, setLoaded] = useState<{ wallet: string; v: Preview } | null>(null);
   const [failed, setFailed] = useState<{ wallet: string; message: string } | null>(null);
@@ -65,17 +65,32 @@ export default function PointsAdmin() {
     if (!res.ok) throw new Error(d.error ?? "failed");
     return d;
   }
+  async function load() {
+    const who = me;
+    setBusy(true);
+    setFailed(null);
+    try {
+      const res = await fetch("/api/points/admin", { cache: "no-store" });
+      const d = (await res.json().catch(() => ({}))) as Omit<Preview, "at"> & { error?: string };
+      if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
+      if (current.current === who) setLoaded({ wallet: who, v: { ...d, at: Date.now() } });
+    } catch (e) {
+      if (current.current === who) setFailed({ wallet: who, message: friendlyError(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
   async function run(action: PointsAdminAction, extra: Record<string, unknown> = {}) {
     const who = me;
     setBusy(true);
     setFailed(null);
     try {
-      // one signature: an action answers with the admin view as it is after it (preview is that view alone)
+      // one signature: an action answers with the admin view as it is after it
       const d = (await call(action, extra)) as (Record<string, unknown> & { view?: Omit<Preview, "at"> }) | null;
-      const v = action === "preview" ? (d as Omit<Preview, "at"> | null) : (d?.view ?? null);
+      const v = d?.view ?? null;
       if (current.current !== who) return;
       if (v) setLoaded({ wallet: who, v: { ...v, at: Date.now() } });
-      else if (action !== "preview") {
+      else {
         // the action went through but its answer carried no boards: the ones on screen are from before it, so they go
         setLoaded(null);
         setFailed({ wallet: who, message: `${DONE[action]}. Press Load to see where things stand.` });
@@ -116,7 +131,7 @@ export default function PointsAdmin() {
     <section className="space-y-3" aria-labelledby="points-admin">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="points-admin" className="text-lg font-semibold text-ink">Season points</h2>
-        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void run("preview")}>{data ? "Reload" : "Load"} (signature)</button>
+        <button type="button" disabled={busy} className={btn.secondarySm} onClick={() => void load()}>{data ? "Reload" : "Load"}</button>
       </div>
       {err ? <p className={`${card} p-4 text-sm text-down-ink`}>{err}</p> : null}
       {data ? (
@@ -124,7 +139,7 @@ export default function PointsAdmin() {
           <div className={`${card} space-y-3 p-4 text-sm`}>
             {s ? (
               <p className="text-body">
-                <strong className="text-ink">{s.name}</strong> · {new Date(s.starts_at).toUTCString().slice(5, 22)} → {new Date(s.ends_at).toUTCString().slice(5, 22)} UTC ·{" "}
+                <strong className="text-ink">{s.name}</strong> · rules v{s.rules_version ?? 1} · {new Date(s.starts_at).toUTCString().slice(5, 22)} → {new Date(s.ends_at).toUTCString().slice(5, 22)} UTC ·{" "}
                 {s.public ? <span className="font-semibold text-up">public</span> : <span className="font-semibold text-warm-ink">shadow (admins only)</span>} · {data.wallets ?? 0} wallets with points, {data.eligible ?? 0} eligible · computed {data.computed_at ? new Date(data.computed_at).toLocaleTimeString() : "not yet"}
               </p>
             ) : (

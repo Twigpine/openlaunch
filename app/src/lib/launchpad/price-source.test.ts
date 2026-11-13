@@ -23,7 +23,7 @@ function offline(t: TestContext) {
 }
 
 test("hasPriceSource: an unlisted ERC-20 and a stock without a feed have none; every other quote does", () => {
-  for (const key of ["eth", "usdg", "usdc", "gitlawb", "twig", "museworld"] as const) assert.equal(hasPriceSource({ key }), true, key);
+  for (const key of ["eth", "usdg", "usdc", "gitlawb", "twig", "pair"] as const) assert.equal(hasPriceSource({ key }), true, key);
   assert.equal(hasPriceSource({ key: "stock" }), true, "a stock with a feed, or any Robinhood Stock Token");
   assert.equal(hasPriceSource({ key: "stock", unpriced: false }), true);
   assert.equal(hasPriceSource({ key: "stock", unpriced: true }), false);
@@ -43,7 +43,11 @@ test("quote pricing: a feed-less Coinbase stock is a stock with no price source;
 test("hero totals: volume in a feed-less stock is left out without the undercount mark; a missing price on a stock with a feed sets it", async (t) => {
   offline(t);
   resetMock();
-  const row = (quote: string, volume: bigint) => ({ chain_id: BASE, quote, launches: 1n, trades: 4n, volume: volume.toString(), burned: "0", creators: "0" });
+  // trade-time model (trade-time-usd.ts): a trade with no stored value (here, all of them) counts at the quote's price now
+  const row = (quote: string, volume: bigint, storedUsd = 0, unpriced = volume) => ({
+    chain_id: BASE, quote, launches: 1n, trades: 4n, volume: volume.toString(), burned: "0", creators: "0",
+    volume_usd: storedUsd, collected_usd: 0, burned_usd: 0, volume_unpriced: unpriced.toString(), collected_unpriced: "0", burned_unpriced: "0",
+  });
   getMock().launchTotalsRows = [row(NATIVE, 10n ** 18n), row(NFLX, 5n * 10n ** 8n), row(NOT_A_STOCK, 10n ** 18n)];
   const quiet = await getLaunchTotals(2500);
   assert.equal(quiet.launches, 3);
@@ -59,17 +63,25 @@ test("hero totals: volume in a feed-less stock is left out without the undercoun
   // an idle launch (no volume, no fees) never marks the totals, whatever its quote
   getMock().launchTotalsRows = [row(NATIVE, 10n ** 18n), row(NVDA, 0n)];
   assert.equal((await getLaunchTotals(2500)).usd_partial, false);
+
+  // trades priced at their own hour count at that value, whatever the price is now; and a quote with no price right now
+  // does not mark the totals for its trades that already have one
+  getMock().launchTotalsRows = [row(NATIVE, 10n ** 18n, 3_100, 0n), row(NVDA, 10n ** 8n, 180, 0n)];
+  const stored = await getLaunchTotals(2500);
+  assert.equal(stored.volume_usd, 3_280, "1 ETH traded at $3,100 stays $3,100 at an ETH price of $2,500; NVDAc's $180 needs no price now");
+  assert.equal(stored.usd_partial, false);
   resetMock();
 });
 
 test("the points run waits for a missing price only when the quote has a price source", () => {
   const points = read("../points/server.ts");
-  assert.match(points, /if \(q\.usd === null && q\.priced && finalRun && now < end \+ PRICE_WAIT_MS\) return \{ skipped: `no price for \$\{q\.key\} right now; the final standings wait for it` \};/);
+  // (usdQ: the quote's price in the season's last hour once it has ended, else its price now)
+  assert.match(points, /if \(usdQ === null && q\.priced && finalRun && now < end \+ PRICE_WAIT_MS\) return \{ skipped: `no price for \$\{q\.key\} right now; the final standings wait for it` \};/);
   assert.doesNotMatch(points, /q\.key !== "other"/, "the key alone no longer decides: a feed-less stock has the key 'stock'");
   // and that answer is the same one the hero totals use
   const queries = read("./queries.ts");
   assert.match(queries, /return \{ key: q\.key, decimals: q\.decimals, usd: quoteUsd\(q, ethUsd\), priced: hasPriceSource\(q\) \};/);
-  assert.match(queries, /if \(usd === null && hasPriceSource\(q\) && \(/);
+  assert.match(queries, /const priced = hasPriceSource\(q\);\s*if \(missingNow\(r\.volume_unpriced, usd, priced\) \|\| missingNow\(r\.collected_unpriced, usd, priced\) \|\| missingNow\(r\.burned_unpriced, usd, priced\)\) t\.usd_partial = true;/);
   assert.match(queries, /\.\.\.\(stock\.priced \? \{\} : \{ unpriced: true \}\)/);
   // every launch row carries the same answer to the client (the wallet page's holdings total reads it)
   assert.match(queries, /quote_decimals_known: q\.decimalsKnown !== false,\s*quote_priced: hasPriceSource\(q\),/);

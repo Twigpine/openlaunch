@@ -49,6 +49,7 @@ export const STATIC_SITEMAP_ROUTES: StaticRoute[] = [
   { path: "/launch", changeFrequency: "weekly", priority: 0.8 },
   ...CHAIN_KEYS.map((chain): StaticRoute => ({ path: chainLandingPath(chain), changeFrequency: "hourly", priority: 0.8 })),
   { path: "/feed", changeFrequency: "hourly", priority: 0.7 },
+  { path: "/pairs", changeFrequency: "daily", priority: 0.6 },
   { path: "/rules", changeFrequency: "monthly", priority: 0.6 },
   { path: "/about", changeFrequency: "monthly", priority: 0.6 },
   { path: "/agents", changeFrequency: "monthly", priority: 0.6 },

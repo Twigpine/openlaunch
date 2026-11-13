@@ -1,5 +1,6 @@
 /** Signed admin messages for season points (pure; node --test loads this directly). */
-export const POINTS_ADMIN_ACTIONS = ["preview", "start", "publish", "unpublish", "end", "recompute"] as const;
+/** The admin view itself is a GET for an admin session (no signature); these change things, each one signed. */
+export const POINTS_ADMIN_ACTIONS = ["start", "publish", "unpublish", "end", "recompute"] as const;
 export type PointsAdminAction = (typeof POINTS_ADMIN_ACTIONS)[number];
 /** One of the admin actions on the points season. */
 export function isPointsAdminAction(v: unknown): v is PointsAdminAction {

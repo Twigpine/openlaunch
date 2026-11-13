@@ -1,8 +1,8 @@
 /** Pure shaping for the per-token share card (node --test loads this). */
 import { CHAIN_LABELS, type ChainKey } from "../chainKeys.ts";
 
-export type CardInput = { name: string; symbol: string; chain: ChainKey; fdv_usd: number | null; fdv_quote: number; quote_key: string; quote_symbol: string; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
-export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean | null; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" | "twig" | "museworld" } | null };
+export type CardInput = { name: string; symbol: string; chain: ChainKey; fdv_usd: number | null; fdv_quote: number; quote_key: string; quote_symbol: string; quote_logo?: string | null; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
+export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean | null; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" | "twig" | "pair"; logo?: string | null } | null };
 
 const DEAD = "0x000000000000000000000000000000000000dead";
 
@@ -45,16 +45,16 @@ export function shapeCard(l: CardInput, now: number): Card {
     up: finitePct ? pct >= 0 : null,
     fee: feeLabel(l.lp_fee, l.recipients),
     age: ageLabel(l.block_time, now),
-    quote: quotePillOf(l.quote_key, l.quote_symbol),
+    quote: quotePillOf(l.quote_key, l.quote_symbol, l.quote_logo ?? null),
   };
 }
 
-/** "priced in" pill: registry stocks get a ticker tile, GITLAWB the Gitlawb tile, TWIG the Twigpine tile, MUSEWORLD the blue Museworld pill; ETH / USDG / unlisted get none. */
-export function quotePillOf(quoteKey: string, quoteSymbol: string): Card["quote"] {
+/** "priced in" pill: registry stocks get a ticker tile, GITLAWB the Gitlawb tile, TWIG the Twigpine tile, a community pair its own logo; ETH / USDG / unlisted get none. */
+export function quotePillOf(quoteKey: string, quoteSymbol: string, quoteLogo: string | null = null): Card["quote"] {
   if (quoteKey === "twig") return { symbol: "TWIG", ticker: "TW", kind: "twig" };
   if (quoteKey === "gitlawb") return { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" };
-  if (quoteKey === "museworld") return { symbol: "MUSEWORLD", ticker: "MW", kind: "museworld" };
   const sym = quoteSymbol.trim();
+  if (quoteKey === "pair" && sym) return { symbol: sym.slice(0, 12), ticker: sym.toUpperCase().slice(0, 4), kind: "pair", logo: quoteLogo };
   if (quoteKey !== "stock" || !sym || sym === "?") return null;
   return { symbol: sym.slice(0, 12), ticker: sym.replace(/c$/, "").toUpperCase().slice(0, 5), kind: "stock" };
 }

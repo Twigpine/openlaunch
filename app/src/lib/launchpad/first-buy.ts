@@ -17,7 +17,7 @@ import type { Quote } from "./config";
 export const SUGGESTED_BUY_USD = 25;
 
 /** Quick-pick amounts per quote; the first one is the suggestion (about $25 at the prices this was written at). */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], usdc: ["25", "100", "250"], gitlawb: ["500000", "1000000", "5000000"], twig: ["1000000", "2500000", "5000000"], museworld: [] /* not offered in the form */, stock: [], other: [] /* the form never offers an unlisted quote */ };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], hype: ["0.3", "1.5", "3", "7.5"], usdg: ["25", "100", "250"], usdc: ["25", "100", "250"], gitlawb: ["500000", "1000000", "5000000"], twig: ["1000000", "2500000", "5000000"], pair: [] /* the suggestion comes from the live price */, stock: [], other: [] /* the form never offers an unlisted quote */ };
 
 export type NoSuggestion = "no-price" | "not-issued" | "unknown-balance" | "insufficient" | "no-gas" | "declined";
 /** `provisional`: shown as selected but not yet confirmed against a balance (no wallet yet, or the read is pending). */
@@ -64,6 +64,8 @@ export type SuggestInput = {
   sharesGasBalance?: boolean;
   /** The creator cleared the suggestion (this session). */
   declined: boolean;
+  /** The quote is the chain's native asset (address(0), config.isNativeQuote): the buy and its gas come from one balance. Decided by address, never by key (WETH and WHYPE share their native asset's key); unset falls back to the form's native keys. */
+  native?: boolean;
   /** viem's parseUnits, injected so this module stays dependency-free for tests. */
   parse: (amount: string, decimals: number) => bigint;
 };
@@ -81,7 +83,9 @@ export function suggestFirstBuy(i: SuggestInput): FirstBuySuggestion {
   if (!i.connected) return { amount, provisional: true }; // selected from the start; a wallet can only take it away
   if (i.balance === undefined || i.nativeBalance === undefined) return i.balanceFailed ? { amount: null, reason: "unknown-balance" } : { amount, provisional: true };
   const raw = i.parse(amount, i.quote.decimals);
-  if (i.quote.key === "eth" || i.sharesGasBalance) return raw + gasReserveInQuote(i.gasReserve, i.quote.decimals) > i.balance ? { amount: null, reason: "insufficient" } : { amount, provisional: false };
+  // a native quote pays the buy and its gas from one balance (callers pass `native` from the address; the key fallback is the form's ETH and HYPE)
+  const native = i.native ?? (i.quote.key === "eth" || i.quote.key === "hype");
+  if (native || i.sharesGasBalance) return raw + gasReserveInQuote(i.gasReserve, i.quote.decimals) > i.balance ? { amount: null, reason: "insufficient" } : { amount, provisional: false };
   if (raw > i.balance) return { amount: null, reason: "insufficient" };
   if (i.nativeBalance < i.gasReserve) return { amount: null, reason: "no-gas" };
   return { amount, provisional: false };
