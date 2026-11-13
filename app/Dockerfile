@@ -48,6 +48,9 @@ ARG NEXT_PUBLIC_LAUNCH_FACTORY_ARC
 ARG NEXT_PUBLIC_LAUNCH_LOCKER_ARC
 ARG NEXT_PUBLIC_LAUNCH_FACTORY_ELYSIUM
 ARG NEXT_PUBLIC_LAUNCH_LOCKER_ELYSIUM
+# The commit this image was built from (scripts/deploy.sh passes it; .git is not in the build context). Read by the
+# server at run time for /api/health; never inlined into the client bundle.
+ARG GIT_SHA
 # Server-side reads of the same vars must match the client build. Everything
 # secret (DATABASE_URL, RPC, deploy block) comes from Fly secrets at runtime — see LAUNCH.md.
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 \
@@ -61,6 +64,7 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 \
     NEXT_PUBLIC_LAUNCH_LOCKER_ARC=$NEXT_PUBLIC_LAUNCH_LOCKER_ARC \
     NEXT_PUBLIC_LAUNCH_FACTORY_ELYSIUM=$NEXT_PUBLIC_LAUNCH_FACTORY_ELYSIUM \
     NEXT_PUBLIC_LAUNCH_LOCKER_ELYSIUM=$NEXT_PUBLIC_LAUNCH_LOCKER_ELYSIUM \
+    GIT_SHA=$GIT_SHA \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static

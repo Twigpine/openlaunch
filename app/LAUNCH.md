@@ -33,9 +33,10 @@ cast send 0x7a6373BC4796971059824D5ce8DF71AdE54d0285 "batchRelease(uint256,uint2
 ```
 cd basebid
 NEXT_PUBLIC_LAUNCH_FACTORY=0x… NEXT_PUBLIC_LAUNCH_LOCKER=0x… LAUNCH_DEPLOY_BLOCK=… ./scripts/fly-secrets.sh
-fly deploy -c fly.toml --ha=false --remote-only \
-  --build-arg NEXT_PUBLIC_LAUNCH_FACTORY=0x… --build-arg NEXT_PUBLIC_LAUNCH_LOCKER=0x…
-curl -s https://basebid.lol/api/health
+# releases since v1.0.0: tag the commit, then deploy it with the script (see README "Releasing"); it passes every
+# build arg from the hash-pinned contracts/deployments records and checks /api/health afterwards
+app/scripts/deploy.sh --dry-run && app/scripts/deploy.sh
+curl -s https://openlaunch.lol/api/health
 ```
 The release command applies `db/schema.sql` (adds the launch tables; leaves the old `bb_*`
 board tables in place — drop them by hand later if wanted).
