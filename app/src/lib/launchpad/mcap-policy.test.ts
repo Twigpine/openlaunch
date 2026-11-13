@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { API_MCAP_DEFAULT, classifyMcap, MCAP_HIGH_USD, MCAP_SUPPORT_RATIO, parseMcapMode, type McapFacts } from "./mcap-policy.ts";
 
@@ -41,4 +42,15 @@ test("the site defaults to the filter; the API keeps its unfiltered order unless
     assert.equal(parseMcapMode("filtered", fallback), "filtered");
     assert.equal(parseMcapMode("all", fallback), "all");
   }
+});
+
+test("the list query's size does not grow with the unlisted quote tokens or a whole stock registry", () => {
+  const q = readFileSync(new URL("./queries.ts", import.meta.url), "utf8");
+  // unlisted decimals come from one primary-key lookup in SQL, never one bound CASE arm per bb_quote_tokens row
+  assert.match(q, /COALESCE\(\(SELECT qt\.decimals FROM bb_quote_tokens qt WHERE qt\.chain_id = l\.chain_id AND qt\.address = l\.quote AND qt\.decimals BETWEEN 0 AND 36\), 18\)/);
+  assert.match(q, /const qd = db`\(CASE \$\{stableDecCase\} \$\{pairDecCase\} \$\{decCase\} ELSE \$\{unlistedDec\} END\)`/);
+  assert.doesNotMatch(q, /prices\.quoteTokens\.entries\(\)/);
+  // stock decimals arms cover the stocks launches use (stockUsdInUse), not every registry entry
+  assert.match(q, /const stockDecArms = \[\.\.\.prices\.stocks\.keys\(\)\]/);
+  assert.doesNotMatch(q, /\[\.\.\.prices\.stockQuotes\.values\(\)\]/);
 });

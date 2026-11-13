@@ -384,18 +384,21 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const hypeCase = hypeArms.length ? hypeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   // unknown prices are NULL: 0 weight in the volume sorts (COALESCE below), last in the market-cap sort
   const usdPerUnit = db`(CASE ${stableCase} ${pairCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision ${ethCase} ${hypeCase} ELSE NULL::double precision END)`;
-  const stockDecArms = [...prices.stockQuotes.values()].filter((s) => s.decimals !== 18).map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address.toLowerCase()}) THEN ${s.decimals}`);
-  const unlistedDecArms = [...prices.quoteTokens.entries()].flatMap(([key, meta]) => {
-    const [cid, address] = key.split(":");
-    return meta.decimals !== null && meta.decimals >= 0 && meta.decimals <= 36 ? [db`WHEN (l.chain_id = ${Number(cid)} AND l.quote = ${address}) THEN ${meta.decimals}`] : [];
-  });
-  stockDecArms.push(...unlistedDecArms);
+  // quote decimals for the SQL valuations (the market-cap list shows the FDV computed here): one arm per registry stock that a
+  // launch uses, so the statement grows with the stocks in use, never with a whole registry; an unlisted quote's decimals are
+  // looked up below rather than bound one arm per bb_quote_tokens row, which has no size limit (any ERC-20 can be a quote)
+  const stockDecArms = [...prices.stocks.keys()].flatMap((a) => stockChains(a).flatMap((k) => {
+    const s = prices.stockQuotes.get(`${k}:${a.toLowerCase()}`);
+    return s && s.decimals !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${s.decimals}`] : [];
+  }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const pairDec = pairs.filter((p) => p.decimals !== 18);
   const pairDecCase = pairDec.length ? pairDec.map((p) => db`WHEN (l.chain_id = ${chainIdOf(p.chain)} AND l.quote = ${p.address}) THEN ${p.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const qd = db`(CASE ${stableDecCase} ${pairDecCase} ${decCase} ELSE 18 END)`;
+  // an unlisted quote: its decimals as the indexer read them (primary-key probe), 18 when unknown or out of range
+  const unlistedDec = db`COALESCE((SELECT qt.decimals FROM bb_quote_tokens qt WHERE qt.chain_id = l.chain_id AND qt.address = l.quote AND qt.decimals BETWEEN 0 AND 36), 18)`;
+  const qd = db`(CASE ${stableDecCase} ${pairDecCase} ${decCase} ELSE ${unlistedDec} END)`;
   const volCol = db.unsafe(VOLUME_COLUMN_SQL[win]);
   // the all-time window ranks by trade-time USD (each trade at its own hour, trades with no stored value at today's price, as
   // shape() shows it); 1h and 24h stay quote volume at today's price, where every trade is priced live anyway. An unknown
