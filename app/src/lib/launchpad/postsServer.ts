@@ -188,6 +188,7 @@ export async function reportPost(p: { postId: unknown; wallet: string; reason: u
   const postId = Number(p.postId);
   if (!Number.isInteger(postId) || postId <= 0) return fail("bad post", 400);
   if (!isReportReason(p.reason)) return fail("bad reason", 400);
+  const reason = p.reason;
   if (!isNonce(p.nonce) || !tsFresh(p.ts, Date.now())) return fail("stale or bad nonce", 400);
   const [post] = await db<{ chain_id: number; wallet: string }[]>`SELECT chain_id, wallet FROM bb_posts WHERE id = ${postId}`;
   if (!post) return fail("post not found", 404);
@@ -196,7 +197,7 @@ export async function reportPost(p: { postId: unknown; wallet: string; reason: u
   // reporters need skin in the game too: any trade or launch on the site
   const [act] = await db<{ n: bigint }[]>`SELECT (SELECT count(*) FROM bb_launch_swaps WHERE trader = ${wallet}) + (SELECT count(*) FROM bb_launches WHERE launcher = ${wallet}) + (SELECT count(*) FROM bb_posts WHERE wallet = ${wallet}) AS n`;
   if (Number(act.n) === 0) return fail("trade, launch or post first to report", 403);
-  const message = buildReportMessage({ postId, wallet, nonce: p.nonce, ts: Number(p.ts), reason: p.reason });
+  const message = buildReportMessage({ postId, wallet, nonce: p.nonce, ts: Number(p.ts), reason });
   if (!(await verify(chain, wallet, message, p.signature))) return fail("signature does not match", 401);
   if (!(await consumeNonce(p.nonce, wallet))) return fail("nonce already used", 401);
   // Only a fresh signed action may spend this wallet's allowance. Unsigned
@@ -208,7 +209,7 @@ export async function reportPost(p: { postId: unknown; wallet: string; reason: u
     // and a delayed UPDATE can overwrite the newer count. Moderation takes this row lock too.
     const [current] = await sql`SELECT id FROM bb_posts WHERE id = ${postId} FOR UPDATE`;
     if (!current) return fail("post not found", 404);
-    await sql`INSERT INTO bb_post_reports (post_id, wallet, reason) VALUES (${postId}, ${wallet}, ${p.reason}) ON CONFLICT DO NOTHING`;
+    await sql`INSERT INTO bb_post_reports (post_id, wallet, reason) VALUES (${postId}, ${wallet}, ${reason}) ON CONFLICT DO NOTHING`;
     const [c] = await sql<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM bb_post_reports WHERE post_id = ${postId}`;
     const n = Number(c.n);
     const hide = n >= AUTO_HIDE_REPORTS;
