@@ -90,8 +90,9 @@ test("get_token_trades reads the launch first, for the quote's decimals", async 
       return [{ tx_hash: "0x1" }];
     },
   });
-  const result = (await run(all, "get_token_trades", { chain: "base", token: TOKEN, limit: 5 })) as { trades: unknown[] };
+  const result = (await run(all, "get_token_trades", { chain: "base", token: TOKEN, limit: 5 })) as { quote_decimals: number; trades: unknown[] };
   assert.deepEqual(swapArgs, ["base", TOKEN, 18, 5]);
+  assert.equal(result.quote_decimals, 18);
   assert.equal(result.trades.length, 1);
 });
 

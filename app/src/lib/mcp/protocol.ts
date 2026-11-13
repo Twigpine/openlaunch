@@ -46,11 +46,14 @@ export function failure(id: JsonRpcId | null, code: number, message: string, dat
   return { jsonrpc: "2.0", id, error: data === undefined ? { code, message } : { code, message, data } };
 }
 
+/** True for a protocol version this server speaks. */
+export function isSupportedProtocolVersion(raw: unknown): raw is McpProtocolVersion {
+  return typeof raw === "string" && (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(raw);
+}
+
 /** A protocol version this server speaks (used for `initialize`). */
 export function supportedVersion(raw: unknown): McpProtocolVersion {
-  return typeof raw === "string" && (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(raw)
-    ? (raw as McpProtocolVersion)
-    : MCP_LATEST_PROTOCOL_VERSION;
+  return isSupportedProtocolVersion(raw) ? raw : MCP_LATEST_PROTOCOL_VERSION;
 }
 
 /** True when a JSON-RPC id is a string or a number, as MCP requires. */

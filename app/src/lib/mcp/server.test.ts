@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { failure, isJsonRpcId, RPC_ERRORS, supportedVersion, success } from "./protocol.ts";
+import { failure, isJsonRpcId, isSupportedProtocolVersion, RPC_ERRORS, supportedVersion, success } from "./protocol.ts";
 import { createMcpServer, ToolError, type McpTool } from "./server.ts";
 import type { ObjectSchema } from "./schema.ts";
 
@@ -130,6 +130,26 @@ test("unknown tools and methods get the right JSON-RPC errors", async () => {
   assert.deepEqual(params, failure(1, RPC_ERRORS.invalidParams, "params must be an object"));
 });
 
+test("handleBatch answers requests in order and omits notifications", async () => {
+  const s = server();
+  const responses = await s.handleBatch([
+    call("ping", undefined, 1),
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    call("tools/list", undefined, "list"),
+    ["nested"],
+    call("made/up", undefined, 4),
+  ]);
+  assert.equal(responses.length, 4);
+  assert.deepEqual(responses[0], success(1, {}));
+  assert.ok("result" in responses[1]);
+  assert.equal((responses[1].result as { tools: unknown[] }).tools.length, 1);
+  assert.ok("error" in responses[2]);
+  assert.equal(responses[2].error.code, RPC_ERRORS.invalidRequest);
+  assert.deepEqual(responses[3], failure(4, RPC_ERRORS.methodNotFound, "method not found: made/up"));
+
+  assert.deepEqual(await s.handleBatch([{ jsonrpc: "2.0", method: "made/up" }]), []);
+});
+
 test("notifications get no response; malformed requests get invalid-request", async () => {
   const s = server();
   assert.equal(await s.handle({ jsonrpc: "2.0", method: "notifications/initialized" }), null);
@@ -147,6 +167,11 @@ test("isJsonRpcId and supportedVersion keep their contracts", () => {
   assert.equal(isJsonRpcId(0), true);
   assert.equal(isJsonRpcId(null), false);
   assert.equal(isJsonRpcId(Number.NaN), false);
+  assert.equal(isSupportedProtocolVersion("2025-06-18"), true);
+  assert.equal(isSupportedProtocolVersion("2025-03-26"), true);
+  assert.equal(isSupportedProtocolVersion("2024-11-05"), true);
+  assert.equal(isSupportedProtocolVersion("nope"), false);
+  assert.equal(isSupportedProtocolVersion(null), false);
   assert.equal(supportedVersion("2024-11-05"), "2024-11-05");
   assert.equal(supportedVersion("nope"), "2025-06-18");
 });

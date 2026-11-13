@@ -4,18 +4,26 @@ import { clientIp, readJsonValue } from "@/lib/http";
 import { rateLimited } from "@/lib/rateLimit";
 import { APP_VERSION } from "@/lib/version";
 import { originAllowed } from "@/lib/mcp/origin";
-import { failure, RPC_ERRORS, type JsonRpcResponse } from "@/lib/mcp/protocol";
+import {
+  failure,
+  isSupportedProtocolVersion,
+  MCP_LATEST_PROTOCOL_VERSION,
+  RPC_ERRORS,
+  type JsonRpcResponse,
+} from "@/lib/mcp/protocol";
 import { createMcpServer } from "@/lib/mcp/server";
 import { createMcpTools } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** One JSON-RPC message, not a batch: MCP 2025-06-18 removed batching. */
+/** One JSON-RPC message or one batch; older MCP versions allowed batches. */
 const MAX_BODY = 65_536;
 /** Requests per IP per minute. A tool call is several indexed reads, not a scrape. */
 const RATE_LIMIT = 120;
 const RATE_WINDOW_MS = 60_000;
+/** A batch is one HTTP request; cap it so it cannot amplify the rate limit. */
+const MAX_BATCH = 20;
 
 const HEADERS = {
   "cache-control": "no-store",
@@ -66,6 +74,14 @@ export async function POST(req: Request): Promise<Response> {
     return rpcError(413, RPC_ERRORS.invalidRequest, "request body too large");
   }
 
+  // The 2025-06-18 transport requires 400 for an unknown version header. No
+  // header means the client predates the header; assume 2025-03-26, as the
+  // spec's backwards-compatibility rule says.
+  const protocolVersion = req.headers.get("mcp-protocol-version");
+  if (protocolVersion !== null && !isSupportedProtocolVersion(protocolVersion)) {
+    return rpcError(400, RPC_ERRORS.invalidRequest, "unsupported MCP-Protocol-Version");
+  }
+
   const ip = clientIp(req);
   if (rateLimited(`mcp:ip:${ip}`, RATE_LIMIT, RATE_WINDOW_MS)) {
     return NextResponse.json(
@@ -76,6 +92,22 @@ export async function POST(req: Request): Promise<Response> {
 
   const value = await readJsonValue(req, MAX_BODY);
   if (value === undefined) return rpcError(400, RPC_ERRORS.parse, "parse error");
+
+  if (Array.isArray(value)) {
+    // A 2025-06-18 client must not batch; an absent header falls back to
+    // 2025-03-26, whose clients may.
+    if (protocolVersion === MCP_LATEST_PROTOCOL_VERSION) {
+      return rpcError(400, RPC_ERRORS.invalidRequest, "JSON-RPC batches are not supported by 2025-06-18");
+    }
+    if (value.length === 0) return rpcError(400, RPC_ERRORS.invalidRequest, "empty JSON-RPC batch");
+    if (value.length > MAX_BATCH) {
+      return rpcError(400, RPC_ERRORS.invalidRequest, `JSON-RPC batch is limited to ${MAX_BATCH} messages`);
+    }
+    const responses = await server.handleBatch(value);
+    // A batch of only notifications gets 202 and no body.
+    if (responses.length === 0) return new Response(null, { status: 202, headers: HEADERS });
+    return json(responses);
+  }
 
   const response = await server.handle(value);
   // A JSON-RPC notification gets 202 and no body, as the transport requires.

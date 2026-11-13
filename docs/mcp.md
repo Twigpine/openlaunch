@@ -10,9 +10,10 @@ It exists for the same reason `/llms.txt` and the JSON API do: the interface is 
 launch facts, trades, holders, posts, community pairs, the points board and protocol totals without scraping the
 site. No API key, no account, no session, and no write path.
 
-The server is stateless. It answers one JSON-RPC 2.0 message per POST with a JSON response, never opens an SSE
-stream, and never sends server-to-client requests. That is a valid MCP Streamable HTTP transport: the spec allows a
-server to answer with `application/json` instead of `text/event-stream`.
+The server is stateless. It answers one JSON-RPC 2.0 message per POST with a JSON response (a client using
+`2025-03-26` or `2024-11-05` may send one batch instead), never opens an SSE stream, and never sends
+server-to-client requests. That is a valid MCP Streamable HTTP transport: the spec allows a server to answer with
+`application/json` instead of `text/event-stream`.
 
 ## Connect
 
@@ -51,9 +52,12 @@ The server is stateless, so the `Mcp-Session-Id` header is neither issued nor re
 
 ## Protocol
 
-- JSON-RPC 2.0, one message per POST. Batches are rejected: MCP `2025-06-18` removed them.
+- JSON-RPC 2.0. One message per POST, or one batch of up to 20 messages for `2025-03-26` and `2024-11-05`.
+  MCP `2025-06-18` removed batching, so a batch carrying that version header is rejected. When the header is
+  absent the transport assumes `2025-03-26`, as the specification's compatibility rule says, and accepts a batch.
 - Supported protocol versions: `2025-06-18` (latest), `2025-03-26`, `2024-11-05`. `initialize` echoes a version it
-  speaks and otherwise offers `2025-06-18`.
+  speaks and otherwise offers `2025-06-18`. After initialization, clients send `MCP-Protocol-Version`; an unknown
+  value gets HTTP `400`.
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`. A notification (a message without `id`) gets HTTP
   `202` and no body; unknown notifications are ignored, as JSON-RPC requires.
 - A tool that rejects its arguments, or cannot find the requested record, returns a normal JSON-RPC result with
@@ -101,8 +105,10 @@ address is not an openlaunch launch on that chain.
 
 ### `get_token_trades`
 
-`{chain, token, limit?}` → `{chain, token, trades}`. Newest swaps first. `limit` 1–50, default 20. Raw amounts are
-decimal integer strings; `price_quote` is in the token's quote asset.
+`{chain, token, limit?}` → `{chain, token, quote_decimals, trades}`. Newest swaps first. `limit` 1–50, default 20.
+`amount0` and `amount1` are raw base-unit decimal integer strings, not display units; scale the quote side by
+`quote_decimals` from the response (and the token side by the token's own decimals). `price_quote` is in whole quote
+units per token.
 
 ### `get_token_holders`
 
@@ -122,7 +128,7 @@ live tape shape). `limit` 1–50, default 20.
 - `scope=token`: one token's posts; requires `chain` and `token`; returns a `nextCursor` for older pages.
 - `limit` 1–50, default 20.
 
-Hidden and reported posts are never returned.
+Hidden posts are never returned. Reported posts stay visible until auto-hide marks them hidden.
 
 ### `list_community_pairs`
 
@@ -151,8 +157,8 @@ The same caveats as the JSON API apply:
 
 - The chain is the source of truth; these tables are an index. Indexing lags by a few blocks, and a very new launch
   may not be visible yet. `POST /api/launch/sync?chain=…&tx=…` asks the site to index a transaction immediately.
-- Amounts are display-unit numbers in launch and trade rows; raw on-chain values are strings where the API says so.
-  Use the row's `quote_decimals` for quote amounts, not a blanket 18.
+- Launch rows contain display-unit numbers. Swap amounts are raw base-unit decimal integer strings; use
+  `quote_decimals` from `get_token_trades` (or the launch row) for quote amounts, not a blanket 18.
 - USD figures can be `null` or partial when the price feed is down. The response says when it is partial.
 - There are no platform fees, no owner, and no write tools. A read-only MCP server cannot launch, trade or sign.
 

@@ -169,7 +169,9 @@ export function createMcpTools(overrides: Partial<McpToolDeps> = {}): McpTool[] 
     {
       name: "get_token_trades",
       title: "Get a token's trades",
-      description: "The newest indexed swaps for one launch, newest first, with quote and token amounts in display units.",
+      description:
+        "The newest indexed swaps for one launch, newest first. Amounts are raw base-unit decimal integer strings, not display " +
+        "units; scale the quote side by quote_decimals from the response.",
       inputSchema: {
         type: "object",
         properties: {
@@ -186,7 +188,12 @@ export function createMcpTools(overrides: Partial<McpToolDeps> = {}): McpTool[] 
         const token = (args.token as string).toLowerCase();
         const launch = await deps.getLaunch(chain, token);
         if (!launch) throw new ToolError(`no launch at ${token} on ${chain}`);
-        return { chain, token, trades: await deps.getSwaps(chain, token, launch.quote_decimals, args.limit as number) };
+        return {
+          chain,
+          token,
+          quote_decimals: launch.quote_decimals,
+          trades: await deps.getSwaps(chain, token, launch.quote_decimals, args.limit as number),
+        };
       },
     },
 
@@ -269,7 +276,7 @@ export function createMcpTools(overrides: Partial<McpToolDeps> = {}): McpTool[] 
       title: "List community posts",
       description:
         "Wallet-signed community posts. scope=feed returns the newest top-level posts across the site; scope=token returns one token's " +
-        "posts with a cursor. Hidden and reported posts are never returned.",
+        "posts with a nextCursor. Hidden posts are never returned; reported posts stay visible until auto-hide marks them hidden.",
       inputSchema: {
         type: "object",
         properties: {
@@ -279,7 +286,7 @@ export function createMcpTools(overrides: Partial<McpToolDeps> = {}): McpTool[] 
           limit: limitProperty(50, 20),
           before_id: {
             type: "integer",
-            description: "scope=token only: return posts older than this post id (the previous response's next_cursor).",
+            description: "scope=token only: return posts older than this post id (the previous response's nextCursor).",
             minimum: 1,
           },
         },

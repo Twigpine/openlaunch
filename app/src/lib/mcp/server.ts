@@ -63,9 +63,14 @@ function paramsObject(params: unknown): Record<string, unknown> | null {
 /**
  * Build a stateless MCP request handler. The returned `handle` takes one
  * decoded JSON-RPC value and returns one response, or null when the message is
- * a notification (which JSON-RPC forbids answering).
+ * a notification (which JSON-RPC forbids answering). `handleBatch` does the
+ * same for one batch of messages; the route decides whether the request's
+ * protocol version allows a batch.
  */
-export function createMcpServer(options: McpServerOptions): { handle: (value: unknown) => Promise<JsonRpcResponse | null> } {
+export function createMcpServer(options: McpServerOptions): {
+  handle: (value: unknown) => Promise<JsonRpcResponse | null>;
+  handleBatch: (values: readonly unknown[]) => Promise<JsonRpcResponse[]>;
+} {
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
   const publicTools = options.tools.map((tool) => ({
     name: tool.name,
@@ -75,10 +80,7 @@ export function createMcpServer(options: McpServerOptions): { handle: (value: un
     annotations: tool.annotations,
   }));
 
-  async function handle(value: unknown): Promise<JsonRpcResponse | null> {
-    // MCP 2025-06-18 does not use JSON-RPC batching; reject it rather than
-    // guessing at an order.
-    if (Array.isArray(value)) return invalid(null, "JSON-RPC batches are not supported");
+  async function handleOne(value: unknown): Promise<JsonRpcResponse | null> {
     if (!isPlainObject(value)) return invalid(null, "A JSON-RPC request must be an object");
     const message = value as Message;
     if (message.jsonrpc !== "2.0") return invalid(null, 'jsonrpc must be "2.0"');
@@ -145,7 +147,24 @@ export function createMcpServer(options: McpServerOptions): { handle: (value: un
     }
   }
 
-  return { handle };
+  async function handle(value: unknown): Promise<JsonRpcResponse | null> {
+    // A single-message entry point must not accept a batch silently; the
+    // route calls handleBatch for versions that allow one.
+    if (Array.isArray(value)) return invalid(null, "send JSON-RPC batches through handleBatch");
+    return handleOne(value);
+  }
+
+  async function handleBatch(values: readonly unknown[]): Promise<JsonRpcResponse[]> {
+    const responses: JsonRpcResponse[] = [];
+    for (const value of values) {
+      const response = await handleOne(value);
+      // Notifications have no response and are omitted, as JSON-RPC requires.
+      if (response !== null) responses.push(response);
+    }
+    return responses;
+  }
+
+  return { handle, handleBatch };
 }
 
 /** A tool execution error: valid JSON-RPC, `isError: true` in the tool result, so the model can correct itself. */

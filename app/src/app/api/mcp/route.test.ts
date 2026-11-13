@@ -54,7 +54,7 @@ test("a browser origin is checked; non-browser clients and the site origin are a
   assert.equal(www.status, 200);
 });
 
-test("content type, parse errors, batches and unknown methods are rejected cleanly", async () => {
+test("content type, parse errors and unknown methods are handled cleanly", async () => {
   const wrongType = await POST(post(initialize, { "content-type": "text/plain" }));
   assert.equal(wrongType.status, 415);
 
@@ -62,13 +62,52 @@ test("content type, parse errors, batches and unknown methods are rejected clean
   assert.equal(malformed.status, 400);
   assert.equal(((await malformed.json()) as { error: { code: number } }).error.code, -32700);
 
-  const batch = await POST(post([initialize]));
-  assert.equal(batch.status, 200);
-  assert.equal(((await batch.json()) as { error: { code: number } }).error.code, -32600);
-
   const unknown = await POST(post({ jsonrpc: "2.0", id: 9, method: "resources/list" }));
   assert.equal(unknown.status, 200);
   assert.equal(((await unknown.json()) as { error: { code: number } }).error.code, -32601);
+});
+
+test("the protocol header is validated and batches follow the declared version", async () => {
+  const ping = { jsonrpc: "2.0", id: 10, method: "ping" };
+  const note = { jsonrpc: "2.0", method: "notifications/initialized" };
+
+  const unsupported = await POST(post(ping, { "mcp-protocol-version": "1999-01-01" }));
+  assert.equal(unsupported.status, 400);
+  assert.equal(((await unsupported.json()) as { error: { code: number } }).error.code, -32600);
+
+  const supported = await POST(post(ping, { "mcp-protocol-version": "2024-11-05" }));
+  assert.equal(supported.status, 200);
+  assert.deepEqual((await supported.json()) as unknown, { jsonrpc: "2.0", id: 10, result: {} });
+
+  // 2025-06-18 removed JSON-RPC batching.
+  const modern = await POST(post([ping], { "mcp-protocol-version": "2025-06-18" }));
+  assert.equal(modern.status, 400);
+  assert.equal(((await modern.json()) as { error: { code: number } }).error.code, -32600);
+
+  // Older versions batch; notifications in the batch are not answered.
+  const older = await POST(post([ping, note, { jsonrpc: "2.0", id: 11, method: "tools/list" }], { "mcp-protocol-version": "2025-03-26" }));
+  assert.equal(older.status, 200);
+  const olderBody = (await older.json()) as Array<{ id?: number }>;
+  assert.equal(olderBody.length, 2);
+  assert.equal(olderBody[0].id, 10);
+  assert.equal(olderBody[1].id, 11);
+
+  // No header means the 2025-03-26 compatibility fallback, so a batch is accepted.
+  const fallback = await POST(post([ping]));
+  assert.equal(fallback.status, 200);
+  assert.equal(((await fallback.json()) as unknown[]).length, 1);
+
+  const onlyNotifications = await POST(post([note, note], { "mcp-protocol-version": "2025-03-26" }));
+  assert.equal(onlyNotifications.status, 202);
+  assert.equal(await onlyNotifications.text(), "");
+
+  const empty = await POST(post([], { "mcp-protocol-version": "2025-03-26" }));
+  assert.equal(empty.status, 400);
+  assert.equal(((await empty.json()) as { error: { code: number } }).error.code, -32600);
+
+  const tooMany = await POST(post(Array.from({ length: 21 }, (_, i) => ({ ...ping, id: i })), { "mcp-protocol-version": "2025-03-26" }));
+  assert.equal(tooMany.status, 400);
+  assert.equal(((await tooMany.json()) as { error: { code: number } }).error.code, -32600);
 });
 
 test("a tool call returns text content; an invalid tool call stays a tool error", async () => {
