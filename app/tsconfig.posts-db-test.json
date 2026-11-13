@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/lib/db": ["./scripts/posts-db-test-db.ts"],
+      "@/lib/chain": ["./scripts/posts-db-test-chain.ts"]
+    }
+  },
+  "include": ["src/lib/launchpad/postsServer.db.test.ts"],
+  "exclude": ["node_modules"]
+}
