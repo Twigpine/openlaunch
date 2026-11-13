@@ -12,6 +12,9 @@ type NonceRow = {
 };
 
 type MockState = {
+  // Optional route-test dependencies; the defaults below keep existing edit tests unchanged.
+  query?: (sql: string, values: unknown[]) => Promise<unknown[]>;
+  publicClient?: object;
   nonceRows: Record<string, NonceRow>;
   launcherRows: Record<string, { launcher: string; name: string; symbol: string }>;
   metaInserted: boolean;
@@ -73,6 +76,8 @@ function restore(m: MockState, snap: { nonceRows: Record<string, NonceRow>; meta
 function fakeDb(strings: TemplateStringsArray, ...values: unknown[]): Promise<any[]> {
   const sql = strings.join("?");
   const m = getMock();
+
+  if (m.query) return m.query(sql, values);
 
   // UPDATE bb_edit_nonces SET used_at = now() ... RETURNING nonce
   // Checks all predicates from applySignedEdit: nonce, chain_id, token,

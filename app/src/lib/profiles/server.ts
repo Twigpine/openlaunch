@@ -5,7 +5,7 @@ import { publicClient } from "@/lib/chain";
 import { CHAIN_LABELS, DEFAULT_CHAIN, isChainKey, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb, type Db } from "@/lib/db";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
-import { rateLimited } from "@/lib/launchpad/editServer";
+import { rateLimited } from "@/lib/rateLimit";
 import { adminWallets } from "@/lib/launchpad/postsServer";
 import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import { buildProfileDeleteMessage, buildProfileMessage, buildProfileModMessage, isNonce, isProfileModAction, tsFresh } from "./auth";
@@ -278,8 +278,8 @@ export async function admitAdmin(s: Signed, message: (w: string, nonce: string, 
 }
 
 /**
- * Shared front of every signed write: shapes, freshness, signature, then (only then) the rate-limit bucket and the
- * nonce. The signature may be over any one of several candidate messages, tried in order (a save accepts its fields
+ * Shared front of every signed write: shapes, freshness, signature, single-use nonce, then the rate-limit bucket.
+ * The signature may be over any one of several candidate messages, tried in order (a save accepts its fields
  * exactly as sent or their cleaned form).
  */
 async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: number) => string | string[]): Promise<{ ok: true; wallet: string; ts: number } | Fail> {
@@ -293,9 +293,11 @@ async function admit(db: Db, s: Signed, message: (w: string, nonce: string, ts: 
   if (v === "down") return fail("signature check unavailable, try again", 503);
   if (v === "bad") return fail("signature does not match (with a smart wallet, switch it to Base and sign again)", 401);
   if (typeof v === "object") return fail(`your wallet lives on ${CHAIN_LABELS[v.switchTo]}: switch your wallet to ${CHAIN_LABELS[v.switchTo]} and sign again`, 409);
-  // the wallet bucket is spent only after the wallet is proven (a stranger cannot freeze someone's edits)
-  if (rateLimited(`profile:wallet:${wallet}`, 12)) return fail("slow down", 429);
   if (!(await consumeNonce(db, s.nonce, wallet))) return fail("nonce already used", 401);
+  // Only a fresh signed action may spend this wallet's allowance. Replaying a
+  // valid signature cannot lock its owner out of profile or admin actions.
+  // A fresh over-quota attempt consumes its nonce; retries sign a new one.
+  if (rateLimited(`profile:wallet:${wallet}`, 12)) return fail("slow down", 429);
   return { ok: true, wallet, ts };
 }
 

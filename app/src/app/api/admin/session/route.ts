@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimited } from "@/lib/launchpad/editServer";
+import { rateLimited } from "@/lib/rateLimit";
 import { adminWallets } from "@/lib/launchpad/postsServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
 import { verifySig } from "@/lib/profiles/server";
@@ -42,10 +42,12 @@ export async function POST(req: Request) {
   if (v === "down") return json({ error: "signature check unavailable, try again" }, 503);
   if (v === "bad") return json({ error: "signature does not match (with a smart wallet, switch it to Base and sign again)" }, 401);
   if (typeof v === "object") return json({ error: "switch your wallet to Base and sign again" }, 409);
-  // the wallet bucket is spent only after the wallet is proven (a stranger cannot lock an admin out)
-  if (rateLimited(`admin-signin:wallet:${c.wallet}`, 10)) return json({ error: "slow down" }, 429);
   try {
     if (!(await consumeAdminNonce(c.nonce))) return json({ error: "sign-in expired or already used, try again" }, 401);
+    // Concurrent copies can all pass the earlier read. Only the atomic nonce
+    // winner spends a wallet allowance; a fresh over-quota attempt consumes its
+    // nonce and the sign-in UI obtains another on retry.
+    if (rateLimited(`admin-signin:wallet:${c.wallet}`, 10)) return json({ error: "slow down" }, 429);
     const device = deviceLabel(req.headers.get("user-agent"));
     const s = await createAdminSession(c.wallet, device);
     console.info(`[admin] signed in: ${c.wallet} (${device})`);
