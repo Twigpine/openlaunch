@@ -51,10 +51,11 @@ your code. It has two answers besides "passed":
     (`contracts/script/check-deployed-sources.sh`, `contracts/script/check-arc-factory.sh`), to `.gitmodules`, or
     anything added under `contracts/lib/`.
   - `ci-config`: anything under `.github/`, or a `CODEOWNERS` file.
-  - `release-tooling`: the release and deploy tooling: `app/scripts/deploy.sh`, `smoke.sh`, `migrate.mjs` and anything
-    under `app/scripts/lib/`, `app/Dockerfile`, `app/.dockerignore`, `app/fly.toml`, and `release-please-config.json`.
-    These run with the deploy credentials or against the production database, or decide how releases are cut, so a
-    maintainer changes them in a pull request of their own.
+  - `release-tooling`: `app/scripts/deploy.sh`, `smoke.sh`, `fly-secrets.sh`, `migrate.mjs`, `usd-backfill.ts`,
+    `rebuild-*.sql`, and files under `app/scripts/lib/`; SQL under `app/db/`;
+    `contracts/script/DeployLaunchFactory.s.sol`; and `app/Dockerfile`, `app/.dockerignore`, `app/fly.toml`, and
+    `release-please-config.json`. These paths control releases, use deployment credentials, or supply SQL for
+    production migrations and repairs. Changes require a dedicated maintainer pull request.
   - `dev-machine`: editor, agent or git hook configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
   - `registry-config`: package manager configuration (`.npmrc` and the like).
   - `secret-file`, `secret`: a key, wallet or `.env` file, or a credential anywhere in the diff.
