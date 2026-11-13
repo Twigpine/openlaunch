@@ -38,4 +38,26 @@ Gotcha: anvil's default accounts carry EIP-7702 delegations on Base mainnet — 
 forwarded away. Use a fresh key (`cast wallet new` + `anvil_setBalance`) when testing sells.
 
 ## Deploy
-See `LAUNCH.md`.
+First-time setup (secrets, storage, contracts) is in `LAUNCH.md`. Every deploy after that is a tagged release:
+
+## Releasing
+The version lives in `package.json` (SemVer: patch for fixes, minor for features, major for a breaking API change or a
+new contract generation). A release is the annotated git tag `v<version>` on the merged commit, with its notes on
+[GitHub Releases](https://github.com/Twigpine/openlaunch/releases). The site footer and `/api/health` show the
+running version and commit.
+
+1. Open a pull request that changes only `version` in `package.json` (and the same two fields in `package-lock.json`).
+2. After it merges, on an up-to-date `main`: `git tag -a v1.2.3 -m "openlaunch v1.2.3"` then `git push origin v1.2.3`.
+3. Draft the notes with `node app/scripts/release-notes.mjs`, add a short summary, and publish the release on GitHub for
+   that tag. Notes are public: no hostnames, secrets, wallet keys or unfixed vulnerabilities.
+4. Deploy with `app/scripts/deploy.sh` (run `--dry-run` first). It refuses anything but a clean `main` equal to
+   `origin/main` carrying that tag on GitHub, takes the contract addresses from the hash-pinned deployment records, and
+   checks that production reports the new version and commit. Then run `scripts/smoke.sh`.
+
+A bad release is fixed by a new patch release, never by moving or deleting a tag.
+
+The release tooling (`scripts/deploy.sh`, `smoke.sh`, `release-notes.mjs`, `migrate.mjs` and `scripts/lib/`, the
+`Dockerfile`, `.dockerignore` and `fly.toml`) is blocked by pr-guard for everyone: it runs with the deploy credentials or
+against the production database, so it changes only in a pull request of its own that a maintainer merges with the
+guard bypassed. Maintainers also deploy through a checker kept outside the repository, which compares these files with
+the fingerprints of the last reviewed release before it runs `deploy.sh`.

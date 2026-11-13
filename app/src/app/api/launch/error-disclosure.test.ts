@@ -59,7 +59,7 @@ async function query(sql: string, values: unknown[]): Promise<unknown[]> {
   if (sql.includes("INSERT INTO bb_launch_meta")) return [{ token }];
   if (sql.includes("SELECT cursor_block")) return [{ cursor_block: 0n, reorg_version: 1, reorg_generation: 0n, rebuilding_until: null }];
   if (sql.includes("last_error = ?")) lastError = String(values[1]);
-  if (sql.includes("last_error = NULL")) lastError = null;
+  if (sql.includes("last_error = NULL") || sql.includes("last_error = CASE WHEN cursor_block <=")) lastError = null;
   if (sql.includes("select chain_id, cursor_block, head_block")) return [{ chain_id: 8453, cursor_block: 10n, head_block: 12n, last_run_at: "2026-01-01T00:00:00Z", last_error: lastError }];
   if (sql.includes("pg_try_advisory_lock")) return [{ ok: false }];
   return [];

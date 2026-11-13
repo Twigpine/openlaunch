@@ -284,6 +284,21 @@ describe("CI and machine configuration", () => {
     assert.deepEqual(rules(check({ "CODEOWNERS": "* @someone\n" })), ["ci-config"]);
   });
 
+  test("the release and deploy tooling is blocked, in any letter case", () => {
+    // deletion takes the same path as ci-config's (a blocked path is blocked whatever its status)
+    for (const path of ["app/scripts/deploy.sh", "app/scripts/smoke.sh", "app/scripts/release-notes.mjs", "app/scripts/migrate.mjs", "app/scripts/lib/keccak256.mjs", "app/scripts/lib/new-helper.mjs", "app/Dockerfile", "app/.dockerignore", "app/fly.toml", "app/Scripts/Deploy.sh", "APP/FLY.TOML"]) {
+      const found = check({ [path]: "# changed\n" });
+      assert.ok(rules(found).includes("release-tooling"), path);
+      assert.ok(found.every((f) => f.rule !== "release-tooling" || f.tier === "block"), path);
+    }
+  });
+
+  test("other scripts and the schema stay owner-reviewed, not blocked", () => {
+    for (const path of ["app/scripts/fix.mjs", "app/scripts/usd-backfill.ts", "app/db/schema.sql", "app/db/concurrent-indexes.sql", "app/fly.staging.toml", "app/scripts/deploy.sh.bak"]) {
+      assert.ok(!rules(check({ [path]: "x\n" })).includes("release-tooling"), path);
+    }
+  });
+
   test("agent instructions, editor tasks and git hooks are blocked", () => {
     for (const path of ["CLAUDE.md", "AGENTS.md", "app/AGENTS.md", ".claude/settings.json", ".cursor/rules/a.mdc", ".cursorrules", ".mcp.json", ".vscode/tasks.json", ".devcontainer/devcontainer.json", ".husky/pre-commit", ".envrc", "app/.envrc", "CLAUDE.local.md", "AGENTS.override.md", ".devcontainer.json", ".clinerules/rules.md", "app.code-workspace", ".zed/tasks.json", ".roo/rules.md", ".kiro/steering.md"]) {
       const found = check({ [path]: "x\n" });
@@ -958,7 +973,8 @@ describe("application code", () => {
 
   test("security headers, deploy files, migrations and policy files need an owner", () => {
     assert.deepEqual(rules(check({ "app/src/lib/security-headers.ts": "export const csp = \"default-src *\";\n" })), ["security-config"]);
-    assert.deepEqual(rules(check({ "app/Dockerfile": "FROM node:22-slim\nRUN true\n" })), ["build-deploy"]);
+    // the Dockerfile is release tooling: blocked, which takes the place of the review finding
+    assert.deepEqual(rules(check({ "app/Dockerfile": "FROM node:22-slim\nRUN true\n" })), ["release-tooling"]);
     assert.deepEqual(rules(check({ "app/db/schema.sql": "drop table launches;\n" })), ["build-deploy"]);
     assert.deepEqual(rules(check({ "app/scripts/fix.mjs": "console.log(1);\n" })), ["build-deploy"]);
     assert.deepEqual(rules(check({ "SECURITY.md": "Report to help@elsewhere.example.com\n" })), ["policy"]);

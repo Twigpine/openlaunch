@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import type { WatchlistData, WatchlistRequestItem } from "./watchlistData";
 import { CHAIN_IDS, isChainKey, type ChainKey } from "../chainKeys.ts";
+import { clientIp } from "../http.ts";
 
 const source = readFileSync(new URL("./watchlistData.ts", import.meta.url), "utf8");
 const route = readFileSync(new URL("../../app/api/launch/watchlist/route.ts", import.meta.url), "utf8");
@@ -184,6 +185,7 @@ function isolatedRoute(opts: { configured?: boolean; limited?: boolean; fail?: b
   class SnapshotDate extends Date { static now() { return NOW; } }
   const exported = compile(route, {
     "next/server": { NextResponse: { json: (body: unknown, init: ResponseInit) => Response.json(body, init) } },
+    "@/lib/http": { clientIp },
     "@/lib/db": { dbConfigured: () => opts.configured !== false },
     "@/lib/launchpad/editServer": { rateLimited: (key: string) => { limitKeys.push(key); return Boolean(opts.limited); } },
     "@/lib/launchpad/ethPrice": { ethUsd: async () => { reads++; return null; } },

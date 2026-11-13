@@ -10,6 +10,9 @@ import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from "./log-range";
 import { redactUrls } from "./redact";
+import { setBounded } from "./boundedMap";
+import { planTraderHeal, type HealSwapRow, type TraderHealCursor } from "./traderHeal";
+import { startUnlessRunning } from "./runOnce";
 import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
 import { appTagOf, swapInApp, type AppTag } from "./appTag";
 import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
@@ -155,7 +158,7 @@ async function traderOf(chain: ChainKey, hash: Hex, swapLogIndex: number, token:
 
 function clearIndexCaches(): void {
   txFacts.clear(); receiptLogs.clear();
-  attributionTries.clear(); attributionIdleUntil.clear(); healRestUntil.clear();
+  attributionTries.clear(); attributionIdleUntil.clear(); healRestUntil.clear(); healTraderCursor.clear();
 }
 
 // ── apply ────────────────────────────────────────────────────────────────────
@@ -441,8 +444,30 @@ const ATTRIBUTION_MAX_TRIES = 3;
 const ATTRIBUTION_TRY_GAP_MS = 10 * 60_000; // tries this far apart: a short RPC outage never freezes a row
 const ATTRIBUTION_PASS_BUDGET_MS = 5_000; // chain reads per pass stop here, so a long backlog never holds up indexing
 const ATTRIBUTION_IDLE_MS = 5 * 60_000; // a pass that found nothing to check rests this long (per chain, per machine)
+const ATTRIBUTION_TRIES_MAX = 20_000;
 const attributionIdleUntil = new Map<ChainKey, number>();
 const healRestUntil = new Map<string, number>(); // `${chain}:${tx}` whose transaction could not be read → next try
+const HEAL_REST_MAX = 5_000;
+const HEAL_TRADER_PAGE = 500; // rows read per tick; only 20 transactions are actually read
+const HEAL_TRADER_READS = 20;
+// The next trader-heal page starts after this (block, log) pair. A page that is all parked rows still advances, so
+// the rows behind it are reached on the next tick instead of the same newest 100 rows being selected forever.
+const healTraderCursor = new Map<ChainKey, TraderHealCursor>();
+
+/**
+ * Rest a heal key (a transaction the trader or app-tag heal could not read) for the retry gap. The map is bounded
+ * without clearing it: expired entries go first, then the oldest insertions.
+ */
+function restHeal(key: string): void {
+  const now = Date.now();
+  setBounded(healRestUntil, key, now + ATTRIBUTION_TRY_GAP_MS, HEAL_REST_MAX, (until) => until <= now, now);
+}
+
+/** Same bound for the attribution retry counters: expired backoff state is dropped, never the whole map. */
+function noteAttributionTry(key: string, n: number): void {
+  const now = Date.now();
+  setBounded(attributionTries, key, { n, at: now }, ATTRIBUTION_TRIES_MAX, (v) => now - v.at >= ATTRIBUTION_TRY_GAP_MS, now);
+}
 
 /**
  * Swaps not checked yet (trader_via NULL, or RECEIPT_PENDING) get checked a batch per poll: always for the last day
@@ -511,8 +536,7 @@ async function attributeBacklogIn(db: Db, chain: ChainKey, batch: number): Promi
       // EntryPoint call learned of here is marked so.
       if (who.via === RECEIPT_PENDING) await db`UPDATE bb_launch_swaps SET trader_via = ${RECEIPT_PENDING}, tx_from = COALESCE(tx_from, ${who.tx_from}) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader_via IS NULL`;
       const n = (prev?.n ?? 0) + 1;
-      if (attributionTries.size > 20_000) attributionTries.clear();
-      attributionTries.set(key, { n, at: Date.now() });
+      noteAttributionTry(key, n);
       if (n >= ATTRIBUTION_MAX_TRIES) {
         await db`UPDATE bb_launch_swaps SET trader_via = 'unread', tx_from = COALESCE(tx_from, trader) WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND (trader_via IS NULL OR trader_via = ${RECEIPT_PENDING})`;
         attributionTries.delete(key);
@@ -730,7 +754,17 @@ export async function pollLaunches(chain: ChainKey): Promise<LaunchSyncResult> {
   return p;
 }
 
-/** Poll every configured chain (used by the loop and POST /api/launch/sync without a tx). */
+/** Chains whose heal and backfill pass is running in this process. */
+const healsRunning = new Map<ChainKey, Promise<void>>();
+
+/**
+ * Poll every configured chain (used by the loop and POST /api/launch/sync without a tx).
+ *
+ * Overlapping callers share work per chain, not the pass as a whole: a chain whose run() is in flight is joined
+ * (pollLaunches), and a chain whose heal pass is running is skipped (healsRunning). A chain whose run has finished is
+ * polled again by the next caller, which reads only the blocks since, as every tick does. Sharing the whole pass
+ * instead would make each chain wait for the slowest one, and a stuck query on one chain would stop indexing on all.
+ */
 export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(
@@ -740,15 +774,24 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
         console.warn(`[launch-sync] poll ${c}:`, redactUrls(errMessage(e)));
         return { status: "skipped", reason: "sync_failed" };
       });
-      await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, redactUrls(errMessage(e))));
-      await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, redactUrls(errMessage(e))));
-      await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, redactUrls(errMessage(e))));
-      await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, redactUrls(errMessage(e))));
-      await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, redactUrls(errMessage(e))));
-      await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, redactUrls(errMessage(e))));
+      // pollLaunches already shares one run() per chain. The heals and backfills are as expensive, so they run one pass
+      // per chain at a time too: the 15s loop's ticks overlap when a pass is slow, and a web sync can land beside one.
+      // A caller that finds a pass still running skips it instead of waiting, so a slow or stuck heal never holds up
+      // indexing on the next tick.
+      await startUnlessRunning(healsRunning, c, () => healChain(c));
     }),
   );
   return out;
+}
+
+/** One chain's heals and backfills, in order; each logs its own failure and the next still runs. */
+async function healChain(c: ChainKey): Promise<void> {
+  await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, redactUrls(errMessage(e))));
+  await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, redactUrls(errMessage(e))));
+  await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, redactUrls(errMessage(e))));
+  await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, redactUrls(errMessage(e))));
+  await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, redactUrls(errMessage(e))));
+  await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, redactUrls(errMessage(e))));
 }
 
 /**
@@ -844,7 +887,12 @@ async function healQuoteTokensIn(db: Db, chain: ChainKey): Promise<number> {
 /**
  * Self-heal swaps stored without a trader (the sender lookup failed at index time, typically a rate-limited
  * node during a busy launch block). Those rows carry no wallet facts: the holder panel skips them and the
- * ranking cannot tell whether they were outside trades. Re-reads a bounded batch of the newest ones per poll.
+ * ranking cannot tell whether they were outside trades. Reads a bounded page oldest-first per poll.
+ *
+ * A plain newest-first LIMIT 100 could not get past a head of unreadable transactions: they were parked in
+ * healRestUntil, but the same 100 rows were selected again every poll, so older rows were never reached. The
+ * keyset cursor advances past every visited transaction group (parked or not), wraps at the end, and reaches
+ * the whole set. The partial index in db/concurrent-indexes.sql serves the filter and the order.
  */
 export async function healSwapTraders(chain: ChainKey): Promise<number> {
   if (skipReason(chain)) return 0;
@@ -853,34 +901,36 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
 
 async function healSwapTradersIn(db: Db, chain: ChainKey): Promise<number> {
   const cid = chainIdOf(chain);
-  const rows = await db<{ tx_hash: string; log_index: number; token: string }[]>`
-    SELECT tx_hash, log_index, token FROM bb_launch_swaps
-     WHERE chain_id = ${cid} AND trader IS NULL ORDER BY block_number DESC LIMIT 100`;
+  const cursor = healTraderCursor.get(chain) ?? { block: 0n, log: -1 };
+  const page = async (after: { block: bigint; log: number }): Promise<HealSwapRow[]> => db<HealSwapRow[]>`
+    SELECT tx_hash, log_index, token, block_number FROM bb_launch_swaps
+     WHERE chain_id = ${cid} AND trader IS NULL
+       AND (block_number, log_index) > (${after.block}, ${after.log})
+     ORDER BY block_number ASC, log_index ASC LIMIT ${HEAL_TRADER_PAGE}`;
+  let rows = await page(cursor);
+  if (rows.length === 0 && (cursor.block > 0n || cursor.log >= 0)) {
+    // End of the set: wrap, so parked rows and rows added behind the cursor get another look.
+    healTraderCursor.delete(chain);
+    rows = await page({ block: 0n, log: -1 });
+  }
   if (rows.length === 0) return 0;
-  // one read per transaction (a transaction with many swaps no longer takes every slot and every call), up to 20
-  // transactions a poll, and one that could not be read rests ten minutes before it is read again
-  const byTx = new Map<string, { tx_hash: string; log_index: number; token: string }[]>();
-  for (const r of rows) byTx.set(r.tx_hash, [...(byTx.get(r.tx_hash) ?? []), r]);
+  const plan = planTraderHeal(rows, healRestUntil, chain, Date.now(), HEAL_TRADER_READS);
   let healed = 0;
-  let read = 0;
-  for (const [tx, swaps] of byTx) {
-    if (read >= 20) break;
-    const key = `${chain}:${tx}`;
-    if (Date.now() < (healRestUntil.get(key) ?? 0)) continue;
-    read++;
-    if (!(await txOf(chain, tx as Hex))) {
-      if (healRestUntil.size > 5_000) healRestUntil.clear();
-      healRestUntil.set(key, Date.now() + ATTRIBUTION_TRY_GAP_MS);
+  for (const group of plan.groups) {
+    if (group.resting) continue;
+    if (!(await txOf(chain, group.tx as Hex))) {
+      restHeal(group.key);
       continue;
     }
-    healRestUntil.delete(key);
-    for (const r of swaps) {
+    healRestUntil.delete(group.key);
+    for (const r of group.swaps) {
       const who = await traderOf(chain, r.tx_hash as Hex, Number(r.log_index), r.token); // the transaction is cached now
       if (!who.trader) continue;
       await db`UPDATE bb_launch_swaps SET trader = ${who.trader}, tx_from = ${who.tx_from}, trader_via = ${who.via}, via_app = ${who.app} WHERE chain_id = ${cid} AND tx_hash = ${r.tx_hash} AND log_index = ${r.log_index} AND trader IS NULL`;
       healed++;
     }
   }
+  if (plan.cursor) healTraderCursor.set(chain, plan.cursor);
   if (healed) console.log(`[launch-sync] healed traders on ${healed} swap(s) on ${chain}`);
   return healed;
 }
@@ -930,8 +980,7 @@ async function healAppTagsIn(db: Db, chain: ChainKey): Promise<number> {
     read++;
     const tx = await txOf(chain, hash as Hex);
     if (!tx || tx.tag === null) {
-      if (healRestUntil.size > 5_000) healRestUntil.clear();
-      healRestUntil.set(key, Date.now() + ATTRIBUTION_TRY_GAP_MS);
+      restHeal(key);
       continue;
     }
     healRestUntil.delete(key);
@@ -972,8 +1021,8 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
         const to = from + SYNC_CHUNK_BLOCKS - 1n < confirmed ? from + SYNC_CHUNK_BLOCKS - 1n : confirmed;
         await observeBlock(chain, to);
         const applied = await applyRange(db, chain, from, to);
-        await db`UPDATE bb_launch_sync_cursor SET cursor_block = GREATEST(cursor_block, ${to}), head_block = ${head},
-          last_run_at = now(), last_error = NULL,
+        await db`UPDATE bb_launch_sync_cursor SET cursor_block = GREATEST(cursor_block, ${to}), head_block = GREATEST(COALESCE(head_block, 0), ${head}),
+          last_run_at = now(), last_error = CASE WHEN cursor_block <= ${to} THEN NULL ELSE last_error END,
           rebuilding_until = CASE WHEN rebuilding_until <= ${to} THEN NULL ELSE rebuilding_until END WHERE chain_id = ${cid}`;
         return { from, to, head, done: to >= confirmed, ...applied };
       });
@@ -986,7 +1035,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
     return result;
   } catch (err) {
     const msg = errMessage(err);
-    await pool`UPDATE bb_launch_sync_cursor SET last_run_at = now(), head_block = COALESCE(${knownHead}::bigint, head_block),
+    await pool`UPDATE bb_launch_sync_cursor SET last_run_at = now(), head_block = CASE WHEN ${knownHead}::bigint IS NULL THEN head_block ELSE GREATEST(COALESCE(head_block, 0), ${knownHead}::bigint) END,
       last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
     throw err;
   }

@@ -1,7 +1,7 @@
-import { clientIp, readBody } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { isChainKey } from "@/lib/chainPublic";
+import { SIGNED_BODY_MAX, clientIp, readJson } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { createPost, listFeed, listTokenPosts } from "@/lib/launchpad/postsServer";
 import { memo } from "@/lib/launchpad/memo";
@@ -37,16 +37,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const ip = clientIp(req);
   if (rateLimited(`post:ip:${ip}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  // Smart-wallet signatures can include ERC-6492 deployment calldata.
-  const raw = await readBody(req, 256 * 1024);
-  if (!raw.ok) return NextResponse.json({ error: raw.reason === "too_large" ? "body too large" : "bad json" }, { status: raw.reason === "too_large" ? 413 : 400 });
-  let b: Record<string, unknown>;
-  try {
-    b = JSON.parse(new TextDecoder().decode(raw.bytes)) as Record<string, unknown>;
-    if (!b || typeof b !== "object" || Array.isArray(b)) return NextResponse.json({ error: "bad json" }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: "bad json" }, { status: 400 });
-  }
+  const b = await readJson(req, SIGNED_BODY_MAX);
+  if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
   if (!isChainKey(b.chain) || typeof b.token !== "string" || typeof b.wallet !== "string") return NextResponse.json({ error: "bad params" }, { status: 400 });
   const r = await createPost({ chain: b.chain, token: b.token, wallet: b.wallet, parentId: b.parentId, body: b.body, nonce: b.nonce, ts: b.ts, signature: b.signature });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });

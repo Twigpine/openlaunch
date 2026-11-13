@@ -1,5 +1,5 @@
-import { clientIp } from "@/lib/profiles/http";
 import { NextResponse } from "next/server";
+import { clientIp } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { looksLikeBot, prunePresence, readPulse, recordBeacon, visitorHash } from "@/lib/launchpad/presence";
 import { memo } from "@/lib/launchpad/memo";

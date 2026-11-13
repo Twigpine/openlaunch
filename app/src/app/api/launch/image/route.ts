@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { clientIp, readFormData } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { BANNER_MAX_BYTES, IMAGE_UPLOADS_PER_HOUR, checkUpload, imageRole, isWalletParam, maxBytesFor, randomImageKey } from "@/lib/launchpad/images";
 import { toBannerWebp, toLogoWebp } from "@/lib/launchpad/imageProcess";
 import { imageUploadsEnabled, putImage } from "@/lib/launchpad/imageStore";
-import { clientIp, readBody } from "@/lib/profiles/http";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,33 +12,29 @@ const HOUR = 60 * 60_000;
 
 /**
  * POST multipart {wallet, file, kind?} → {url}. Token logo (or, with kind=banner, banner) upload for the launch
- * form / edit sheet. Order: IP rate limit → size (Content-Length, then real bytes) + wallet shape → magic bytes → sharp
+ * form / edit sheet. Order: wallet + rate limits → size (Content-Length, then real bytes) → magic bytes → sharp
  * re-encode to a 512² logo or a 1500×500 banner WebP (metadata stripped; the decoder is the validator) → random key
- * → public bucket. Logos and banners share the IP upload limit. The wallet field is unsigned, so it cannot
- * spend a wallet-scoped quota: anyone could otherwise exhaust another creator's allowance by naming their address.
+ * → public bucket. Logos and banners share the upload limits.
  * The URL then flows through the normal metadata path (https-only rule, signed edits) unchanged.
  */
 export async function POST(req: Request) {
   if (!imageUploadsEnabled()) return NextResponse.json({ error: "uploads not configured" }, { status: 503 });
   const ip = clientIp(req);
   if (rateLimited(`img:ip:${ip}`, IMAGE_UPLOADS_PER_HOUR * 2, HOUR)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  // The role is inside multipart data. Bound the whole stream before parsing, allowing
-  // the larger banner cap plus form overhead; a missing/false size header is not trusted.
-  const body = await readBody(req, BANNER_MAX_BYTES + 16 * 1024);
-  if (!body.ok) return NextResponse.json({ error: body.reason === "too_large" ? "image must be ≤ 4 MB" : "bad form" }, { status: body.reason === "too_large" ? 413 : 400 });
-
-  let form: FormData;
-  try {
-    form = await new Response(new Blob([body.bytes as Uint8Array<ArrayBuffer>]), { headers: { "content-type": req.headers.get("content-type") ?? "" } }).formData();
-  } catch {
-    return NextResponse.json({ error: "bad form" }, { status: 400 });
+  // the role is inside the body, so the early cap allows the larger (banner) size; the role's real cap is applied below.
+  // readFormData caps chunked uploads too, before the multipart body is buffered.
+  const parsed = await readFormData(req, BANNER_MAX_BYTES + 16 * 1024);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.tooLarge ? "image must be ≤ 4 MB" : "bad form" }, { status: parsed.tooLarge ? 413 : 400 });
   }
+  const form = parsed.form;
   const wallet = form.get("wallet");
   const file = form.get("file");
   const role = imageRole(form.get("kind"));
   const max = maxBytesFor(role);
   if (!isWalletParam(wallet)) return NextResponse.json({ error: "connect a wallet first" }, { status: 400 });
   if (!(file instanceof Blob)) return NextResponse.json({ error: "file required" }, { status: 400 });
+  // The unsigned wallet field is an image namespace, not an authenticated quota identity.
   if (file.size > max) return NextResponse.json({ error: `image must be ≤ ${max / 1024 / 1024} MB` }, { status: 413 });
 
   const bytes = new Uint8Array(await file.arrayBuffer());

@@ -57,8 +57,8 @@ test("the site reads trade-time USD everywhere the all-time figures are shown", 
   // a launch row's all-time volume
   assert.match(q, /volume_usd: launchVolumeUsd\(storedVolumeUsd, volume_quote_unpriced, q\.decimals, qu\)/);
   assert.doesNotMatch(q, /volume_usd: usd\(r\.volume_quote\)/, "never quote volume at today's price again");
-  // the all-time Volume sort ranks by the same figure
-  assert.match(q, /win === "all"\s*\? db`\(l\.volume_usd \+ COALESCE\(u\.uq, 0\) \/ power\(10, \$\{qd\}\) \* \$\{usdPerUnit\}\)`/);
+  // the all-time Volume sort ranks by the same figure (an unknown quote price is NULL in usdPerUnit and weighs 0 here)
+  assert.match(q, /win === "all"\s*\? db`\(l\.volume_usd \+ COALESCE\(u\.uq, 0\) \/ power\(10, \$\{qd\}\) \* COALESCE\(\$\{usdPerUnit\}, 0\)\)`/);
   // the site totals: stored sums plus the unpriced parts, fees to recipients = collected - burned in USD
   const totals = q.slice(q.indexOf("export async function getLaunchTotals("), q.indexOf("export async function getLaunchTotals(") + 6000);
   assert.match(totals, /COALESCE\(sum\(l\.volume_usd\), 0\)::float8 AS volume_usd/);

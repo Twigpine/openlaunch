@@ -4,6 +4,7 @@ import { dbConfigured, maybeDb } from "@/lib/db";
 import { LAUNCHPAD_CONFIGURED, launchpad, CONFIGURED_CHAINS } from "@/lib/launchpad/config";
 import { syncLagAlertBlocks } from "@/lib/config";
 import { blockNumber, healthBody, type SyncHealthInput } from "@/lib/health";
+import { APP_VERSION, appCommit } from "@/lib/version";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function GET() {
       console.error("[health] db probe failed:", err instanceof Error ? err.message : err);
     }
   }
-  const { status, body } = healthBody({ dbConfigured: dbConfigured(), dbOk, chain: Boolean(process.env.BASE_RPC_URL?.trim()), launchpad: LAUNCHPAD_CONFIGURED, sync, chains, lagAlertBlocks: (chain) => syncLagAlertBlocks(chainKeyOr(chain, DEFAULT_CHAIN)) });
+  const { status, body } = healthBody({ dbConfigured: dbConfigured(), dbOk, chain: Boolean(process.env.BASE_RPC_URL?.trim()), launchpad: LAUNCHPAD_CONFIGURED, sync, chains, version: APP_VERSION, commit: appCommit(), lagAlertBlocks: (chain) => syncLagAlertBlocks(chainKeyOr(chain, DEFAULT_CHAIN)) });
   const key = body.alerts.join(",");
   if (key !== lastAlertKey) {
     if (key) console.error(`[alert] health ok=false ${key} cursor=${body.sync.cursor_block} head=${body.sync.head_block} last_error=${body.sync.last_error ?? "-"}`);

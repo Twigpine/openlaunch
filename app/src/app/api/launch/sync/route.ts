@@ -1,4 +1,4 @@
-import { clientIp } from "@/lib/profiles/http";
+import { clientIp } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { rateLimited } from "@/lib/launchpad/editServer";

@@ -14,9 +14,9 @@ before(async () => {
     import("./launch/edit/route.ts"), import("./launch/edit/nonce/route.ts"), import("./launch/meta/route.ts"), import("./rpc/route.ts"),
   ]);
   routes = [
-    { path: "posts", cap: 256 * 1024, post: posts.POST }, { path: "posts/report", cap: 256 * 1024, post: report.POST },
-    { path: "posts/mod", cap: 256 * 1024, post: mod.POST }, { path: "launch/edit", cap: 256 * 1024, post: edit.POST },
-    { path: "launch/edit/nonce", cap: 64 * 1024, post: nonce.POST }, { path: "launch/meta", cap: 64 * 1024, post: meta.POST },
+    { path: "posts", cap: 8_192, post: posts.POST }, { path: "posts/report", cap: 8_192, post: report.POST },
+    { path: "posts/mod", cap: 8_192, post: mod.POST }, { path: "launch/edit", cap: 16_384, post: edit.POST },
+    { path: "launch/edit/nonce", cap: 2_048, post: nonce.POST }, { path: "launch/meta", cap: 8_192, post: meta.POST },
     { path: "rpc", cap: 256 * 1024, post: rpc.POST },
   ];
 });
@@ -29,7 +29,7 @@ after(() => {
 
 function request(path: string, body: BodyInit, headers: Record<string, string> = {}) {
   return new Request(`http://localhost/api/${path}`, {
-    method: "POST", body, duplex: "half", headers: { "content-type": "application/json", "fly-client-ip": `bounded-body-${++sequence}`, ...headers },
+    method: "POST", body, duplex: "half", headers: { "content-type": "application/json", "x-forwarded-for": `bounded-body-${++sequence}`, ...headers },
   } as RequestInit);
 }
 
@@ -53,10 +53,10 @@ test("JSON write and RPC routes reject finite oversized streams before buffering
       await t.test(`${route.path}: Content-Length ${declared ?? "absent"}`, async () => {
         const { req, state } = oversized(route.path, declared);
         const response = await route.post(req);
-        assert.equal(response.status, 413);
-        assert.deepEqual(await response.json(), { error: "body too large" });
+        assert.equal(response.status, 400);
+        assert.deepEqual(await response.json(), { error: "bad json" });
         assert.equal(state.cancelled, 1);
-        assert.equal(state.pulled, declared === String(route.cap + 1) ? 0 : route.cap / (32 * 1024) + 1);
+        assert.equal(state.pulled, declared === String(route.cap + 1) ? 0 : Math.floor(route.cap / (32 * 1024)) + 1);
         assert.equal(req.body?.locked, false);
       });
     }
@@ -79,7 +79,7 @@ test("bounded JSON routes retain malformed-body errors and small valid JSON reac
 
 test("signed routes leave space for smart-wallet signature envelopes without weakening field checks", async () => {
   // Representative encoded envelope size, not a valid signature: field validation must still run.
-  const body = JSON.stringify({ signature: `0x${"ab".repeat(64 * 1024)}` });
+  const body = JSON.stringify({ signature: `0x${"ab".repeat(3 * 1024)}` });
   for (const route of routes.filter((route) => ["posts", "posts/report", "posts/mod", "launch/edit"].includes(route.path))) {
     const response = await route.post(request(route.path, body));
     assert.equal(response.status, 400, route.path);

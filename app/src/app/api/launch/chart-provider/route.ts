@@ -1,7 +1,7 @@
-import { clientIp } from "@/lib/profiles/http";
 import { isChartPool } from "@/lib/launchpad/chart-pool";
 import { lookupGeckoPool } from "@/lib/launchpad/geckoterminal";
 import { createGeckoCache } from "@/lib/launchpad/gecko-cache";
+import { clientIp } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 
 export const dynamic = "force-dynamic";

@@ -4,6 +4,7 @@ import { isAddress, type Address, type Hex } from "viem";
 import { publicClient } from "@/lib/chain";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
+import { rateLimited } from "@/lib/rateLimit";
 import { EDIT_TTL_MS, buildEditMessage, isNonce, validateEdit, type EditFields } from "./editAuth";
 
 /**
@@ -12,19 +13,8 @@ import { EDIT_TTL_MS, buildEditMessage, isNonce, validateEdit, type EditFields }
  * wallets), the nonce is single-use with a 5-minute TTL, and the signer must
  * be the launcher recorded from the on-chain Launched event.
  */
-const buckets = new Map<string, { n: number; at: number }>();
-/** Sliding limit: `max` hits per `windowMs` per key (wallet or ip). */
-export function rateLimited(key: string, max = 10, windowMs = 60_000): boolean {
-  const now = Date.now();
-  const b = buckets.get(key);
-  if (!b || now - b.at > windowMs) {
-    buckets.set(key, { n: 1, at: now });
-    if (buckets.size > 20_000) buckets.clear();
-    return false;
-  }
-  b.n += 1;
-  return b.n > max;
-}
+// Kept as a re-export so the existing routes/profiles keep one import site.
+export { rateLimited };
 
 export async function issueNonce(chain: ChainKey, token: string, wallet: string): Promise<{ nonce: string; expiresAt: number } | null> {
   const db = maybeDb();
