@@ -42,12 +42,9 @@ test("the image is told its commit, the footer links the release, and the deploy
   assert.match(deploy, /\[ "\$got" = "\$want" \] \|\| die/);
   // it deploys only a clean main equal to origin/main, tagged on GitHub; it never pushes, tags or reads a secret
   assert.match(deploy, /git status --porcelain --untracked-files=all/);
-  assert.match(deploy, /git ls-remote origin "refs\/tags\/\$TAG\^\{\}"/);
+  assert.match(deploy, /git ls-remote origin "refs\/tags\/\$TAG" "refs\/tags\/\$TAG\^\{\}"/);
+  // and the release for the tag is published: not a draft, not a prerelease, or nothing is deployed
+  assert.match(deploy, /api\.github\.com\/repos\/Twigpine\/openlaunch\/releases\/tags\/\$TAG/);
+  assert.match(deploy, /r\.draft === false && r\.prerelease === false && r\.published_at/);
   assert.doesNotMatch(deploy, /^\s*(git (push|tag)|fly secrets)/m);
-});
-
-test("release notes start from the last annotated release, never a stray lightweight tag", () => {
-  const notes = read("../../scripts/release-notes.mjs");
-  assert.match(notes, /git\("describe", "--abbrev=0", "--match", "v\[0-9\]\*", `\$\{to\}\^`\)/);
-  assert.doesNotMatch(notes, /"describe"[^)]*"--tags"/);
 });

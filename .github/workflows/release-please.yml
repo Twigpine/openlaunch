@@ -1,0 +1,41 @@
+name: release-please
+
+# On every push to main, release-please keeps one release pull request up to date (the version in app/package.json and
+# its lockfile, and app/CHANGELOG.md, from the conventional commits merged since the last release). When a maintainer
+# merges that pull request, it tags the merge commit and publishes the GitHub Release. Deploying stays a separate,
+# manual step (app/README.md, Releasing).
+#
+# It uses the job's own GITHUB_TOKEN: created for this run, gone when it ends, so there is no stored secret to protect.
+# Only this job gets write access: to push the release pull request's branch and publish the release (contents), to
+# open and update that pull request (pull requests), and to label it (issues). The token cannot push to main past the
+# branch rules. GitHub holds the workflow runs of a pull request this token opens or updates until someone with write
+# access clicks "Approve workflows to run" on it, so a maintainer approves the release pull request's checks before
+# merging it.
+# .github/scripts/workflows.test.mjs keeps this file to exactly that.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: release-please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
