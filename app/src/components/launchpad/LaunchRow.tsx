@@ -16,6 +16,7 @@ import type { LiveTier } from "@/lib/launchpad/ranking";
 import { MorphAvatar, MorphName } from "./TokenMorph";
 import { ChainCorner } from "./ChainLogo";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
+import { MCAP_FILTER_DESCRIPTION } from "@/lib/launchpad/mcap-policy";
 
 /** Token, market cap, since launch, volume, buys / sells, holders, age; the star sits in the right gutter (md:pr-13). */
 const columns = "md:grid-cols-[minmax(0,1fr)_6.25rem_4.5rem_5rem_6rem_3.75rem_2.5rem]";
@@ -88,6 +89,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
               {/* phones show the badge's mark only, so the name keeps its room */}
               <QuoteBrandBadge quoteKey={l.quote_key} symbol={l.quote_symbol} logo={l.quote_logo} collapse />
               {l.quote_key === "other" ? <UnlistedPairBadge symbol={l.quote_symbol} className="shrink-0" /> : null}
+              {l.mcap?.classification === "limited-outside-trading" ? <span className="text-[10px] text-muted" title={MCAP_FILTER_DESCRIPTION}>Limited outside trading</span> : null}
               {hl?.kind === "new" ? <span className="shrink-0 rounded-md bg-brand-soft px-1.5 py-px text-[10px] font-semibold text-brand">New</span> : null}
             </div>
             {/* ticker, chain and fee: one line that truncates as a whole */}

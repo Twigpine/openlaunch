@@ -74,3 +74,12 @@ test("capDisplay: dollars lead with the quote figure as detail; without a price 
   assert.deepEqual(capDisplay(0.5, 0, nvda), { main: "0.500 NVDA", detail: NO_USD_PRICE, compact: "0.500 NVDA · no USD price", usd: null });
   assert.deepEqual(capDisplay(0.5, 1, usdg), { main: "$0.5", detail: "0.5 USDG", compact: "$0.5", usd: 0.5 });
 });
+
+test("extreme quote valuations and invalid API values cannot produce endless digits or crash", () => {
+  assert.equal(capQuoteLabel(1e35, usdg), "1.0e+35 USDG");
+  assert.equal(capQuoteLabel(1e35, nvda), "1.0e+35 NVDA");
+  for (const value of [NaN, Infinity, -1, null]) {
+    assert.equal(capDisplay(value as number, 1, usdg).main, "—");
+  }
+  assert.equal(capDisplay(Number.MAX_VALUE, 2, eth).main, "—");
+});
