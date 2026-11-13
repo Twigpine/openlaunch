@@ -35,7 +35,7 @@ function fixture() {
   }
   function submit(body: unknown) {
     return POST(new Request("http://localhost/api/admin/session", {
-      method: "POST", headers: { "content-type": "application/json", origin: "https://openlaunch.lol", "fly-client-ip": `admin-quota-${++sequence}` }, body: JSON.stringify(body),
+      method: "POST", headers: { "content-type": "application/json", origin: "https://openlaunch.lol", "x-forwarded-for": `admin-quota-${++sequence}` }, body: JSON.stringify(body),
     }));
   }
   function barrier(count: number) {
@@ -47,7 +47,7 @@ function fixture() {
   return { account, nonces, sessions: () => sessions, signed, submit, barrier };
 }
 
-test("concurrent admin sign-in replays cannot consume the wallet's sign-in allowance", async (t) => {
+test("concurrent admin sign-in replays cannot consume the wallet's sign-in allowance", { timeout: 10_000 }, async (t) => {
   const f = fixture();
   const previous = process.env.ADMIN_WALLETS;
   process.env.ADMIN_WALLETS = f.account.address;

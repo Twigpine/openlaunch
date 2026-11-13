@@ -87,7 +87,10 @@ test("image upload route validates images and limits anonymous callers by truste
     assert.deepEqual(await denied.json(), { error: "slow down" });
   });
 
-  await t.test("Fly's client IP takes precedence over forwarded values", async () => {
+  await t.test("Fly's client IP takes precedence over forwarded values", async (t) => {
+    const previous = process.env.FLY_APP_NAME;
+    process.env.FLY_APP_NAME = "image-route-test";
+    t.after(() => { if (previous === undefined) delete process.env.FLY_APP_NAME; else process.env.FLY_APP_NAME = previous; });
     for (let i = 0; i < ipLimit; i++) {
       const response = await POST(request(`198.51.100.${i}`, wallet(300 + i), garbage, undefined, { "fly-client-ip": "192.0.2.7" }));
       assert.equal(response.status, 415);

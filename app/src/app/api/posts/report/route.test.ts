@@ -16,6 +16,7 @@ function fixture() {
   getMock().publicClient = { verifyMessage };
   getMock().query = async (sql, values) => {
     if (sql.includes("SELECT chain_id, wallet FROM bb_posts")) return [{ chain_id: 8453, wallet: "0x1111111111111111111111111111111111111111" }];
+    if (sql.includes("SELECT id FROM bb_posts") && sql.includes("FOR UPDATE")) return [{ id: values[0] }];
     if (sql.includes("SELECT (SELECT count(*)")) return [{ n: 1n }];
     if (sql.includes("INSERT INTO bb_post_nonces")) {
       const nonce = String(values[0]);
@@ -24,6 +25,7 @@ function fixture() {
     }
     if (sql.includes("INSERT INTO bb_post_reports")) writes++;
     if (sql.includes("SELECT count(*)::bigint")) return [{ n: 1n }];
+    if (sql.includes("UPDATE bb_posts") && sql.includes("RETURNING hidden")) return [{ hidden: false }];
     return [];
   };
   async function signed(postId = 1) {
@@ -33,7 +35,7 @@ function fixture() {
   function submit(input: unknown, ip = `report-test-${++requestSequence}`) {
     // Calls the real route with a local Request; no HTTP/RPC traffic is sent.
     return POST(new Request("http://localhost/api/posts/report", {
-      method: "POST", headers: { "content-type": "application/json", "fly-client-ip": ip }, body: JSON.stringify(input),
+      method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify(input),
     }));
   }
   return { signed, submit, nonces, writes: () => writes };
