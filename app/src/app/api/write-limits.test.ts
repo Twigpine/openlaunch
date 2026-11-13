@@ -93,7 +93,12 @@ test("the RPC proxy caps its request and response, and its token bucket is bound
   const src = source("./rpc/route.ts");
   assert.match(src, /readJsonValue\(req, MAX_BODY_BYTES\)/);
   assert.match(src, /readTextLimited\(res, MAX_RESPONSE_BYTES\)/);
-  assert.match(src, /takeToken\(ip, BUCKET_CAP, BUCKET_REFILL_PER_S\)/);
+  // a client is its address, an IPv6 one by its /64; it pays one call before the body is read, the rest of a batch after
+  assert.match(src, /const client = `rpc:ip:\$\{addressKey\(clientIp\(req\)\)\}`;/);
+  assert.match(src, /takeToken\(client, CLIENT_BURST, CLIENT_PER_S\)\) return tooMany/);
+  assert.match(src, /takeToken\(client, CLIENT_BURST, CLIENT_PER_S, Date\.now\(\), forward\.length - 1\)\) return tooMany/);
+  // and every forwarded call comes out of the budget shared by all clients
+  assert.match(src, /takeToken\("rpc:all-clients", burst, perSecond, Date\.now\(\), forward\.length\)/);
   assert.doesNotMatch(src, /buckets\.clear/);
 });
 

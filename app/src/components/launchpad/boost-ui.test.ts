@@ -252,7 +252,8 @@ test("a click counts only while the token is in the lane, at the server's place,
   // the address key uses node:net, so it lives in a server-only module; boost.ts ships to the browser with the lane
   assert.match(seenRoute, /import \{ boostClickAddress \} from "@\/lib\/launchpad\/boostAddress";/);
   const address = read("../../lib/launchpad/boostAddress.ts");
-  assert.match(address, /^import "server-only";\nimport \{ isIP \} from "node:net";/);
+  assert.match(address, /^import "server-only";\nimport \{ addressKey \} from "@\/lib\/addressKey";/);
+  assert.match(read("../../lib/addressKey.ts"), /^import "server-only";\nimport \{ isIP \} from "node:net";/);
   assert.doesNotMatch(read("../../lib/launchpad/boost.ts"), /from "node:|boostClickAddress/);
   assert.doesNotMatch(lane, /boostAddress/);
   assert.match(seenRoute, /return new NextResponse\(null, \{ status: 204 \}\);\n\}/);

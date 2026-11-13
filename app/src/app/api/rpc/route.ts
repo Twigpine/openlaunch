@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { addressKey } from "@/lib/addressKey";
 import { b20RpcUrl, rpcUrl } from "@/lib/chain";
 import { clientIp, readJsonValue, readTextLimited } from "@/lib/http";
 import { responseHasB20Error } from "@/lib/launchpad/baseStocks";
@@ -13,9 +14,13 @@ export const dynamic = "force-dynamic";
  * Same-origin JSON-RPC proxy for the browser (wagmi transport) → per-chain upstream
  * (BASE_RPC_URL / ROBINHOOD_RPC_URL, else the chain's public RPC).
  * Keeps the API key server-side. Read-only allowlist: wallets send transactions
- * through their own provider, so nothing here can move funds. Small per-IP
- * token bucket so one tab cannot burn the whole Alchemy quota.
+ * through their own provider, so nothing here can move funds. Two budgets, counted
+ * in upstream calls (a 20-call batch costs 20): one per client, and one for every
+ * client together, so neither one tab nor many addresses can burn the provider quota
+ * the indexer reads with.
  */
+// eth_getLogs is not here: the browser never asks for logs (the indexer reads them server-side, with its own client),
+// and it is the call one request can make the most expensive.
 const ALLOWED = new Set([
   "eth_chainId",
   "eth_blockNumber",
@@ -31,15 +36,33 @@ const ALLOWED = new Set([
   "eth_getTransactionReceipt",
   "eth_getBlockByNumber",
   "eth_getBlockByHash",
-  "eth_getLogs",
   "net_version",
 ]);
-const BUCKET_CAP = 120; // requests
-const BUCKET_REFILL_PER_S = 4;
+const MAX_BATCH = 20;
+// Per client: an IPv4 address, or an IPv6 /64 (addressKey), so moving to another address in one's own block buys no
+// fresh budget. A page reads a few balances every 15 s; the burst covers a cold page load and a wallet connecting.
+const CLIENT_BURST = 300; // calls
+const CLIENT_PER_S = 10;
+// For every client together, per machine (Fly runs two): what the proxy may send to a chain's upstream, so a crowd of
+// addresses cannot spend the quota either. RPC_PROXY_CALLS_PER_SECOND sets it; blank, zero or junk means the default.
+// Base's B20 replay goes to another node (b20RpcUrl), never the keyed provider, and resends only calls just charged
+// here, so that node stays inside the same rate.
+const ALL_CLIENTS_PER_S = 100;
+const ALL_CLIENTS_BURST_SECONDS = 20;
 // a 20-call batch of ordinary calldata fits; a huge body is refused before it is buffered
 const MAX_BODY_BYTES = 256 * 1024;
-// eth_getLogs can answer with megabytes; the proxy must not buffer an unbounded one
+// a block with its transactions or a long fee history can answer with megabytes; the proxy must not buffer an unbounded one
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+function allClientsPerSecond(): number {
+  const n = Number(process.env.RPC_PROXY_CALLS_PER_SECOND ?? "");
+  return Number.isFinite(n) && n > 0 ? n : ALL_CLIENTS_PER_S;
+}
+
+/** Over a budget: a non-RPC 429, so viem backs off and retries. */
+function tooMany(error: string, retryAfter: number) {
+  return NextResponse.json({ error }, { status: 429, headers: { "cache-control": "no-store", "retry-after": String(retryAfter) } });
+}
 
 type Req = { id?: unknown; jsonrpc?: string; method?: string; params?: unknown };
 
@@ -66,8 +89,9 @@ export async function POST(req: Request) {
   if (!isChainKey(c)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const upstream = rpcUrl(c) ?? CHAINS[c].rpcUrls.default.http[0];
   if (!upstream) return NextResponse.json({ error: "rpc unconfigured" }, { status: 503 });
-  const ip = clientIp(req);
-  if (!takeToken(ip, BUCKET_CAP, BUCKET_REFILL_PER_S)) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": "2" } });
+  const client = `rpc:ip:${addressKey(clientIp(req))}`;
+  // one call's worth before the body is read, so a refused client costs no parsing; the rest of a batch is charged below
+  if (!takeToken(client, CLIENT_BURST, CLIENT_PER_S)) return tooMany("rate limited", 2);
   // A JSON-RPC batch is an array, so this one uses the value reader instead of readJson's object-only contract.
   const parsed = await readJsonValue(req, MAX_BODY_BYTES);
   if (parsed === undefined) return NextResponse.json({ error: "bad json" }, { status: 400 });
@@ -75,7 +99,7 @@ export async function POST(req: Request) {
   const batch = Array.isArray(body);
   const list: Req[] = Array.isArray(body) ? body : [body];
   if (list.length === 0) return NextResponse.json({ error: "empty batch" }, { status: 400 });
-  if (list.length > 20) return NextResponse.json({ error: "batch too large" }, { status: 400 });
+  if (list.length > MAX_BATCH) return NextResponse.json({ error: "batch too large" }, { status: 400 });
   // A method outside the allowlist gets a JSON-RPC "method not found" in its
   // slot, never an HTTP error for the whole batch: viem then falls back (it
   // probes eth_fillTransaction for fee estimates) and the other reads succeed.
@@ -87,6 +111,15 @@ export async function POST(req: Request) {
   });
   const reply = (items: unknown[]) => NextResponse.json(batch ? items : items[0], { headers: { "cache-control": "no-store" } });
   if (forward.length === 0) return reply(list.map((_, i) => denied.get(i)));
+  // Every call that goes upstream is paid for, the client's own budget first: a client over it never touches the shared
+  // one. Denied calls cost nothing beyond the request's first token.
+  if (forward.length > 1 && !takeToken(client, CLIENT_BURST, CLIENT_PER_S, Date.now(), forward.length - 1)) return tooMany("rate limited", 2);
+  const perSecond = allClientsPerSecond();
+  // the burst always fits one full batch, however low the rate is set
+  const burst = Math.max(MAX_BATCH, perSecond * ALL_CLIENTS_BURST_SECONDS);
+  if (!takeToken("rpc:all-clients", burst, perSecond, Date.now(), forward.length)) {
+    return tooMany("The network is busy. Try again in a moment.", 1);
+  }
   try {
     const payload = JSON.stringify(batch ? forward : forward[0]);
     const res = await fetch(upstream, { method: "POST", headers: { "content-type": "application/json" }, body: payload, signal: AbortSignal.timeout(15_000) });

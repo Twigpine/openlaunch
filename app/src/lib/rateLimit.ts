@@ -1,7 +1,7 @@
 /**
  * In-process rate-limit buckets. Two shapes:
  *   - fixed window (`rateLimited`): one hit count per key until its window ends;
- *   - token bucket (`takeToken`): a burst cap with a steady refill, for the JSON-RPC proxy.
+ *   - token bucket (`takeToken`): a burst cap with a steady refill, for the JSON-RPC proxy (one token per upstream call).
  *
  * The maps are bounded. Expired entries go first; if everything is still live, the least recently used entries go.
  * They are never cleared wholesale: a burst of new keys must not reset every active limit (the old clear-on-overflow
@@ -45,20 +45,26 @@ export function rateLimited(key: string, max = 10, windowMs = 60_000): boolean {
   return b.n > max;
 }
 
-/** Token bucket: `cap` burst, `refillPerSecond` steady state. `now` is injectable for tests. */
-export function takeToken(key: string, cap: number, refillPerSecond: number, now = Date.now()): boolean {
+/**
+ * Token bucket: `cap` burst, `refillPerSecond` steady state. Takes `cost` tokens, all or none: a refused take spends
+ * nothing. `now` is injectable for tests.
+ */
+export function takeToken(key: string, cap: number, refillPerSecond: number, now = Date.now(), cost = 1): boolean {
   const b = tokenBuckets.get(key) ?? { tokens: cap, at: now, cap, refillPerSecond };
   b.cap = cap;
   b.refillPerSecond = refillPerSecond;
-  b.tokens = Math.min(cap, b.tokens + ((now - b.at) / 1000) * refillPerSecond);
-  b.at = now;
+  // a clock that steps back (an NTP correction) refills nothing rather than draining the bucket
+  b.tokens = Math.min(cap, b.tokens + (Math.max(0, now - b.at) / 1000) * refillPerSecond);
+  b.at = Math.max(now, b.at);
   // Keep a throttled key away from the eviction edge too: a flood of one-shot keys must not reset it.
   tokenBuckets.delete(key);
   tokenBuckets.set(key, b);
-  if (b.tokens < 1) return false;
-  b.tokens -= 1;
+  const ok = b.tokens >= cost;
+  if (ok) b.tokens -= cost;
+  // after the take, so a bucket just drawn from is not full and stays; on every path, so refused takes on new keys
+  // cannot grow the map past its bound either (a refused new bucket is full, carries no state, and may go)
   if (tokenBuckets.size > MAX_TOKEN_BUCKETS) pruneTokenBuckets(tokenBuckets, now, MAX_TOKEN_BUCKETS - 1);
-  return true;
+  return ok;
 }
 
 /** Fully refilled buckets carry no state and go first; then oldest. Exported for tests. */

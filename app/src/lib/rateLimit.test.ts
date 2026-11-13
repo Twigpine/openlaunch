@@ -65,6 +65,25 @@ test("token bucket refills at the configured rate", () => {
   assert.equal(takeToken("ip", 2, 1, 2_000), false);
 });
 
+test("a take of several tokens is all or none", () => {
+  resetRateLimitsForTests();
+  assert.equal(takeToken("batch", 10, 1, 1_000, 6), true);
+  assert.equal(takeToken("batch", 10, 1, 1_000, 6), false, "4 left: a 6-token take is refused");
+  assert.equal(takeToken("batch", 10, 1, 1_000, 4), true, "and the refusal spent nothing");
+  assert.equal(takeToken("batch", 10, 1, 1_000, 1), false);
+});
+
+test("a clock that steps back neither drains nor refills a bucket", () => {
+  resetRateLimitsForTests();
+  assert.equal(takeToken("clock", 2, 1, 10_000, 2), true);
+  assert.equal(takeToken("clock", 2, 1, 5_000), false, "an earlier time refills nothing");
+  assert.equal(takeToken("clock", 2, 1, 10_500), false, "and refill still counts from the latest time seen");
+  assert.equal(takeToken("clock", 2, 1, 11_000), true);
+  resetRateLimitsForTests();
+  assert.equal(takeToken("back", 5, 1, 10_000), true);
+  assert.equal(takeToken("back", 5, 1, 0, 4), true, "4 tokens were left: a step back must not take them away");
+});
+
 test("token buckets are pruned after a full refill, then oldest first", () => {
   const map = new Map<string, { tokens: number; at: number; cap: number; refillPerSecond: number }>([
     ["full", { tokens: 0, at: 0, cap: 2, refillPerSecond: 1 }],
@@ -89,4 +108,11 @@ test("the token map stays bounded under a burst of one-shot keys", () => {
   resetRateLimitsForTests();
   for (let i = 0; i < MAX_TOKEN_BUCKETS + 50; i++) takeToken(`burst-${i}`, 1, 0.001, 1_000);
   assert.equal(rateLimitSizesForTests().tokens, MAX_TOKEN_BUCKETS);
+});
+
+test("refused takes on new keys keep the token map bounded too", () => {
+  resetRateLimitsForTests();
+  // a cost over the cap is refused on a brand-new key
+  for (let i = 0; i < MAX_TOKEN_BUCKETS + 50; i++) assert.equal(takeToken(`refused-${i}`, 1, 0.001, 1_000, 2), false);
+  assert.ok(rateLimitSizesForTests().tokens <= MAX_TOKEN_BUCKETS);
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createPublicClient, encodeFunctionData, HttpRequestError, http, parseAbi } from "viem";
 import { base } from "viem/chains";
+import { resetRateLimitsForTests } from "@/lib/rateLimit";
 import { POST } from "./route.ts";
 
 type RpcCall = { jsonrpc: string; id: number | string; method: string; params?: unknown[] };
@@ -19,6 +20,17 @@ function request(body: unknown, chain = "base") {
   return new Request(`http://localhost/api/rpc?chain=${chain}`, {
     method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": `rpc-test-${++sequence}` }, body: JSON.stringify(body),
   });
+}
+function requestFrom(ip: string, body: unknown) {
+  return new Request("http://localhost/api/rpc?chain=base", {
+    method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify(body),
+  });
+}
+const reads = (n: number, method = "eth_chainId") => Array.from({ length: n }, (_, id) => call(id, method));
+/** Budgets refill with time: freeze the clock so a test counts exactly, and start from empty buckets. */
+function frozenBudgets(t: { mock: { timers: { enable(o: { apis: "Date"[]; now: number }): void } } }) {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  resetRateLimitsForTests();
 }
 function upstreamBody(init?: RequestInit): RpcCall[] {
   const body = JSON.parse(String(init?.body));
@@ -226,4 +238,74 @@ test("single allowed reads keep their response shape; empty and oversized batche
   assert.equal((await POST(request([]))).status, 400);
   assert.equal((await POST(request(Array.from({ length: 21 }, (_, id) => call(id, "eth_chainId"))))).status, 400);
   assert.equal(upstream.mock.callCount(), 1);
+});
+
+test("eth_getLogs is refused in its slot and never forwarded", async (t) => {
+  const forwarded: RpcCall[][] = [];
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    const calls = upstreamBody(init);
+    forwarded.push(calls);
+    return Response.json(calls.map((r) => result(r.id)));
+  });
+  const response = await POST(request([call(1, "eth_getLogs"), call(2, "eth_blockNumber")]));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.find((r: { id: number }) => r.id === 1).error.code, -32601);
+  assert.deepEqual(body.find((r: { id: number }) => r.id === 2), result(2));
+  assert.deepEqual(forwarded.map((calls) => calls.map((r) => r.method)), [["eth_blockNumber"]]);
+});
+
+test("a client's budget is counted in forwarded calls, not requests", async (t) => {
+  frozenBudgets(t);
+  const upstream = t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => Response.json(upstreamBody(init).map((r) => result(r.id))));
+  const ip = "198.51.100.7";
+  // 300 calls of burst: one allowed read beside 19 denied writes costs 1, not 20
+  const mixed = [call(0, "eth_chainId"), ...Array.from({ length: 19 }, (_, i) => call(i + 1, "eth_sendRawTransaction"))];
+  assert.equal((await POST(requestFrom(ip, mixed))).status, 200);
+  for (let i = 0; i < 14; i++) assert.equal((await POST(requestFrom(ip, reads(20)))).status, 200, `batch ${i} fits`);
+  assert.equal((await POST(requestFrom(ip, reads(19)))).status, 200, "the last 19 calls of the burst");
+  const refused = await POST(requestFrom(ip, reads(1)));
+  assert.equal(refused.status, 429);
+  assert.equal(refused.headers.get("retry-after"), "2");
+  assert.equal(typeof (await refused.json()).error, "string");
+  assert.equal(upstream.mock.callCount(), 16, "the refused request never reached the upstream");
+  assert.equal((await POST(requestFrom("198.51.100.8", reads(20)))).status, 200, "another address has its own budget");
+});
+
+test("a batch the client cannot pay for in full is refused whole and spends nothing", async (t) => {
+  frozenBudgets(t);
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => Response.json(upstreamBody(init).map((r) => result(r.id))));
+  const ip = "198.51.100.9";
+  for (let i = 0; i < 14; i++) assert.equal((await POST(requestFrom(ip, reads(20)))).status, 200);
+  assert.equal((await POST(requestFrom(ip, reads(15)))).status, 200, "15 calls left after this one");
+  // 5 left: a 10-call batch pays its first call up front, then cannot pay the other 9
+  assert.equal((await POST(requestFrom(ip, reads(10)))).status, 429);
+  assert.equal((await POST(requestFrom(ip, reads(4)))).status, 200, "only that first call was spent");
+  assert.equal((await POST(requestFrom(ip, reads(1)))).status, 429);
+});
+
+test("IPv6 clients share one budget per /64", async (t) => {
+  frozenBudgets(t);
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => Response.json(upstreamBody(init).map((r) => result(r.id))));
+  for (let i = 0; i < 15; i++) assert.equal((await POST(requestFrom(`2001:db8:7:9::${(i + 1).toString(16)}`, reads(20)))).status, 200);
+  assert.equal((await POST(requestFrom("2001:db8:7:9:ffff:ffff:ffff:1", reads(1)))).status, 429, "a new host in the same /64 is the same client");
+  assert.equal((await POST(requestFrom("2001:db8:7:a::1", reads(1)))).status, 200, "the next /64 is another client");
+});
+
+test("every client together stays inside the shared budget", async (t) => {
+  frozenBudgets(t);
+  const previous = process.env.RPC_PROXY_CALLS_PER_SECOND;
+  process.env.RPC_PROXY_CALLS_PER_SECOND = "1"; // a burst of one full batch
+  t.after(() => { if (previous === undefined) delete process.env.RPC_PROXY_CALLS_PER_SECOND; else process.env.RPC_PROXY_CALLS_PER_SECOND = previous; });
+  const upstream = t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => Response.json(upstreamBody(init).map((r) => result(r.id))));
+  assert.equal((await POST(requestFrom("203.0.113.1", reads(20)))).status, 200);
+  const busy = await POST(requestFrom("203.0.113.2", reads(1)));
+  assert.equal(busy.status, 429, "a fresh address still waits for the shared budget");
+  assert.equal(busy.headers.get("retry-after"), "1");
+  assert.match((await busy.json()).error, /busy/);
+  assert.equal(upstream.mock.callCount(), 1);
+  // all-denied requests cost the shared budget nothing
+  assert.equal((await POST(requestFrom("203.0.113.3", [call(1, "eth_sendRawTransaction")]))).status, 200);
+  t.mock.timers.tick(1_000);
+  assert.equal((await POST(requestFrom("203.0.113.4", reads(1)))).status, 200, "one second refills one call");
 });
