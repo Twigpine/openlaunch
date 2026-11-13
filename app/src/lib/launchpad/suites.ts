@@ -21,6 +21,7 @@ const LEGACY_BLOCK: Record<ChainKey, () => string | undefined> = {
   base: () => process.env.LAUNCH_DEPLOY_BLOCK,
   robinhood: () => process.env.LAUNCH_DEPLOY_BLOCK_ROBINHOOD,
   arc: () => process.env.LAUNCH_DEPLOY_BLOCK_ARC,
+  elysium: () => process.env.LAUNCH_DEPLOY_BLOCK_ELYSIUM,
 };
 
 /** The launch suites configured on a chain: the original locker-based one, and the quote-only one where deployed. */

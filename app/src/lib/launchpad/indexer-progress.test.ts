@@ -16,6 +16,19 @@ function productionFunction(file: string, name: string, bindings: Record<string,
   return runInNewContext(outputText, bindings);
 }
 
+test("per-chain price capture includes quotes from suites other than the one being indexed", async () => {
+  const rows = [
+    { token: "legacy-token", quote: "eth", pool_id: "legacy-pool", token_id: 1n, fee_contract_address: "locker", suite_id: "lp-v1" },
+    { token: "quote-token", quote: "usdc", pool_id: "quote-pool", token_id: 1n, fee_contract_address: "vault", suite_id: "quote-v2", hook_address: "hook" },
+  ];
+  const poolMaps = productionFunction("./indexer.ts", "poolMaps", {
+    chainIdOf: () => 8453, feeContractForLaunch: (row: typeof rows[number]) => row.fee_contract_address,
+  });
+  const result = await poolMaps(async () => rows, "base", { feeContract: "locker" });
+  assert.deepEqual([...result.poolToToken.keys()], ["legacy-pool"]);
+  assert.deepEqual([...result.tokenQuote.values()], ["eth", "usdc"]);
+});
+
 for (const failure of ["head", "lp-v1", "quote-v2"]) {
   test(`a failed ${failure} read cannot finalize a season before a new suite backfills`, async () => {
     const suites = [
@@ -33,24 +46,33 @@ for (const failure of ["head", "lp-v1", "quote-v2"]) {
       if (sql.includes("INSERT INTO bb_launch_suite_cursor")) {
         const key = `${values[1]}:${values[2]}`;
         if (!cursors.has(key)) cursors.set(key, values[3] as bigint);
+      } else if (sql.includes("min(COALESCE(c.cursor_block")) {
+        return [{ cursor_block: [...cursors.values()].reduce((a, b) => a < b ? a : b) }];
       } else if (sql.includes("FROM bb_launch_suite_cursor")) {
         return [{ cursor_block: cursors.get(`${values[1]}:${values[2]}`) }];
       } else if (sql.includes("UPDATE bb_launch_suite_cursor")) {
-        cursors.set(`${values[2]}:${values[3]}`, values[0] as bigint);
+        const key = `${values[2]}:${values[3]}`;
+        const old = cursors.get(key) ?? 0n;
+        cursors.set(key, old > (values[0] as bigint) ? old : values[0] as bigint);
       } else if (sql.includes("FROM bb_launch_sync_cursor")) {
         return [{ chain_id: 8453, cursor_block: chainCursor }];
       } else if (sql.includes("UPDATE bb_launch_sync_cursor")) {
-        if (sql.includes("SET cursor_block")) chainCursor = values[0] as bigint;
-        if (sql.includes("head_block = COALESCE")) {
-          knownHead = (values[0] as bigint | null) ?? knownHead;
-          lastError = values[1] as string;
+        if (sql.includes("SET cursor_block")) {
+          chainCursor = values[0] as bigint;
+          const head = values[1] as bigint | null;
+          if (head !== null && head >= knownHead) { knownHead = head; lastError = null; }
+        } else if (sql.includes("last_error =")) {
+          const head = values[0] as bigint | null;
+          if (head !== null && head > knownHead) knownHead = head;
+          lastError = values[2] as string;
         } else if (sql.includes("head_block =")) {
-          knownHead = values[sql.includes("SET cursor_block") ? 1 : 0] as bigint;
+          if ((values[0] as bigint) > knownHead) knownHead = values[0] as bigint;
         }
-        if (sql.includes("last_error = NULL")) lastError = null;
       }
       return [];
     };
+    const db = Object.assign(read, { begin: (fn: (tx: typeof read) => unknown) => fn(read) });
+    const publishSuiteProgress = productionFunction("./indexer.ts", "publishSuiteProgress", {});
     const client = {
       getBlockNumber: async () => {
         if (failingRead === "head") throw new Error("head unavailable");
@@ -59,7 +81,7 @@ for (const failure of ["head", "lp-v1", "quote-v2"]) {
       getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ timestamp: blockNumber }),
     };
     const run = productionFunction("./indexer.ts", "run", {
-      skipReason: () => null, maybeDb: () => read, chainIdOf: () => 8453, launchSuites: () => suites,
+      skipReason: () => null, maybeDb: () => db, publishSuiteProgress, healUnpricedUsd: async () => {}, chainIdOf: () => 8453, launchSuites: () => suites,
       publicClient: () => client, confirmations: () => 2n, syncOverlapBlocks: () => 10n,
       SYNC_CHUNK_BLOCKS: 1000n, SYNC_MAX_CHUNKS_PER_CALL: 10,
       errMessage: (error: Error) => error.message, redactUrls: (message: string) => message,

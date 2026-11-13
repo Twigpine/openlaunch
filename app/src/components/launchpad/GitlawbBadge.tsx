@@ -8,7 +8,8 @@ export function GitlawbMark({ size = 16, className = "" }: { size?: number; clas
 
 /**
  * Badge for tokens paired with GITLAWB. Shown wherever a token appears (list, trending, feed, token page,
- * dashboard, share card) — the visible perk of picking GITLAWB as the quote asset. "sm" is 20px tall so it sits
+ * dashboard, share card). No launch form offers GITLAWB any more (the token migration); launches already paired with it
+ * keep the badge. "sm" is 20px tall so it sits
  * inside a text-sm line without changing row heights. Black like the logo tile,
  * white text, a light hairline in dark mode so it still reads as a chip on a dark page. `collapse` shows the mark
  * alone on phones, keeping the label for screen readers.

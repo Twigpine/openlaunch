@@ -2,10 +2,29 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeFunctionData, decodeFunctionData, zeroAddress } from "viem";
 import { QUOTE_FACTORY_ABI, QUOTE_VAULT_ABI } from "./quote-abi.ts";
-import { poolKeyForLaunch, feeContractForLaunch, lockerForLaunch, isQuoteFeeLaunch } from "./suites.ts";
+import { poolKeyForLaunch, feeContractForLaunch, lockerForLaunch, isQuoteFeeLaunch, launchSuites } from "./suites.ts";
+import { quoteDeployment } from "./quote-config.ts";
+import { launchpad } from "./config.ts";
 import { earnedSides } from "./creator.ts";
 import { validateMeta } from "./metaShared.ts";
 const token="0x000000000000000000000000000000000000ffff", hook="0x00000000000000000000000000000000000020cc", vault="0x000000000000000000000000000000000000aaaa";
+test("Elysium's existing suite remains usable without enabling unvalidated quote contracts",()=>{
+  const saved=process.env.LAUNCH_DEPLOY_BLOCK_ELYSIUM;
+  const cfg=launchpad("elysium"), savedFactory=cfg.factory, savedLocker=cfg.locker;
+  try {
+    process.env.LAUNCH_DEPLOY_BLOCK_ELYSIUM="3986599";
+    cfg.factory=token; cfg.locker=vault;
+    const suites=launchSuites("elysium");
+    assert.equal(suites.length,1);
+    assert.equal(suites[0].id,"lp-v1");
+    assert.equal(suites[0].deployBlock,3986599n);
+    assert.equal(quoteDeployment("elysium"),null);
+  } finally {
+    cfg.factory=savedFactory; cfg.locker=savedLocker;
+    if(saved===undefined) delete process.env.LAUNCH_DEPLOY_BLOCK_ELYSIUM;
+    else process.env.LAUNCH_DEPLOY_BLOCK_ELYSIUM=saved;
+  }
+});
 test("quote launches use stored zero LP fee and hook; legacy keeps its LP rate",()=>{
   const base={quote:zeroAddress,token,lp_fee:10000};
   assert.equal(poolKeyForLaunch(base).fee,10000); assert.equal(poolKeyForLaunch(base).hooks,zeroAddress);

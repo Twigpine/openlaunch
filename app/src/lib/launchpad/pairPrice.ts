@@ -6,10 +6,12 @@ import { maybeDb } from "@/lib/db";
 import { STATE_VIEW_ABI } from "./abi";
 import { coreQuotes, launchpad, quoteInfo as staticQuoteInfo } from "./config";
 import { ethUsd } from "./ethPrice";
+import { hypeUsd } from "./hypePrice";
 import { gitlawbUsd } from "./gitlawbServer";
 import { twapTick } from "./gitlawb";
 import { gitlawbLinkedUsd } from "./twig";
 import { poolIdOf, quotePerToken } from "./math";
+import { publicError } from "./redact";
 import { PAIR_MIN_SAMPLED_S, PAIR_TWAP_WINDOW_S, guardedPairPrice, pairPriceFromSqrt, pairPriceFromTick, sortsBelow, timeWeightedPrice, twapSpan, type PairPriceKind } from "./pairs";
 
 /**
@@ -28,6 +30,7 @@ const withTimeout = <T,>(p: Promise<T>, what: string): Promise<T> =>
 export async function coreQuoteUsd(chain: ChainKey, quote: string): Promise<{ usd: number | null; decimals: number } | null> {
   const q = staticQuoteInfo(chain, quote);
   if (q.key === "eth") return { usd: await ethUsd(), decimals: q.decimals };
+  if (q.key === "hype") return { usd: await hypeUsd(), decimals: q.decimals };
   if (q.key === "usdc" || q.key === "usdg") return { usd: q.usd, decimals: q.decimals };
   if (q.key === "gitlawb" || q.key === "twig") return { usd: gitlawbLinkedUsd(q.key, await gitlawbUsd()) ?? null, decimals: q.decimals };
   return null;
@@ -134,7 +137,7 @@ export async function readPairUsd(src: PairPriceSource): Promise<PairPriceReadin
     const error = usd !== null ? undefined : leg.twap === null ? "no 30-minute average from its pool yet" : core.usd === null ? "its core quote has no price right now" : "its pool gave no price";
     return { usd, spot: leg.spot, twap: leg.twap, source: g.source, deviation: g.deviation, ...(error ? { error } : {}) };
   } catch (e) {
-    return { usd: null, spot: null, twap: null, source: null, deviation: null, error: e instanceof Error ? e.message : String(e) };
+    return { usd: null, spot: null, twap: null, source: null, deviation: null, error: publicError(e) };
   }
 }
 

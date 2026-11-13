@@ -20,6 +20,12 @@ SELECT 'drift before' AS what,
        count(*) FILTER (WHERE l.buys <> s.buys OR l.sells <> s.sells OR l.volume_quote <> s.volume_quote) AS launches_with_wrong_totals,
        count(*) FILTER (WHERE (l.buys + l.sells) > 0 AND s.token IS NULL) AS totals_without_swaps
   FROM bb_launches l LEFT JOIN s ON s.chain_id = l.chain_id AND s.token = l.token;
+-- trade-time USD totals vs the sums of their stored per-event values (lib/launchpad/trade-time-usd.ts)
+SELECT 'usd drift before' AS what,
+       count(*) FILTER (WHERE abs(l.volume_usd - COALESCE((SELECT sum(s.usd) FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token), 0)) > 0.01
+                           OR abs(l.fees_collected_usd - COALESCE((SELECT sum(f.usd) FROM bb_launch_fee_events f WHERE f.chain_id = l.chain_id AND f.token = l.token AND f.kind = 'collected'), 0)) > 0.01
+                           OR abs(l.fees_burned_usd - COALESCE((SELECT sum(f.usd) FROM bb_launch_fee_events f WHERE f.chain_id = l.chain_id AND f.token = l.token AND f.kind = 'burned' AND f.currency = l.quote), 0)) > 0.01) AS launches_with_wrong_usd_totals
+  FROM bb_launches l;
 
 -- swaps → buys / sells / volume / accrued quote fees / last trade
 -- (volume is the trader's quote amount: quote-only launches record it next to the pool's own delta)
@@ -55,6 +61,12 @@ UPDATE bb_launches l SET
                (SELECT COALESCE(sum(amount), 0) FROM bb_launch_fee_events e WHERE e.chain_id = l2.chain_id AND e.token = l2.token AND e.kind = 'burned' AND e.currency <> l2.quote) AS tb
           FROM bb_launches l2) f
  WHERE l.chain_id = f.chain_id AND l.token = f.token;
+-- trade-time USD totals: the sums of the stored per-event values (rows with no value yet stay out; the indexer's heal pass
+-- and scripts/usd-backfill.ts price those)
+UPDATE bb_launches l SET
+  volume_usd = COALESCE((SELECT sum(s.usd) FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token), 0),
+  fees_collected_usd = COALESCE((SELECT sum(f.usd) FROM bb_launch_fee_events f WHERE f.chain_id = l.chain_id AND f.token = l.token AND f.kind = 'collected'), 0),
+  fees_burned_usd = COALESCE((SELECT sum(f.usd) FROM bb_launch_fee_events f WHERE f.chain_id = l.chain_id AND f.token = l.token AND f.kind = 'burned' AND f.currency = l.quote), 0);
 
 WITH s AS (
   SELECT chain_id, token, count(*) FILTER (WHERE is_buy) AS buys, count(*) FILTER (WHERE NOT is_buy) AS sells, COALESCE(sum(abs(COALESCE(trader_amount0, amount0))), 0) AS volume_quote
@@ -63,4 +75,10 @@ WITH s AS (
 SELECT 'drift after' AS what,
        count(*) FILTER (WHERE l.buys <> COALESCE(s.buys, 0) OR l.sells <> COALESCE(s.sells, 0) OR l.volume_quote <> COALESCE(s.volume_quote, 0)) AS launches_with_wrong_totals
   FROM bb_launches l LEFT JOIN s ON s.chain_id = l.chain_id AND s.token = l.token;
+-- trade-time USD totals vs the sums of their stored per-event values (lib/launchpad/trade-time-usd.ts)
+SELECT 'usd drift after' AS what,
+       count(*) FILTER (WHERE abs(l.volume_usd - COALESCE((SELECT sum(s.usd) FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token), 0)) > 0.01
+                           OR abs(l.fees_collected_usd - COALESCE((SELECT sum(f.usd) FROM bb_launch_fee_events f WHERE f.chain_id = l.chain_id AND f.token = l.token AND f.kind = 'collected'), 0)) > 0.01
+                           OR abs(l.fees_burned_usd - COALESCE((SELECT sum(f.usd) FROM bb_launch_fee_events f WHERE f.chain_id = l.chain_id AND f.token = l.token AND f.kind = 'burned' AND f.currency = l.quote), 0)) > 0.01) AS launches_with_wrong_usd_totals
+  FROM bb_launches l;
 COMMIT;

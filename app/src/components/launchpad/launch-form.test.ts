@@ -4,6 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { minOut } from "../../lib/launchpad/math.ts";
+import { NATIVE, isNativeQuote } from "../../lib/launchpad/config.ts";
 
 const source = readFileSync(new URL("./LaunchForm.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("LaunchForm.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -12,10 +13,12 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
   assert.match(source, /initialBuyRaw && address && buyBalance === undefined/);
   assert.match(source, /initialBuyRaw \+ reserveInQuote > buyBalance/);
   // the reserve covers both transactions (the launch is sent first and pays its own gas before the buy runs) and is per chain;
-  // it comes out of the quote balance for ETH and for a quote that IS the gas token (USDC on Arc), never for another ERC-20
+  // it comes out of the quote balance for a native quote (ETH, HYPE) and for a quote that IS the gas token (USDC on Arc), never for another ERC-20
   assert.match(source, /const gasReserve = GAS_RESERVE_WEI\[chain\];/);
   assert.match(source, /const sharedGas = sharesGasBalance\(chain, quote\);/);
-  assert.match(source, /const reserveInQuote = quote\.key === "eth" \|\| sharedGas \? gasReserveInQuote\(gasReserve, quote\.decimals\) : 0n;/);
+  assert.match(source, /const reserveInQuote = isNativeQuote\(quote\) \|\| sharedGas \? gasReserveInQuote\(gasReserve, quote\.decimals\) : 0n;/);
+  // native is decided by the address (address(0)), never by the key: HYPE is native under its own key
+  assert.doesNotMatch(source, /quote\.key [!=]== "eth"/);
   assert.doesNotMatch(source, /not enough ETH/, "gas copy names the chain's native asset, not ETH");
   assert.match(source, /if \(initialBuyRaw && ev\?\.args\.token\) \{\s*try \{/);
   assert.match(source, /buyProblem = friendlyError\(err, \{ slippagePct: FIRST_BUY_SLIPPAGE_BPS \/ 100 \}\)/);
@@ -38,7 +41,7 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed \|\| ethBal\.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
   // an ERC-20 quote's typed buy is checked for native gas too, not only the token balance
   // …and only for a quote that does not share the gas balance (Arc USDC already had the reserve applied above: one shortfall, one message)
-  assert.match(source, /initialBuyRaw && quote\.key !== "eth" && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve/);
+  assert.match(source, /initialBuyRaw && !isNativeQuote\(quote\) && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve/);
   assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
   // a typed amount is bound to the quote it was typed for, so a chain or quote switch drops it instead of re-reading it as another asset
   assert.match(source, /const quoteId = `\$\{chain\}:\$\{quote\.address\.toLowerCase\(\)\}`/);
@@ -80,7 +83,7 @@ for (const status of ["success", "reverted"]) {
     // Inert wallet/RPC dependencies: no connection, signature or network request.
     const firstBuy = runInNewContext(outputText, {
       TICK_SPACING: 200, zeroAddress: "zero", V4_QUOTER_ABI: [], UNIVERSAL_ROUTER_ABI: [], ERC20_TRANSFER_EVENT: {},
-      FIRST_BUY_SLIPPAGE_BPS: 300, BUILDER_DATA_SUFFIX: "0x", minOut,
+      FIRST_BUY_SLIPPAGE_BPS: 300, BUILDER_DATA_SUFFIX: "0x", minOut, isNativeQuote,
       encodeV4ExactInSingle: (input: { minOut: bigint; key: unknown }) => { encodedMinimum = input.minOut; encodedKey = input.key; return { commands: "0x10", inputs: [] }; },
       parseEventLogs: () => [
         { address: "token", args: { to: "wallet", value: 975n } },
@@ -98,7 +101,7 @@ for (const status of ["success", "reverted"]) {
         waitForTransactionReceipt: async () => ({ status, logs: [] }),
       },
       wallet: { writeContract: async () => "buy-hash" }, address: "wallet",
-      V4: { quoter: "quoter", universalRouter: "router", swapLayout: "v1" }, quote: { key: "eth", address: "zero" },
+      V4: { quoter: "quoter", universalRouter: "router", swapLayout: "v1" }, quote: { key: "eth", address: NATIVE },
       key, CHAIN: { id: 8453 }, setPhase: () => {},
     }, "token", "launch-hash", 100n);
     if (status === "success") {

@@ -11,6 +11,10 @@ const [{db},{publicClient},{QUOTE_FACTORY_ABI,QUOTE_HOOK_ABI,QUOTE_VAULT_ABI},{P
   import("../src/lib/db"),import("../src/lib/chain"),import("../src/lib/launchpad/quote-abi"),import("../src/lib/launchpad/abi"),import("../src/lib/launchpad/indexer"),import("../src/lib/launchpad/queries"),import("../src/lib/launchpad/config")]);
 const {BOOST_TOKEN,BOOST_DEAD,boostAmount}=await import("../src/lib/launchpad/boost");
 const {pairBurnAmount}=await import("../src/lib/launchpad/pairApply");
+const {BUILDER_DATA_SUFFIX}=await import("../src/lib/chainPublic");
+const {captureLiveUsd,healUnpricedUsd,resetLiveCapture}=await import("../src/lib/launchpad/usdLedger");
+const {buildBackfillSql,hourIso}=await import("../src/lib/launchpad/usd-history");
+const {UNPRICED_LATERAL_SQL,UNPRICED_SWAPS_SQL}=await import("../src/lib/launchpad/trade-time-usd");
 const sql=db();
 const client=publicClient("base");
 const token="0x000000000000000000000000000000000000ffff" as Address, quote="0x0000000000000000000000000000000000000000" as Address, wallet="0x000000000000000000000000000000000000b001" as Address;
@@ -32,8 +36,9 @@ let logs=[
  event(QUOTE_VAULT_ABI,"Collected",vault,{tokenId:1n,token,quoteAmount:1n,tokenAmount:0n},5),
 ];
 client.getTransactionReceipt=async()=>({status:"success",transactionHash:receiptHash,from:receiptFrom,to:receiptTo,logs}) as Awaited<ReturnType<typeof client.getTransactionReceipt>>;
-client.getBlock=async()=>({timestamp:123n}) as Awaited<ReturnType<typeof client.getBlock>>;
-client.getTransaction=async()=>({from:receiptFrom,to:receiptTo}) as Awaited<ReturnType<typeof client.getTransaction>>;
+let timestamp=123n;
+client.getBlock=async()=>({timestamp}) as Awaited<ReturnType<typeof client.getBlock>>;
+client.getTransaction=async()=>({from:receiptFrom,to:receiptTo,input:BUILDER_DATA_SUFFIX}) as Awaited<ReturnType<typeof client.getTransaction>>;
 client.readContract=(async (p: {functionName: string})=> p.functionName==="name"?"Quote":p.functionName==="symbol"?"QT":[{payout:wallet,bps:10000}]) as typeof client.readContract;
 client.getBlockNumber=async()=>4n;
 client.getLogs=(async (p: {address: string | string[];fromBlock: bigint;toBlock: bigint})=>parseEventLogs({abi:[...QUOTE_FACTORY_ABI,...QUOTE_HOOK_ABI,...QUOTE_VAULT_ABI,...POOL_MANAGER_ABI,...LAUNCH_FACTORY_ABI,...LAUNCH_LOCKER_ABI,ERC20_TRANSFER_EVENT],logs:logs.filter((l)=>(Array.isArray(p.address)?p.address:[p.address]).some((a)=>l.address.toLowerCase()===a.toLowerCase()) && l.blockNumber!>=p.fromBlock && l.blockNumber!<=p.toBlock)})) as typeof client.getLogs;
@@ -48,6 +53,9 @@ try {
   assert.equal(existing.length,0,"use an empty test database with no existing user tables, views or sequences");
   const schema=await readFile(new URL("../db/schema.sql",import.meta.url),"utf8");
   await sql.begin((tx)=>tx.unsafe(schema)); await sql.begin((tx)=>tx.unsafe(schema));
+  await sql`INSERT INTO bb_quote_usd_hourly (chain_id,quote,hour,usd,decimals,source) VALUES (8453,${quote},'1970-01-01T00:00:00Z',10000,18,'live')`;
+  // Keep this deterministic: prices come from the fixture ledger, never external services.
+  await captureLiveUsd(sql,"base",[]);
   const first=await applyLaunchTx("base",hash); assert.deepEqual([first.launches,first.swaps,first.fees],[1,1,2]);
   const retry=await applyLaunchTx("base",hash); assert.deepEqual([retry.launches,retry.swaps,retry.fees],[0,0,0]);
   const [launch]=await sql`SELECT * FROM bb_launches WHERE token=${token}`;
@@ -55,6 +63,10 @@ try {
   assert.equal(launch.volume_quote,"100"); assert.equal(launch.fees_quote_accrued,"1"); assert.equal(launch.fees_quote_collected,"1");
   const [swap]=await sql`SELECT * FROM bb_launch_swaps`; assert.equal(swap.amount0,"-99"); assert.equal(swap.trader_amount0,"-100"); assert.equal(swap.quote_fee,"1");
   assert.deepEqual([swap.trader,swap.tx_from,swap.trader_via],[wallet,wallet,"tx_from"]);
+  assert.equal(swap.via_app,true,"quote-only router swaps retain the in-app tag");
+  assert.equal(swap.usd,1e-12,"historical USD includes the trader's 100 wei, not the pool's 99 wei");
+  assert.equal(launch.volume_usd,1e-12,"receipt replay does not double-count historical volume");
+  assert.equal(launch.fees_collected_usd,1e-14);
   assert.equal((await walletQuoteFees(wallet)).get(`8453:${token}`),undefined,"credits have not been paid");
   // Both suites can own the same NFT ID; only the emitting contract identifies its launch.
   logs = [
@@ -111,7 +123,8 @@ try {
   assert.equal(cursor.cursor_block,2n);
   // The chain cursor follows the slowest suite (lp-v1 inherited 2000), so health lag shows the backfill.
   assert.equal((await sql`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].cursor_block,2n);
-  assert.equal((await sql`SELECT last_error FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].last_error,null);
+  assert.match((await sql`SELECT last_error FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].last_error,/quote backfill unavailable/,"an older head cannot clear a newer failure");
+  assert.equal((await sql`SELECT head_block FROM bb_launch_sync_cursor WHERE chain_id=8453`)[0].head_block,2002n,"a lagging RPC cannot roll back the observed head");
   const [migrated]=await sql`SELECT factory_address,locker_address,fee_contract_address FROM bb_launches WHERE token=${legacyToken}`;
   assert.deepEqual(migrated,{factory_address:legacyFactory,locker_address:legacyLocker,fee_contract_address:legacyLocker});
   // Boost ingestion must accept wallet burns while excluding every suite's fee burns, even if their amounts carry a valid tag.
@@ -156,5 +169,48 @@ try {
   try { await connection.unsafe(repair); } finally { connection.release(); }
   assert.deepEqual((await sql`SELECT token FROM bb_launch_fee_events WHERE tx_hash=${orphanHash} ORDER BY log_index`).map((r)=>r.token),[token,legacyToken,null]);
   assert.equal((await sql`SELECT volume_quote FROM bb_launches WHERE token=${token}`)[0].volume_quote,"300");
-  console.log("quote indexer: schema replay, dedupe, trader amounts, smart-wallet attribution, suite isolation, credit/claim earnings, cursor migration, boost and pair-payment fee-burn exclusion, and orphan repair passed");
+  // Another process advances both suites after this run read its starting cursors. Neither its overlap
+  // updates nor its final aggregate may publish that older snapshot over the newer progress.
+  logs=[];
+  client.getBlockNumber=async()=>{
+    await sql`UPDATE bb_launch_suite_cursor SET cursor_block=3000 WHERE chain_id=8453`;
+    await sql`UPDATE bb_launch_sync_cursor SET cursor_block=3000,head_block=3002,last_error='newer failure' WHERE chain_id=8453`;
+    return 4n;
+  };
+  await pollLaunches("base");
+  const [concurrent]=await sql`SELECT cursor_block,head_block,last_error FROM bb_launch_sync_cursor WHERE chain_id=8453`;
+  assert.deepEqual(concurrent,{cursor_block:3000n,head_block:3002n,last_error:"newer failure"});
+  assert.equal((await sql`SELECT min(cursor_block) AS n FROM bb_launch_suite_cursor WHERE chain_id=8453`)[0].n,3000n);
+
+  // A receipt can arrive before its hour is priced. Both the live heal and offline backfill must
+  // use trader amounts, including fees, and add each USD value to the totals only once.
+  receiptHash=`0x${"b".repeat(64)}`; receiptFrom=wallet; receiptTo=launchpad("base").v4.universalRouter;
+  timestamp=BigInt(Math.floor(Date.now()/1000));
+  logs=[
+    event(POOL_MANAGER_ABI,"Swap",launchpad("base").v4.poolManager,{id:pool,sender:wallet,amount0:-99n,amount1:1000n,sqrtPriceX96:2n**96n,liquidity:1n,tick:1,fee:0},1),
+    event(QUOTE_HOOK_ABI,"QuoteSwap",hook,{poolId:pool,executor:wallet,zeroForOne:true,exactInput:true,quoteFee:1n,amount0:-100n,amount1:1000n},2),
+    event(QUOTE_VAULT_ABI,"Collected",vault,{tokenId:1n,token,quoteAmount:1n,tokenAmount:0n},3),
+    event(QUOTE_VAULT_ABI,"Burned",vault,{tokenId:1n,currency:quote,amount:1n},4),
+  ].map((log)=>({...log,blockNumber:3001n}));
+  await applyLaunchTx("base",receiptHash);
+  assert.equal((await sql`SELECT usd FROM bb_launch_swaps WHERE tx_hash=${receiptHash}`)[0].usd,null);
+  assert.equal((await sql.unsafe(UNPRICED_SWAPS_SQL))[0].uq,"100");
+  assert.equal((await sql.unsafe(`SELECT u.uq FROM bb_launches l LEFT JOIN LATERAL (${UNPRICED_LATERAL_SQL}) u ON true WHERE l.token = '${token}'`))[0].uq,"100");
+  await sql`INSERT INTO bb_quote_usd_hourly (chain_id,quote,hour,usd,decimals,source) VALUES (8453,${quote},${hourIso(Number(timestamp)*1000)},10000,18,'live')`;
+  resetLiveCapture();
+  assert.deepEqual(await healUnpricedUsd(sql,"base"),{swaps:1,fees:2});
+  assert.equal((await sql`SELECT usd FROM bb_launch_swaps WHERE tx_hash=${receiptHash}`)[0].usd,1e-12);
+  assert.equal((await sql`SELECT usd FROM bb_launch_fee_events WHERE tx_hash=${receiptHash} AND kind='burned'`)[0].usd,1e-14);
+  resetLiveCapture();
+  assert.deepEqual(await healUnpricedUsd(sql,"base"),{swaps:0,fees:0});
+  const [beforeBackfill]=await sql`SELECT volume_usd,fees_collected_usd,fees_burned_usd FROM bb_launches WHERE token=${token}`;
+  await sql`UPDATE bb_launch_swaps SET usd=NULL WHERE tx_hash=${receiptHash}`;
+  const backfill=buildBackfillSql({mode:"apply",generatedAt:"integration test",from:0,to:0,quotes:[],series:new Map()});
+  // The driver rejects SQL errors itself; the generated psql-only setting is not SQL.
+  const backfillConnection=await sql.reserve();
+  try { await backfillConnection.unsafe(backfill.replace("\\set ON_ERROR_STOP on\n", "")); }
+  finally { backfillConnection.release(); }
+  assert.equal((await sql`SELECT usd FROM bb_launch_swaps WHERE tx_hash=${receiptHash}`)[0].usd,1e-12);
+  assert.deepEqual((await sql`SELECT volume_usd,fees_collected_usd,fees_burned_usd FROM bb_launches WHERE token=${token}`)[0],beforeBackfill);
+  console.log("quote indexer: suite isolation, attribution, in-app tags, historical USD, USD healing/backfill, monotonic suite progress, fee claims, burn exclusions and replay passed");
 } finally { await sql.end(); }

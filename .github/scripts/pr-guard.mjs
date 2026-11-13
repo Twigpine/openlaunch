@@ -37,6 +37,7 @@ const MAX_FINDINGS_PER_FILE = 200;
 export const RULES = {
   "contract-locked": { tier: "block", title: "Deployed contract files changed", help: "These files are pinned in contracts/deployed.lock, or stand guard over it (the lock itself, the scripts that check it, .gitmodules, everything under contracts/lib/), and stay byte-identical to what is live. A change for another chain goes in a new copied file (see contracts/src/LaunchFactoryArc.sol)." },
   "ci-config": { tier: "block", title: "CI, the guard or code owners changed", help: "Workflow and guard changes come from the maintainers, in a pull request of their own." },
+  "release-tooling": { tier: "block", title: "Release and deploy tooling", help: "The deploy and smoke scripts run on a maintainer's machine with the deploy credentials; the migration and its helpers run against the production database on every deploy; the Dockerfile, .dockerignore and fly.toml decide what is built and what runs at release; release-please-config.json decides how releases are cut. They change only in a pull request of their own, which a maintainer merges with the guard bypassed." },
   "dev-machine": { tier: "block", title: "Editor, agent or git hook configuration", help: "These files can run commands or steer an AI agent on a maintainer's machine the moment the branch is checked out. The repository tracks none of them." },
   "registry-config": { tier: "block", title: "Package manager configuration", help: "A registry, proxy or script setting here redirects every install." },
   "secret-file": { tier: "block", title: "A file that holds keys or wallet material", help: "Environment files, key files and wallet files are never committed. If this was real, rotate it now: the branch is public." },
@@ -77,6 +78,7 @@ export const RULES = {
 
 const BLOCK_PATHS = [
   ["ci-config", /^\.github\/|^(docs\/)?CODEOWNERS$/i],
+  ["release-tooling", /^app\/scripts\/(deploy\.sh|smoke\.sh|migrate\.mjs)$|^app\/scripts\/lib\/|^app\/(Dockerfile|\.dockerignore|fly\.toml)$|^release-please-config\.json$/i],
   ["dev-machine", /(^|\/)\.(claude|cursor|codex|gemini|qwen|windsurf|continue|aider[^/]*|clinerules|roo|kiro|zed|fleet|junie|amazonq|augment|trae|opencode|goose|vscode|idea|devcontainer|husky|githooks)(\/|$)|(^|\/)(CLAUDE|AGENTS|GEMINI|QWEN)(\.[^/]*)?\.md$|(^|\/)(\.cursorrules|\.clinerules|\.windsurfrules|\.goosehints|\.mcp\.json|opencode\.jsonc?|\.devcontainer\.json|[^/]*\.code-workspace|\.envrc|\.huskyrc(\.[^/]*)?|\.lintstagedrc(\.[^/]*)?|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?mise(\.[^/]*)?\.toml)$/i],
   ["registry-config", /(^|\/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|pnpm-workspace\.yaml|bunfig\.toml)$/i],
 ];

@@ -12,7 +12,7 @@ import shell from "@/components/sections/SectionShell.module.css";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, EXPLORERS, explorerAddress, type ChainKey } from "@/lib/chainPublic";
 import { BRAND } from "@/lib/brand";
 import { CHAIN_LANDING, chainLandingPath } from "@/lib/chainLanding";
-import { hasChainPage, launchpad } from "@/lib/launchpad/config";
+import { STOCK_SOURCE, hasChainPage, launchpad } from "@/lib/launchpad/config";
 import { getLaunchTotalsForRequest, listLaunchesPage } from "@/lib/launchpad/queries";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
@@ -57,7 +57,7 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
         <h2 id="facts-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">{CHAIN_LABELS[chain]} at a glance</h2>
         <dl className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Fact term="Platform fee" value="$0" note={`You pay ${CHAIN_LABELS[chain]} gas in ${c.gas}, nothing else.`} />
-          <Fact term="Quote assets" value={lp.quotes.map((q) => q.symbol).join(" · ")} note="What the pool trades against, picked at launch." />
+          <Fact term="Quote assets" value={[...lp.quotes.map((q) => q.symbol), ...(STOCK_SOURCE[chain] ? ["Stocks"] : [])].join(" · ")} note="What the pool trades against, picked at launch." />
           <Fact term="Launches" value={launches.toLocaleString("en-US")} note={`Tokens launched on ${CHAIN_LABELS[chain]} so far.`} />
           <Fact term="Chain ID" value={String(CHAINS[chain].id)} note={`Liquidity: Uniswap v4 on ${CHAIN_LABELS[chain]}.`} />
         </dl>

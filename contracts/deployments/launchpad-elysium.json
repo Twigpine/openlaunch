@@ -1,0 +1,32 @@
+{
+  "chainId": 99901,
+  "chain": "Elysium",
+  "status": "LIVE",
+  "deployedAt": "2026-11-10",
+  "deployBlock": 3986599,
+  "deployTx": "0x9ba554e22b4ed65f59435765c46d703b6be5085f74f2d917c4c80601e78c881e",
+  "deployer": "0x63F300b7b21FbA52A8D874D90F7E1B301AE858c4",
+  "LaunchFactory": "0x815542E8b392389A1389E22E588E4B62A67Ade72",
+  "LaunchLocker": "0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a",
+  "uniswapV4": {
+    "poolManager": "0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1",
+    "positionManager": "0x1d1C51b9d07fD27d36412A2b66CC23D19Eb3E518",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "stateView": "0x27ed73ae0652fdcf71d6793412a7525f32be9dfe",
+    "quoter": "0x379f556c5a748bd7cc9baf0f7a344094ac1814f5",
+    "universalRouter": "0xa13f7611115752deb2b13813bdde16a5073e4b45",
+    "universalRouterSwapLayout": "v2 (ExactInputSingleParams includes minHopPriceX36; Universal Router v2.1.2, verified on a fork with a USDC pool: test/LaunchFactory.elysium.fork.t.sol)"
+  },
+  "quotes": {
+    "HYPE": "0x0000000000000000000000000000000000000000",
+    "USDC": "0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65",
+    "WHYPE": "0xbA876237B0F021A6c6D852d6c26E107997cC5E81"
+  },
+  "platformFee": "none",
+  "note": "Same addresses as Base, Robinhood Chain and Arc (same deployer, first transaction on the chain). Plain LaunchFactory (src/LaunchFactory.sol, unchanged; no Arc guard): HYPE is an ordinary native asset with no ERC-20 face sharing its balance. Deploy: 4,308,648 gas at 0.50075 gwei ≈ 0.00216 HYPE. The deployer was funded on Elysium through Relay from its own Base balance, so it never signed on Elysium before this transaction. Bytecode: the executable code of the factory and the locker is identical to Base and Robinhood Chain (Uniswap v4 immutables aside); the embedded solc metadata hash matches the Arc build (locker byte-identical to Arc's, factory's embedded LaunchToken metadata equal to Arc's), not the 2026-09-06 Base / Robinhood build, as on Arc. Uniswap v4 addresses: Uniswap/contracts deployments/99901.md; tokens: elysium.kinetiq.xyz/docs/contract-addresses.",
+  "factoryContract": "LaunchFactory (src/LaunchFactory.sol, unchanged)",
+  "verification": {
+    "elysiumExplorer": "verified 2026-11-10: LaunchFactory (src/LaunchFactory.sol) and LaunchLocker (src/LaunchLocker.sol), solc 0.8.26, via-IR, cancun, 200 runs (script/verify.sh elysium); https://elysium.kinetiq.xyz/explorer/address/<address>",
+    "sourcify": "pending: Sourcify lists Elysium testnet (99801) only as of 2026-11-10"
+  }
+}

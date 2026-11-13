@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GET } from "./route";
+// these requests stand for ones Fly Proxy delivered: clientIp reads fly-client-ip only on a Fly Machine
+process.env.FLY_APP_NAME ??= "openlaunch-test";
 const identity={chain:"base",token:"0x"+"a".repeat(40),quote:"0x"+"0".repeat(40),pool:"0x"+"b".repeat(64)};
 function request(overrides: Partial<typeof identity> = {}, ip="chart-test") {
   return new Request("http://localhost/api/launch/chart-provider?"+new URLSearchParams({...identity,...overrides}),{headers:{"fly-client-ip":ip}});

@@ -4,6 +4,7 @@ import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X } from "@/lib/brand";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, explorerAddress } from "@/lib/chainPublic";
 import { hasChainPage, launchpad } from "@/lib/launchpad/config";
 import { chainLandingPath } from "@/lib/chainLanding";
+import { APP_VERSION, releaseUrl } from "@/lib/version";
 import Mark from "./launchpad/Mark";
 import styles from "./Footer.module.css";
 
@@ -33,7 +34,7 @@ export default function Footer() {
               Open to your next idea
             </div>
             <h2 className={styles.heading}>Make it yours.<br /><span>Keep it open.</span></h2>
-            <p className={styles.description}>Launch on Base, Robinhood Chain or Arc.<br />No platform cut. You only pay gas.</p>
+            <p className={styles.description}>Launch on Base, Robinhood Chain, Arc or Elysium.<br />No platform cut. You only pay gas.</p>
             <Link href="/launch" className={styles.launch}>
               Launch a token <ArrowRight size={17} aria-hidden="true" />
             </Link>
@@ -75,6 +76,8 @@ export default function Footer() {
           {/* the chart library's licence credit, on every page that can show a chart */}
           <p>Open source. Open participation. Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer" className={styles.credit}>TradingView</a>.</p>
           <div className={styles.utilities}>
+            {/* the running release, linked to its notes */}
+            {APP_VERSION ? <a href={releaseUrl(APP_VERSION)} target="_blank" rel="noopener noreferrer" className={styles.license} aria-label={`Version ${APP_VERSION}: release notes`}>v{APP_VERSION} <ArrowUpRight size={12} aria-hidden="true" /></a> : null}
             <a href={`${BRAND_GITHUB}/blob/main/LICENSE`} target="_blank" rel="noreferrer" className={styles.license}>MIT licensed <ArrowUpRight size={12} aria-hidden="true" /></a>
             <a href="#site-top" className={styles.backTop}>Back to top <ArrowUp size={14} aria-hidden="true" /></a>
           </div>

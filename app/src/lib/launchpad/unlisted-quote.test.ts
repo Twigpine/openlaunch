@@ -78,11 +78,11 @@ test("the server resolves unlisted quotes from bb_quote_tokens, fails soft, and 
   const q = src("queries.ts");
   assert.match(q, /return unlistedQuote\(address, st\.quoteTokens\.get\(`\$\{chainIdOf\(chain\)\}:\$\{address\.toLowerCase\(\)\}`\)/);
   assert.match(q, /const priceState = \(\): PriceState => \(\{[^\n]*quoteTokens: quoteTokensNow,/);
-  assert.match(q, /quoteTokensNow = await memo\("quote-tokens"/);
+  assert.match(q, /quoteTokens = new Map\(await memo\("quote-tokens"/);
   assert.match(q, /\/\* fail soft \(table not migrated yet/);
   assert.match(q, /rankTrending\(rows\.filter\(\(r\) => r\.quote_key !== "other"\)/);
   assert.match(q, /quote_decimals_known: q\.decimalsKnown !== false/);
-  assert.match(q, /usd === null && hasPriceSource\(q\)/, "unlisted quotes do not flag the site USD totals as partial (price-source.test.ts runs it)");
+  assert.match(q, /const priced = hasPriceSource\(q\);\s*if \(missingNow\(r\.volume_unpriced, usd, priced\)/, "unlisted quotes do not flag the site USD totals as partial (price-source.test.ts runs it)");
 });
 
 test("the indexer reads unlisted quotes into bb_quote_tokens with printable text only", () => {

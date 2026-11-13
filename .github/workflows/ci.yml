@@ -98,7 +98,7 @@ jobs:
         with:
           persist-credentials: false
       - run: node --version
-      - run: node --test .github/scripts/pr-guard.test.mjs .github/scripts/workflows.test.mjs
+      - run: node --test .github/scripts/pr-guard.test.mjs .github/scripts/workflows.test.mjs .github/scripts/pr-title.test.mjs
 
   deps:
     name: deps · registry signatures + audit

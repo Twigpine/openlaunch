@@ -20,11 +20,11 @@ export const BPS = 10_000;
 export const MAX_RECIPIENTS = 7;
 
 /**
- * key "twig" = TWIG, the GITLAWB wrapper the Base form offers (twig.ts); "pair" = a community pair from the database list (pairs.ts; the server resolves it, this static config never does); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
+ * key "twig" = TWIG, the GITLAWB wrapper (twig.ts): an official quote on Base, no longer offered in the form (nor is GITLAWB, on any chain); "pair" = a community pair from the database list (pairs.ts; the server resolves it, this static config never does); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
  * is false only for an unlisted quote whose decimals have not been read yet: its 18 is a placeholder and it must not trade.
  * `unpriced` is true only for a registry stock nothing prices (a Coinbase stock without a Chainlink feed): its null `usd` is the normal state, not an outage.
  */
-export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "pair" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean; issued?: boolean | null /* stocks, from /api/quotes: false = none in circulation yet */; pairKind?: "launch" | "univ3" | "univ4" /* community pairs: where the price comes from */ };
+export type Quote = { key: "eth" | "hype" | "usdg" | "usdc" | "gitlawb" | "twig" | "pair" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean; issued?: boolean | null /* stocks, from /api/quotes: false = none in circulation yet */; pairKind?: "launch" | "univ3" | "univ4" /* community pairs: where the price comes from */ };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 
@@ -35,7 +35,7 @@ const USDC_ARC: Quote = { key: "usdc", address: "0x36000000000000000000000000000
 /** GITLAWB: usd is null here (client-safe static); the server fills the live price (gitlawbServer.ts). Robinhood's is the LayerZero OFT of the Base token. */
 const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, symbol: GITLAWB_SYMBOL, decimals: GITLAWB_DECIMALS, usd: null, name: GITLAWB_NAME, logo: GITLAWB_LOGO_PATH };
 const GITLAWB_RH: Quote = { ...GITLAWB, address: GITLAWB_ADDRESS_ROBINHOOD as Address };
-/** TWIG: usd is null here (client-safe static); the server fills GITLAWB's live price, since one TWIG unwraps to one GITLAWB (twig.ts). Base only. */
+/** TWIG: usd is null here (client-safe static); the server fills GITLAWB's live price, since one TWIG unwraps to one GITLAWB (twig.ts). Base only, official (not offered). */
 const TWIG: Quote = { key: "twig", address: TWIG_ADDRESS as Address, symbol: TWIG_SYMBOL, decimals: TWIG_DECIMALS, usd: null, name: TWIG_NAME, logo: TWIG_LOGO_PATH };
 /**
  * Circle's USDC on Base and WETH (the OP Stack predeploy). The Base form offers neither, but the factory takes any ERC-20,
@@ -45,6 +45,15 @@ const TWIG: Quote = { key: "twig", address: TWIG_ADDRESS as Address, symbol: TWI
  */
 const USDC_BASE: Quote = { key: "usdc", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", symbol: "USDC", decimals: 6, usd: 1 };
 const WETH_BASE: Quote = { key: "eth", address: "0x4200000000000000000000000000000000000006", symbol: "WETH", decimals: 18, usd: null, name: "Wrapped Ether" };
+/**
+ * Elysium: HYPE is the native gas asset (18 dec, no ERC-20 face sharing its balance). Key "hype": usd is null here
+ * (client-safe static), the server fills HYPE's live price (hypePrice.ts) as it does GITLAWB's. WHYPE trades as an ERC-20
+ * (TradePanel treats a quote as native by its address, never by its key) and prices at HYPE's price. USDC is Circle's,
+ * at a fixed dollar. Canonical addresses: elysium.kinetiq.xyz/docs/contract-addresses (look-alike tokens exist there).
+ */
+const HYPE: Quote = { key: "hype", address: NATIVE, symbol: "HYPE", decimals: 18, usd: null };
+const WHYPE_ELYSIUM: Quote = { key: "hype", address: "0xbA876237B0F021A6c6D852d6c26E107997cC5E81", symbol: "WHYPE", decimals: 18, usd: null, name: "Wrapped HYPE" };
+const USDC_ELYSIUM: Quote = { key: "usdc", address: "0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65", symbol: "USDC", decimals: 6, usd: 1 };
 
 /** Canonical Uniswap v4 deployments (developers.uniswap.org/docs/protocols/v4/deployments). */
 const V4_BY_CHAIN: Record<ChainKey, V4> = {
@@ -76,28 +85,56 @@ const V4_BY_CHAIN: Record<ChainKey, V4> = {
     permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     swapLayout: "v2", // router v2.1.1, same ExactInputSingleParams as Robinhood (verified on a fork: test/LaunchFactory.arc.fork.t.sol)
   },
+  // Uniswap/contracts deployments/99901.md ("UniversalRouter" = v2.1.2; v2.2 is also live and takes the same layout)
+  elysium: {
+    poolManager: "0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1",
+    positionManager: "0x1d1C51b9d07fD27d36412A2b66CC23D19Eb3E518",
+    stateView: "0x27ed73ae0652fdcf71d6793412a7525f32be9dfe",
+    quoter: "0x379f556c5a748bd7cc9baf0f7a344094ac1814f5",
+    universalRouter: "0xa13f7611115752deb2b13813bdde16a5073e4b45",
+    permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    // v2 ExactInputSingleParams (minHopPriceX36), probed on a USDC pool: on a native pool both layouts decode, so only an
+    // ERC-20 quote tells them apart (contracts/test/LaunchFactory.elysium.fork.t.sol)
+    swapLayout: "v2",
+  },
 };
-/** Quote assets offered per chain, first = default. On Base TWIG took GITLAWB's place (GITLAWB stays an official quote below). */
-const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, TWIG], robinhood: [USDG, ETH, GITLAWB_RH], arc: [USDC_ARC] };
+/**
+ * Quote assets offered per chain, first = default (stocks come from the registry). No chain offers GITLAWB or TWIG:
+ * TWIG left the Base form and GITLAWB the Robinhood Chain form for the planned GITLAWB/TWIG token migration (GITLAWB
+ * had left the Base form for TWIG before). All three stay official quotes below.
+ */
+const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH], robinhood: [USDG, ETH], arc: [USDC_ARC], elysium: [HYPE, USDC_ELYSIUM] };
 /**
  * Official quotes: known, badged and priced wherever a launch paired with them is listed, but NEVER offered in the
- * launch form. Kept out of QUOTES_BY_CHAIN on purpose. GITLAWB on Base: the form offers TWIG (its 1:1 wrapper) instead,
- * while launches already paired with GITLAWB, and any an agent still makes against the factory, keep their badge and
- * price. Community tokens are not here: they are community pairs, a database list with public checks (pairs.ts).
+ * launch form. Kept out of QUOTES_BY_CHAIN on purpose. GITLAWB and TWIG (its 1:1 wrapper) on Base, and GITLAWB on
+ * Robinhood Chain (the LayerZero OFT): no form offers them (the token migration), while launches already paired with
+ * them, and any an agent still makes against the factory, keep their badge and price. Community tokens are not here:
+ * they are community pairs, a database list with public checks (pairs.ts).
+ * Order matters: allQuotes keeps the order each chain had when its form offered these (Base: ETH, TWIG, GITLAWB;
+ * Robinhood Chain: USDG, ETH, GITLAWB), so every list built from it reads as before.
  */
-const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [GITLAWB], robinhood: [], arc: [] };
+const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [TWIG, GITLAWB], robinhood: [GITLAWB_RH], arc: [], elysium: [] };
+/** A chain's official quotes (GITLAWB, TWIG): never offered in the form, still listed with their live price by /api/quotes for outside callers (Playground prices its launches from it). */
+export function officialQuotes(chain: ChainKey): Quote[] {
+  return OFFICIAL_QUOTES[chain];
+}
 /** Known quotes: priced and named, with no badge, and never offered in the launch form (the mainstream tokens above). */
-const KNOWN_QUOTES: Record<ChainKey, Quote[]> = { base: [USDC_BASE, WETH_BASE], robinhood: [], arc: [] };
+const KNOWN_QUOTES: Record<ChainKey, Quote[]> = { base: [USDC_BASE, WETH_BASE], robinhood: [], arc: [], elysium: [WHYPE_ELYSIUM] };
 
 /**
  * What address(0) means on each chain. The factory is permissionless and documents address(0) as the native asset,
  * so a pool quoted in it can exist on any chain whether or not the form offers it; the indexer lists it and it must
  * price as that chain's native asset. On Arc that is USDC at 18 decimals and a fixed dollar, never ETH: priced at
  * ETH, a $10k launch would rank as a multi-million-dollar one. (The Arc factory refuses native quotes outright, see
- * contracts/docs/LAUNCHPAD.md; the pricing rule stays so any such row could never be mispriced.)
+ * contracts/docs/LAUNCHPAD.md; the pricing rule stays so any such row could never be mispriced.) On Elysium it is HYPE,
+ * live-priced as HYPE, never as ETH.
  */
 const USDC_ARC_NATIVE: Quote = { key: "usdc", address: NATIVE, symbol: "USDC", decimals: 18, usd: 1 };
-export const NATIVE_QUOTES: Record<ChainKey, Quote> = { base: ETH, robinhood: ETH, arc: USDC_ARC_NATIVE };
+export const NATIVE_QUOTES: Record<ChainKey, Quote> = { base: ETH, robinhood: ETH, arc: USDC_ARC_NATIVE, elysium: HYPE };
+/** A quote paid as the chain's native asset (msg.value, no approvals): address(0). Never decided by the key (WETH and WHYPE share their native asset's key). */
+export function isNativeQuote(q: Pick<Quote, "address">): boolean {
+  return q.address.toLowerCase() === NATIVE;
+}
 
 /** Every quote a chain can price without a feed (the stables, and a native asset that is one), for SQL pricing. */
 export function fixedUsdQuotes(): { chain: ChainKey; key: Quote["key"]; address: string; decimals: number; usd: number }[] {
@@ -117,8 +154,8 @@ function allQuotes(chain: ChainKey): Quote[] {
   return [...(offered.some((q) => q.address === NATIVE) ? offered : [...offered, NATIVE_QUOTES[chain]]), ...OFFICIAL_QUOTES[chain], ...KNOWN_QUOTES[chain]];
 }
 
-/** The core quotes a community pair's price pool may trade against (pairs.ts): the chain's native asset, WETH, the stables, GITLAWB and TWIG. */
-export const CORE_QUOTE_KEYS: readonly Quote["key"][] = ["eth", "usdc", "usdg", "gitlawb", "twig"];
+/** The core quotes a community pair's price pool may trade against (pairs.ts): the chain's native asset (ETH, HYPE), WETH / WHYPE, the stables, GITLAWB and TWIG. */
+export const CORE_QUOTE_KEYS: readonly Quote["key"][] = ["eth", "hype", "usdc", "usdg", "gitlawb", "twig"];
 export function coreQuotes(chain: ChainKey): Quote[] {
   return allQuotes(chain).filter((q) => CORE_QUOTE_KEYS.includes(q.key));
 }
@@ -136,15 +173,17 @@ export const GAS_RESERVE_WEI: Record<ChainKey, bigint> = {
   base: 1_500_000_000_000_000n, // 0.0015 ETH: deploy + pool init + position mint, then approvals + swap
   robinhood: 1_500_000_000_000_000n, // 0.0015 ETH
   arc: 1_000_000_000_000_000_000n, // 1 USDC: a launch is ~2.5M gas; Arc's base fee floors at 20 gwei but ran ~80 gwei + ~30 gwei tips on launch day (≈ 0.3 USDC), so keep a wide margin
+  elysium: 10_000_000_000_000_000n, // 0.01 HYPE: a launch is ~1.5M gas at a 0.1 gwei floor (0.5–1 gwei seen at launch, ≈ 0.0015 HYPE), with a wide margin
 };
 /** Native amount (18-dec wei) a trade keeps back for its own gas (approvals + one swap); the launch-sized reserve above is for the form. */
 export const SWAP_GAS_RESERVE_WEI: Record<ChainKey, bigint> = {
   base: 500_000_000_000_000n, // 0.0005 ETH
   robinhood: 500_000_000_000_000n, // 0.0005 ETH
   arc: 200_000_000_000_000_000n, // 0.2 USDC: a router swap is ~0.3M gas (≈ 0.03 USDC at launch-day fees), plus approvals, with margin
+  elysium: 2_000_000_000_000_000n, // 0.002 HYPE: a router swap is ~0.3M gas (≈ 0.0003 HYPE at 1 gwei), plus approvals, with margin
 };
 /** The ERC-20 face of the chain's gas token where one exists (Arc: USDC). A buy paid in it draws on the gas balance. */
-export const NATIVE_ERC20: Record<ChainKey, Address | null> = { base: null, robinhood: null, arc: USDC_ARC.address };
+export const NATIVE_ERC20: Record<ChainKey, Address | null> = { base: null, robinhood: null, arc: USDC_ARC.address, elysium: null };
 export function sharesGasBalance(chain: ChainKey, quote: Pick<Quote, "address">): boolean {
   const n = NATIVE_ERC20[chain];
   return n !== null && n.toLowerCase() === quote.address.toLowerCase();
@@ -155,7 +194,7 @@ export function sharesGasBalance(chain: ChainKey, quote: Pick<Quote, "address">)
  * or none (Arc: the form offers no Stock quote). Explicit per chain so a new chain never inherits another chain's registry.
  */
 export type StockSource = "coinbase-b20" | "robinhood-registry" | null;
-export const STOCK_SOURCE: Record<ChainKey, StockSource> = { base: "coinbase-b20", robinhood: "robinhood-registry", arc: null };
+export const STOCK_SOURCE: Record<ChainKey, StockSource> = { base: "coinbase-b20", robinhood: "robinhood-registry", arc: null, elysium: null };
 
 function addr(v: string | undefined): Address | null {
   const raw = (v ?? "").trim();
@@ -185,6 +224,14 @@ const CFG: Record<ChainKey, ChainLaunchpad> = {
     locker: addr(process.env.NEXT_PUBLIC_LAUNCH_LOCKER_ARC),
     v4: V4_BY_CHAIN.arc,
     quotes: QUOTES_BY_CHAIN.arc,
+    configured: false,
+  },
+  elysium: {
+    key: "elysium",
+    factory: addr(process.env.NEXT_PUBLIC_LAUNCH_FACTORY_ELYSIUM),
+    locker: addr(process.env.NEXT_PUBLIC_LAUNCH_LOCKER_ELYSIUM),
+    v4: V4_BY_CHAIN.elysium,
+    quotes: QUOTES_BY_CHAIN.elysium,
     configured: false,
   },
 };
@@ -245,15 +292,16 @@ export const FEE_PRESETS = [
 ] as const;
 
 /** Starting market cap presets per quote (fully diluted, in quote units). */
-export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, twig: [] /* derived from the live price */, pair: [] /* derived from the live price */, stock: [] /* derived from the live price */, other: [] /* never offered */ };
+export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], hype: [30, 150, 300, 750] /* about the ETH presets in dollars, at HYPE ≈ $75 */, usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, twig: [] /* derived from the live price */, pair: [] /* derived from the live price */, stock: [] /* derived from the live price */, other: [] /* never offered */ };
 /** Buy amount presets per quote. */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], twig: ["100000", "500000", "1000000", "5000000"] /* one TWIG = one GITLAWB */, pair: [] /* derived from the live price: pairBuyPresets */, stock: ["0.1", "0.5", "1", "5"], other: [] /* unknown token, unknown scale */ };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], hype: ["0.3", "1.5", "3", "15"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], twig: ["100000", "500000", "1000000", "5000000"] /* one TWIG = one GITLAWB */, pair: [] /* derived from the live price: pairBuyPresets */, stock: ["0.1", "0.5", "1", "5"], other: [] /* unknown token, unknown scale */ };
 
 // NEXT_PUBLIC_* must be read as literal `process.env.X` expressions: Next inlines them at build time.
 const DEV_RPC: Record<ChainKey, string | undefined> = {
   base: process.env.NEXT_PUBLIC_RPC_URL_BASE,
   robinhood: process.env.NEXT_PUBLIC_RPC_URL_ROBINHOOD,
   arc: process.env.NEXT_PUBLIC_RPC_URL_ARC,
+  elysium: process.env.NEXT_PUBLIC_RPC_URL_ELYSIUM,
 };
 
 /** Browser RPC: dev override per chain, else our same-origin proxy (→ Alchemy/public, key stays server-side). */

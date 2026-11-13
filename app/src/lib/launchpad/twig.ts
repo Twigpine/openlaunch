@@ -11,18 +11,23 @@
  * it is never read. Display + sorting only, never used on-chain.
  *
  * Base only: TWIG has not been bridged anywhere, so every other chain must say so explicitly.
+ *
+ * Not offered in the launch form since the planned GITLAWB/TWIG token migration (config.ts OFFICIAL_QUOTES): launches
+ * already paired with it, and any made straight against the factory, keep their badge, price and trading.
  */
 import type { ChainKey } from "../chainKeys.ts";
 
 export const TWIG_ADDRESS = "0x6ac18bcf4ede02591d4917452700ea5eaaea13c1";
 /** TWIG per chain, lowercase; null where it does not exist (a new chain must say so explicitly). */
-export const TWIG_ADDRESSES: Record<ChainKey, string | null> = { base: TWIG_ADDRESS, robinhood: null, arc: null };
+export const TWIG_ADDRESSES: Record<ChainKey, string | null> = { base: TWIG_ADDRESS, robinhood: null, arc: null, elysium: null };
 export const TWIG_SYMBOL = "TWIG";
 export const TWIG_NAME = "Twigpine";
 export const TWIG_DECIMALS = 18;
 export const TWIG_SITE = "https://twigpine.com";
 /** Where people get TWIG: wrap GITLAWB 1:1, or buy it by the route through the main GITLAWB pool. */
 export const TWIG_WRAP_URL = "https://wrap.twigpine.com";
+/** The GITLAWB/TWIG token migration's page: why the Base launch form no longer offers TWIG. */
+export const TWIG_MIGRATE_URL = "https://migrate.twigpine.com";
 
 /**
  * Twigpine's logo (the twigpine.com mark) as a rounded tile, served from our own origin. `public/twig-mark.png` is

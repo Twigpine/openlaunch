@@ -162,6 +162,16 @@ After review the vault no longer keeps a per-quote `pendingClaims` total or emit
 - App lint and type checking passed, as did a separate strict type check of the new test script. Product and contract code are unchanged; the full app suite and production build were not re-run for this script-only fix. Their latest results are recorded under 19 October above.
 - Upstream CI approval, the `ci-config` admin exception and final review remain maintainer actions. Arc/B20 native-runtime validation remains a deployment gate.
 
+### Upstream integration — 13 November 2026
+
+- Merged upstream through `afcf935` (release 1.0.1), including Elysium, historical USD accounting, season rules v2, indexer durability and release tooling. Resolved the launch form, documentation, indexer and points conflicts.
+- Historical USD capture, missing-price reads, healing and offline backfill use the trader's quote amount. Price capture includes quotes from every suite even when the current range belongs to one suite. Season rules v1 and v2 price the hook's recorded fee at the trade's own hour, including in-app bonuses and vested sells.
+- Suite cursors advance monotonically. Aggregate progress reads the current suite minimum under a chain-row lock, so an older poll cannot overwrite another process's newer progress. A newly configured suite still lowers the aggregate before RPC reads, preserving the failed-backfill season guard.
+- Elysium retains its existing launch suite and deployment block. Quote-only contracts remain unavailable there pending separate deployment and validation. The launch form retains upstream's HYPE pricing and removal of TWIG/GITLAWB from new-launch choices.
+- App lint, type checking and production build passed. **1,512 app tests passed**, with eleven optional live checks skipped. All **seven PostgreSQL 16 safety regressions passed**, including the expanded fresh-database integration covering historical USD, live healing, offline backfill, in-app attribution and overlapping indexer progress.
+- Ordinary Foundry: **90 passed**, 36 optional fork/runtime tests skipped, including all **31 quote-fee tests** passing. All **169 guard/workflow/title tests passed**. Deployed-source and Arc source-comparison checks passed. Quote contract sources were unchanged; live forks and native-runtime suites were not re-run.
+- The existing workflow additions still require the documented `ci-config` admin exception, CI execution approval and final review. Arc/B20 native-runtime validation remains a deployment gate.
+
 ## Reference and attribution
 
 The settlement design was informed by o1's MIT-licensed, verified [LaunchHook/FeeEscrow source on Base](https://basescan.org/address/0x1f91c998e7c2F4b690D75BDBf6502BDcD6e02AcC#code), linked from its [production registry](https://docs.o1.exchange/launchpad/reference/production-contracts). This implementation uses this repository's pinned v4 interfaces and pips, fixed recipients, and an immutable NFT locker. It excludes o1's mutable controllers, referral splits and buybacks.

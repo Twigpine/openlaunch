@@ -17,3 +17,13 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_token_transfers_to_idx ON bb_token_tr
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_token_transfers_from_idx ON bb_token_transfers (chain_id, token, from_addr, block_number);
 -- boosts (2026-10-15): a boost names its launch by position id; the lane joins on it
 CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launches_chain_token_id_idx ON bb_launches (chain_id, token_id);
+-- trade-time USD (2026-11-10): the trades still without a USD value (every one until the first backfill, then only
+-- those whose hour had no price yet), so a repeat backfill and the "partial" check never scan every swap
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_usd_missing_idx ON bb_launch_swaps (chain_id, block_time) WHERE usd IS NULL;
+-- trade-time USD review (2026-11-11): the lists' per-launch probe of trades with no USD value (queries.SELECT's LATERAL u), and
+-- the site totals' read of quote-side fees with no USD value (getLaunchTotals): neither scans its whole table on a page view
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_usd_missing_token_idx ON bb_launch_swaps (chain_id, token) WHERE usd IS NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_fee_events_usd_missing_idx ON bb_launch_fee_events (chain_id, token) WHERE usd IS NULL AND kind IN ('collected', 'burned');
+-- trader healing (2026-10-20): the rows whose transaction could not be read at index time; healSwapTraders pages this
+-- set oldest-first by (block, log), and the partial index stays empty once the backlog is drained
+CREATE INDEX CONCURRENTLY IF NOT EXISTS bb_launch_swaps_trader_null_idx ON bb_launch_swaps (chain_id, block_number, log_index) WHERE trader IS NULL;

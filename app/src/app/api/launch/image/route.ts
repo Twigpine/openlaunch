@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp, readFormData } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { BANNER_MAX_BYTES, IMAGE_UPLOADS_PER_HOUR, checkUpload, imageRole, isWalletParam, maxBytesFor, randomImageKey } from "@/lib/launchpad/images";
 import { toBannerWebp, toLogoWebp } from "@/lib/launchpad/imageProcess";
@@ -18,18 +19,15 @@ const HOUR = 60 * 60_000;
  */
 export async function POST(req: Request) {
   if (!imageUploadsEnabled()) return NextResponse.json({ error: "uploads not configured" }, { status: 503 });
-  const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
+  const ip = clientIp(req);
   if (rateLimited(`img:ip:${ip}`, IMAGE_UPLOADS_PER_HOUR * 2, HOUR)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  const declared = Number(req.headers.get("content-length") || 0);
-  // the role is inside the body, so the early check allows the larger (banner) cap; the real cap is applied below
-  if (declared > BANNER_MAX_BYTES + 16 * 1024) return NextResponse.json({ error: "image must be ≤ 4 MB" }, { status: 413 });
-
-  let form: FormData;
-  try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json({ error: "bad form" }, { status: 400 });
+  // the role is inside the body, so the early cap allows the larger (banner) size; the role's real cap is applied below.
+  // readFormData caps chunked uploads too, before the multipart body is buffered.
+  const parsed = await readFormData(req, BANNER_MAX_BYTES + 16 * 1024);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.tooLarge ? "image must be ≤ 4 MB" : "bad form" }, { status: parsed.tooLarge ? 413 : 400 });
   }
+  const form = parsed.form;
   const wallet = form.get("wallet");
   const file = form.get("file");
   const role = imageRole(form.get("kind"));

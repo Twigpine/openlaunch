@@ -1,6 +1,7 @@
 import "server-only";
 import { createPublicClient, fallback, http, type PublicClient } from "viem";
 import { CHAINS, RPC_ENV_NAME, type ChainKey } from "./chainPublic";
+import { keylessHttp } from "./rpc-transport";
 
 export * from "./chainPublic";
 
@@ -20,6 +21,12 @@ export function b20RpcUrl(): string {
   return process.env.BASE_B20_RPC_URL?.trim() || "https://base-rpc.publicnode.com";
 }
 
+/** An HTTP transport whose errors never quote the URL's path or query (where a keyed provider puts its API key). */
+function keyless(url: string | undefined, options: { batch: true; retryCount: number; timeout?: number }) {
+  const k = keylessHttp(url);
+  return http(k.url, k.fetchFn ? { ...options, fetchFn: k.fetchFn } : options);
+}
+
 let b20: PublicClient | null = null;
 /**
  * A Base client on the B20-capable node alone, for reads that must not be answered by a node that cannot
@@ -27,15 +34,15 @@ let b20: PublicClient | null = null;
  * error the fallback in publicClient would retry.
  */
 export function b20Client(): PublicClient {
-  b20 ??= createPublicClient({ chain: CHAINS.base, transport: http(b20RpcUrl(), { batch: true, retryCount: 1, timeout: 5_000 }) });
+  b20 ??= createPublicClient({ chain: CHAINS.base, transport: keyless(b20RpcUrl(), { batch: true, retryCount: 1, timeout: 5_000 }) });
   return b20;
 }
 
 export function publicClient(key: ChainKey): PublicClient {
   const hit = cached.get(key);
   if (hit) return hit;
-  const primary = http(rpcUrl(key), { batch: true, retryCount: 3 });
-  const transport = key === "base" ? fallback([primary, http(b20RpcUrl(), { batch: true, retryCount: 2 })], { rank: false }) : primary;
+  const primary = keyless(rpcUrl(key), { batch: true, retryCount: 3 });
+  const transport = key === "base" ? fallback([primary, keyless(b20RpcUrl(), { batch: true, retryCount: 2 })], { rank: false }) : primary;
   const c = createPublicClient({ chain: CHAINS[key], transport });
   cached.set(key, c);
   return c;

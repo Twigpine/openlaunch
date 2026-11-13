@@ -5,6 +5,8 @@ export const QUOTE_CONFIG = {
   base: [process.env.NEXT_PUBLIC_QUOTE_FACTORY, process.env.NEXT_PUBLIC_QUOTE_LOCKER, process.env.NEXT_PUBLIC_QUOTE_VAULT, process.env.NEXT_PUBLIC_QUOTE_HOOK, process.env.NEXT_PUBLIC_QUOTE_DEPLOY_BLOCK, process.env.NEXT_PUBLIC_QUOTE_LAUNCH_ENABLED],
   robinhood: [process.env.NEXT_PUBLIC_QUOTE_FACTORY_ROBINHOOD, process.env.NEXT_PUBLIC_QUOTE_LOCKER_ROBINHOOD, process.env.NEXT_PUBLIC_QUOTE_VAULT_ROBINHOOD, process.env.NEXT_PUBLIC_QUOTE_HOOK_ROBINHOOD, process.env.NEXT_PUBLIC_QUOTE_DEPLOY_BLOCK_ROBINHOOD, process.env.NEXT_PUBLIC_QUOTE_LAUNCH_ENABLED_ROBINHOOD],
   arc: [process.env.NEXT_PUBLIC_QUOTE_FACTORY_ARC, process.env.NEXT_PUBLIC_QUOTE_LOCKER_ARC, process.env.NEXT_PUBLIC_QUOTE_VAULT_ARC, process.env.NEXT_PUBLIC_QUOTE_HOOK_ARC, process.env.NEXT_PUBLIC_QUOTE_DEPLOY_BLOCK_ARC, process.env.NEXT_PUBLIC_QUOTE_LAUNCH_ENABLED_ARC],
+  // Elysium's legacy deployment is supported; quote-only contracts have not been validated there.
+  elysium: [],
 } as const;
 
 /** A configured address: well-formed and not the zero address. */

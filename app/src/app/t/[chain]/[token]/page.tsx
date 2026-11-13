@@ -60,7 +60,7 @@ import { twigUsdFromGitlawb } from "@/lib/launchpad/twig";
 import type { ProofKey } from "@/lib/launchpad/proof";
 
 /** Where GITLAWB lives, as said beside a GITLAWB-quoted pool. */
-const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: " (bridged 1:1 from Base over LayerZero; one supply, two chains)", arc: "" /* not bridged to Arc */ };
+const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: " (bridged 1:1 from Base over LayerZero; one supply, two chains)", arc: "" /* not bridged to Arc */, elysium: "" /* not bridged to Elysium */ };
 
 export const dynamic = "force-dynamic";
 

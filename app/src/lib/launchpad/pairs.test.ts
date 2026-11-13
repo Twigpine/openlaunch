@@ -209,7 +209,7 @@ test("resolution: only a LISTED pair gets the pair key, a price and a badge; any
   assert.match(q, /if \(pair\?\.status === "listed"\) return \{ key: "pair",/);
   assert.match(q, /\.\.\.listedPairSymbols\(st, chain\)\]/, "an unlisted token may not borrow a listed pair's symbol");
   assert.match(q, /const pairCase = pairArms\.length/, "USD sorts price listed pairs");
-  assert.match(q, /\$\{pairDecCase\} ELSE 18 END/, "and read their decimals");
+  assert.match(q, /\$\{pairDecCase\} \$\{decCase\} ELSE \$\{unlistedDec\} END/, "listed pair decimals take precedence over unlisted metadata (looked up last)");
   assert.match(q, /rankTrending\(rows\.filter\(\(r\) => r\.quote_key !== "other"\)/, "a suspended pair resolves as other, so it leaves Trending");
   assert.match(q, /if \(q\.key === "pair" && q\.pairKind !== "launch"\) return \{ key: q\.key, decimals: q\.decimals, usd: null, priced: false \};/, "points: only pairs priced from an openlaunch pool");
 });
@@ -226,12 +226,12 @@ test("MUSEWORLD: the first pair, seeded by the schema, with no special case left
   assert.equal(existsSync(path.join(import.meta.dirname, "museworld.ts")), false);
 });
 
-test("never in the launch form: the form offers ETH, TWIG and stocks; pairs are listed, priced and badged only", () => {
+test("never in the launch form: the form offers no community token; pairs are listed, priced and badged only", () => {
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.doesNotMatch(form, /PairPublic|isPairChain|"pair"|Community/, "the form has no community pair option");
   assert.doesNotMatch(src("../../app/launch/page.tsx"), /loadPairs|quote\?:/, "the launch page neither loads pairs nor takes ?quote=");
   for (const f of ["../../app/pairs/page.tsx", "../../app/pair/[chain]/[address]/page.tsx"]) assert.doesNotMatch(src(f), /\/launch\?[^"`]*quote=/, f);
-  assert.match(src("pairs.ts"), /noForm: "The launch form offers ETH, TWIG and stocks only\./);
+  assert.match(src("pairs.ts"), /noForm: "The launch form does not offer community tokens\./);
   assert.doesNotMatch(src("../../../db/schema.sql"), /in_form/);
 });
 

@@ -33,9 +33,10 @@ cast send 0x7a6373BC4796971059824D5ce8DF71AdE54d0285 "batchRelease(uint256,uint2
 ```
 cd basebid
 NEXT_PUBLIC_LAUNCH_FACTORY=0x… NEXT_PUBLIC_LAUNCH_LOCKER=0x… LAUNCH_DEPLOY_BLOCK=… ./scripts/fly-secrets.sh
-fly deploy -c fly.toml --ha=false --remote-only \
-  --build-arg NEXT_PUBLIC_LAUNCH_FACTORY=0x… --build-arg NEXT_PUBLIC_LAUNCH_LOCKER=0x…
-curl -s https://basebid.lol/api/health
+# releases since v1.0.0: tag the commit, then deploy it with the script (see README "Releasing"); it passes every
+# build arg from the hash-pinned contracts/deployments records and checks /api/health afterwards
+app/scripts/deploy.sh --dry-run && app/scripts/deploy.sh
+curl -s https://openlaunch.lol/api/health
 ```
 The release command applies `db/schema.sql` (adds the launch tables; leaves the old `bb_*`
 board tables in place — drop them by hand later if wanted).
@@ -80,3 +81,28 @@ cluster with `fly ssh console -a <app> -C "sh -c 'PGPASSWORD=\$OPERATOR_PASSWORD
 -U postgres -d basebid -c ...'"` (port 5433, not the socket). Destroy the rehearsal app afterwards.
 For a real recovery: restore to a new app, `fly postgres detach`/`attach` it to `basebid` (DATABASE_URL),
 redeploy, run `scripts/smoke.sh`. Point-in-time: `--restore-target-time <RFC3339>` instead of a name.
+
+## Trade-time USD backfill (2026-11-10)
+
+Every trade and fee carries its USD value **at the time it happened** (`bb_launch_swaps.usd`, `bb_launch_fee_events.usd`,
+per-launch sums in `bb_launches.volume_usd` / `fees_collected_usd` / `fees_burned_usd`). The indexer prices new ones from
+the hourly ledger `bb_quote_usd_hourly`, writing the live price into the hour in progress (`lib/launchpad/usd-history.ts`,
+`usdLedger.ts`). Trades from before that went live, and any hour the indexer could not price (a price source down, the
+indexer catching up), are filled by the backfill. It is safe to run again at any time: it only prices rows with no USD
+value, never replaces an hour the indexer captured live, and stops at the last completed hour.
+
+```bash
+cd app
+# 1. generate (public price APIs only, no database access): dry run first
+npx tsx --tsconfig tsconfig.test.json scripts/usd-backfill.ts --mode dry-run --out /tmp/usd-dry.sql
+# 2. run it on the database machine: it prints the report (old method vs trade-time, per chain and quote, totals, fees)
+#    and ROLLS BACK, so nothing changes
+fly ssh sftp shell -a basebid-db <<< "put /tmp/usd-dry.sql /tmp/usd-dry.sql"
+fly ssh console -a basebid-db -C "sh -c 'PGPASSWORD=\$OPERATOR_PASSWORD psql -h localhost -p 5433 -U postgres -d basebid -f /tmp/usd-dry.sql'"
+# 3. once the report looks right: generate and run --mode apply the same way (it writes, then recomputes every launch's
+#    USD totals under the same locks as scripts/rebuild-launch-totals.sql; the indexer waits a few seconds)
+```
+
+History sources: ETH-USD and HYPE-USD hourly closes from Coinbase Exchange (HYPE gaps from Hyperliquid), GITLAWB from its
+GITLAWB/WETH pool on Base via GeckoTerminal (price in WETH between trades) × ETH-USD, TWIG = GITLAWB, stables $1. Stocks,
+community pairs and unlisted quotes have no history there: their older trades stay without a USD value (`usd IS NULL`).

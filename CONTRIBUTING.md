@@ -32,6 +32,14 @@ cd ../contracts && script/check-deployed-sources.sh && forge build && forge test
 
 For contract changes, also run the live-fork suites locally (`FORK_TESTS=true forge test`) and say so in the PR.
 
+**Title your pull request as a conventional commit:** a type, an optional scope, then a short description, e.g.
+`fix(api): bound request bodies` or `feat: show the version in the footer`. Pull requests are squash-merged with the
+title as the commit, and the release notes are written from those titles. Types: `feat` (a new feature: minor
+version), `fix` (a bug fix: patch), `security`, `perf`, `revert`, and `refactor`, `docs`, `test`, `build`, `ci`,
+`chore`, `style` (no release on their own). For a breaking change, put `!` right before the colon, after the scope if there is one: `feat!: …` or
+`feat(api)!: …`. The `pr-title` check says
+what is wrong if the title does not fit.
+
 ## The pull request guard
 
 Every pull request into `main` also runs `pr-guard` (`.github/workflows/pr-guard.yml`). It reads the diff and never runs
@@ -43,6 +51,10 @@ your code. It has two answers besides "passed":
     (`contracts/script/check-deployed-sources.sh`, `contracts/script/check-arc-factory.sh`), to `.gitmodules`, or
     anything added under `contracts/lib/`.
   - `ci-config`: anything under `.github/`, or a `CODEOWNERS` file.
+  - `release-tooling`: the release and deploy tooling: `app/scripts/deploy.sh`, `smoke.sh`, `migrate.mjs` and anything
+    under `app/scripts/lib/`, `app/Dockerfile`, `app/.dockerignore`, `app/fly.toml`, and `release-please-config.json`.
+    These run with the deploy credentials or against the production database, or decide how releases are cut, so a
+    maintainer changes them in a pull request of their own.
   - `dev-machine`: editor, agent or git hook configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
   - `registry-config`: package manager configuration (`.npmrc` and the like).
   - `secret-file`, `secret`: a key, wallet or `.env` file, or a credential anywhere in the diff.
