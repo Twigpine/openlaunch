@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { metaUriFor, metaWriteDecision, validateMeta } from "./metaShared.ts";
+import { isMetaKeyParam, isMetaTokenParam, metaUriFor, metaWriteDecision, validateMeta } from "./metaShared.ts";
 
 const L = "0x00000000000000000000000000000000000c0ffe";
 const SALT = "0x" + "a".repeat(64);
@@ -75,4 +75,18 @@ test("metaWriteDecision: a different banner is a conflict, the same one is an id
   assert.equal(metaWriteDecision(row, v.value), "same");
   assert.equal(metaWriteDecision({ ...row, banner_url: "https://cdn.example/other.webp" }, v.value), "conflict");
   assert.equal(metaWriteDecision({ ...row, banner_url: null }, v.value), "conflict");
+});
+
+test("meta GET params: addresses and bytes32 keys pass, junk is rejected before SQL", () => {
+  assert.equal(isMetaTokenParam(L), true);
+  assert.equal(isMetaTokenParam(L.toLowerCase()), true);
+  assert.equal(isMetaTokenParam("0x1234"), false);
+  assert.equal(isMetaTokenParam("not-an-address"), false);
+  assert.equal(isMetaTokenParam(""), false);
+  assert.equal(isMetaTokenParam(null), false);
+  assert.equal(isMetaKeyParam(SALT), true);
+  assert.equal(isMetaKeyParam(KEY.toLowerCase()), true);
+  assert.equal(isMetaKeyParam("0x1234"), false);
+  assert.equal(isMetaKeyParam(L), false, "an address is not a bytes32 key");
+  assert.equal(isMetaKeyParam(""), false);
 });
