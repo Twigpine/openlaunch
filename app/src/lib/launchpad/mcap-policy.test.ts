@@ -54,3 +54,11 @@ test("the list query's size does not grow with the unlisted quote tokens or a wh
   assert.match(q, /const stockDecArms = \[\.\.\.prices\.stocks\.keys\(\)\]/);
   assert.doesNotMatch(q, /\[\.\.\.prices\.stockQuotes\.values\(\)\]/);
 });
+
+test("an ETH price outage keeps the volume fallback, but market cap takes ETH as unpriced", () => {
+  const q = readFileSync(new URL("./queries.ts", import.meta.url), "utf8");
+  assert.match(q, /const ethFactor = ethUsdKnown \?\? 1;/);
+  assert.match(q, /const usdPerUnit = usdPerUnitFor\(ethFactor\);/);
+  assert.match(q, /const mcapUsdPerUnit = usdPerUnitFor\(ethUsdKnown\);/);
+  assert.match(q, /mcapPageQuery\(db, \{[^}]*quoteUsd: mcapUsdPerUnit,/);
+});

@@ -169,6 +169,15 @@ try {
     assert.equal(data.boost_on, false, "Boost metadata survives alongside market-cap mode");
     assert.deepEqual(data.launches.map((r:{name:string})=>r.name),names(mode==="all"?all:filtered),"live cache keys isolate modes");
   }
+  // An ETH price outage: an ETH-quoted launch is unpriced for market cap. It is never filtered on ETH counted as dollars, and it
+  // sorts after every priced launch. Big enough that ETH taken as $1 would trip the $10M filter.
+  await launch("ETH outage giant", { chain: 4663, quote: wallet(0), decimals: 18, quoteUsd: 2500, start: 3e10 });
+  assert.equal(names(await page()).includes("ETH outage giant"), false, "with an ETH price it is a filtered outlier");
+  const noEth = await page({ ethUsd: null });
+  const giant = noEth.items.find((r) => r.name === "ETH outage giant");
+  assert.ok(giant, "with no ETH price it stays listed instead of being filtered on a made-up dollar value");
+  assert.equal(giant.mcap?.classification, "unpriced");
+  assert.equal(noEth.items.slice(noEth.items.indexOf(giant) + 1).filter((r) => r.fdv_usd !== null).length, 0, "and it sorts after every priced launch");
   const before=performance.now(); await page();
   console.log(`market-cap: actual SQL, classification, lifetime history, decimal/chain pricing, sqrt ordering, pagination, concurrent requests and list/live APIs passed (${(performance.now()-before).toFixed(1)}ms warm list, ${all.items.length} fixtures)`);
 } finally {

@@ -336,9 +336,11 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const sort = opts.sort ?? "new";
   const win = opts.window ?? "all";
   const ethUsd = opts.ethUsd ?? null;
-  // no ETH price → rank ETH pools in ETH units (still monotonic within the chain), as before: an ETH price outage must not drop
-  // every ETH launch, most of Base, to the bottom of the volume and market-cap sorts
-  const ethFactor = ethUsd !== null && Number.isFinite(ethUsd) && ethUsd > 0 ? ethUsd : 1;
+  const ethUsdKnown = ethUsd !== null && Number.isFinite(ethUsd) && ethUsd > 0 ? ethUsd : null;
+  // no ETH price → the volume sorts rank ETH pools in ETH units (still monotonic within the chain), as before, so an ETH price
+  // outage does not drop every ETH launch, most of Base, to the bottom. The market-cap query takes the price as unknown instead
+  // (mcapUsdPerUnit below): ETH counted as dollars must never decide its filter, and an unpriced row sorts last there.
+  const ethFactor = ethUsdKnown ?? 1;
   // stock quotes: per-address USD factors known this request (empty → treated like unknown = 0 weight in USD sorts)
   const stockEntries = [...prices.stocks.entries()].filter(([, v]) => v !== null && Number.isFinite(v) && v > 0) as [string, number][];
   const conds = [] as ReturnType<typeof db>[];
@@ -376,14 +378,18 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   // ETH's price for every quote keyed "eth": address(0) where the chain's native asset is ETH (a native stable, Arc's USDC, is
   // keyed "usdc" and already in stableCase above) and WETH on Base
-  const ethArms = quotesWithKey("eth").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${ethFactor}::double precision`);
-  const ethCase = ethArms.length ? ethArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const ethCaseFor = (factor: number | null) => {
+    const ethArms = quotesWithKey("eth").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${factor}::double precision`);
+    return ethArms.length ? ethArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
+  };
   // HYPE's price for every quote keyed "hype" (Elysium's native HYPE and WHYPE), chain-scoped like ETH; unknown has no USD
   const hypeFactor = prices.hype !== null && Number.isFinite(prices.hype) && prices.hype > 0 ? prices.hype : null;
   const hypeArms = quotesWithKey("hype").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${hypeFactor}::double precision`);
   const hypeCase = hypeArms.length ? hypeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   // unknown prices are NULL: 0 weight in the volume sorts (COALESCE below), last in the market-cap sort
-  const usdPerUnit = db`(CASE ${stableCase} ${pairCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision ${ethCase} ${hypeCase} ELSE NULL::double precision END)`;
+  const usdPerUnitFor = (eth: number | null) => db`(CASE ${stableCase} ${pairCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision ${ethCaseFor(eth)} ${hypeCase} ELSE NULL::double precision END)`;
+  const usdPerUnit = usdPerUnitFor(ethFactor);
+  const mcapUsdPerUnit = usdPerUnitFor(ethUsdKnown);
   // quote decimals for the SQL valuations (the market-cap list shows the FDV computed here): one arm per registry stock that a
   // launch uses, so the statement grows with the stocks in use, never with a whole registry; an unlisted quote's decimals are
   // looked up below rather than bound one arm per bb_quote_tokens row, which has no size limit (any ERC-20 can be a quote)
@@ -407,7 +413,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
     ? db`(l.volume_usd + COALESCE(u.uq, 0) / power(10, ${qd}) * COALESCE(${usdPerUnit}, 0))`
     : db`(${volCol} / power(10, ${qd}) * COALESCE(${usdPerUnit}, 0))`;
   if (sort === "mcap") {
-    const rows = await mcapPageQuery(db, { where, quoteDecimals: qd, quoteUsd: usdPerUnit, mode: parseMcapMode(opts.mcap), limit, offset, select: SELECT }) as unknown as (Raw & McapColumns)[];
+    const rows = await mcapPageQuery(db, { where, quoteDecimals: qd, quoteUsd: mcapUsdPerUnit, mode: parseMcapMode(opts.mcap), limit, offset, select: SELECT }) as unknown as (Raw & McapColumns)[];
     const shaped = rows.map((r) => shape(r, ethUsd, prices));
     return { items: shaped.slice(0, limit), hasMore: shaped.length > limit };
   }
