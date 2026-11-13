@@ -38,6 +38,10 @@ Configure `TRUSTED_PROXY_HOPS` for the actual ingress chain and prevent direct a
 
 ## Verification scope
 
+The combined application suite passed 1,667 tests with 14 explicit opt-in skips and no failures. The separate real-PostgreSQL suites passed 17 posting checks, 13 pair-payment checks and 33 indexer/rebuild checks. Their temporary schemas and container were removed after validation. The Linux guard/workflow suite passed all 169 tests. Forge passed all 46 non-fork contract tests, including the 256-run, 128,000-call locker invariant campaign.
+
+TypeScript and the default Turbopack production build passed. Lint reported no errors and five existing image warnings; the build retained three dynamic filesystem tracing warnings. The build used committed source in an isolated directory with real dependencies because this Windows worktree's dependency junction is outside Turbopack's inferred root. Main's subsequent 1.0.1 version-only release was synced separately and its version tests rechecked; GitHub CI validates the final merged head.
+
 Regression coverage includes real PostgreSQL concurrent signed reports, signed quote requests and replay/rollback, reservation expiry and settlement, historical/current burn valuation, collection receipts preceding their launch, individual-receipt recovery, chain-aware holder rebuilds and maintenance lock ordering. Database tests require explicit loopback endpoints, use random owned schemas and clean them up. Unit tests cover URL canonicalization, response-stream cancellation, request caps and recovery evidence validation.
 
 The report's guard-bypass claim was not reproduced: the named operational scripts already require owner review. Adding further hard blocks, changing nonce namespaces, imposing a new token-ID uniqueness constraint or introducing a distributed limiter are separate hardening decisions, not prerequisites established by that claim. Large historical points/holder reads remain performance work; this patch does not silently truncate their accounting inputs.
