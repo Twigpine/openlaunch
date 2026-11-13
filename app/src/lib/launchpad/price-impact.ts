@@ -1,5 +1,5 @@
 /**
- * How far a trade moves a Uniswap v4 pool's price, with the pool fee taken out: 1 − (the quoter's output ÷ what the
+ * How far a trade moves a Uniswap v4 pool's price, with the trading fee taken out: 1 − (the quoter's output ÷ what the
  * same input would fetch at the pre-trade spot price after the fee). Pure; the spot comes from StateView.getSlot0
  * and the output from the V4 Quoter, both read by the trade panel.
  */
@@ -16,8 +16,10 @@ export function spotPrice1Per0(sqrtPriceX96: bigint): number {
 }
 
 /**
- * `zeroForOne`: paying currency0 for currency1 (a buy, when the quote is currency0). `feePips` is the pool's LP
- * fee in millionths, charged on the input. Null when the inputs cannot give a meaningful answer.
+ * `zeroForOne`: paying currency0 for currency1 (a buy, when the quote is currency0). `feePips` is the effective
+ * trading fee in millionths: the LP fee for legacy pools or the creator fee for quote-only pools. For exact-input
+ * trades, deducting the fee from ideal spot output also excludes a quote-only sell's output fee.
+ * Null when the inputs cannot give a meaningful answer.
  */
 export function priceImpact({ sqrtPriceX96, amountIn, amountOut, zeroForOne, feePips }: { sqrtPriceX96: bigint; amountIn: bigint; amountOut: bigint; zeroForOne: boolean; feePips: number }): number | null {
   if (sqrtPriceX96 <= 0n || amountIn <= 0n || amountOut < 0n || feePips < 0 || feePips >= 1_000_000) return null;

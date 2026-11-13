@@ -42,6 +42,23 @@ function crowd(count: number, from: number, launch: ScoreLaunch = L, t = START +
 const wallets = (bs: ReturnType<typeof buyer>[]) => bs.map((b) => b.first.wallet);
 
 // ── the rules ────────────────────────────────────────────────────────────────
+test("quote-only creator and scout points use the recorded quote fee, including zero, while legacy fees use the rate", () => {
+  const holders = Array.from({ length: 20 }, (_, i) => buyer(w(100 + i), START + DAY, 0.003));
+  const eligible = new Set(holders.slice(0, 7).map((h) => h.first.wallet));
+  const run = (fee: bigint | undefined) => scoreSeason(build(holders, {
+    eligible,
+    swaps: holders.map((h) => ({ ...h.swap, quoteFeeRaw: fee })),
+  }));
+  const legacy = run(undefined);
+  const exact = run(eth(0.0001)); // $0.20 per buy, instead of the legacy rate's $0.06
+  const zero = run(0n);
+  assert.equal(legacy.wallets.get(CREATOR)!.creatorWhy.feesUsd, 0.42);
+  assert.equal(exact.wallets.get(CREATOR)!.creatorWhy.feesUsd, 1.4);
+  assert.equal(exact.wallets.get(w(100))!.scoutWhy.feesUsd, 0.20);
+  assert.equal(zero.wallets.get(CREATOR)!.creatorWhy.feesUsd, 0);
+  assert.equal(zero.wallets.get(w(100))!.scoutWhy.feesUsd, 0);
+});
+
 test("a real holder who bought this season and held a day earns the creator 30 if eligible, 5 if not; half again after a week", () => {
   const b1 = buyer(w(1), START + DAY, 0.0025); // $5
   const b2 = buyer(w(2), NOW - 2 * DAY, 0.0025);
@@ -460,6 +477,29 @@ test("v2 in-app buys: 15 a $1 of fees instead of 10; v1 ignores the tag", () => 
   assert.equal(r.wallets.get(w(1))!.scoutWhy.appFeesUsd, 10);
   assert.equal(r.wallets.get(w(2))!.scout, 100);
   assert.equal(v2([app], {}, RULES_V1).wallets.get(w(1))!.scout, 100, "version 1: no bonus");
+});
+
+test("quote fees use their historical price for v1 points and v2 app bonuses, including vested sells", () => {
+  const buy = trade(w(1), START + DAY + 3_600_000, 0.5, 30_000, { app: true });
+  // 0.5 ETH was $500 then, although today's price makes it $1,000. The hook reports 0.002 ETH, worth $2 then.
+  buy.swap.usd = 500;
+  buy.swap.quoteFeeRaw = eth(0.002);
+  const eligible = new Set([...gateEligible, w(1)]);
+  const bought = v2([buy], { eligible });
+  assert.equal(bought.wallets.get(w(1))!.scout, 30);
+  assert.equal(bought.wallets.get(w(1))!.scoutWhy.appFeesUsd, 2);
+  assert.equal(bought.wallets.get(CREATOR)!.creatorWhy.feesUsd, 2.42);
+  assert.equal(v2([buy], { eligible }, RULES_V1).wallets.get(w(1))!.scout, 20);
+
+  const sell = trade(w(1), START + 9 * DAY, 0.5, 40_000, { isBuy: false, app: true });
+  sell.swap.usd = 750;
+  sell.swap.quoteFeeRaw = eth(0.002); // $3 at this trade's hour
+  const sold = v2([buy, sell], { eligible }).wallets.get(w(1))!;
+  assert.equal(sold.scoutWhy.sellFeesUsd, 3);
+  assert.equal(sold.scout, 30 + 15);
+  buy.swap.quoteFeeRaw = 0n;
+  sell.swap.quoteFeeRaw = 0n;
+  assert.equal(v2([buy, sell], { eligible }).wallets.get(w(1))?.scout ?? 0, 0);
 });
 
 test("v2 daily cap: plain buys stop at 200, in-app trades fill the day to 300", () => {

@@ -84,7 +84,7 @@ export async function healUnpricedUsd(db: Db, chain: ChainKey, now = Date.now())
   try {
     const swaps = await db<{ n: number }[]>`
       WITH todo AS (
-        SELECT s.chain_id, s.tx_hash, s.log_index, abs(s.amount0) / power(10::numeric, p.decimals) * p.usd AS v
+        SELECT s.chain_id, s.tx_hash, s.log_index, abs(COALESCE(s.trader_amount0, s.amount0)) / power(10::numeric, p.decimals) * p.usd AS v
           FROM bb_launch_swaps s
           JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
           JOIN bb_quote_usd_hourly p ON p.chain_id = s.chain_id AND p.quote = l.quote AND p.hour = ${db.unsafe(hourSql("s.block_time"))}

@@ -12,11 +12,12 @@ import { isAddress, type Hex } from "viem";
 import { SITE_URL, isChainKey, type ChainKey, CHAIN_KEY_PATTERN } from "../chainPublic.ts";
 import { parseXHandle } from "./xHandle.ts";
 
-export type MetaInput = { chain: ChainKey; launcher: string; salt: Hex; meta_key: Hex; name: string; symbol: string; description?: string; image_url?: string; banner_url?: string; website?: string; x_handle?: string };
+export type MetaInput = { chain: ChainKey; suite_id?: "lp-v1" | "quote-v2"; launcher: string; salt: Hex; meta_key: Hex; name: string; symbol: string; description?: string; image_url?: string; banner_url?: string; website?: string; x_handle?: string };
 export const LIMITS = { name: 32, symbol: 10, description: 280 } as const;
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 
 export function validateMeta(m: Partial<MetaInput> & { meta_key?: string }): { ok: true; value: MetaInput } | { ok: false; error: string } {
+  if (m.suite_id !== undefined && m.suite_id !== "lp-v1" && m.suite_id !== "quote-v2") return { ok: false, error: "suite_id: unknown deployment" };
   const name = (m.name ?? "").trim();
   const symbol = (m.symbol ?? "").trim().toUpperCase();
   if (!name || name.length > LIMITS.name) return { ok: false, error: `name: 1–${LIMITS.name} characters` };
@@ -47,7 +48,7 @@ export function validateMeta(m: Partial<MetaInput> & { meta_key?: string }): { o
   const x = parseXHandle(m.x_handle);
   if (!x.ok) return { ok: false, error: x.error };
   const x_handle = x.handle || undefined;
-  return { ok: true, value: { chain: m.chain, launcher: m.launcher, salt: m.salt as Hex, meta_key: meta_key.toLowerCase() as Hex, name, symbol, description, image_url, banner_url, website, x_handle } };
+  return { ok: true, value: { chain: m.chain, ...(m.suite_id ? { suite_id: m.suite_id } : {}), launcher: m.launcher, salt: m.salt as Hex, meta_key: meta_key.toLowerCase() as Hex, name, symbol, description, image_url, banner_url, website, x_handle } };
 }
 
 /** The on-chain metadataURI: keyed by (launcher, meta_key) — stable across the salt search. */

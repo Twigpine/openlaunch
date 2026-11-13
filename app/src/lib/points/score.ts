@@ -172,7 +172,7 @@ export type ScoreLaunch = {
 };
 /** `usd`: the trade's value at its own hour (bb_launch_swaps.usd); missing or null → the quote's price in this run. */
 /** `app`: made in the app (bb_launch_swaps.via_app; appTag.ts). */
-export type ScoreSwap = { key: string; trader: string; isBuy: boolean; quoteRaw: bigint; tokenRaw: bigint; block: number; logIndex: number; time: number; tx: string; usd?: number | null; app?: boolean };
+export type ScoreSwap = { key: string; trader: string; isBuy: boolean; quoteRaw: bigint; quoteFeeRaw?: bigint; tokenRaw: bigint; block: number; logIndex: number; time: number; tx: string; usd?: number | null; app?: boolean };
 /** A wallet's first buy of a token, all-time (its rank among real buyers decides "early"). */
 export type FirstBuy = { key: string; wallet: string; block: number; logIndex: number; time: number; quoteRaw: bigint; tokenRaw: bigint; tx: string; usd?: number | null };
 /** One transfer of a token from its launcher or a fee recipient to `wallet`. */
@@ -242,6 +242,10 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
   const quoteUsd = (l: ScoreLaunch, raw: bigint) => units(raw, l.quoteDecimals) * (l.quoteUsd as number);
   /** A trade's USD value at its own hour when it was stored, else at this run's quote price. */
   const tradeUsd = (l: ScoreLaunch, t: { quoteRaw: bigint; usd?: number | null }) => (typeof t.usd === "number" && Number.isFinite(t.usd) ? t.usd : quoteUsd(l, t.quoteRaw));
+  // Use the hook's rounded quote fee at the same historical price as the trade.
+  const feeUsd = (l: ScoreLaunch, s: ScoreSwap) => s.quoteFeeRaw === undefined
+    ? (tradeUsd(l, s) * l.lpFee) / 1_000_000
+    : s.quoteRaw > 0n ? tradeUsd(l, s) * (Number(s.quoteFeeRaw) / Number(s.quoteRaw)) : quoteUsd(l, s.quoteFeeRaw);
   const tokenUsd = (l: ScoreLaunch, raw: bigint) => units(raw, 18) * (l.tokenUsd as number);
   const inSeason = (t: number) => t >= input.seasonStart && t < end;
   // linked wallets: $5 or more of the token from the launcher or a fee recipient BEFORE the wallet's first buy. A
@@ -458,7 +462,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     // fees count only on buys by points-eligible traders who are net buyers: wash trades need real accounts and capital
     if (!s.isBuy || !input.eligible.has(s.trader) || !heldBuy(s)) continue;
     const l = launches.get(s.key)!;
-    const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
+    const fee = feeUsd(l, s);
     if (fee > 0) ensure(l).fees.push({ trader: s.trader, day: utcDay(s.time), usd: fee });
   }
   // the creator's in-season outflows of each token: a sell, or tokens moved to any other wallet (one that then sells
@@ -674,7 +678,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
       if (!s.isBuy || !heldBuy(s)) continue;
       if (!feeGate(s.key)) continue;
       const l = launches.get(s.key)!;
-      const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
+      const fee = feeUsd(l, s);
       if (fee <= 0) continue;
       const k = `${s.trader}|${utcDay(s.time)}`;
       const used = scoutFeeUsed.get(k) ?? 0;
@@ -693,7 +697,7 @@ export function scoreSeason(input: ScoreInput, rules: Rules = RULES_V1): ScoreRe
     for (const s of outside) {
       if (!feeGate(s.key)) continue;
       const l = launches.get(s.key)!;
-      const fee = (tradeUsd(l, s) * l.lpFee) / 1_000_000;
+      const fee = feeUsd(l, s);
       if (fee <= 0) continue;
       const k = `${s.trader}|${utcDay(s.time)}`;
       const d = days.get(k) ?? { trader: s.trader, plain: 0, app: 0, sell: 0, feesUsd: 0, appUsd: 0, sellUsd: 0 };

@@ -10,12 +10,12 @@
 import { units } from "./math.ts";
 
 /** Swaps with no stored USD value, summed per launch in raw quote units: the site totals' one grouped read (bb_launch_swaps_usd_missing_idx). */
-export const UNPRICED_SWAPS_SQL = `SELECT chain_id, token, sum(abs(amount0)) AS uq FROM bb_launch_swaps WHERE usd IS NULL GROUP BY chain_id, token`;
+export const UNPRICED_SWAPS_SQL = `SELECT chain_id, token, sum(abs(COALESCE(trader_amount0, amount0))) AS uq FROM bb_launch_swaps WHERE usd IS NULL GROUP BY chain_id, token`;
 /**
  * The same, for one launch at a time (the lists' LATERAL join): a probe of bb_launch_swaps_usd_missing_token_idx per row,
  * so a list of 40 launches reads 40 tiny index ranges instead of aggregating every unpriced trade on every request.
  */
-export const UNPRICED_LATERAL_SQL = `SELECT sum(abs(x.amount0)) AS uq FROM bb_launch_swaps x WHERE x.chain_id = l.chain_id AND x.token = l.token AND x.usd IS NULL`;
+export const UNPRICED_LATERAL_SQL = `SELECT sum(abs(COALESCE(x.trader_amount0, x.amount0))) AS uq FROM bb_launch_swaps x WHERE x.chain_id = l.chain_id AND x.token = l.token AND x.usd IS NULL`;
 
 /**
  * A USD total: the stored trade-time sum plus the raw quote amount with no stored value at `quoteUsdNow`.

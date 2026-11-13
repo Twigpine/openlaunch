@@ -2,16 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useConfig, useReadContracts } from "wagmi";
+import { useConfig, useReadContract, useReadContracts } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import { type Address, type Hex } from "viem";
 import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
-import { LAUNCH_LOCKER_ABI } from "@/lib/launchpad/abi";
-import { DEAD, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
+import { QUOTE_VAULT_ABI } from "@/lib/launchpad/quote-abi";
+import { feeContractForLaunch, isQuoteFeeLaunch, type LaunchIdentity } from "@/lib/launchpad/suites";
+import { claimRequest, claimableContracts, collectRequest, type FeeTarget } from "@/lib/launchpad/fee-actions";
+import { DEAD, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
 import { fmtQuote, fmtTokens, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
-import { BUILDER_DATA_SUFFIX, CHAINS, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAINS, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { WhoName } from "@/components/profile/Who";
 import { friendlyError } from "@/lib/errors";
 import { feeSidesUsd } from "@/lib/launchpad/creator";
@@ -22,10 +24,11 @@ import { Spinner } from "@/components/Skeleton";
  * Fee routing card: who gets the trading fee, what has been collected / burned
  * so far, and the permissionless `collect` + `claim` buttons. Collect pulls
  * accrued fees out of the pool for everyone at once; claim withdraws the
- * caller's own credited balance. Fees accrue on both sides of the pool (quote
- * from buys, the launched token from sells), so totals and claims show both.
+ * caller's own credited balance. Legacy fees use both currencies; quote-only
+ * launches collect and claim quote fees from their immutable vault.
  */
 export default function CollectPanel({
+  launchIdentity,
   chain,
   quote,
   token,
@@ -40,6 +43,7 @@ export default function CollectPanel({
   priceQuote,
   ethUsd,
 }: {
+  launchIdentity?: LaunchIdentity;
   chain: ChainKey;
   quote: Quote;
   token: Address;
@@ -58,20 +62,26 @@ export default function CollectPanel({
   const config = useConfig();
   const { address, chainId } = useHydratedAccount();
   const CHAIN = CHAINS[chain];
-  const LOCKER_ADDRESS = launchpad(chain).locker;
+  const identity = launchIdentity ?? { chain };
+  const quoteOnly = isQuoteFeeLaunch(identity);
+  const LOCKER_ADDRESS = feeContractForLaunch(identity);
+  const target: FeeTarget | null = LOCKER_ADDRESS ? { launch: identity, feeContract: LOCKER_ADDRESS, tokenId: BigInt(tokenId) } : null;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const [phase, setPhase] = useState<{ k: "idle" } | { k: "busy"; what: "collect" | "claim"; currency?: Address } | { k: "sent"; hash: Hex; what: "collect" | "claim"; currency?: Address } | { k: "error"; message: string }>({ k: "idle" });
 
-  // Credited balances on both sides: [quote, launched token].
+  const pending = useReadContract({
+    address: LOCKER_ADDRESS ?? undefined,
+    chainId: CHAIN.id,
+    abi: QUOTE_VAULT_ABI,
+    functionName: "pendingFees",
+    args: [BigInt(tokenId)],
+    query: { enabled: Boolean(quoteOnly && LOCKER_ADDRESS), refetchInterval: 20_000 },
+  });
+
+  // Legacy credits use both currencies; quote-only credits belong to this launch.
   const mine = useReadContracts({
-    contracts: [quote.address, token].map((currency) => ({
-      address: LOCKER_ADDRESS ?? undefined,
-      chainId: CHAIN.id,
-      abi: LAUNCH_LOCKER_ABI,
-      functionName: "claimable" as const,
-      args: address ? ([address, currency] as const) : undefined,
-    })),
-    query: { enabled: Boolean(address && LOCKER_ADDRESS), refetchInterval: 20_000 },
+    contracts: target && address ? claimableContracts(target, CHAIN.id, address, quote.address, token) : [],
+    query: { enabled: Boolean(address && target), refetchInterval: 20_000 },
   });
 
   const isBurnOnly = feeModeOf(lpFee, recipients) === "burn";
@@ -87,26 +97,21 @@ export default function CollectPanel({
   const ft = (raw: bigint) => `${fmtTokens(raw)} ${symbol}`;
 
   async function send(what: "collect" | "claim", currency?: Address) {
-    if (!LOCKER_ADDRESS || !address) return;
+    if (!target || !address) return;
     try {
       setPhase({ k: "busy", what, currency });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
-      let hash: Hex;
-      if (what === "collect") {
-        const { request } = await pub.simulateContract({ address: LOCKER_ADDRESS, abi: LAUNCH_LOCKER_ABI, functionName: "collect", args: [BigInt(tokenId)], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
-        hash = await wallet.writeContract(request);
-      } else {
-        const { request } = await pub.simulateContract({ address: LOCKER_ADDRESS, abi: LAUNCH_LOCKER_ABI, functionName: "claim", args: [currency ?? quote.address], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
-        hash = await wallet.writeContract(request);
-      }
+      const request = what === "collect" ? await collectRequest(pub, target, address) : await claimRequest(pub, target, address, currency ?? quote.address);
+      const hash: Hex = await wallet.writeContract(request);
       setPhase({ k: "sent", hash, what, currency });
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
       void mine.refetch();
+      if (quoteOnly) void pending.refetch();
       router.refresh();
-      toast({ kind: "collect", title: what === "collect" ? `Fees collected for ${symbol}` : "Claimed", sub: isBurnOnly ? "Burned on the spot" : "Paid to the beneficiaries" });
+      toast({ kind: "collect", title: what === "collect" ? `Fees collected for ${symbol}` : "Claimed", sub: what === "claim" ? "Paid to your wallet" : isBurnOnly ? "Burned on the spot" : "Allocated to the beneficiaries" });
       setPhase({ k: "idle" });
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
@@ -124,7 +129,7 @@ export default function CollectPanel({
     <section className="rounded-2xl border border-line bg-card p-5 space-y-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">Where the fees go</h2>
-        <span className="font-mono font-bold text-ink tnum">{pipsToPct(lpFee)}</span>
+        <span className="font-mono font-bold text-ink tnum">{pipsToPct(lpFee)}{quoteOnly ? ` in ${quote.symbol}` : ""}</span>
       </div>
 
       {lpFee === 0 ? (
@@ -133,10 +138,10 @@ export default function CollectPanel({
         <>
           <ul className="space-y-1.5">
             {isBurnOnly && recipients.length === 0 ? <li className="flex items-center justify-between text-sm"><span className="text-warm-ink">Burned</span><span className="font-mono text-body tnum">100%</span></li> : null}
-            {recipients.map((r) => {
+            {recipients.map((r, index) => {
               const burn = r.payout.toLowerCase() === DEAD.toLowerCase();
               return (
-                <li key={r.payout} className="flex items-center justify-between gap-3 text-sm">
+                <li key={`${r.payout}:${index}`} className="flex items-center justify-between gap-3 text-sm">
                   <span className="flex items-center gap-2 min-w-0">
                     <span className={`h-2 w-2 rounded-full shrink-0 ${burn ? "bg-warm" : "bg-brand"}`} aria-hidden />
                     {burn ? (
@@ -155,34 +160,40 @@ export default function CollectPanel({
             })}
           </ul>
           <dl className="grid grid-cols-2 gap-2 pt-1">
+            {quoteOnly ? (
+              <div className="col-span-2 rounded-xl bg-paper border border-line px-3 py-2.5">
+                <dt className="text-[11px] text-muted">Awaiting collection</dt>
+                <dd className="font-mono font-bold text-sm tnum text-ink break-words">{pending.isError ? "Unavailable" : pending.data === undefined ? "Reading…" : fq(pending.data)}</dd>
+              </div>
+            ) : null}
             <div className="min-w-0 rounded-xl bg-paper border border-line px-3 py-2.5">
               <dt className="text-[11px] text-muted">{isBurnOnly ? "Burned so far" : "Collected so far"}</dt>
               <dd className="font-mono font-bold text-sm tnum text-ink break-words">{fq(isBurnOnly ? burned.quote : collected.quote)}</dd>
-              <dd className="font-mono font-bold text-sm tnum text-ink break-words">{ft(isBurnOnly ? burned.token : collected.token)}</dd>
+              {!quoteOnly ? <dd className="font-mono font-bold text-sm tnum text-ink break-words">{ft(isBurnOnly ? burned.token : collected.token)}</dd> : null}
               {usd(isBurnOnly ? burned : collected) ? <dd className="text-[11px] font-mono text-muted tnum">{usd(isBurnOnly ? burned : collected)}</dd> : null}
             </div>
             <div className="min-w-0 rounded-xl bg-paper border border-line px-3 py-2.5">
               <dt className="text-[11px] text-muted">{isBurnOnly ? "Where it went" : "Burned"}</dt>
               {isBurnOnly ? (
-                <dd className="text-[11px] text-body leading-relaxed">Both sides sent to the dead address. Nobody can claim them.</dd>
+                <dd className="text-[11px] text-body leading-relaxed">{quoteOnly ? quote.symbol : "Both sides"} sent to the dead address. Nobody can claim them.</dd>
               ) : (
                 <>
                   {/* amber only once something has actually burned; zero reads as the plain fact it is */}
                   <dd className={`font-mono font-bold text-sm tnum break-words ${burned.quote > 0n ? "text-warm-ink" : "text-muted"}`}>{fq(burned.quote)}</dd>
-                  <dd className={`font-mono font-bold text-sm tnum break-words ${burned.token > 0n ? "text-warm-ink" : "text-muted"}`}>{ft(burned.token)}</dd>
+                  {!quoteOnly ? <dd className={`font-mono font-bold text-sm tnum break-words ${burned.token > 0n ? "text-warm-ink" : "text-muted"}`}>{ft(burned.token)}</dd> : null}
                 </>
               )}
             </div>
             {!isBurnOnly ? (
               <div className="col-span-2 rounded-xl bg-paper border border-line px-3 py-2.5">
-                <dt className="text-[11px] text-muted">Paid to beneficiaries</dt>
-                <dd className="font-mono font-bold text-sm tnum text-ink break-words">{fq(toPeople.quote)} <span className="text-muted" aria-hidden>+</span> {ft(toPeople.token)}</dd>
+                <dt className="text-[11px] text-muted">Allocated to beneficiaries</dt>
+                <dd className="font-mono font-bold text-sm tnum text-ink break-words">{fq(toPeople.quote)}{!quoteOnly ? <> <span className="text-muted" aria-hidden>+</span> {ft(toPeople.token)}</> : null}</dd>
                 {usd(toPeople) ? <dd className="text-[11px] font-mono text-muted tnum">{usd(toPeople)}</dd> : null}
               </div>
             ) : null}
           </dl>
           <div className="flex flex-wrap gap-2 pt-1">
-            <button type="button" onClick={() => void send("collect")} disabled={busy || !address || !onChain} className={`${btn.secondarySm} flex-1`}>
+            <button type="button" onClick={() => void send("collect")} disabled={busy || !address || !onChain || !LOCKER_ADDRESS} className={`${btn.secondarySm} flex-1`}>
               {phase.k === "busy" && phase.what === "collect" ? <><Spinner size={13} /> Collecting…</> : phase.k === "sent" && phase.what === "collect" ? <><Spinner size={13} /> Confirming…</> : "Collect fees"}
             </button>
             {claims.map((c) => (
@@ -192,7 +203,7 @@ export default function CollectPanel({
             ))}
           </div>
           <p className="text-[11px] text-muted leading-relaxed">
-            Anyone can collect. Collecting pulls accrued fees out of the pool and {isBurnOnly ? "burns them on the spot" : "pays the beneficiaries directly, in the same transaction"}. Liquidity never moves.
+            Anyone can collect. Collecting pulls accrued fees out of the pool and {isBurnOnly ? "burns them on the spot" : "distributes them to the beneficiaries. Failed payouts stay claimable"}. Liquidity never moves.
           </p>
         </>
       )}

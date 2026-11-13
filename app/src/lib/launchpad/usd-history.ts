@@ -209,8 +209,8 @@ export function buildBackfillSql(opts: {
   out.push(`WITH latest AS (
   SELECT DISTINCT ON (chain_id, quote) chain_id, quote, usd, decimals FROM bb_quote_usd_hourly ORDER BY chain_id, quote, hour DESC
 ), sw AS (
-  SELECT s.chain_id, l.quote, abs(s.amount0) AS amt,
-         CASE WHEN ${isPair("l")} THEN NULL ELSE COALESCE(s.usd, abs(s.amount0) / power(10::numeric, p.decimals) * p.usd) END AS usd_trade_time
+  SELECT s.chain_id, l.quote, abs(COALESCE(s.trader_amount0, s.amount0)) AS amt,
+         CASE WHEN ${isPair("l")} THEN NULL ELSE COALESCE(s.usd, abs(COALESCE(s.trader_amount0, s.amount0)) / power(10::numeric, p.decimals) * p.usd) END AS usd_trade_time
     FROM bb_launch_swaps s
     JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
     LEFT JOIN bb_quote_usd_hourly p ON p.chain_id = s.chain_id AND p.quote = l.quote AND p.hour = ${hour("s.block_time")}
@@ -226,8 +226,8 @@ SELECT sw.chain_id, sw.quote, count(*) AS trades,
   out.push(`WITH latest AS (
   SELECT DISTINCT ON (chain_id, quote) chain_id, quote, usd, decimals FROM bb_quote_usd_hourly ORDER BY chain_id, quote, hour DESC
 ), sw AS (
-  SELECT abs(s.amount0) / power(10::numeric, lt.decimals) * lt.usd AS usd_latest,
-         CASE WHEN ${isPair("l")} THEN NULL ELSE COALESCE(s.usd, abs(s.amount0) / power(10::numeric, p.decimals) * p.usd) END AS usd_trade_time
+  SELECT abs(COALESCE(s.trader_amount0, s.amount0)) / power(10::numeric, lt.decimals) * lt.usd AS usd_latest,
+         CASE WHEN ${isPair("l")} THEN NULL ELSE COALESCE(s.usd, abs(COALESCE(s.trader_amount0, s.amount0)) / power(10::numeric, p.decimals) * p.usd) END AS usd_trade_time
     FROM bb_launch_swaps s
     JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token
     LEFT JOIN latest lt ON lt.chain_id = s.chain_id AND lt.quote = l.quote
@@ -266,7 +266,7 @@ SELECT 'FEES (quote side)' AS total, kind, round(sum(usd_trade_time)::numeric) A
  WHERE f.usd IS NOT NULL AND l.chain_id = f.chain_id AND l.token = f.token AND ${isPair("l")};`);
   out.push(`DELETE FROM bb_quote_usd_hourly h WHERE ${isPair("h")};`);
   out.push(`-- price every trade and fee that has no USD value yet, at its own hour`);
-  out.push(`UPDATE bb_launch_swaps s SET usd = abs(s.amount0) / power(10::numeric, p.decimals) * p.usd
+  out.push(`UPDATE bb_launch_swaps s SET usd = abs(COALESCE(s.trader_amount0, s.amount0)) / power(10::numeric, p.decimals) * p.usd
   FROM bb_launches l, bb_quote_usd_hourly p
  WHERE s.usd IS NULL AND l.chain_id = s.chain_id AND l.token = s.token
    AND p.chain_id = s.chain_id AND p.quote = l.quote AND p.hour = ${hour("s.block_time")};`);

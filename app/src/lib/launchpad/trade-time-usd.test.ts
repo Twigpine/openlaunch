@@ -42,11 +42,11 @@ test("missingNow flags only a part that normally has a price but has none right 
 test("the unpriced read only touches rows with no stored value, per launch", () => {
   assert.match(UNPRICED_SWAPS_SQL, /FROM bb_launch_swaps WHERE usd IS NULL GROUP BY chain_id, token$/);
   // the lists probe one launch at a time (bb_launch_swaps_usd_missing_token_idx), never aggregate every unpriced trade
-  assert.equal(UNPRICED_LATERAL_SQL, "SELECT sum(abs(x.amount0)) AS uq FROM bb_launch_swaps x WHERE x.chain_id = l.chain_id AND x.token = l.token AND x.usd IS NULL");
+  assert.equal(UNPRICED_LATERAL_SQL, "SELECT sum(abs(COALESCE(x.trader_amount0, x.amount0))) AS uq FROM bb_launch_swaps x WHERE x.chain_id = l.chain_id AND x.token = l.token AND x.usd IS NULL");
   const idx = readFileSync(path.join(process.cwd(), "db/concurrent-indexes.sql"), "utf8");
   assert.match(idx, /bb_launch_swaps_usd_missing_token_idx ON bb_launch_swaps \(chain_id, token\) WHERE usd IS NULL;/);
   assert.match(idx, /bb_launch_fee_events_usd_missing_idx ON bb_launch_fee_events \(chain_id, token\) WHERE usd IS NULL AND kind IN \('collected', 'burned'\);/);
-  assert.match(UNPRICED_SWAPS_SQL, /sum\(abs\(amount0\)\) AS uq/, "buys and sells both count at their size, as volume_quote does");
+  assert.match(UNPRICED_SWAPS_SQL, /sum\(abs\(COALESCE\(trader_amount0, amount0\)\)\) AS uq/, "buys and sells both count at their size, as volume_quote does");
 });
 
 test("the site reads trade-time USD everywhere the all-time figures are shown", () => {

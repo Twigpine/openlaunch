@@ -47,7 +47,7 @@ export function mcapPageQuery(db: Db, opts: { where: Fragment; quoteDecimals: Fr
           SELECT sum(wallet.volume) AS volume,
                  count(*) FILTER (WHERE wallet.volume / power(10, v.quote_decimals) * v.quote_usd >= ${MCAP_MIN_WALLET_USD}) AS traders
             FROM (
-              SELECT sum(abs(s.amount0)) AS volume FROM bb_launch_swaps s
+              SELECT sum(abs(COALESCE(s.trader_amount0, s.amount0))) AS volume FROM bb_launch_swaps s
                WHERE s.chain_id = v.chain_id AND s.token = v.token AND s.trader <> v.launcher
                  AND s.block_number > v.block_number + ${SNIPER_BLOCKS}
                  AND v._mcap_start_quote * v.quote_usd >= ${MCAP_HIGH_USD}

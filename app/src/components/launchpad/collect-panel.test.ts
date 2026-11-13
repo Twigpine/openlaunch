@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("./CollectPanel.tsx", import.meta.url), "utf8");
+const actions = readFileSync(new URL("../../lib/launchpad/fee-actions.ts", import.meta.url), "utf8");
 const page = readFileSync(new URL("../../app/t/[chain]/[token]/page.tsx", import.meta.url), "utf8");
 
 // Every collect pays beneficiaries both pool currencies: the quote and the launched token.
@@ -16,7 +17,7 @@ test("the fee panel shows collected, burned and paid amounts for the quote and t
   assert.match(source, /ft\(isBurnOnly \? burned\.token : collected\.token\)/);
   assert.match(source, /fq\(burned\.quote\)/);
   assert.match(source, /ft\(burned\.token\)/);
-  assert.match(source, /Paid to beneficiaries/);
+  assert.match(source, /Allocated to beneficiaries/);
   assert.match(source, /\{fq\(toPeople\.quote\)\}.*\{ft\(toPeople\.token\)\}/);
   // USD includes the token side at the pool price and says so when it does
   assert.match(source, /feeSidesUsd\(sides, quote\.decimals, priceQuote, quoteUsd\)/);
@@ -25,12 +26,15 @@ test("the fee panel shows collected, burned and paid amounts for the quote and t
 
 test("claim reads and withdraws each currency separately", () => {
   assert.match(source, /useReadContracts\(/);
-  assert.match(source, /\[quote\.address, token\]\.map\(\(currency\)/);
-  assert.match(source, /functionName: "claimable" as const/);
+  // the reads and the claim call live in lib/launchpad/fee-actions.ts, shared with the dashboard
+  assert.match(source, /claimableContracts\(target, CHAIN\.id, address, quote\.address, token\)/);
+  assert.match(actions, /\[quote, token\]\.map\(\(currency\)/);
+  assert.match(actions, /functionName: "claimable" as const, args: \[account, currency\] as const/);
   assert.match(source, /\{ currency: quote\.address, raw: \(mine\.data\?\.\[0\]\?\.result/);
   assert.match(source, /\{ currency: token, raw: \(mine\.data\?\.\[1\]\?\.result/);
   assert.match(source, /onClick=\{\(\) => void send\("claim", c\.currency\)\}/);
-  assert.match(source, /functionName: "claim", args: \[currency \?\? quote\.address\]/);
+  assert.match(source, /claimRequest\(pub, target, address, currency \?\? quote\.address\)/);
+  assert.match(actions, /functionName: "claim", args: isQuoteFeeLaunch\(t\.launch\) \? \[t\.tokenId\] : \[currency\]/);
 });
 
 test("pending feedback stays on the button whose transaction was sent", () => {

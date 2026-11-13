@@ -1,3 +1,7 @@
+# Scope: original v1 suite
+
+This document describes the original deployments. The new optional quote-only fee suite is documented in [QUOTE_FEES.md](QUOTE_FEES.md).
+
 # Launchpad — free token launches on Uniswap v4 (Base)
 
 **LIVE on Base mainnet (block 50940130) and Robinhood Chain (block 55880172), 2026-09-06** — same addresses on both: LaunchFactory `0x815542E8b392389A1389E22E588E4B62A67Ade72`, LaunchLocker `0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a` (`deployments/launchpad-base.json`, `deployments/launchpad-robinhood.json`). Robinhood default quote: USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (6 dec).

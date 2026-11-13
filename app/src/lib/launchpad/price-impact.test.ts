@@ -44,6 +44,16 @@ test("a sell's impact uses the inverse price", () => {
   assert.ok(Math.abs(impact - inAfter / (y + inAfter)) < 1e-6);
 });
 
+test("quote-only sells exclude the output fee while retaining the full token input's impact", () => {
+  const quoteReserve = 10e18, tokenReserve = 10e27, amountIn = 1e27;
+  const grossQuote = cpOut(tokenReserve, quoteReserve, amountIn, 0);
+  for (const feePips of [0, 10_000, 30_000]) {
+    const amountOut = BigInt(Math.floor(grossQuote * (1 - feePips / 1e6)));
+    const impact = priceImpact({ sqrtPriceX96: sqrtFor(tokenReserve / quoteReserve), amountIn: BigInt(amountIn), amountOut, zeroForOne: false, feePips })!;
+    assert.ok(Math.abs(impact - amountIn / (tokenReserve + amountIn)) < 1e-6);
+  }
+});
+
 test("rounding above the ideal reads as zero, never negative; nonsense inputs read as unknown", () => {
   assert.equal(priceImpact({ sqrtPriceX96: 2n ** 96n, amountIn: 1000n, amountOut: 1001n, zeroForOne: true, feePips: 0 }), 0);
   assert.equal(priceImpact({ sqrtPriceX96: 0n, amountIn: 1000n, amountOut: 900n, zeroForOne: true, feePips: 0 }), null);

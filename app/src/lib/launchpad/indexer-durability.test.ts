@@ -14,7 +14,8 @@ const indexes = read("../../../db/concurrent-indexes.sql");
 test("cursor and head updates are monotonic across overlapping sync machines", () => {
   assert.match(indexer, /cursor_block = GREATEST\(cursor_block, \$\{to\}\)/);
   assert.match(indexer, /head_block = GREATEST\(COALESCE\(head_block, 0\), \$\{head\}\)/);
-  assert.match(indexer, /last_error = CASE WHEN cursor_block <= \$\{to\} THEN NULL ELSE last_error END/);
+  assert.match(indexer, /SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = \$\{cid\} FOR UPDATE/);
+  assert.match(indexer, /min\(COALESCE\(c\.cursor_block, 0\)\)/);
   assert.match(indexer, /head_block = CASE WHEN \$\{knownHead\}::bigint IS NULL THEN head_block ELSE GREATEST\(COALESCE\(head_block, 0\), \$\{knownHead\}::bigint\) END/);
 });
 
