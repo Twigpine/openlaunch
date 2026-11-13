@@ -26,8 +26,6 @@ type LaunchMetrics = {
 
 export default async function LaunchDetailsPage(
   // Search params from the URL: /launch/details?chain=<chain>&token=<token>
-  // In the app router, these are passed as query parameters or route params.
-  // We'll use the search params approach for simplicity.
   searchParams: { chain?: string; token?: string }
 ) {
   const chain: string = searchParams.chain || "base";
@@ -44,6 +42,14 @@ export default async function LaunchDetailsPage(
     );
   }
   const data = (await res.json()) as LaunchMetrics;
+
+  if (!data.token || !data.chain) {
+    return (
+      <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-10 pb-16 space-y-5 sm:space-y-6">
+        <p>No data for this launch.</p>
+      </main>
+    );
+  }
 
   const fmt = (n: number | string | null) => (n == null ? "—" : Number(n).toLocaleString());
 
@@ -72,15 +78,15 @@ export default async function LaunchDetailsPage(
           <dd>{fmt(data.trades)}</dd>
         </div>
         <div className="rounded-md border border-border p-4">
-          <dt className="text-muted">Volume (USD)</dt>
+          <dt className="text-muted">Volume (native)</dt>
           <dd>${fmt(data.volume_usd)}</dd>
         </div>
         <div className="rounded-md border border-border p-4">
-          <dt className="text-muted">Fees collected (USD)</dt>
+          <dt className="text-muted">Fees collected (native)</dt>
           <dd>${fmt(data.fees_collected_usd)}</dd>
         </div>
         <div className="rounded-md border border-border p-4">
-          <dt className="text-muted">Fees burned (USD)</dt>
+          <dt className="text-muted">Fees burned (native)</dt>
           <dd>${fmt(data.fees_burned_usd)}</dd>
         </div>
       </section>

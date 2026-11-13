@@ -9,7 +9,7 @@ import { chainIdOf } from "@/lib/chainPublic";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/launch/metrics?chain=base&token=0x… → per‑launch metrics (holders, trades, fees). 30‑second memo per launch. */
+/** GET /api/launch/metrics?chain=base&token=0x… → per‑launch metrics (holders, trades, volume, fees). 30‑second memo per launch. */
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const chain = u.searchParams.get("chain");
@@ -18,8 +18,8 @@ export async function GET(req: Request) {
   try {
     const db = maybeDb();
     let quoteDecimals = 18;
-    let feesCollectedUsd = 0;
-    let feesBurnedUsd = 0;
+    let feesCollectedRaw = 0;
+    let feesBurnedRaw = 0;
     if (db) {
       // Grab the launch row so we have quote_decimals and fee totals.
       const launches = await db<{
@@ -38,15 +38,18 @@ export async function GET(req: Request) {
       if (launches.length > 0) {
         const l = launches[0];
         quoteDecimals = l.quote_decimals ?? 18;
-        feesCollectedUsd = Number(l.fees_quote_collected ?? "0");
-        feesBurnedUsd = Number(l.fees_quote_burned ?? "0");
+        feesCollectedRaw = Number(l.fees_quote_collected ?? "0");
+        feesBurnedRaw = Number(l.fees_quote_burned ?? "0");
       }
     }
     const panel = await memo(`metrics:${chain}:${token.toLowerCase()}`, 30_000, () => getHolderPanel(chain, token));
     if (!panel) return NextResponse.json({ error: "not found" }, { status: 404 });
     const swaps = await memo(`swaps:${chain}:${token.toLowerCase()}_metrics`, 30_000, () => getSwaps(chain, token, quoteDecimals, 50));
     const trades = swaps.length;
-    const volumeUsd = swaps.reduce((acc, s) => acc + Math.abs(Number(s.amount1)), 0);
+    // Volume in display units (divided by 10^quoteDecimals), matching the page's fmt() logic.
+    const volumeUsd = swaps.reduce((acc, s) => acc + Math.abs(Number(s.amount1)) / 10 ** quoteDecimals, 0);
+    const feesCollectedUsd = feesCollectedRaw / 10 ** quoteDecimals;
+    const feesBurnedUsd = feesBurnedRaw / 10 ** quoteDecimals;
     const topHolders = panel.top.slice(0, 5).map((h) => ({ address: h.address, balance: h.balance, bps: h.bps }));
     return NextResponse.json({
       holders: panel.holders,
