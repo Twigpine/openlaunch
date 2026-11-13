@@ -6,7 +6,8 @@
 # It deploys only a commit that:
 #   - is main, identical to origin/main, with no local changes and no untracked files (the Docker build context is app/,
 #     so anything lying around there would be shipped);
-#   - carries the annotated tag v<app/package.json version>, and GitHub has that same tag on that same commit.
+#   - carries the tag v<app/package.json version> (release-please's, or a maintainer's), GitHub has that same tag on that
+#     same commit, and the GitHub Release for it is published (not a draft, not a prerelease).
 # The factory and locker addresses come from contracts/deployments/*.json after each file's SHA-256 matches
 # contracts/deployed.lock (the guard refuses any change to that lock), so a build can only get the verified addresses.
 # It never creates or moves a tag, pushes, bumps a version or reads a secret: runtime secrets stay in Fly
@@ -33,14 +34,31 @@ git fetch --quiet --tags origin main || die "could not fetch origin"
 SHA="$(git rev-parse HEAD)"
 [ "$SHA" = "$(git rev-parse origin/main)" ] || die "main is not origin/main (pull, or push the release PR's merge first)"
 
-# ── the release tag ───────────────────────────────────────────────────────────
+# ── the release: its tag on this commit, and its notes published ─────────────
+# release-please tags with a lightweight tag; a release made by hand may be annotated. Either way the tag has to be on
+# this commit on GitHub, and the release has to be published before anything is deployed. GitHub is asked directly; if
+# it cannot answer, nothing is deployed.
 VERSION="$(node -p 'require("./app/package.json").version')"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "app/package.json version '$VERSION' is not major.minor.patch"
 TAG="v$VERSION"
-[ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null || true)" = "tag" ] || die "no annotated tag $TAG here (git tag -a $TAG -m \"openlaunch $TAG\" $SHA)"
+git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null || die "no tag $TAG here (merge the release pull request, then pull)"
 [ "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$SHA" ] || die "$TAG is not on this commit"
-REMOTE="$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)"
-[ "$REMOTE" = "$SHA" ] || die "GitHub's $TAG is not this commit (push the tag: git push origin $TAG)"
+# the commit the tag names on GitHub: the peeled line of an annotated tag, else the tag's own line
+REMOTE="$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | awk -v t="refs/tags/$TAG" '$2 == t "^{}" { peeled = $1 } $2 == t { plain = $1 } END { print (peeled != "" ? peeled : plain) }')"
+[ "$REMOTE" = "$SHA" ] || die "GitHub's $TAG is not this commit"
+RELEASE="$(curl -sS -m 20 -H "Accept: application/vnd.github+json" -w '\n%{http_code}' "https://api.github.com/repos/Twigpine/openlaunch/releases/tags/$TAG")" || die "could not reach GitHub to check the release for $TAG"
+CODE="${RELEASE##*$'\n'}"
+case "$CODE" in
+  200) ;;
+  404) die "no published GitHub Release for $TAG (merge the release pull request; a release made by hand must be published)" ;;
+  403|429) die "GitHub refused the release check for $TAG (an API rate limit?); try again later" ;;
+  *) die "GitHub answered $CODE to the release check for $TAG" ;;
+esac
+printf '%s' "${RELEASE%$'\n'*}" | node -e '
+  let s = ""; process.stdin.on("data", (c) => (s += c)).on("end", () => {
+    const r = JSON.parse(s);
+    process.exit(r.tag_name === process.argv[1] && r.draft === false && r.prerelease === false && r.published_at ? 0 : 1);
+  });' "$TAG" || die "the GitHub Release for $TAG is a draft or a prerelease, or names another tag"
 
 # ── the contract addresses, from the hash-pinned deployment records ──────────
 LOCK="contracts/deployed.lock"

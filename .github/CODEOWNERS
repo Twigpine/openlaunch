@@ -11,5 +11,7 @@
 /app/Dockerfile          @kevincodex1
 /app/.dockerignore       @kevincodex1
 /app/fly.toml            @kevincodex1
+/release-please-config.json     @kevincodex1
+/.release-please-manifest.json  @kevincodex1
 /SECURITY.md             @kevincodex1
 /LICENSE                 @kevincodex1
