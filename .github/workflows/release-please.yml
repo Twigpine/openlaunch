@@ -1,0 +1,46 @@
+name: release-please
+
+# On every push to main, release-please keeps one release pull request up to date (the version in app/package.json and
+# its lockfile, and app/CHANGELOG.md, from the conventional commits merged since the last release). When a maintainer
+# merges that pull request, it tags the merge commit and publishes the GitHub Release. Deploying stays a separate,
+# manual step (app/README.md, Releasing).
+#
+# The job's own token has no permissions. Writes go through a token of the openlaunch-release GitHub App, minted for
+# this job only, limited to this repository, to contents, pull requests and issues (release-please labels its pull
+# requests), and revoked when the job ends. Its key is a secret of the `release` environment, which only main can use.
+# An App token, unlike the job's own, lets the release pull request start ci and pr-guard. The App cannot push to main
+# past the branch rules. .github/scripts/workflows.test.mjs keeps this file to exactly that.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions: {}
+    steps:
+      - name: mint a short-lived release token
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      - name: release-please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

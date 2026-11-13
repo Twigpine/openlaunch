@@ -31,8 +31,8 @@ function commands(text) {
   return out;
 }
 
-test("the two workflows exist", () => {
-  assert.deepEqual(Object.keys(workflows).sort(), ["ci.yml", "pr-guard.yml"]);
+test("the four workflows exist", () => {
+  assert.deepEqual(Object.keys(workflows).sort(), ["ci.yml", "pr-guard.yml", "pr-title.yml", "release-please.yml"]);
 });
 
 test("every action is pinned to a full commit SHA, with its release in a comment", () => {
@@ -50,7 +50,8 @@ test("every action is pinned to a full commit SHA, with its release in a comment
 
 test("only the guard runs in the base repository's context on outside input", () => {
   for (const [name, text] of Object.entries(workflows)) {
-    const privileged = /\b(pull_request_target|workflow_run|issue_comment|pull_request_review(_comment)?|discussion(_comment)?|issues)\s*:/.test(lines(text).join("\n"));
+    // a trigger name, not a word inside another key: release-please.yml's `permission-issues:` is an App token input
+    const privileged = /(?<![\w-])(pull_request_target|workflow_run|issue_comment|pull_request_review(_comment)?|discussion(_comment)?|issues)\s*:/.test(lines(text).join("\n"));
     assert.equal(privileged, name === "pr-guard.yml", name);
   }
 });
@@ -59,9 +60,44 @@ test("no workflow asks for a write permission, and none reads a secret", () => {
   for (const [name, text] of Object.entries(workflows)) {
     const body = lines(text).join("\n");
     assert.match(body, /^permissions:/m, `${name} sets permissions at the top`);
+    if (name === "release-please.yml") continue; // the one exception, held to exactly what it needs by the next test
     assert.doesNotMatch(body, /:\s*write\b|write-all/, name);
     assert.doesNotMatch(body, /\bsecrets\.|\bsecrets\[/, name);
   }
+});
+
+test("release-please alone may write, only through its App token, in the release environment, on main", () => {
+  const body = lines(workflows["release-please.yml"]).join("\n");
+  assert.match(body, /^on:\n {2}push:\n {4}branches: \[main\]\n\npermissions: \{\}$/m, "pushes to main only, and the workflow's token has nothing");
+  assert.match(body, /^ {4}environment: release$/m, "the App's key is a secret of the release environment, which only main can use");
+  assert.match(body, /^ {4}permissions: \{\}$/m, "the job's own token has nothing either");
+  // every write is an input of the App token action: what that token may do, and nothing more
+  const writes = body.split("\n").filter((line) => /:\s*write\b|write-all/.test(line)).map((line) => line.trim());
+  assert.deepEqual(writes, ["permission-contents: write", "permission-pull-requests: write", "permission-issues: write"]);
+  assert.deepEqual([...body.matchAll(/^\s*(permission-[a-z-]+):/gm)].map((m) => m[1]), ["permission-contents", "permission-pull-requests", "permission-issues"]);
+  assert.deepEqual([...body.matchAll(/\bsecrets\.([A-Za-z_]+)/g)].map((m) => m[1]), ["RELEASE_APP_CLIENT_ID", "RELEASE_APP_PRIVATE_KEY"]);
+  assert.doesNotMatch(body, /\bsecrets\[/);
+  // the token stays this repository's and is revoked when the job ends
+  assert.doesNotMatch(body, /^\s*(owner|repositories|skip-token-revoke):/m);
+  // it runs no code from the repository: no checkout, no shell, and exactly these two pinned actions
+  assert.doesNotMatch(body, /actions\/checkout@/);
+  assert.deepEqual(commands(workflows["release-please.yml"]), []);
+  assert.deepEqual([...body.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]), [
+    "actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
+    "googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7",
+  ]);
+  assert.match(body, /token: \$\{\{ steps\.token\.outputs\.token \}\}/);
+});
+
+test("the pull request title reaches its check only through an environment variable", () => {
+  const titleCheck = workflows["pr-title.yml"];
+  for (const line of lines(titleCheck)) {
+    if (!line.includes("${{")) continue;
+    assert.match(line, /^\s+(group|PR_TITLE): .*\$\{\{ [\w.]+ \}\}$/, line.trim());
+  }
+  assert.match(titleCheck, /PR_TITLE: \$\{\{ github\.event\.pull_request\.title \}\}/);
+  assert.deepEqual(commands(titleCheck), ["node .github/scripts/pr-title.mjs"]);
+  assert.match(titleCheck, /^ {2}pull_request:\n {4}types: \[opened, edited, synchronize, reopened\]$/m, "runs again when the title is edited");
 });
 
 test("the guard job is named pr-guard, the name the branch rules require", () => {
@@ -169,7 +205,7 @@ test("no checkout leaves the job's token behind for the steps that follow", () =
       assert.ok(settings.includes("persist-credentials: false"), `${name}: ${line.trim()}`);
     });
   }
-  assert.equal(seen, 5, "every checkout in both workflows");
+  assert.equal(seen, 6, "every checkout in every workflow");
 });
 
 test("pull request data reaches the guard's shell only through environment variables", () => {
@@ -187,7 +223,7 @@ test("ci never uses pull_request_target and runs the lock check and the guard's 
   assert.match(ci, /^ {2}pull_request:$/m);
   assert.match(ci, /run: script\/check-deployed-sources\.sh/);
   assert.match(ci, /run: script\/check-arc-factory\.sh/);
-  assert.match(ci, /run: node --test \.github\/scripts\/pr-guard\.test\.mjs \.github\/scripts\/workflows\.test\.mjs/);
+  assert.match(ci, /run: node --test \.github\/scripts\/pr-guard\.test\.mjs \.github\/scripts\/workflows\.test\.mjs \.github\/scripts\/pr-title\.test\.mjs/);
   assert.match(ci, /foundry-toolchain@[0-9a-f]{40} # v\d+\.\d+\.\d+\n\s+with:\n\s+version: v\d+\.\d+\.\d+/, "the Foundry version is pinned");
 });
 

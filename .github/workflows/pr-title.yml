@@ -1,0 +1,34 @@
+name: pr-title
+
+# Pull requests are squash-merged with their title as the commit on main, and release-please reads those commits for
+# the version bump and the release notes. So the title has to be a conventional commit (feat:, fix:, security: ...).
+# A separate workflow from ci, because only this check needs to run again when a title is edited.
+#
+# The title reaches the script only through an environment variable, never through the shell. Read-only token, no
+# secrets, and the checkout leaves no token behind (.github/scripts/workflows.test.mjs keeps it so).
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: the title is a conventional commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node .github/scripts/pr-title.mjs

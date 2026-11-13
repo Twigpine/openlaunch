@@ -41,23 +41,29 @@ forwarded away. Use a fresh key (`cast wallet new` + `anvil_setBalance`) when te
 First-time setup (secrets, storage, contracts) is in `LAUNCH.md`. Every deploy after that is a tagged release:
 
 ## Releasing
-The version lives in `package.json` (SemVer: patch for fixes, minor for features, major for a breaking API change or a
-new contract generation). A release is the annotated git tag `v<version>` on the merged commit, with its notes on
-[GitHub Releases](https://github.com/Twigpine/openlaunch/releases). The site footer and `/api/health` show the
-running version and commit.
+Releases are cut by [release-please](https://github.com/googleapis/release-please) from the conventional-commit titles
+of the pull requests merged into `main` (they are squash-merged, so each title is one commit). The version lives in
+`package.json` (SemVer: `fix` is a patch, `feat` a minor version, `!` a major one); the notes go to `CHANGELOG.md` and
+[GitHub Releases](https://github.com/Twigpine/openlaunch/releases). The site footer and `/api/health` show the running
+version and commit.
 
-1. Open a pull request that changes only `version` in `package.json` (and the same two fields in `package-lock.json`).
-2. After it merges, on an up-to-date `main`: `git tag -a v1.2.3 -m "openlaunch v1.2.3"` then `git push origin v1.2.3`.
-3. Draft the notes with `node app/scripts/release-notes.mjs`, add a short summary, and publish the release on GitHub for
-   that tag. Notes are public: no hostnames, secrets, wallet keys or unfixed vulnerabilities.
-4. Deploy with `app/scripts/deploy.sh` (run `--dry-run` first). It refuses anything but a clean `main` equal to
-   `origin/main` carrying that tag on GitHub, takes the contract addresses from the hash-pinned deployment records, and
+1. After each merge, release-please keeps one pull request titled `chore: release X.Y.Z` up to date: the version in
+   `package.json` and `package-lock.json`, and the new `CHANGELOG.md` entry. Edit the notes there if needed; they are
+   public: no hostnames, secrets, wallet keys or unfixed vulnerabilities.
+2. A maintainer reviews and merges it (pr-guard asks for an owner's approval). release-please then tags the merge
+   commit `vX.Y.Z` and publishes the GitHub Release.
+3. Deploy, by hand, from an up-to-date `main` (`git pull`): `deploy.sh --dry-run`, then `deploy.sh`, through the
+   maintainers' checker below. `deploy.sh` refuses anything but a clean `main` equal to `origin/main` whose tag is on
+   GitHub and whose release is published; it takes the contract addresses from the hash-pinned deployment records and
    checks that production reports the new version and commit. Then run `scripts/smoke.sh`.
 
-A bad release is fixed by a new patch release, never by moving or deleting a tag.
+A bad release is fixed by a new patch release, never by moving or deleting a tag. If release-please is ever off, a
+release can still be made by hand: bump the version in a pull request, tag the merge commit, publish the release with
+its notes, then deploy as above.
 
-The release tooling (`scripts/deploy.sh`, `smoke.sh`, `release-notes.mjs`, `migrate.mjs` and `scripts/lib/`, the
-`Dockerfile`, `.dockerignore` and `fly.toml`) is blocked by pr-guard for everyone: it runs with the deploy credentials or
-against the production database, so it changes only in a pull request of its own that a maintainer merges with the
-guard bypassed. Maintainers also deploy through a checker kept outside the repository, which compares these files with
-the fingerprints of the last reviewed release before it runs `deploy.sh`.
+The release tooling (`scripts/deploy.sh`, `smoke.sh`, `migrate.mjs` and `scripts/lib/`, the `Dockerfile`,
+`.dockerignore`, `fly.toml`, and `release-please-config.json` at the repository root) is blocked by pr-guard for
+everyone: it runs with the deploy credentials or against the production database, or decides how releases are cut, so
+it changes only in a pull request of its own that a maintainer merges with the guard bypassed. Maintainers also deploy
+through a checker kept outside the repository, which compares these files with the fingerprints of the last reviewed
+release before it runs `deploy.sh`.

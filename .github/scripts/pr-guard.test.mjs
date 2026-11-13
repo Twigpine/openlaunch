@@ -286,7 +286,7 @@ describe("CI and machine configuration", () => {
 
   test("the release and deploy tooling is blocked, in any letter case", () => {
     // deletion takes the same path as ci-config's (a blocked path is blocked whatever its status)
-    for (const path of ["app/scripts/deploy.sh", "app/scripts/smoke.sh", "app/scripts/release-notes.mjs", "app/scripts/migrate.mjs", "app/scripts/lib/keccak256.mjs", "app/scripts/lib/new-helper.mjs", "app/Dockerfile", "app/.dockerignore", "app/fly.toml", "app/Scripts/Deploy.sh", "APP/FLY.TOML"]) {
+    for (const path of ["app/scripts/deploy.sh", "app/scripts/smoke.sh", "release-please-config.json", "app/scripts/migrate.mjs", "app/scripts/lib/keccak256.mjs", "app/scripts/lib/new-helper.mjs", "app/Dockerfile", "app/.dockerignore", "app/fly.toml", "app/Scripts/Deploy.sh", "APP/FLY.TOML"]) {
       const found = check({ [path]: "# changed\n" });
       assert.ok(rules(found).includes("release-tooling"), path);
       assert.ok(found.every((f) => f.rule !== "release-tooling" || f.tier === "block"), path);
@@ -294,7 +294,8 @@ describe("CI and machine configuration", () => {
   });
 
   test("other scripts and the schema stay owner-reviewed, not blocked", () => {
-    for (const path of ["app/scripts/fix.mjs", "app/scripts/usd-backfill.ts", "app/db/schema.sql", "app/db/concurrent-indexes.sql", "app/fly.staging.toml", "app/scripts/deploy.sh.bak"]) {
+    // the manifest and the changelog change in every release pull request: blocking them would block every release
+    for (const path of ["app/scripts/fix.mjs", "app/scripts/usd-backfill.ts", "app/db/schema.sql", "app/db/concurrent-indexes.sql", "app/fly.staging.toml", "app/scripts/deploy.sh.bak", ".release-please-manifest.json", "app/CHANGELOG.md", "app/scripts/release-notes.mjs"]) {
       assert.ok(!rules(check({ [path]: "x\n" })).includes("release-tooling"), path);
     }
   });
