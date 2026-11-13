@@ -12,6 +12,7 @@ import { byChainOrder, fetchBySelectors, fetchLogsSplit, isRangeTooLarge } from 
 import { publicError, redactUrls } from "./redact";
 import { setBounded } from "./boundedMap";
 import { planTraderHeal, type HealSwapRow, type TraderHealCursor } from "./traderHeal";
+import { startUnlessRunning } from "./runOnce";
 import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
 import { appTagOf, swapInApp, type AppTag } from "./appTag";
 import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
@@ -424,8 +425,11 @@ const HEAL_TRADER_READS = 20;
 // the rows behind it are reached on the next tick instead of the same newest 100 rows being selected forever.
 const healTraderCursor = new Map<ChainKey, TraderHealCursor>();
 
-/** Bound a retry map without clearing it: expired entries go first, then the oldest insertions. */
-function restTraderHeal(key: string): void {
+/**
+ * Rest a heal key (a transaction the trader or app-tag heal could not read) for the retry gap. The map is bounded
+ * without clearing it: expired entries go first, then the oldest insertions.
+ */
+function restHeal(key: string): void {
   const now = Date.now();
   setBounded(healRestUntil, key, now + ATTRIBUTION_TRY_GAP_MS, HEAL_REST_MAX, (until) => until <= now, now);
 }
@@ -723,20 +727,11 @@ export async function pollLaunches(chain: ChainKey): Promise<LaunchSyncResult> {
   return p;
 }
 
-/** Poll every configured chain (used by the loop and POST /api/launch/sync without a tx). */
-let allInFlight: Promise<Record<string, LaunchSyncResult>> | null = null;
-export function pollAll(): Promise<Record<string, LaunchSyncResult>> {
-  // The per-chain guard only protects run(); the heals/backfills below are just as expensive. A web sync and the
-  // 15s loop overlapping must share one full pass, not run two.
-  if (allInFlight) return allInFlight;
-  const p = pollAllOnce().finally(() => {
-    if (allInFlight === p) allInFlight = null;
-  });
-  allInFlight = p;
-  return p;
-}
+/** Chains whose heal and backfill pass is running in this process. */
+const healsRunning = new Map<ChainKey, Promise<void>>();
 
-async function pollAllOnce(): Promise<Record<string, LaunchSyncResult>> {
+/** Poll every configured chain (used by the loop and POST /api/launch/sync without a tx). */
+export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(
     CONFIGURED_CHAINS.map(async (c) => {
@@ -746,15 +741,24 @@ async function pollAllOnce(): Promise<Record<string, LaunchSyncResult>> {
         console.warn(`[launch-sync] poll ${c}:`, redactUrls(errMessage(e)));
         return { status: "skipped", reason: publicError(e, "sync failed") };
       });
-      await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, redactUrls(errMessage(e))));
-      await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, redactUrls(errMessage(e))));
-      await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, redactUrls(errMessage(e))));
-      await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, redactUrls(errMessage(e))));
-      await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, redactUrls(errMessage(e))));
-      await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, redactUrls(errMessage(e))));
+      // pollLaunches already shares one run() per chain. The heals and backfills are as expensive, so they run one pass
+      // per chain at a time too: the 15s loop's ticks overlap when a pass is slow, and a web sync can land beside one.
+      // A caller that finds a pass still running skips it instead of waiting, so a slow or stuck heal never holds up
+      // indexing on the next tick.
+      await startUnlessRunning(healsRunning, c, () => healChain(c));
     }),
   );
   return out;
+}
+
+/** One chain's heals and backfills, in order; each logs its own failure and the next still runs. */
+async function healChain(c: ChainKey): Promise<void> {
+  await healLaunchReads(c).catch((e) => console.warn(`[launch-sync] heal ${c}:`, redactUrls(errMessage(e))));
+  await healQuoteTokens(c).catch((e) => console.warn(`[launch-sync] quote tokens ${c}:`, redactUrls(errMessage(e))));
+  await healSwapTraders(c).catch((e) => console.warn(`[launch-sync] heal traders ${c}:`, redactUrls(errMessage(e))));
+  await attributeBacklog(c).catch((e) => console.warn(`[launch-sync] attribute swaps ${c}:`, redactUrls(errMessage(e))));
+  await healAppTags(c).catch((e) => console.warn(`[launch-sync] app tags ${c}:`, redactUrls(errMessage(e))));
+  await backfillHolders(c).catch((e) => console.warn(`[launch-sync] holders backfill ${c}:`, redactUrls(errMessage(e))));
 }
 
 /**
@@ -873,7 +877,7 @@ export async function healSwapTraders(chain: ChainKey): Promise<number> {
   for (const group of plan.groups) {
     if (group.resting) continue;
     if (!(await txOf(chain, group.tx as Hex))) {
-      restTraderHeal(group.key);
+      restHeal(group.key);
       continue;
     }
     healRestUntil.delete(group.key);
@@ -931,8 +935,7 @@ export async function healAppTags(chain: ChainKey): Promise<number> {
     read++;
     const tx = await txOf(chain, hash as Hex);
     if (!tx || tx.tag === null) {
-      if (healRestUntil.size > 5_000) healRestUntil.clear();
-      healRestUntil.set(key, Date.now() + ATTRIBUTION_TRY_GAP_MS);
+      restHeal(key);
       continue;
     }
     healRestUntil.delete(key);

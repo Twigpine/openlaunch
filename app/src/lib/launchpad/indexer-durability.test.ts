@@ -4,7 +4,7 @@ import test from "node:test";
 
 /**
  * Source contracts for the indexer durability changes. The paging planner itself is unit-tested in
- * traderHeal.test.ts; these assertions pin the SQL and the single-flight wiring that node --test cannot import
+ * traderHeal.test.ts; these assertions pin the SQL and the once-at-a-time heal wiring that node --test cannot import
  * (indexer.ts is server-only).
  */
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
@@ -18,11 +18,14 @@ test("cursor and head updates are monotonic across overlapping sync machines", (
   assert.match(indexer, /head_block = CASE WHEN \$\{knownHead\}::bigint IS NULL THEN head_block ELSE GREATEST\(COALESCE\(head_block, 0\), \$\{knownHead\}::bigint\) END/);
 });
 
-test("the whole poll pass is single-flight, not just each chain's run()", () => {
-  assert.match(indexer, /let allInFlight: Promise<Record<string, LaunchSyncResult>> \| null = null;/);
-  assert.match(indexer, /if \(allInFlight\) return allInFlight;/);
-  assert.match(indexer, /async function pollAllOnce\(\): Promise<Record<string, LaunchSyncResult>>/);
-  assert.match(indexer, /const p = pollAllOnce\(\)\.finally\(\(\) => \{/);
+test("each chain's heal pass runs once at a time, and a running one is skipped, never awaited", () => {
+  // runOnce.test.ts covers the helper's behaviour; this pins that pollAll uses it for the heals and nothing else
+  assert.match(indexer, /const healsRunning = new Map<ChainKey, Promise<void>>\(\);/);
+  assert.match(indexer, /out\[c\] = await pollLaunches\(c\)/);
+  assert.match(indexer, /await startUnlessRunning\(healsRunning, c, \(\) => healChain\(c\)\);/);
+  assert.ok(indexer.indexOf("out[c] = await pollLaunches(c)") < indexer.indexOf("startUnlessRunning(healsRunning"), "the chain is polled before its heals");
+  // the whole pass is not single-flight: a stuck heal must not hold the next tick's run() behind it
+  assert.doesNotMatch(indexer, /allInFlight/);
 });
 
 test("trader healing pages oldest-first with a keyset, not the newest 100 rows", () => {
@@ -34,7 +37,7 @@ test("trader healing pages oldest-first with a keyset, not the newest 100 rows",
 });
 
 test("retry state is pruned, never cleared wholesale", () => {
-  assert.match(indexer, /function restTraderHeal\(key: string\): void/);
+  assert.match(indexer, /function restHeal\(key: string\): void/);
   assert.match(indexer, /function noteAttributionTry\(key: string, n: number\): void/);
   assert.match(indexer, /setBounded\(healRestUntil,/);
   assert.match(indexer, /setBounded\(attributionTries,/);
