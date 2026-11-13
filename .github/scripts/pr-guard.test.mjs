@@ -293,9 +293,26 @@ describe("CI and machine configuration", () => {
     }
   });
 
-  test("other scripts and the schema stay owner-reviewed, not blocked", () => {
+  test("production SQL and credentialed deployment paths stay blocked on owner-authored pushes", () => {
+    const paths = [
+      "app/db/schema.sql",
+      "app/db/concurrent-indexes.sql",
+      "app/db/migrations/add-index.sql",
+      "app/scripts/fly-secrets.sh",
+      "app/scripts/rebuild-holders.sql",
+      "app/scripts/rebuild-launch-totals.sql",
+      "app/scripts/usd-backfill.ts",
+      "contracts/script/DeployLaunchFactory.s.sol",
+    ];
+    const found = check(Object.fromEntries(paths.map((path) => [path, "\n"])));
+    assert.deepEqual(of(found, "release-tooling").map((finding) => finding.path).sort(), paths.sort());
+    assert.equal(verdict(found, { author: OWNERS[0], pusher: OWNERS[0] }).outcome, "block");
+    assert.equal(details(check({ "app/db/schema.sql": null }), "release-tooling"), "deleted");
+  });
+
+  test("other scripts and routine release metadata are outside the release-tooling block", () => {
     // the manifest and the changelog change in every release pull request: blocking them would block every release
-    for (const path of ["app/scripts/fix.mjs", "app/scripts/usd-backfill.ts", "app/db/schema.sql", "app/db/concurrent-indexes.sql", "app/fly.staging.toml", "app/scripts/deploy.sh.bak", ".release-please-manifest.json", "app/CHANGELOG.md", "app/scripts/release-notes.mjs"]) {
+    for (const path of ["app/scripts/fix.mjs", "app/scripts/e2e-edit-fix.mjs", "app/db/README.md", "app/fly.staging.toml", "app/scripts/deploy.sh.bak", ".release-please-manifest.json", "app/CHANGELOG.md", "app/scripts/release-notes.mjs"]) {
       assert.ok(!rules(check({ [path]: "x\n" })).includes("release-tooling"), path);
     }
   });
@@ -972,11 +989,11 @@ describe("application code", () => {
     assert.deepEqual(rules(check({ "app/src/lib/obf.js": "var _0x4f2a=['log'];\n" })), ["opaque"]);
   });
 
-  test("security headers, deploy files, migrations and policy files need an owner", () => {
+  test("security headers, release tooling and policy files use their respective tiers", () => {
     assert.deepEqual(rules(check({ "app/src/lib/security-headers.ts": "export const csp = \"default-src *\";\n" })), ["security-config"]);
     // the Dockerfile is release tooling: blocked, which takes the place of the review finding
     assert.deepEqual(rules(check({ "app/Dockerfile": "FROM node:22-slim\nRUN true\n" })), ["release-tooling"]);
-    assert.deepEqual(rules(check({ "app/db/schema.sql": "drop table launches;\n" })), ["build-deploy"]);
+    assert.deepEqual(rules(check({ "app/db/schema.sql": "-- migration\n" })), ["release-tooling"]);
     assert.deepEqual(rules(check({ "app/scripts/fix.mjs": "console.log(1);\n" })), ["build-deploy"]);
     assert.deepEqual(rules(check({ "SECURITY.md": "Report to help@elsewhere.example.com\n" })), ["policy"]);
     assert.deepEqual(rules(check({ ".gitattributes": "*.sol linguist-vendored\n" })), ["git-config"]);
