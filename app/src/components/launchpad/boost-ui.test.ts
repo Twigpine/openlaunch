@@ -264,7 +264,10 @@ test("a click counts only while the token is in the lane, at the server's place,
 test("views and clicks are read in boostServer.ts alone; the full table only for an admin wallet", () => {
   const users = walk(path.resolve(import.meta.dirname, "../..")).filter((f) => !f.endsWith(".test.ts") && /bb_boost_(clicks|views)/.test(readFileSync(f, "utf8")));
   assert.deepEqual(users.map((f) => path.basename(f)), ["boostServer.ts"]);
-  assert.ok(statsRoute.indexOf('if (!adminWallets().has(wallet)) return NextResponse.json({ error: "admin only" }, { status: 403 });') < statsRoute.indexOf("getBoostStats("));
+  const authorize = statsRoute.indexOf("await requireAdmin(req)");
+  const refusal = statsRoute.indexOf('if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });');
+  const readStats = statsRoute.indexOf("await getBoostStats(");
+  assert.ok(authorize >= 0 && refusal > authorize && readStats > refusal, "an admin session is required before reading stats");
   assert.match(statsRoute, /if \(!isBoostStatsDays\(days\)\) return NextResponse\.json\(\{ error: "bad days" \}, \{ status: 400 \}\);/);
   assert.match(admin, /\{address \? <LaneStats wallet=\{address\} \/> : null\}/);
 });

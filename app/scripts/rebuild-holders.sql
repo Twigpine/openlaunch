@@ -1,11 +1,22 @@
 -- Rebuild bb_token_holders from bb_token_transfers (the deduped source of truth) and refresh the
--- per-launch holders counters. Idempotent; safe to run any time (a few thousand rows).
--- Usage: fly ssh console -a basebid-db -C "sh -c 'PGPASSWORD=$OPERATOR_PASSWORD psql -h localhost -p 5433 -U postgres -d basebid -f /tmp/rebuild-holders.sql'"
+-- per-launch holders counters. Generate the public per-chain config with scripts/rebuild-holders.ts first.
+-- Review the generated file and run with psql -v ON_ERROR_STOP=1; running this template alone fails closed.
 BEGIN;
--- serialize against the indexer: transfers cannot be ingested while balances are recomputed
+SET LOCAL lock_timeout = '5s';
+-- Match canonical writer ordering: acquire launches before requesting any transfer/holder locks.
+LOCK TABLE bb_launches IN EXCLUSIVE MODE;
+CREATE TEMP TABLE holder_rebuild_exclusions ON COMMIT DROP AS
+  SELECT entry.key::integer AS chain_id, lower(address.value) AS address
+    FROM jsonb_each(current_setting('openlaunch.holder_exclusions')::jsonb) entry
+    CROSS JOIN LATERAL jsonb_array_elements_text(entry.value) address(value);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM bb_launches l WHERE NOT EXISTS
+    (SELECT 1 FROM holder_rebuild_exclusions e WHERE e.chain_id = l.chain_id)) THEN
+    RAISE EXCEPTION 'holder rebuild configuration does not cover every stored launch chain';
+  END IF;
+END $$;
 LOCK TABLE bb_token_transfers IN SHARE MODE;
 LOCK TABLE bb_token_holders IN EXCLUSIVE MODE;
-LOCK TABLE bb_launches IN EXCLUSIVE MODE;
 WITH legs AS (
   SELECT chain_id, token, from_addr AS holder, -value AS d, block_number FROM bb_token_transfers WHERE from_addr <> '0x0000000000000000000000000000000000000000'
   UNION ALL
@@ -20,21 +31,11 @@ ON CONFLICT (chain_id, token, holder) DO UPDATE
 -- rows with no transfer legs left (should not exist) → zero them rather than delete, keeps history
 UPDATE bb_token_holders h SET balance = 0
  WHERE NOT EXISTS (SELECT 1 FROM bb_token_transfers t WHERE t.chain_id = h.chain_id AND t.token = h.token AND (t.from_addr = h.holder OR t.to_addr = h.holder));
--- holders counter: wallets with balance > 0, excluding protocol + burn addresses on either chain
+-- One chain-aware exclusion set, shared with the live indexer (public config generated above).
 UPDATE bb_launches l SET holders = COALESCE(c.n, 0)
   FROM (SELECT l2.chain_id, l2.token,
                (SELECT count(*) FROM bb_token_holders h WHERE h.chain_id = l2.chain_id AND h.token = l2.token AND h.balance > 0
-                  AND h.holder NOT IN ('0x0000000000000000000000000000000000000000',
-                                       '0x000000000000000000000000000000000000dead',
-                                       '0x000000000022d473030f116ddee9f6b43ac78ba3',
-                                       '0x498581ff718922c3f8e6a244956af099b2652b2b',
-                                       '0x58daec3116aae6d93017baaea7749052e8a04fa7',
-                                       '0x6ff5693b99212da76ad316178a184ab56d299b43',
-                                       '0x7c5f5a4bbd8fd63184577525326123b519429bdc',
-                                       '0x815542e8b392389a1389e22e588e4b62a67ade72',
-                                       '0x8366a39cc670b4001a1121b8f6a443a643e40951',
-                                       '0x8876789976decbfcbbbe364623c63652db8c0904',
-                                       '0xcd1680d26922fcd9cabfbb8a56ba40c333fd842a')) AS n
+                  AND NOT EXISTS (SELECT 1 FROM holder_rebuild_exclusions e WHERE e.chain_id = h.chain_id AND e.address = h.holder)) AS n
           FROM bb_launches l2) c
  WHERE l.chain_id = c.chain_id AND l.token = c.token;
 COMMIT;

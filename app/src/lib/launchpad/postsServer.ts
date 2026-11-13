@@ -202,12 +202,22 @@ export async function reportPost(p: { postId: unknown; wallet: string; reason: u
   // Only a fresh signed action may spend this wallet's allowance. Unsigned
   // claims and replays must never lock another reporter out of moderation.
   if (rateLimited(`report:wallet:${wallet}`, 20)) return fail("slow down", 429);
-  await db`INSERT INTO bb_post_reports (post_id, wallet, reason) VALUES (${postId}, ${wallet}, ${p.reason}) ON CONFLICT DO NOTHING`;
-  const [c] = await db<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM bb_post_reports WHERE post_id = ${postId}`;
-  const n = Number(c.n);
-  const hide = n >= AUTO_HIDE_REPORTS;
-  await db`UPDATE bb_posts SET reports = ${n}, hidden = CASE WHEN ${hide} AND hidden_by IS NULL THEN true ELSE hidden END, hidden_by = CASE WHEN ${hide} AND hidden_by IS NULL THEN 'auto' ELSE hidden_by END WHERE id = ${postId}`;
-  return { ok: true, hidden: hide };
+  return db.begin(async (tx) => {
+    const sql = tx as unknown as Db;
+    // Lock before inserting/counting. Otherwise two reporters can read different counts
+    // and a delayed UPDATE can overwrite the newer count. Moderation takes this row lock too.
+    const [current] = await sql`SELECT id FROM bb_posts WHERE id = ${postId} FOR UPDATE`;
+    if (!current) return fail("post not found", 404);
+    await sql`INSERT INTO bb_post_reports (post_id, wallet, reason) VALUES (${postId}, ${wallet}, ${p.reason}) ON CONFLICT DO NOTHING`;
+    const [c] = await sql<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM bb_post_reports WHERE post_id = ${postId}`;
+    const n = Number(c.n);
+    const hide = n >= AUTO_HIDE_REPORTS;
+    const [updated] = await sql<{ hidden: boolean }[]>`
+      UPDATE bb_posts SET reports = ${n}, hidden = CASE WHEN ${hide} AND hidden_by IS NULL THEN true ELSE hidden END,
+        hidden_by = CASE WHEN ${hide} AND hidden_by IS NULL THEN 'auto' ELSE hidden_by END
+       WHERE id = ${postId} RETURNING hidden`;
+    return { ok: true as const, hidden: updated.hidden };
+  });
 }
 
 /** Creator mute/unmute of their own token, or admin hide/unhide of a post. */

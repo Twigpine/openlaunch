@@ -8,7 +8,7 @@
  *   once the free automatic pre-check passes, and it covers up to 3 reviews of the application within 60 days.
  *
  * The TWIG amount is quoted at the burn step: $200 ÷ the lower of TWIG's spot and 30-minute average price, rounded up
- * to 100,000 TWIG, locked for 30 minutes. A burn sent while its quote is locked counts at that quote; a later one at the
+ * to 100,000 TWIG, locked for up to 30 minutes after the applicant signs. A burn sent while its quote is locked counts at that quote; a later one at the
  * price when it is indexed. Burns for one application add up, so a short one is topped up, never sent again whole.
  */
 import { TWIG_DECIMALS } from "./twig.ts";
@@ -106,6 +106,11 @@ export function isPaid(paidUsd: number, feeUsd: number): boolean {
 export type PairApplicationStatus = "open" | "paid" | "changes" | "approved" | "rejected" | "expired";
 /** An application nobody paid for stops holding its token's place after 48 hours (anyone may then apply again). */
 export const PAIR_UNPAID_EXPIRE_MS = 48 * 3_600_000;
+/** An unpaid application's reservations cannot outlive its payment window. Actual payments retain top-up access. */
+export function pairQuoteUntil(createdAt: number, hasPayment: boolean, now: number): number | null {
+  const end = hasPayment ? now + PAIR_QUOTE_LOCK_MS : Math.min(now + PAIR_QUOTE_LOCK_MS, createdAt + PAIR_UNPAID_EXPIRE_MS);
+  return end > now ? end : null;
+}
 /** The applicant may ask for another review: changes were asked, reviews remain, inside 60 days of paying. */
 export function canAskAgain(a: { status: PairApplicationStatus; reviews_used: number; paid_at: number | null }, now: number): boolean {
   return a.status === "changes" && a.reviews_used < PAIR_REVIEWS_MAX && a.paid_at !== null && now - a.paid_at < PAIR_REVIEW_WINDOW_MS;
@@ -152,6 +157,11 @@ export function buildPairApplyMessage(p: { action: PairApplyAction; chain: Chain
   ].join("\n");
 }
 
+/** Only the applicant opens a reservation. Its public quote may still be paid by any sponsor. */
+export function buildPairQuoteMessage(p: { id: number; wallet: string; nonce: string; ts: number }): string {
+  return ["openlaunch.lol community pair application", "", "Action: quote", `Application: ${p.id}`, `Wallet: ${p.wallet.toLowerCase()}`, `Nonce: ${p.nonce}`, `Issued: ${new Date(p.ts).toISOString()}`].join("\n");
+}
+
 /** "waive": approve an application that has not paid, the fee waived by openlaunch (an admin call, signed like the rest). */
 export const PAIR_REVIEW_DECISIONS = ["approve", "waive", "changes", "reject"] as const;
 export const PAIR_FEE_WAIVED = "Fee waived by openlaunch.";
@@ -175,7 +185,7 @@ export const PAIR_APPLY_COPY = {
   profileNeeded: "Applying needs an openlaunch profile with a verified X account (from your profile page).",
   proofAsk: "Post this from the community's own X account, then paste the post's link here. The reviewer checks it by hand.",
   sentFinal: "The TWIG goes to 0x…dEaD. It cannot be undone or refunded, and nothing is paid to openlaunch or Twigpine.",
-  lockNote: "The amount is locked for 30 minutes. Sent later, it counts at the price when it lands; a shortfall can be topped up.",
+  lockNote: "The amount is locked until the time shown, for up to 30 minutes. Sent later, it counts at the price when it lands; a shortfall can be topped up.",
   reviewNote: "Reviews look at the checks, the community (its X account, its age, its activity) and the proof post. A listing is not an endorsement.",
   disabled: "Applications open soon.",
   waived: "No fee: openlaunch waived it for this application.",

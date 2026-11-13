@@ -13,6 +13,37 @@ function streamed(chunks: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+test("upstream response reads copy reused chunk views and release their reader", async () => {
+  const backing = new Uint8Array(1_048_576);
+  const view = backing.subarray(8, 9);
+  let next = 65;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (next > 67) { controller.close(); return; }
+      view[0] = next++;
+      controller.enqueue(view);
+    },
+  }, { highWaterMark: 0 });
+  const response = new Response(stream);
+  assert.deepEqual(await readTextLimited(response, 3), { ok: true, text: "ABC" });
+  assert.equal(response.body?.locked, false);
+});
+
+test("oversized upstream responses do not wait for underlying cancellation", { timeout: 1_000 }, async () => {
+  for (const declared of [false, true]) {
+    let pulls = 0, cancelled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { pulls++; controller.enqueue(Uint8Array.of(1, 2, 3)); },
+      cancel() { cancelled++; return new Promise<void>(() => {}); },
+    }, { highWaterMark: 0 });
+    const response = new Response(stream, declared ? { headers: { "content-length": "3" } } : {});
+    assert.deepEqual(await readTextLimited(response, 2), { ok: false, tooLarge: true });
+    assert.equal(pulls, declared ? 0 : 1);
+    assert.equal(cancelled, 1);
+    assert.equal(response.body?.locked, false);
+  }
+});
+
 /** Run `fn` as on a Fly Machine (Fly sets FLY_APP_NAME), or off one, restoring the environment after. */
 function withFly<T>(on: boolean, fn: () => T): T {
   const before = { app: process.env.FLY_APP_NAME, machine: process.env.FLY_MACHINE_ID };

@@ -8,9 +8,11 @@ import {
   PAIR_QUOTE_SETTLE_MS,
   PAIR_REVIEWS_MAX,
   PAIR_REVIEW_WINDOW_MS,
+  PAIR_UNPAID_EXPIRE_MS,
   PAIR_TAG_BASE,
   applicationCode,
   buildPairApplyMessage,
+  buildPairQuoteMessage,
   buildPairReviewMessage,
   canAskAgain,
   isPaid,
@@ -19,6 +21,7 @@ import {
   pairBurnFromTransfer,
   pairBurnUsd,
   pairFeeQuote,
+  pairQuoteUntil,
   pairListingUsd,
   pairSettlingUntil,
   pairTagOf,
@@ -87,6 +90,25 @@ test("a burn's value: the locked price inside the lock, the price when indexed a
   assert.equal(pairBurnUsd(12_200_000n, 1_001, quote, null), null, "no price: recorded, valued later never by guesswork");
   assert.equal(isPaid(196, 200), true);
   assert.equal(isPaid(195.9, 200), false);
+});
+
+test("unpaid quote reservations stop at 48 hours, while recorded payments retain top-up access", () => {
+  const created = 1_000;
+  const deadline = created + PAIR_UNPAID_EXPIRE_MS;
+  assert.equal(pairQuoteUntil(created, false, created), created + PAIR_QUOTE_LOCK_MS);
+  assert.equal(pairQuoteUntil(created, false, deadline - 1_000), deadline);
+  assert.equal(pairQuoteUntil(created, false, deadline), null);
+  assert.equal(pairQuoteUntil(created, false, deadline + 1), null);
+  assert.equal(pairQuoteUntil(created, true, deadline + 1), deadline + 1 + PAIR_QUOTE_LOCK_MS);
+});
+
+test("quote authorization binds the action, application, wallet, nonce and issuance time", () => {
+  const intent = { id: 7, wallet: "0xAB", nonce: "12".repeat(16), ts: 0 };
+  const message = buildPairQuoteMessage(intent);
+  assert.equal(message, ["openlaunch.lol community pair application", "", "Action: quote", "Application: 7", "Wallet: 0xab", `Nonce: ${intent.nonce}`, "Issued: 1970-01-01T00:00:00.000Z"].join("\n"));
+  for (const changed of [{ id: 8 }, { wallet: "0xCD" }, { nonce: "34".repeat(16) }, { ts: 1 }]) {
+    assert.notEqual(buildPairQuoteMessage({ ...intent, ...changed }), message);
+  }
 });
 
 test("reviews: up to 3, within 60 days of paying, and only after changes were asked", () => {
@@ -262,7 +284,7 @@ test("a fee is never waived while the applicant may be paying it: under a live q
   assert.ok(guard > decide.indexOf("const settling = settlingUntil(app);") && guard < decide.indexOf("const claimed = await withIndexLock("), "checked before the claim");
   // from the latest quote's end, which a landed burn does not erase: a second transfer under the same quote holds it too
   assert.match(s, /const ends = \[r\.quote_until, r\.last_quote_until\]\.filter\(\(d\) => d\)\.map\(\(d\) => new Date\(d!\)\.getTime\(\)\);\n\s*return pairSettlingUntil\(ends\.length \? Math\.max\(\.\.\.ends\) : null, Date\.now\(\)\);/);
-  assert.match(s, /quote_until = now\(\) \+ \$\{`\$\{PAIR_QUOTE_LOCK_MS \/ 1000\} seconds`\}::interval,\n\s*last_quote_until = now\(\) \+ \$\{`\$\{PAIR_QUOTE_LOCK_MS \/ 1000\} seconds`\}::interval\n/, "every quote records its end twice");
+  assert.match(s, /quote_until = \$\{new Date\(until!\)\},\n\s*last_quote_until = GREATEST\(last_quote_until, \$\{new Date\(until!\)\}\)/, "every bounded quote records its end without shortening a previous settlement hold");
   assert.match(s, /SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = \$\{appId\}/, "a landed burn clears the quote…");
   assert.doesNotMatch(s, /last_quote_until = NULL/, "…but never last_quote_until");
   const schema = src("../../../db/schema.sql");
@@ -290,7 +312,12 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   assert.ok(at.every((i) => i > 0), JSON.stringify(at));
   assert.deepEqual([...at].sort((a, b) => a - b), at);
   assert.match(s, /x_status = 'verified' AND NOT hidden AND deleted_at IS NULL/);
-  assert.match(s, /WHERE id = \$\{id\} AND status = 'open' AND \(quote_until IS NULL OR quote_until <= now\(\)\) RETURNING \*/);
+  const quote = s.slice(s.indexOf("async function quoteFeeLocked"), s.indexOf("export async function recordPairBurn"));
+  assert.match(quote, /FROM bb_pair_applications a WHERE a\.id = \$\{id\} FOR UPDATE/);
+  assert.match(quote, /WHERE id = \$\{id\} AND applicant = \$\{wallet\} AND status = 'open' RETURNING \*/);
+  const liveAt = quote.indexOf("if (live) return");
+  const updateAt = quote.indexOf("UPDATE bb_pair_applications SET quote_twig");
+  assert.ok(liveAt >= 0 && updateAt > liveAt, "a locked live quote returns before any reservation update");
   const decide = s.slice(s.indexOf("export async function reviewApplication"));
   const claimAt = decide.indexOf("const claimed = await withIndexLock(PAIR_FEE_CHAIN");
   const listAt = decide.indexOf("await writeListing(chain, app.address,");

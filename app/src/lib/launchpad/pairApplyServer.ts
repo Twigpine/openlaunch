@@ -13,7 +13,6 @@ import { cachedPrecheck, forgetPrecheck, type PairPrecheck } from "./pairCheck";
 import {
   PAIR_APPLY_OPEN_MAX,
   PAIR_FEE_TOLERANCE,
-  PAIR_QUOTE_LOCK_MS,
   PAIR_QUOTE_SETTLE_MS,
   PAIR_FEE_WAIVED,
   PAIR_REVIEWS_MAX,
@@ -21,6 +20,7 @@ import {
   PAIR_UNPAID_EXPIRE_MS,
   applicationCode,
   buildPairApplyMessage,
+  buildPairQuoteMessage,
   buildPairReviewMessage,
   canAskAgain,
   isPairApplyAction,
@@ -29,6 +29,7 @@ import {
   pairBurnAmount,
   pairBurnUsd,
   pairFeeQuote,
+  pairQuoteUntil,
   pairListingUsd,
   pairSettlingUntil,
   proofPostUrl,
@@ -137,6 +138,7 @@ export async function expireStaleApplications(chain?: ChainKey, address?: string
        WHERE NOT a.payment_reorg AND ((a.status = 'open' AND a.paid_usd = 0 AND a.created_at < now() - ${`${PAIR_UNPAID_EXPIRE_MS / 1000} seconds`}::interval
                -- never while a fee quote is live, nor in the hour after it (a transfer sent under it may still be indexing)
                AND (a.quote_until IS NULL OR a.quote_until < now() - ${`${PAIR_QUOTE_SETTLE_MS / 1000} seconds`}::interval)
+               AND (a.last_quote_until IS NULL OR a.last_quote_until < now() - ${`${PAIR_QUOTE_SETTLE_MS / 1000} seconds`}::interval)
                -- only burns sent for it count: a stray one sent before it existed must not keep it alive
                AND NOT EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id AND b.block_time >= a.created_at))
           OR (a.status = 'changes' AND a.paid_at < now() - ${`${PAIR_REVIEW_WINDOW_MS / 1000} seconds`}::interval)) ${scope}
@@ -240,33 +242,59 @@ export async function applicantAction(b: Record<string, unknown>): Promise<{ ok:
   return { ok: true, id: id!, code: app.code };
 }
 
-/** The fee's TWIG amount for an unpaid application, locked 30 minutes (a live lock is returned, never replaced). */
-export async function quoteFee(id: number): Promise<PairApplicationPublic["quote"] | Fail> {
+/** Applicant-authorized reservation; the resulting quote and its sponsorship payment remain public. */
+export async function quoteFee(id: number, b: Record<string, unknown>): Promise<PairApplicationPublic["quote"] | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   if (!applicationsOpen()) return fail("applications are not open yet", 503);
+  if (!Number.isSafeInteger(id) || id <= 0) return fail("bad application", 400);
+  if (typeof b.wallet !== "string" || !isAddress(b.wallet)) return fail("bad wallet", 400);
+  if (!isNonce(b.nonce) || !tsFresh(b.ts, Date.now())) return fail("stale or bad nonce", 400);
+  const wallet = b.wallet.toLowerCase();
+  const [owner] = await db<{ applicant: string }[]>`SELECT applicant FROM bb_pair_applications WHERE id = ${id}`;
+  if (!owner) return fail("no such application", 404);
+  if (owner.applicant !== wallet) return fail("only the applicant can lock a fee quote; anyone can pay an existing quote", 403);
+  const auth = { id, wallet, nonce: b.nonce, ts: Number(b.ts) };
+  if (!(await verify(PAIR_FEE_CHAIN, wallet, buildPairQuoteMessage(auth), b.signature))) return fail("signature does not match", 401);
   // Resolve external prices before reserving a connection. The app and canonical
   // payment state are then read together under the indexer's shared chain lock.
   const parts = await gitlawbUsdParts();
-  return withIndexLock(PAIR_FEE_CHAIN, (locked) => quoteFeeLocked(locked, id, parts));
+  const result = await withIndexLock(PAIR_FEE_CHAIN, (locked) => quoteFeeLocked(locked, auth, parts));
+  void db`DELETE FROM bb_post_nonces WHERE created_at < now() - interval '1 hour'`.catch(() => {});
+  return result;
 }
 
-async function quoteFeeLocked(db: Db, id: number, parts: Awaited<ReturnType<typeof gitlawbUsdParts>>): Promise<PairApplicationPublic["quote"] | Fail> {
+async function quoteFeeLocked(db: Db, auth: { id: number; wallet: string; nonce: string; ts: number }, parts: Awaited<ReturnType<typeof gitlawbUsdParts>>): Promise<PairApplicationPublic["quote"] | Fail> {
+  const { id, wallet, nonce, ts } = auth;
   if (!(await paymentIndexReady(db))) return fail("payment history is being checked; try again later", 503);
-  const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`;
+  const [app] = await db<(AppRow & { db_now: Date; has_payment: boolean })[]>`
+    SELECT a.*, clock_timestamp() AS db_now,
+      EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id AND b.block_time >= a.created_at) AS has_payment
+      FROM bb_pair_applications a WHERE a.id = ${id} FOR UPDATE`;
   if (!app) return fail("no such application", 404);
+  if (app.applicant !== wallet) return fail("only the applicant can lock a fee quote", 403);
   if (app.payment_reorg) return fail("a prior payment needs reconciliation; do not pay again", 409);
   if (app.status !== "open") return fail("this application needs no payment", 409);
-  if (app.quote_until && new Date(app.quote_until).getTime() > Date.now() && app.quote_twig && app.quote_price_usd) return publicOf(app, []).quote;
+  const now = new Date(app.db_now).getTime();
+  if (!tsFresh(ts, now)) return fail("stale or bad nonce", 400);
+  const live = app.quote_until && new Date(app.quote_until).getTime() > now && app.quote_twig && app.quote_price_usd;
+  const until = pairQuoteUntil(new Date(app.created_at).getTime(), app.has_payment || app.paid_usd > 0, now);
+  // Honor an already-issued quote, including a pre-upgrade one. No new unpaid
+  // reservation can extend the 48-hour window; settlement still gets its hour.
+  if (!live && until === null) return fail("the unpaid payment window has ended; check any sent payment or wait for this application to close", 409);
   const due = Math.max(app.fee_usd - app.paid_usd, 1);
-  const q = pairFeeQuote(due, parts.spot, parts.twap);
+  const q = live ? { whole: BigInt(app.quote_twig!), priceUsd: app.quote_price_usd! } : pairFeeQuote(due, parts.spot, parts.twap);
   if (!q) return fail("TWIG has no price right now: try again in a minute", 503);
+  // The nonce and reservation commit together. Concurrent/replayed signatures
+  // cannot create another lock, including after the first lock has expired.
+  const used = await db`INSERT INTO bb_post_nonces (nonce, wallet) VALUES (${nonce}, ${wallet}) ON CONFLICT (nonce) DO NOTHING RETURNING nonce`;
+  if (!used.length) return fail("nonce already used", 401);
+  if (live) return { twig: String(app.quote_twig), price_usd: app.quote_price_usd!, until: iso(app.quote_until)!, amount: pairBurnAmount(BigInt(app.quote_twig!), id).toString() };
   const [row] = await db<AppRow[]>`
-    UPDATE bb_pair_applications SET quote_twig = ${q.whole.toString()}, quote_price_usd = ${q.priceUsd}, quote_at = now(), quote_until = now() + ${`${PAIR_QUOTE_LOCK_MS / 1000} seconds`}::interval,
-           last_quote_until = now() + ${`${PAIR_QUOTE_LOCK_MS / 1000} seconds`}::interval
-     WHERE id = ${id} AND status = 'open' AND (quote_until IS NULL OR quote_until <= now()) RETURNING *`;
-  const fresh = row ?? (await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`)[0];
-  return publicOf(fresh, []).quote;
+    UPDATE bb_pair_applications SET quote_twig = ${q.whole.toString()}, quote_price_usd = ${q.priceUsd}, quote_at = ${new Date(now)}, quote_until = ${new Date(until!)},
+           last_quote_until = GREATEST(last_quote_until, ${new Date(until!)})
+     WHERE id = ${id} AND applicant = ${wallet} AND status = 'open' RETURNING *`;
+  return { twig: String(row.quote_twig), price_usd: row.quote_price_usd!, until: iso(row.quote_until)!, amount: pairBurnAmount(BigInt(row.quote_twig!), id).toString() };
 }
 
 /**
@@ -305,8 +333,9 @@ async function valueBurn(db: Db, cid: number, tx: string, log: number, appId: nu
   const v = pairBurnUsd(whole, sentAt.getTime(), quote, live);
   if (!v) return;
   const done = await db`UPDATE bb_pair_burns SET usd = ${v.usd}, priced_by = ${v.by} WHERE chain_id = ${cid} AND tx_hash = ${tx} AND log_index = ${log} AND usd IS NULL AND NOT valuation_pending RETURNING tx_hash`;
-  // a burn has landed: the lock it was sent under is spent, so the next quote is for what is still due
-  if (done.length) await db`UPDATE bb_pair_applications SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = ${appId} AND status = 'open'`;
+  // Only the lock used to value this burn is spent. An older live-priced burn
+  // must not erase a newer reservation that a sponsor may already be paying.
+  if (done.length && v.by === "quote") await db`UPDATE bb_pair_applications SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = ${appId} AND status = 'open'`;
 }
 
 /** An application's total from its valued burns; paid once it reaches the fee (within 2%). Idempotent. */

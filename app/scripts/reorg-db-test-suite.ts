@@ -12,6 +12,7 @@ import { IndexLockBusyError } from '../src/lib/launchpad/indexer-lock';
 import { A, B, CREATOR, ALICE, BOB, ZERO, standardModel, hash, type ChainModel } from './reorg-db-test-model';
 import { BEFORE_EXECUTION_EVENT, USER_OPERATION_EVENT, ENTRY_POINTS } from '../src/lib/launchpad/attribution';
 import { directChecks } from './reorg-db-test-direct';
+import { indexerAuditDbChecks } from './indexer-audit-db-checks';
 type Snapshot = Record<string, unknown[]>;
 export type ReorgCheckContext = {
     check: (label: string, run: () => Promise<unknown>) => Promise<void>;
@@ -475,6 +476,7 @@ export async function runReorgDbTests(t: TestContext, endpoint: string) {
                 await withCanonicalIndex('base', 100n, () => { clears++; }, async () => { });
                 assert.equal(clears, 2, 'retry recognizes the forgotten local generation and clears again');
             });
+            await indexerAuditDbChecks({ check, database, activate, indexedOld, compareOracle });
             await directChecks({ check, indexedOld });
         }
         finally {

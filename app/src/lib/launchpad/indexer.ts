@@ -25,6 +25,9 @@ import { hourIso } from "./usd-history";
 import { indexAtomic } from "./indexer-lock";
 import { observeBlock, observeLog, withCanonicalIndex } from "./indexer-canonical";
 import { replayValue } from "./indexer-reorg-db";
+import { recoverBlockTransfers } from "./transfer-recovery";
+import { systemAddresses } from "./holder-system-addresses";
+export { systemAddresses } from "./holder-system-addresses";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -310,7 +313,12 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   const bn = log.blockNumber!;
   if (log.eventName === "Collected") {
     const t = log.args.token.toLowerCase();
-    const quote = tokenIdToToken.get(log.args.tokenId.toString())?.quote ?? "";
+    const info = tokenIdToToken.get(log.args.tokenId.toString());
+    // A separately synced collection receipt can precede its launch in the index. Leave the
+    // event unconsumed until the launch exists, so normal poll replay can add both raw totals.
+    if (!info) return false;
+    if (info.token !== t) throw new Error("collected position does not match its indexed token");
+    const quote = info.quote;
     const replay = await replayValue(db, chain, "fee", tx, Number(li), bn, time, log.blockHash!, {
       kind: "collected", token_id: log.args.tokenId.toString(), token: t, quote: quote || null, currency: null, account: null,
       amount: null, quote_amount: log.args.quoteAmount.toString(), token_amount: log.args.tokenAmount.toString(),
@@ -557,41 +565,12 @@ async function attributeBacklogIn(db: Db, chain: ChainKey, batch: number): Promi
 // ── holders ──────────────────────────────────────────────────────────────────
 type TransferLog = Log & { args: { from: Address; to: Address; value: bigint } };
 
-type RawReceiptLog = { address: string; topics: Hex[]; data: Hex; blockNumber: Hex; blockHash: Hex; transactionHash: Hex; logIndex: Hex; removed?: boolean };
-
-/**
- * A token's Transfer logs in one block, read from the block's receipts (eth_getBlockReceipts is not subject to the
- * per-call result cap that eth_getLogs has on some nodes). Null when the node does not offer the method.
- */
+/** Complete receipt recovery for a token/block beyond the getLogs result cap. */
 async function transfersFromBlockReceipts(chain: ChainKey, token: string, block: bigint): Promise<TransferLog[] | null> {
   const client = publicClient(chain);
-  const want = token.toLowerCase();
-  try {
-    const receipts: unknown = await client.request({ method: "eth_getBlockReceipts" as never, params: [`0x${block.toString(16)}`] as never });
-    // the response is untyped RPC data: anything not shaped like receipts with logs counts as "unavailable", never a throw
-    if (!Array.isArray(receipts)) return null;
-    const raw: RawReceiptLog[] = [];
-    for (const r of receipts) {
-      const logs = (r as { logs?: unknown } | null)?.logs;
-      if (!Array.isArray(logs)) return null;
-      for (const l of logs as Partial<RawReceiptLog>[]) {
-        if (typeof l?.address !== "string" || !Array.isArray(l.topics) || typeof l.data !== "string" || typeof l.blockNumber !== "string" || typeof l.blockHash !== "string" || typeof l.transactionHash !== "string" || typeof l.logIndex !== "string") return null;
-        if (l.address.toLowerCase() === want && !l.removed) raw.push(l as RawReceiptLog);
-      }
-    }
-    const parsed = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: raw.map((l) => ({ ...l, blockNumber: BigInt(l.blockNumber), logIndex: Number(l.logIndex) })) as unknown as Log[] });
-    return parsed as unknown as TransferLog[];
-  } catch {
-    return null;
-  }
+  return recoverBlockTransfers((method, params) => client.request({ method: method as never, params: params as never }), token, block);
 }
 const SYNCED_FOREVER = 9223372036854775807n; // bigint max = "history fully scanned; the live loop keeps it current"
-
-/** System addresses that hold launched tokens on the protocol's behalf (never counted as holders): pool, position manager, locker, factory, plus router/Permit2 which keep swap dust. */
-export function systemAddresses(chain: ChainKey): string[] {
-  const cfg = launchpad(chain);
-  return [cfg.v4.poolManager, cfg.v4.positionManager, cfg.locker!, cfg.factory!, cfg.v4.universalRouter, cfg.v4.permit2].map((a) => a.toLowerCase());
-}
 
 /**
  * Ingest Transfer logs for `tokens` in [from, to]: one bulk insert into bb_token_transfers (dedupe: only the
@@ -604,7 +583,7 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
   const cid = chainIdOf(chain);
   // one address list for every launched token, bisected by block like every other fetch; only when a SINGLE block is over
   // the node's result cap does the token list split, and one token still over the cap in one block (a contract spamming
-  // Transfer events) falls back to full block receipts. If neither RPC method can supply the complete block,
+  // Transfer events) falls back to complete receipts, bulk first and then one per transaction. If recovery is incomplete,
   // fail the atomic range and leave its cursor unchanged so the next attempt can recover every balance delta.
   const oneBlockOrRange = async (addrs: string[], a: bigint, b: bigint): Promise<TransferLog[]> => {
     try {
@@ -612,8 +591,8 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
     } catch (err) {
       if (a !== b || !isRangeTooLarge(err)) throw err; // a range: let fetchLogsSplit halve the blocks
       if (addrs.length <= 1) {
-        // one token, one block, over the cap: the block's receipts are not capped, so read the token's Transfer logs from
-        // them. Without that method, retry the range instead of checkpointing incomplete holder balances.
+        // Recover every transaction's receipt when the bulk method is unavailable. If either identity or
+        // completeness cannot be established, retry instead of checkpointing incomplete holder balances.
         const recovered = await transfersFromBlockReceipts(chain, addrs[0], a);
         if (recovered !== null) return recovered;
         throw new Error(`Transfer logs in block ${a} exceed the RPC cap and block receipts are unavailable; retry without advancing the canonical cursor`);
@@ -660,7 +639,8 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
         INSERT INTO bb_token_holders (chain_id, token, holder, balance, first_block, last_block)
         SELECT ${cid}, token, holder, d, f, l FROM agg
         ON CONFLICT (chain_id, token, holder) DO UPDATE
-          SET balance = bb_token_holders.balance + EXCLUDED.balance, last_block = GREATEST(bb_token_holders.last_block, EXCLUDED.last_block)
+          SET balance = bb_token_holders.balance + EXCLUDED.balance, first_block = LEAST(bb_token_holders.first_block, EXCLUDED.first_block),
+              last_block = GREATEST(bb_token_holders.last_block, EXCLUDED.last_block)
         RETURNING token
       )
       SELECT token, count(*)::int AS n FROM ins GROUP BY token`;
@@ -758,7 +738,7 @@ export async function pollLaunches(chain: ChainKey): Promise<LaunchSyncResult> {
 const healsRunning = new Map<ChainKey, Promise<void>>();
 
 /**
- * Poll every configured chain (used by the loop and POST /api/launch/sync without a tx).
+ * Poll every configured chain for the internal background loop. Public sync is transaction-specific.
  *
  * Overlapping callers share work per chain, not the pass as a whole: a chain whose run() is in flight is joined
  * (pollLaunches), and a chain whose heal pass is running is skipped (healsRunning). A chain whose run has finished is
@@ -769,7 +749,7 @@ export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(
     CONFIGURED_CHAINS.map(async (c) => {
-      // The result is public through /api/launch/sync; keep diagnostics in redacted server logs.
+      // Background/internal poll results use fixed reasons; keep diagnostics in redacted server logs.
       out[c] = await pollLaunches(c).catch((e): LaunchSyncResult => {
         console.warn(`[launch-sync] poll ${c}:`, redactUrls(errMessage(e)));
         return { status: "skipped", reason: "sync_failed" };

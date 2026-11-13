@@ -22,7 +22,7 @@ The reporting route previously spent a wallet allowance based on the unsigned wa
 
 Ten remaining routes now use the existing shared client-IP helper. The fallback uses the rightmost proxy-appended forwarding value, so changing a client-supplied prefix does not reset the same client's allowance. This applies to posting, reporting, moderation, edit/nonce, sync, metadata, chart discovery, RPC and presence.
 
-This relies on ingress behavior: Fly must overwrite its client-IP header, or the reverse proxy must append the actual client to the forwarded chain. The helper cannot authenticate arbitrary headers on a directly exposed server. Process-local rate-limit storage remains process-local.
+At the reviewed historical commit this relied on Fly overwriting `fly-client-ip`, or a reverse proxy stripping that header before appending the actual client to `X-Forwarded-For`. Appending alone was insufficient because that helper preferred `fly-client-ip`. After syncing main's API hardening, `app/src/lib/http.ts` reads the Fly header only in a Fly runtime; other deployments use the configured trusted proxy hops in `X-Forwarded-For`. Ingress must overwrite/strip client-supplied trusted headers, append the peer it actually saw, and prevent direct access around the configured proxy chain. The helper cannot authenticate arbitrary headers on a directly exposed server. Process-local rate-limit storage remains process-local.
 
 ### Known-hash Circle recovery
 

@@ -63,7 +63,7 @@ export class ChainModel {
     failMethod: string | null = null;
     beforeRequest: ((method: string, params: readonly unknown[]) => Promise<void>) | null = null;
     blockHash(height: number, branch = this.branch) { return hash(height < this.fork ? `common-block-${height}` : `${branch}-block-${height}`); }
-    block(height: number, branch = this.branch) { return { number: toHex(height), hash: this.blockHash(height, branch), parentHash: this.blockHash(height - 1, branch), timestamp: toHex(1700000000 + height * 2), transactions: [], gasLimit: '0x1000000', gasUsed: '0x0', baseFeePerGas: '0x1', difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x1', nonce: '0x0000000000000000', miner: ZERO, receiptsRoot: hash('receipts'), stateRoot: hash('state'), transactionsRoot: hash('transactions'), logsBloom: `0x${'00'.repeat(256)}`, sha3Uncles: hash('uncles'), uncles: [] }; }
+    block(height: number, branch = this.branch) { return { number: toHex(height), hash: this.blockHash(height, branch), parentHash: this.blockHash(height - 1, branch), timestamp: toHex(1700000000 + height * 2), transactions: [] as Hex[], gasLimit: '0x1000000', gasUsed: '0x0', baseFeePerGas: '0x1', difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x1', nonce: '0x0000000000000000', miner: ZERO, receiptsRoot: hash('receipts'), stateRoot: hash('state'), transactionsRoot: hash('transactions'), logsBloom: `0x${'00'.repeat(256)}`, sha3Uncles: hash('uncles'), uncles: [] }; }
     log(e: EventInput, branch = this.branch) {
         const event = e.abi.find((item): item is AbiEvent => item.type === 'event' && item.name === e.eventName);
         if (!event) throw new Error(`Unknown fixture event ${e.eventName}`);

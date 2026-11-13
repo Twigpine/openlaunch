@@ -7,6 +7,7 @@
  *                                                                        and that the signer is the on-chain launcher
  */
 import { parseXHandle } from "./xHandle.ts";
+import { publicHttpsUrl } from "./public-url.ts";
 
 export const EDIT_TTL_MS = 5 * 60_000;
 export const EDIT_DOMAIN = "openlaunch.lol";
@@ -44,21 +45,9 @@ export function isNonce(v: unknown): v is string {
 export function validateEdit(f: Partial<Record<keyof EditFields, unknown>>): { ok: true; value: EditFields } | { ok: false; error: string } {
   const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
   const description = str(f.description, 280);
-  const url = (v: unknown) => {
-    const s = str(v, 300);
-    if (!s) return "";
-    try {
-      const u = new URL(s);
-      if (u.protocol !== "https:") return null;
-      if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|\[?::1)/i.test(u.hostname)) return null;
-      return u.toString();
-    } catch {
-      return null;
-    }
-  };
-  const image_url = url(f.image_url);
-  const banner_url = url(f.banner_url);
-  const website = url(f.website);
+  const image_url = publicHttpsUrl(f.image_url);
+  const banner_url = publicHttpsUrl(f.banner_url);
+  const website = publicHttpsUrl(f.website);
   if (image_url === null) return { ok: false, error: "image: https URL only" };
   if (banner_url === null) return { ok: false, error: "banner: https URL only" };
   if (website === null) return { ok: false, error: "website: https URL only" };
@@ -66,5 +55,5 @@ export function validateEdit(f: Partial<Record<keyof EditFields, unknown>>): { o
   if (!x.ok) return { ok: false, error: x.error };
   const x_handle = x.handle;
   if (/<[a-z!/]/i.test(description)) return { ok: false, error: "description: no HTML" };
-  return { ok: true, value: { description, image_url, banner_url, website, x_handle } };
+  return { ok: true, value: { description, image_url: image_url ?? "", banner_url: banner_url ?? "", website: website ?? "", x_handle } };
 }

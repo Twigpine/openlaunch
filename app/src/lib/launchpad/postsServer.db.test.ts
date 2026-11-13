@@ -7,7 +7,7 @@ import { verifyMessage } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { setPostsTestDb, type Db } from "../../../scripts/posts-db-test-db.ts";
 import { setPostsTestClient } from "../../../scripts/posts-db-test-chain.ts";
-import { POST_MIN_GAP_MS, buildPostMessage } from "./posts.ts";
+import { POST_MIN_GAP_MS, buildPostMessage, buildReportMessage } from "./posts.ts";
 
 // Opt-in, real PostgreSQL concurrency checks. The URL must be loopback, with a port and no options. Each run owns a
 // random schema and drops only that schema; it never reads application environment files.
@@ -50,6 +50,8 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
     CREATE TABLE bb_token_settings (chain_id integer, token text, comments_muted boolean);
     CREATE TABLE bb_posts (id bigserial PRIMARY KEY, chain_id integer NOT NULL, token text NOT NULL, wallet text NOT NULL, parent_id bigint REFERENCES bb_posts(id), body text NOT NULL, tag text, signature text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), hidden boolean NOT NULL DEFAULT false, hidden_by text, reports integer NOT NULL DEFAULT 0);
     CREATE TABLE bb_post_nonces (nonce text PRIMARY KEY, wallet text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE bb_launch_swaps (trader text);
+    CREATE TABLE bb_post_reports (post_id bigint NOT NULL REFERENCES bb_posts(id) ON DELETE CASCADE, wallet text NOT NULL, reason text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (post_id, wallet));
   `);
   setPostsTestDb(sql as unknown as Db);
   let beforeVerification: (() => Promise<void>) | null = null;
@@ -62,6 +64,7 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
     },
   });
   const { POST } = await import("../../app/api/posts/route.ts");
+  const { reportPost } = await import("./postsServer.ts");
   const account = privateKeyToAccount(generatePrivateKey());
   const wallet = account.address.toLowerCase();
   const token = "0x2222222222222222222222222222222222222222";
@@ -86,6 +89,15 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
     let release!: () => void;
     const ready = new Promise<void>((resolve) => { release = resolve; });
     beforeVerification = async () => { if (++arrived === count) release(); await ready; };
+  }
+  async function reporter() {
+    const signer = privateKeyToAccount(generatePrivateKey());
+    await sql`INSERT INTO bb_launch_swaps (trader) VALUES (${signer.address.toLowerCase()})`;
+    return signer;
+  }
+  async function reportPayload(signer: typeof account, postId = 1) {
+    const input = { postId, wallet: signer.address.toLowerCase(), nonce: randomBytes(16).toString("hex"), ts: Date.now(), reason: "spam" };
+    return { ...input, signature: await signer.signMessage({ message: buildReportMessage(input) }) };
   }
 
   await t.test("sequential calls retain the 20-second gap", async () => {
@@ -207,5 +219,68 @@ test("posting limits and nonce consumption stay atomic across PostgreSQL connect
     await sql`UPDATE bb_posts SET created_at = now() - interval '1 minute'`;
     assert.equal((await submit(input)).status, 401);
     assert.equal(await postCount(), 1);
+  });
+  await t.test("concurrent signed reports count distinct wallets and preserve automatic hiding", async () => {
+    await clear(1);
+    const reporters = await Promise.all(Array.from({ length: 6 }, () => reporter()));
+    const inputs = await Promise.all(reporters.map((signer) => reportPayload(signer)));
+    barrier(inputs.length);
+    const results = await Promise.all(inputs.map(reportPost));
+    assert.ok(results.every((r) => r.ok));
+    const [post] = await sql`SELECT reports, hidden, hidden_by FROM bb_posts WHERE id = 1`;
+    assert.deepEqual(post, { reports: 6, hidden: true, hidden_by: "auto" });
+    assert.equal(Number((await sql`SELECT count(*) AS n FROM bb_post_reports WHERE post_id = 1`)[0].n), 6);
+    beforeVerification = null;
+    assert.deepEqual(await reportPost(await reportPayload(reporters[0])), { ok: true, hidden: true });
+    assert.equal(Number((await sql`SELECT reports FROM bb_posts WHERE id = 1`)[0].reports), 6, "another signature from one reporter is not another report");
+  });
+  await t.test("report insertion and counting wait behind the post lock", async () => {
+    await clear(1);
+    const reporters = await Promise.all([reporter(), reporter()]);
+    const inputs = await Promise.all(reporters.map((signer) => reportPayload(signer)));
+    barrier(2);
+    const locker = await sql.reserve();
+    let locked = false;
+    let pending: Promise<Awaited<ReturnType<typeof reportPost>>[]> | undefined;
+    try {
+      await locker`BEGIN`;
+      locked = true;
+      // Allows report INSERT's FK key-share lock, but blocks its post UPDATE. Old code
+      // inserts/counts before waiting here; correct code serializes before both operations.
+      await locker`SELECT id FROM bb_posts WHERE id = 1 FOR NO KEY UPDATE`;
+      pending = Promise.all(inputs.map(reportPost));
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const [state] = await root`SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE application_name = ${schema} AND wait_event_type = 'Lock'`;
+        if (state.waiting >= 2) break;
+        assert.ok(Date.now() < deadline, "both real report transactions must be waiting on the post lock");
+        await delay(10);
+      }
+      assert.equal(Number((await sql`SELECT count(*) AS n FROM bb_post_reports WHERE post_id = 1`)[0].n), 0,
+        "waiting reporters must not insert or take a stale count before acquiring the post lock");
+      await locker`COMMIT`;
+      locked = false;
+      assert.ok((await pending).every((r) => r.ok));
+      const [post] = await sql`SELECT reports, hidden FROM bb_posts WHERE id = 1`;
+      assert.deepEqual(post, { reports: 2, hidden: false });
+    } finally {
+      if (locked) await locker`ROLLBACK`;
+      locker.release();
+      await pending?.catch(() => {});
+    }
+  });
+  await t.test("reports preserve manual moderation and reject invalid or replayed signatures", async () => {
+    await clear(1);
+    const signer = await reporter();
+    await sql`UPDATE bb_posts SET hidden = true, hidden_by = ${wallet} WHERE id = 1`;
+    const input = await reportPayload(signer);
+    const invalid = await reportPost({ ...input, signature: "0x1234" });
+    assert.equal(invalid.ok ? 200 : invalid.status, 401);
+    assert.equal(await nonceCount(), 0);
+    assert.deepEqual(await reportPost(input), { ok: true, hidden: true });
+    const replay = await reportPost(input);
+    assert.equal(replay.ok ? 200 : replay.status, 401);
+    const [post] = await sql`SELECT reports, hidden, hidden_by FROM bb_posts WHERE id = 1`;
+    assert.deepEqual(post, { reports: 1, hidden: true, hidden_by: wallet });
   });
 });

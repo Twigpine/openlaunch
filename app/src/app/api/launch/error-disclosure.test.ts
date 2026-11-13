@@ -19,7 +19,7 @@ const failures = [
 let metaPost: typeof import("./meta/route.ts").POST;
 let syncPost: typeof import("./sync/route.ts").POST;
 let healthGet: typeof import("../health/route.ts").GET;
-let configuredChains: typeof import("../../../lib/launchpad/config.ts").CONFIGURED_CHAINS;
+let pollAll: typeof import("../../../lib/launchpad/indexer.ts").pollAll;
 let lastError: string | null = null;
 let sequence = 0;
 const previousEnv = new Map<string, string | undefined>();
@@ -42,8 +42,8 @@ before(async () => {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
-  [{ POST: metaPost }, { POST: syncPost }, { GET: healthGet }, { CONFIGURED_CHAINS: configuredChains }] = await Promise.all([
-    import("./meta/route.ts"), import("./sync/route.ts"), import("../health/route.ts"), import("../../../lib/launchpad/config.ts"),
+  [{ POST: metaPost }, { POST: syncPost }, { GET: healthGet }, { pollAll }] = await Promise.all([
+    import("./meta/route.ts"), import("./sync/route.ts"), import("../health/route.ts"), import("../../../lib/launchpad/indexer.ts"),
   ]);
 });
 
@@ -100,9 +100,7 @@ for (const [kind, failure] of failures) {
   test(`sync polling hides ${kind} in per-chain results and health`, async (t) => {
     t.mock.method(console, "error", () => {});
     getMock().publicClient = { getBlockNumber: async () => { throw failure; } };
-    const response = await syncPost(request("sync"));
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { base: { status: "skipped", reason: "sync_failed" } });
+    assert.deepEqual(await pollAll(), { base: { status: "skipped", reason: "sync_failed" } });
     assert.ok(lastError, "the indexer still records a failure for health monitoring");
     const health = await healthGet();
     assert.equal(health.status, 200);
@@ -121,14 +119,20 @@ for (const [kind, failure] of failures) {
     assert.deepEqual(await response.json(), { error: "sync failed" });
   });
 
-  test(`sync route hides ${kind} if the overall poll rejects`, async (t) => {
-    Object.defineProperty(configuredChains, "map", { configurable: true, value: () => { throw failure; } });
-    t.after(() => { Reflect.deleteProperty(configuredChains, "map"); });
-    const response = await syncPost(request("sync"));
-    assert.equal(response.status, 502);
-    assert.deepEqual(await response.json(), { error: "sync failed" });
-  });
 }
+
+test("public sync refuses missing or empty transaction hashes without RPC or database work", async () => {
+  let calls = 0;
+  const unexpected = async () => { calls++; throw new Error("unexpected work"); };
+  getMock().publicClient = { getBlockNumber: unexpected, getTransactionReceipt: unexpected };
+  getMock().query = unexpected;
+  for (const path of ["sync", "sync?tx=", "sync?chain=base", "sync?tx=bad"]) {
+    const response = await syncPost(request(path));
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "bad tx" });
+  }
+  assert.equal(calls, 0);
+});
 
 test("receipt sync reports advisory contention as pending without exposing database diagnostics", async () => {
   const queries: string[] = [];
@@ -176,11 +180,9 @@ test("metadata retains validation and malformed JSON errors", async () => {
   assert.deepEqual(await malformed.json(), { error: "bad json" });
 });
 
-test("sync success still advances a range and returns its counters", async () => {
+test("background polling still advances a range and returns its counters", async () => {
   lastError = "previous failure";
-  const response = await syncPost(request("sync"));
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { base: {
+  assert.deepEqual(await pollAll(), { base: {
     status: "synced", from: "11", to: "10", head: "12", launches: 0, swaps: 0, fees: 0, boosts: 0, caught_up: true,
   } });
   assert.equal(lastError, null, "successful indexing clears the previous failure");
@@ -203,9 +205,7 @@ test("sync keeps validation and configuration skip reasons", async () => {
     assert.deepEqual(await response.json(), { error });
   }
   delete process.env.LAUNCH_DEPLOY_BLOCK;
-  const response = await syncPost(request("sync"));
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { base: { status: "skipped", reason: "deploy_block_unset" } });
+  assert.deepEqual(await pollAll(), { base: { status: "skipped", reason: "deploy_block_unset" } });
 });
 
 test("health hides previously stored diagnostics in both response representations", async (t) => {

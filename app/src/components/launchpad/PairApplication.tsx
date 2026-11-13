@@ -18,7 +18,7 @@ import { nowMs } from "@/lib/launchpad/time";
 import { nonce } from "@/lib/nonce";
 import { friendlyError } from "@/lib/errors";
 import { PAIR_FEE_CHAIN, pairPath } from "@/lib/launchpad/pairs";
-import { PAIR_APPLY_COPY, buildPairApplyMessage, pairApplicationOf, proofPostText, proofPostUrl, type PairApplyAction } from "@/lib/launchpad/pairApply";
+import { PAIR_APPLY_COPY, buildPairApplyMessage, buildPairQuoteMessage, pairApplicationOf, pairQuoteUntil, proofPostText, proofPostUrl, type PairApplyAction } from "@/lib/launchpad/pairApply";
 import { intentUrl } from "@/lib/profiles/xpost";
 import type { PairApplicationPublic } from "@/lib/launchpad/pairApplyServer";
 import PrecheckReport from "./PrecheckReport";
@@ -130,17 +130,22 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
   }
 
   async function getQuote() {
-    if (busy) return;
+    if (!address || !mine || busy || lock.current) return;
+    lock.current = true;
     setBusy("quote");
     setMsg(null);
     try {
-      const res = await fetch(`/api/pairs/application/${app.id}/quote`, { method: "POST" });
+      const intent = { id: app.id, wallet: address, nonce: nonce(), ts: nowMs() };
+      const wallet = await walletOnChain(config, BASE.id);
+      const signature = await wallet.signMessage({ message: buildPairQuoteMessage(intent) });
+      const res = await fetch(`/api/pairs/application/${app.id}/quote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...intent, signature }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       await reload();
     } catch (e) {
       setMsg({ ok: false, text: friendlyError(e) });
     } finally {
+      lock.current = false;
       setBusy(null);
     }
   }
@@ -192,6 +197,8 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
   const waiting = sent !== null && !indexed && app.status === "open";
   const short = q && bal.data !== undefined && (bal.data as bigint) < BigInt(q.amount);
   const due = Math.max(0, app.fee_usd - app.paid_usd);
+  const hasPayment = app.paid_usd > 0 || app.burns.some((b) => Date.parse(b.block_time) >= Date.parse(app.created_at));
+  const quoteWindowOpen = pairQuoteUntil(Date.parse(app.created_at), hasPayment, now) !== null;
   return (
     <div className="space-y-5">
       <div className={`${card} space-y-2 p-5 text-sm`}>
@@ -232,7 +239,9 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
           </div>
         ) : app.status === "open" ? (
           !open ? <p className={helper}>{PAIR_APPLY_COPY.disabled}</p> : !q ? (
-            <button type="button" onClick={() => void getQuote()} disabled={busy !== null} className={btn.primarySm}>{busy === "quote" ? "Pricing…" : `Get the amount for $${Math.ceil(due)}`}</button>
+            !quoteWindowOpen ? <p className={helper}>The unpaid payment window has ended. Check any payment already sent; otherwise this application closes after settlement.</p> : mine ? (
+              <div className="space-y-2"><button type="button" onClick={() => void getQuote()} disabled={busy !== null} className={btn.primarySm}>{busy === "quote" ? "Confirming quote…" : `Lock the amount for $${Math.ceil(due)}`}</button><p className={helper}>Sign to reserve the amount. This signature sends no funds; anyone can pay the locked quote.</p></div>
+            ) : <p className={helper}>{address ? "The applicant needs to lock a fee quote first. Anyone can then pay it." : "Connect the applicant wallet to lock a fee quote. Anyone can pay once it is available."}</p>
           ) : (
             <div className="space-y-2">
               <p className="text-sm text-ink">

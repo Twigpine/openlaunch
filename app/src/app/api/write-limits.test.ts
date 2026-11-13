@@ -24,7 +24,7 @@ function routeFiles(dir: URL): URL[] {
 
 for (
   const { file, bucket, mustPrecede } of [
-    { file: "./launch/sync/route.ts", bucket: "sync:ip", mustPrecede: "pollAll()" },
+    { file: "./launch/sync/route.ts", bucket: "sync:ip", mustPrecede: "applyLaunchTx(" },
     { file: "./launch/meta/route.ts", bucket: "meta:ip", mustPrecede: "readJson(req, 8_192)" },
     { file: "./presence/route.ts", bucket: "presence:ip", mustPrecede: "recordBeacon(" },
     { file: "./boost/seen/route.ts", bucket: "boost-seen:ip", mustPrecede: "readJson(" },
