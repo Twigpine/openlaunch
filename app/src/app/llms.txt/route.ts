@@ -116,6 +116,13 @@ checked hourly and suspended when its checks fail.
 - GET  ${SITE_URL}/api/pairs                                        (every pair: address, symbol, decimals, status, usd, price source)
 Pages: /pairs, /pair/<chain>/<address> (chain: ${PAIR_CHAINS.join(" or ")}). Launch with one against the factory exactly as with any ERC-20 quote (findSalt with the pair's address).
 ${pairApplySection()}
+## MCP (agents, read-only)
+A stateless Model Context Protocol server is at ${SITE_URL}/api/mcp (Streamable HTTP, JSON response; POST JSON-RPC 2.0).
+No key and no session. Tools: list_launches, get_launch, search_launches, get_token_trades, get_token_holders,
+get_recent_activity, list_posts, list_community_pairs, get_points_leaderboard, get_protocol_totals. No tool writes.
+Client config: {"mcpServers":{"openlaunch":{"type":"http","url":"${SITE_URL}/api/mcp"}}}
+Limits: 120 requests per IP per minute, 64 KB per request; browser origins are checked. Details: ${BRAND_GITHUB}/blob/main/docs/mcp.md
+
 ## API
 - GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc|elysium&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50
   sort=live (the home page default; "trending" is an alias): tokens an outside wallet traded in the last 24h first, ranked by outside

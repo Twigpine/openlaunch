@@ -16,6 +16,7 @@ export const metadata: Metadata = pageMetadata({ path: "/agents", title: "Agents
 const sections = [
   { id: "launch", icon: Rocket, label: "Launch a token" },
   { id: "read", icon: BookOpen, label: "Read the API" },
+  { id: "mcp", icon: Braces, label: "MCP for agents" },
   { id: "trade", icon: ArrowLeftRight, label: "Trade & collect" },
 ] as const;
 
@@ -104,6 +105,17 @@ export default function AgentsPage() {
             <div className={styles.dataNote}>
               <p>Raw token and quote amounts are decimal integer strings. Use <code>quote_decimals</code> for quote amounts, not a blanket <code>18</code> decimals. <code>price_quote</code> and <code>fdv_quote</code> are numbers in the token&apos;s quote asset; explicit <code>price_usd</code>, <code>fdv_usd</code> and <code>volume_usd</code> fields are USD values and may be <code>null</code> when pricing is unavailable.</p>
               <p>Poll modestly and back off on errors. Indexing and server-side caching mean responses are not a guarantee of the latest chain state, even when an HTTP response uses <code>no-store</code>.</p>
+            </div>
+          </section>
+
+          <section id="mcp" tabIndex={-1} className={`${shell.anchorSection} ${styles.section}`} aria-labelledby="agents-mcp-title">
+            <div className={styles.sectionHeading}><span className={styles.sectionIcon} aria-hidden="true"><Braces size={17} /></span><div><h2 id="agents-mcp-title">MCP for agents</h2><p>Tool calls over one POST. Read-only.</p></div></div>
+            <p className={styles.prose}>The site serves a stateless Model Context Protocol (MCP) endpoint at <code>{SITE_URL}/api/mcp</code>. An MCP client can list launches, read one launch, search, fetch trades and holders, read posts and pairs, see the points board, and read protocol totals. No key, no signup, no session, and no tool writes: the tools call the same read model as the JSON API.</p>
+            <AgentsCodeBlock title="MCP client configuration" language="JSON" code={`{\n  "mcpServers": {\n    "openlaunch": {\n      "type": "http",\n      "url": "${SITE_URL}/api/mcp"\n    }\n  }\n}`} />
+            <AgentsCodeBlock title="One tool call" language="HTTP reference" code={`POST ${SITE_URL}/api/mcp\nContent-Type: application/json\n\n{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_launches","arguments":{"chain":"base","limit":3}}}`} />
+            <div className={styles.dataNote}>
+              <p>Ten read-only tools: <code>list_launches</code>, <code>get_launch</code>, <code>search_launches</code>, <code>get_token_trades</code>, <code>get_token_holders</code>, <code>get_recent_activity</code>, <code>list_posts</code>, <code>list_community_pairs</code>, <code>get_points_leaderboard</code>, <code>get_protocol_totals</code>. <code>initialize</code>, <code>ping</code> and <code>tools/list</code> implement the protocol. Amounts and USD caveats are the same as the JSON API.</p>
+              <p>Limits: 120 requests per IP per minute, 64 KB per request, and browser origins are checked. Full reference: <a href={`${BRAND_GITHUB}/blob/main/docs/mcp.md`} target="_blank" rel="noreferrer">docs/mcp.md<ArrowUpRight size={13} aria-hidden="true" /></a>.</p>
             </div>
           </section>
 
