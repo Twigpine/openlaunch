@@ -50,11 +50,13 @@ version and commit.
 1. After each merge, release-please keeps one pull request titled `chore: release X.Y.Z` up to date: the version in
    `package.json` and `package-lock.json`, and the new `CHANGELOG.md` entry. Edit the notes there if needed; they are
    public: no hostnames, secrets, wallet keys or unfixed vulnerabilities.
-2. A maintainer approves its checks: GitHub holds the workflow runs of a pull request that release-please's token opens
-   or updates until someone with write access clicks **Approve workflows to run** on it. Then the maintainer approves the
-   pull request (pr-guard asks for an owner's approval), re-runs `pr-guard` (it reads approvals only when it runs, see
-   CONTRIBUTING.md), and merges once it passes. release-please tags the merge commit `vX.Y.Z` and publishes the GitHub
-   Release.
+2. A maintainer **closes and reopens** the release pull request, right away. For what release-please's token does,
+   GitHub creates no `pr-guard` run at all and holds the other checks for approval (seen on #150); a reopen by a
+   maintainer is their own event, so every check runs, `pr-guard` included. Before merging, check that the pull request
+   still carries its `autorelease: pending` label (release-please finds the merged release pull request by it; add it back
+   if it is missing). Then the maintainer approves the pull request (pr-guard asks for an owner's approval), re-runs
+   `pr-guard` (it reads approvals only when it runs, see CONTRIBUTING.md), and squash-merges it once it passes.
+   release-please tags the merge commit `vX.Y.Z` and publishes the GitHub Release.
 3. Deploy, by hand, from an up-to-date `main` (`git pull`), at the repository root: `app/scripts/deploy.sh --dry-run`,
    then `app/scripts/deploy.sh`, both through the maintainers' checker below. `deploy.sh` refuses anything but a clean
    `main` equal to `origin/main` whose tag is on GitHub and whose release is published; it takes the contract addresses
