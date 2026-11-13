@@ -1,0 +1,5 @@
+/target/
+/.tools/
+/.anchor/
+/test-ledger/
+*-keypair.json
