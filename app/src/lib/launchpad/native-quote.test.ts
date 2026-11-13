@@ -65,7 +65,8 @@ test("the SQL pricing tables carry the native stable and scope every arm by chai
   // the list query has no chain-agnostic "address(0) = ETH" arm: ETH's price goes to the chain-scoped "eth" quotes only
   const queries = readFileSync(path.join(process.cwd(), "src/lib/launchpad/queries.ts"), "utf8");
   assert.doesNotMatch(queries, /WHEN l\.quote = \$\{NATIVE_ADDR\} THEN/);
-  assert.match(queries, /const ethArms = quotesWithKey\("eth"\)\.map\(\(\{ chain, address \}\) => db`WHEN \(l\.chain_id = \$\{chainIdOf\(chain\)\} AND l\.quote = \$\{address\}\) THEN \$\{ethFactor\}/);
+  // (built per factor: the volume sorts' ETH fallback and the market cap's unknown price; see ethCaseFor)
+  assert.match(queries, /const ethArms = quotesWithKey\("eth"\)\.map\(\(\{ chain, address \}\) => db`WHEN \(l\.chain_id = \$\{chainIdOf\(chain\)\} AND l\.quote = \$\{address\}\) THEN \$\{factor\}/);
   // HYPE's price goes to the chain-scoped "hype" quotes only, the way ETH's goes to the "eth" ones
   assert.match(queries, /const hypeArms = quotesWithKey\("hype"\)\.map\(\(\{ chain, address \}\) => db`WHEN \(l\.chain_id = \$\{chainIdOf\(chain\)\} AND l\.quote = \$\{address\}\) THEN \$\{hypeFactor\}/);
 });
