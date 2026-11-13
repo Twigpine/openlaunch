@@ -1,3 +1,5 @@
+"use client";
+
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import { useEffect, useState } from "react";
