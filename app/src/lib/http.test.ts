@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clientIp, readFormData, readJson, readJsonValue, readTextLimited } from "./http.ts";
+import { concat, encodeAbiParameters, encodeFunctionData, parseAbi, type Hex } from "viem";
+import { SIGNED_BODY_MAX, clientIp, readFormData, readJson, readJsonValue, readTextLimited } from "./http.ts";
 
 function streamed(chunks: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
@@ -99,4 +100,39 @@ test("readTextLimited stops an oversized upstream response", async () => {
     }),
   );
   assert.deepEqual(await readTextLimited(broken, 10), { ok: false, tooLarge: false });
+});
+
+/**
+ * A Coinbase Smart Wallet passkey signature as the server receives it, built from the wallet's ABI layout: a WebAuthn
+ * assertion inside its SignatureWrapper, and for a wallet not deployed yet that again inside an ERC-6492 envelope with
+ * the factory call that would deploy it. The clientDataJSON carries the extra key Chrome adds.
+ */
+function smartWalletSignature(deployed: boolean): Hex {
+  const word = BigInt("0x" + "ab".repeat(32));
+  const clientDataJSON = `{"type":"webauthn.get","challenge":"${"A".repeat(43)}","origin":"https://keys.coinbase.com","crossOrigin":false,` +
+    `"other_keys_can_be_added_here":"do not compare clientDataJSON against a template. See the WebAuthn spec 7.2"}`;
+  const webauthn = encodeAbiParameters(
+    [{ type: "tuple", components: [{ type: "bytes" }, { type: "string" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }] }],
+    [[("0x" + "11".repeat(37)) as Hex, clientDataJSON, 23n, 1n, word, word]],
+  );
+  const wrapped = encodeAbiParameters([{ type: "tuple", components: [{ type: "uint256" }, { type: "bytes" }] }], [[0n, webauthn]]);
+  if (deployed) return wrapped;
+  const owner = encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [word, word]);
+  const deploy = encodeFunctionData({ abi: parseAbi(["function createAccount(bytes[] owners, uint256 nonce)"]), functionName: "createAccount", args: [[owner], 0n] });
+  const envelope = encodeAbiParameters([{ type: "address" }, { type: "bytes" }, { type: "bytes" }], ["0x0ba5ed0c6aa8c49038f819e587e2633c4a9f428a", deploy, wrapped]);
+  return concat([envelope, ("0x" + "6492".repeat(16)) as Hex]);
+}
+
+test("signed bodies from a smart wallet not deployed yet fit SIGNED_BODY_MAX", async () => {
+  const wallet = "0x" + "12".repeat(20);
+  const signature = smartWalletSignature(false);
+  assert.ok(signature.length > smartWalletSignature(true).length, "the ERC-6492 envelope is the larger case");
+  const report = JSON.stringify({ postId: 123456, wallet, reason: "other", nonce: "f".repeat(32), ts: Date.now(), signature });
+  // POST_MAX is 500 UTF-16 units: 250 emoji is the most bytes a post body can carry
+  const post = JSON.stringify({ chain: "base", token: wallet, wallet, parentId: 123456, body: "\u{1F600}".repeat(250), nonce: "f".repeat(32), ts: Date.now(), signature });
+  assert.ok(new TextEncoder().encode(report).byteLength > 2_048, "the report body this guards is over the 2 KB cap it replaced");
+  for (const body of [report, post]) {
+    assert.ok(new TextEncoder().encode(body).byteLength < SIGNED_BODY_MAX / 2, "with room to spare");
+    assert.notEqual(await readJson(new Request("http://x/", { method: "POST", body }), SIGNED_BODY_MAX), null);
+  }
 });

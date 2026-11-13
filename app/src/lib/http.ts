@@ -74,6 +74,14 @@ async function readBytes(req: Request, maxBytes: number): Promise<BytesResult> {
   return readStreamLimited(req.body, maxBytes);
 }
 
+/**
+ * The cap for a JSON body that carries a wallet signature. An EOA signs in 65 bytes, but the server also accepts smart
+ * wallets (ERC-1271, and ERC-6492 for one not deployed yet): a Coinbase Smart Wallet passkey signature runs to about
+ * 0.7 KB, and wrapped for a wallet that is not deployed yet to about 1.2 KB, which hex doubles. Its report body is then
+ * about 2.5 KB and its longest post about 3.6 KB, so this leaves room over both.
+ */
+export const SIGNED_BODY_MAX = 8_192;
+
 /** A JSON value (object, array or primitive), or undefined when the body is over the cap or not JSON. */
 export async function readJsonValue(req: Request, maxBytes = 8_192): Promise<unknown | undefined> {
   const r = await readBytes(req, maxBytes);

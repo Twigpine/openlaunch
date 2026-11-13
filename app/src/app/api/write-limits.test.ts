@@ -79,9 +79,9 @@ test("the JSON write routes cap the body before parsing it", () => {
     { file: "./launch/edit/route.ts", cap: "16_384" },
     { file: "./launch/edit/nonce/route.ts", cap: "2_048" },
     { file: "./launch/meta/route.ts", cap: "8_192" },
-    { file: "./posts/route.ts", cap: "4_096" },
-    { file: "./posts/mod/route.ts", cap: "2_048" },
-    { file: "./posts/report/route.ts", cap: "2_048" },
+    { file: "./posts/route.ts", cap: "SIGNED_BODY_MAX" },
+    { file: "./posts/mod/route.ts", cap: "SIGNED_BODY_MAX" },
+    { file: "./posts/report/route.ts", cap: "SIGNED_BODY_MAX" },
   ]) {
     const src = source(file);
     assert.doesNotMatch(src, /await req\.json\(\)/, `${file} must not buffer an unbounded JSON body`);

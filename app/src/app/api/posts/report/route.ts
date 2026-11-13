@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clientIp, readJson } from "@/lib/http";
+import { SIGNED_BODY_MAX, clientIp, readJson } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { reportPost } from "@/lib/launchpad/postsServer";
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const ip = clientIp(req);
   if (rateLimited(`report:ip:${ip}`, 20)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  const b = await readJson(req, 2_048);
+  const b = await readJson(req, SIGNED_BODY_MAX);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
   if (typeof b.wallet !== "string") return NextResponse.json({ error: "bad params" }, { status: 400 });
   if (rateLimited(`report:wallet:${b.wallet.toLowerCase()}`, 20)) return NextResponse.json({ error: "slow down" }, { status: 429 });

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { isChainKey } from "@/lib/chainPublic";
-import { clientIp, readJson } from "@/lib/http";
+import { SIGNED_BODY_MAX, clientIp, readJson } from "@/lib/http";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { createPost, listFeed, listTokenPosts } from "@/lib/launchpad/postsServer";
 import { memo } from "@/lib/launchpad/memo";
@@ -37,7 +37,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const ip = clientIp(req);
   if (rateLimited(`post:ip:${ip}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
-  const b = await readJson(req, 4_096);
+  const b = await readJson(req, SIGNED_BODY_MAX);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
   if (!isChainKey(b.chain) || typeof b.token !== "string" || typeof b.wallet !== "string") return NextResponse.json({ error: "bad params" }, { status: 400 });
   const r = await createPost({ chain: b.chain, token: b.token, wallet: b.wallet, parentId: b.parentId, body: b.body, nonce: b.nonce, ts: b.ts, signature: b.signature });
