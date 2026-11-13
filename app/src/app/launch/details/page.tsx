@@ -1,8 +1,5 @@
-"use client";
-
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
-import { useEffect, useState } from "react";
 
 export const metadata: Metadata = pageMetadata({
   path: "/launch/details",
@@ -27,34 +24,26 @@ type LaunchMetrics = {
   chain: string;
 };
 
-export default function LaunchDetailsPage() {
-  // Read chain and token from the URL path: /launch/details/<chain>/<token>
-  const pathname = window.location.pathname;
-  const parts = pathname.split("/").filter(Boolean);
-  const chain: string = parts[2] || "base";
-  const token: string = parts[3] || "0x".repeat(40);
+export default async function LaunchDetailsPage(
+  // Search params from the URL: /launch/details?chain=<chain>&token=<token>
+  // In the app router, these are passed as query parameters or route params.
+  // We'll use the search params approach for simplicity.
+  searchParams: { chain?: string; token?: string }
+) {
+  const chain: string = searchParams.chain || "base";
+  const token: string = searchParams.token || "0x".repeat(40);
 
-  const [data, setData] = useState<LaunchMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchMetrics() {
-      const res = await fetch(`/api/launch/metrics?chain=${chain}&token=${token}`);
-      if (!res.ok) {
-        setData(null);
-        setLoading(false);
-        return;
-      }
-      const json = await res.json() as LaunchMetrics;
-      setData(json);
-      setLoading(false);
-    }
-    fetchMetrics();
-  }, [chain, token]);
-
-  if (loading) return <p>Loading…</p>;
-  if (!data) return <p className="text-muted">Failed to load metrics.</p>;
-  if (!data) return <p>No data for this launch.</p>;
+  // Fetch metrics from the API
+  const res = await fetch(`/api/launch/metrics?chain=${chain}&token=${token}`);
+  if (!res.ok) {
+    // Return empty state on failure
+    return (
+      <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-10 pb-16 space-y-5 sm:space-y-6">
+        <p className="text-muted">Failed to load metrics.</p>
+      </main>
+    );
+  }
+  const data = (await res.json()) as LaunchMetrics;
 
   const fmt = (n: number | string | null) => (n == null ? "—" : Number(n).toLocaleString());
 
