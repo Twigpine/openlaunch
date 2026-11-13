@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { minOut } from "../../lib/launchpad/math.ts";
 import { NATIVE, isNativeQuote } from "../../lib/launchpad/config.ts";
+import { waitForTrackedReceipt } from "../../lib/launchpad/transaction-receipt.ts";
 
 const source = readFileSync(new URL("./LaunchForm.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("LaunchForm.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -27,8 +28,8 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
   assert.ok(receiptCheck >= 0, "Launch receipt status check must remain");
   assert.ok(buyCall >= 0, "Optional first buy call must remain");
   assert.ok(receiptCheck < buyCall, "The receipt status check must run before the first buy");
-  assert.match(source, /if \(buyHash\) await fetch\(`\/api\/launch\/sync\?chain=\$\{chain\}&tx=\$\{buyHash\}/);
-  assert.match(source, /Launched, but the first buy did not go through/);
+  assert.match(source, /if \(buyHash\) await syncTransaction\(chain, buyHash\)/);
+  assert.match(source, /Your launch was sent; the first buy needs attention/);
   assert.match(source, /buying: "Launched! Buying your first tokens…"/);
 });
 
@@ -80,7 +81,7 @@ for (const status of ["success", "reverted"]) {
     // Inert wallet/RPC dependencies: no connection, signature or network request.
     const firstBuy = runInNewContext(outputText, {
       TICK_SPACING: 200, zeroAddress: "zero", V4_QUOTER_ABI: [], UNIVERSAL_ROUTER_ABI: [], ERC20_TRANSFER_EVENT: {},
-      FIRST_BUY_SLIPPAGE_BPS: 300, BUILDER_DATA_SUFFIX: "0x", minOut, isNativeQuote,
+      FIRST_BUY_SLIPPAGE_BPS: 300, BUILDER_DATA_SUFFIX: "0x", minOut, isNativeQuote, waitForTrackedReceipt,
       encodeV4ExactInSingle: (input: { minOut: bigint }) => { encodedMinimum = input.minOut; return { commands: "0x10", inputs: [] }; },
       parseEventLogs: () => [
         { address: "token", args: { to: "wallet", value: 975n } },
@@ -95,11 +96,11 @@ for (const status of ["success", "reverted"]) {
           sentValue = input.value;
           return { request: {} };
         },
-        waitForTransactionReceipt: async () => ({ status, logs: [] }),
+        waitForTransactionReceipt: async () => ({ status, logs: [], transactionHash: "buy-hash" }),
       },
       wallet: { writeContract: async () => "buy-hash" }, address: "wallet",
       V4: { quoter: "quoter", universalRouter: "router", swapLayout: "v1" }, quote: { key: "eth", address: NATIVE },
-      feePips: 0, CHAIN: { id: 8453 }, setPhase: () => {},
+      feePips: 0, CHAIN: { id: 8453 }, setPhase: () => {}, recordBuy: () => {},
     }, "token", "launch-hash", 100n);
     if (status === "success") {
       const bought = await result;

@@ -4,7 +4,8 @@ import path from "node:path";
 import test from "node:test";
 
 // Source contracts for Boost (like earn-ui.test.ts): they hold the rules that keep a paid lane honest in place.
-const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+// Git may check these sources out with CRLF; the contracts below describe code, not checkout line endings.
+const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const dialog = read("./BoostDialog.tsx");
 const panel = read("./BoostPanel.tsx");
 const lane = read("./BoostedLane.tsx");
@@ -75,14 +76,14 @@ test("the send locks before its first await and simulates before the wallet is a
 test("sent means sent: an unread receipt locks the dialog instead of inviting a second burn", () => {
   const body = dialog.slice(dialog.indexOf("async function send()"), dialog.indexOf("async function settle("));
   // the hash is handed to the panel before the receipt wait, and a failed wait is "unconfirmed", never "error"
-  assert.ok(body.indexOf("onPending({ hash, whole })") < body.indexOf("waitForTransactionReceipt"));
-  assert.match(body, /catch \{\n\s*\/\/ sent, outcome unknown[^\n]*\n\s*setPhase\(\{ k: "unconfirmed", hash, whole, checking: false, note: null \}\);\n\s*return;/);
+  assert.ok(body.indexOf("onPending({ hash, whole })") < body.indexOf("waitForTrackedReceipt"));
+  assert.match(body, /catch \{\n\s*\/\/ sent, outcome unknown[^\n]*\n\s*setPhase\(\{ k: "unconfirmed", hash, whole, replaced, checking: false, note: null \}\);\n\s*return;/);
   assert.match(dialog, /const busy = phase\.k === "preparing" \|\| phase\.k === "signing" \|\| phase\.k === "sent" \|\| phase\.k === "unconfirmed";/);
   assert.match(dialog, /useState<Phase>\(pending \? \{ k: "unconfirmed", \.\.\.pending, checking: false, note: null \} : \{ k: "idle" \}\)/);
   // the panel owns the pending hash, so closing and reopening keeps the lock
   assert.match(panel, /pending=\{pending\} onPending=\{setPending\}/);
   // only a receipt settles it, and the sync call indexes it at once
-  assert.match(dialog, /await fetch\(`\/api\/launch\/sync\?chain=\$\{BOOST_CHAIN\}&tx=\$\{hash\}`, \{ method: "POST" \}\)/);
+  assert.match(dialog, /await syncTransaction\(BOOST_CHAIN, hash\)/);
 });
 
 test("the dialog says where the TWIG goes, that it is final, and that the ranking is untouched", () => {
@@ -186,7 +187,9 @@ test("the lane moves only when something happens, and reduced motion keeps only 
 
 test("CodeRabbit round 1: the done screen, admin errors and the agent formula", () => {
   // both ways a receipt can arrive settle with the same rule: never a hard-coded "it shows"
-  assert.equal((dialog.match(/await settle\(hash, whole, rc\.status === "success", showsAfter\(whole\)\);/g) ?? []).length, 2);
+  assert.equal((dialog.match(/await settleReceipt\(/g) ?? []).length, 2, "send and recheck share receipt settlement");
+  assert.match(dialog, /await settle\(hash, whole, rc\.status === "success", showsAfter\(whole\)\);/);
+  assert.match(dialog, /boostShowsNow\(entry, current, actual, inLane\)/, "replacement lane result uses actual receipt amount");
   assert.doesNotMatch(dialog, /settle\([^)]*, true\)/);
   assert.match(dialog, /const showsAfter = \(w: bigint\): boolean => !tagOk \|\| boostShowsNow\(entry, current, boostAmount\(w, tag\), inLane\);/);
   // an error page that is not JSON still reports the HTTP failure; a bad lane read never throws from the effect
@@ -261,7 +264,10 @@ test("a click counts only while the token is in the lane, at the server's place,
 test("views and clicks are read in boostServer.ts alone; the full table only for an admin wallet", () => {
   const users = walk(path.resolve(import.meta.dirname, "../..")).filter((f) => !f.endsWith(".test.ts") && /bb_boost_(clicks|views)/.test(readFileSync(f, "utf8")));
   assert.deepEqual(users.map((f) => path.basename(f)), ["boostServer.ts"]);
-  assert.ok(statsRoute.indexOf('if (!adminWallets().has(wallet)) return NextResponse.json({ error: "admin only" }, { status: 403 });') < statsRoute.indexOf("getBoostStats("));
+  const authorize = statsRoute.indexOf("await requireAdmin(req)");
+  const refusal = statsRoute.indexOf('if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });');
+  const readStats = statsRoute.indexOf("await getBoostStats(");
+  assert.ok(authorize >= 0 && refusal > authorize && readStats > refusal, "an admin session is required before reading stats");
   assert.match(statsRoute, /if \(!isBoostStatsDays\(days\)\) return NextResponse\.json\(\{ error: "bad days" \}, \{ status: 400 \}\);/);
   assert.match(admin, /\{address \? <LaneStats wallet=\{address\} \/> : null\}/);
 });
@@ -407,7 +413,7 @@ test("the token page shows what the lane brought: clicks in the same 24 hours, f
 
 test("after a confirmed boost the booster can share it on X: its own post, in a new tab", () => {
   const done = dialog.slice(dialog.indexOf('{phase.k === "done" ? ('), dialog.indexOf(") : ("));
-  assert.match(done, /<a href=\{boostShareUrl\(symbol, boostAmount\(phase\.whole, tag\), `\$\{SITE_URL\}\/t\/\$\{BOOST_CHAIN\}\/\$\{token\}`\)\} target="_blank" rel="noreferrer" className=\{btn\.secondarySm\}>Share on X/);
+  assert.match(done, /<a href=\{boostShareUrl\(symbol, phase\.raw \?\? boostAmount\(phase\.whole, tag\), `\$\{SITE_URL\}\/t\/\$\{BOOST_CHAIN\}\/\$\{token\}`\)\} target="_blank" rel="noreferrer" className=\{btn\.secondarySm\}>Share on X/);
   assert.equal((dialog.match(/boostShareUrl\(/g) ?? []).length, 1, "only on the done screen");
 });
 

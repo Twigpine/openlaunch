@@ -24,7 +24,7 @@ function routeFiles(dir: URL): URL[] {
 
 for (
   const { file, bucket, mustPrecede } of [
-    { file: "./launch/sync/route.ts", bucket: "sync:ip", mustPrecede: "pollAll()" },
+    { file: "./launch/sync/route.ts", bucket: "sync:ip", mustPrecede: "applyLaunchTx(" },
     { file: "./launch/meta/route.ts", bucket: "meta:ip", mustPrecede: "readJson(req, 8_192)" },
     { file: "./presence/route.ts", bucket: "presence:ip", mustPrecede: "recordBeacon(" },
     { file: "./boost/seen/route.ts", bucket: "boost-seen:ip", mustPrecede: "readJson(" },
@@ -105,10 +105,10 @@ test("the image upload caps chunked multipart bodies too", () => {
 
 test("sync never returns the raw viem message, which can carry the keyed RPC URL", () => {
   const src = source("./launch/sync/route.ts");
-  assert.match(src, /redactUrls\(/);
-  assert.match(src, /const safe = Object\.fromEntries\(/);
-  assert.match(src, /reason: redactUrls\(result\.reason\)/);
-  // the response copy must not mutate a shared single-flight poll result
-  assert.doesNotMatch(src, /r\.reason = redactUrls\(/);
+  // The canonical indexer returns fixed public reasons; caught route failures also use a fixed string.
+  assert.match(src, /error: "sync failed"/);
+  const indexer = source("../../lib/launchpad/indexer.ts");
+  assert.match(indexer, /reason: "sync_failed"/);
+  assert.doesNotMatch(src, /error: publicError\(/);
   assert.doesNotMatch(src, /error: err instanceof Error \? err\.message/);
 });

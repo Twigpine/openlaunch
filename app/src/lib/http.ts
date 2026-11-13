@@ -48,36 +48,49 @@ type BytesResult = { ok: true; bytes: Uint8Array } | { ok: false; tooLarge: bool
  * answers with its own message. Shared by request bodies and upstream responses so one fix covers both.
  */
 async function readStreamLimited(body: ReadableStream<Uint8Array>, maxBytes: number): Promise<BytesResult> {
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) return { ok: false, tooLarge: false };
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try { reader = body.getReader(); } catch { return { ok: false, tooLarge: false }; }
+  let bytes = new Uint8Array(0);
   let size = 0;
+  let complete = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel().catch(() => {});
-        return { ok: false, tooLarge: true };
+      if (!(value instanceof Uint8Array)) return { ok: false, tooLarge: false };
+      if (value.byteLength === 0) continue;
+      if (value.byteLength > maxBytes - size) return { ok: false, tooLarge: true };
+      // Copy each view now: retaining it could pin an arbitrarily large backing buffer,
+      // and an entry per tiny chunk would add memory beyond the byte budget.
+      if (size + value.byteLength > bytes.byteLength) {
+        const capacity = Math.min(maxBytes, Math.max(size + value.byteLength, 8_192, bytes.byteLength * 2));
+        const grown = new Uint8Array(capacity);
+        grown.set(bytes);
+        bytes = grown;
       }
-      chunks.push(value);
+      bytes.set(value, size);
+      size += value.byteLength;
     }
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const c of chunks) {
-      bytes.set(c, at);
-      at += c.byteLength;
-    }
-    return { ok: true, bytes };
+    complete = true;
+    return { ok: true, bytes: bytes.subarray(0, size) };
   } catch {
     return { ok: false, tooLarge: false };
+  } finally {
+    // Cancellation closes the stream immediately; an underlying cancel callback must not delay the rejection.
+    if (!complete) void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
 
 /** A request body in bytes. A declared length over the cap is refused before the stream is touched. */
 async function readBytes(req: Request, maxBytes: number): Promise<BytesResult> {
-  const declared = Number(req.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > maxBytes) return { ok: false, tooLarge: true };
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) return { ok: false, tooLarge: false };
+  const declared = req.headers.get("content-length")?.trim();
+  if (declared && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
+    void req.body?.cancel().catch(() => {});
+    return { ok: false, tooLarge: true };
+  }
   if (!req.body) return { ok: false, tooLarge: false };
   return readStreamLimited(req.body, maxBytes);
 }
@@ -136,12 +149,23 @@ export async function readFormData(req: Request, maxBytes: number): Promise<{ ok
 export type LimitedText = { ok: true; text: string } | { ok: false; tooLarge: boolean };
 
 export async function readTextLimited(res: Response, maxBytes: number): Promise<LimitedText> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) return { ok: false, tooLarge: false };
   const declared = Number(res.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > maxBytes) {
-    await res.body?.cancel().catch(() => {});
+    void res.body?.cancel().catch(() => {});
     return { ok: false, tooLarge: true };
   }
   if (!res.body) return { ok: true, text: "" };
   const r = await readStreamLimited(res.body, maxBytes);
   return r.ok ? { ok: true, text: new TextDecoder().decode(r.bytes) } : r;
+}
+
+/** Compatibility byte reader for existing callers; parsing uses the same bounded stream implementation. */
+export type BodyRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: "too_large" | "invalid" };
+export async function readBody(req: Request, maxBytes: number): Promise<BodyRead> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) return { ok: false, reason: "invalid" };
+  const r = await readBytes(req, maxBytes);
+  if (r.ok) return r;
+  if (!req.body && !r.tooLarge) return { ok: true, bytes: new Uint8Array(0) };
+  return { ok: false, reason: r.tooLarge ? "too_large" : "invalid" };
 }

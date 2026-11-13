@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const max = maxBytesFor(role);
   if (!isWalletParam(wallet)) return NextResponse.json({ error: "connect a wallet first" }, { status: 400 });
   if (!(file instanceof Blob)) return NextResponse.json({ error: "file required" }, { status: 400 });
-  if (rateLimited(`img:wallet:${wallet.toLowerCase()}`, IMAGE_UPLOADS_PER_HOUR, HOUR)) return NextResponse.json({ error: "upload limit reached, try later" }, { status: 429 });
+  // The unsigned wallet field is an image namespace, not an authenticated quota identity.
   if (file.size > max) return NextResponse.json({ error: `image must be ≤ ${max / 1024 / 1024} MB` }, { status: 413 });
 
   const bytes = new Uint8Array(await file.arrayBuffer());

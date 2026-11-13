@@ -39,7 +39,8 @@ export async function GET() {
         );
         chains = rows.flatMap((r) => {
           const chain = chainKeyOf(r.chain_id);
-          return chain && launchpad(chain).configured ? [{ chain, cursor_block: blockNumber(r.cursor_block), head_block: blockNumber(r.head_block), last_run_at: r.last_run_at, last_error: r.last_error }] : [];
+          // Stored diagnostics (including older rows) may contain credentials outside URLs.
+          return chain && launchpad(chain).configured ? [{ chain, cursor_block: blockNumber(r.cursor_block), head_block: blockNumber(r.head_block), last_run_at: r.last_run_at, last_error: r.last_error ? "sync_failed" : null }] : [];
         });
         // a configured chain with no cursor row has never been indexed (its deploy block is unset, or the loop is off): say so
         for (const k of CONFIGURED_CHAINS) if (!chains.some((c) => c.chain === k)) chains.push({ chain: k, cursor_block: null, head_block: null, last_run_at: null, last_error: `never indexed: the sync loop has not run for ${k} (LAUNCH_DEPLOY_BLOCK for ${k} unset, or LAUNCH_SYNC_LOOP off)` });

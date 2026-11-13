@@ -43,8 +43,12 @@ test("retry state is pruned, never cleared wholesale", () => {
   assert.match(indexer, /function noteAttributionTry\(key: string, n: number\): void/);
   assert.match(indexer, /setBounded\(healRestUntil,/);
   assert.match(indexer, /setBounded\(attributionTries,/);
-  assert.doesNotMatch(indexer, /healRestUntil\.clear\(\)/);
-  assert.doesNotMatch(indexer, /attributionTries\.clear\(\)/);
+  // Canonical reorg recovery deliberately clears stale retry state. Capacity pruning must not.
+  const rest = indexer.slice(indexer.indexOf("function restHeal("), indexer.indexOf("function noteAttributionTry("));
+  const note = indexer.slice(indexer.indexOf("function noteAttributionTry("), indexer.indexOf("export async function attributeBacklog("));
+  assert.doesNotMatch(rest, /healRestUntil\.clear\(\)/);
+  assert.doesNotMatch(note, /attributionTries\.clear\(\)/);
+  assert.match(indexer, /healTraderCursor\.clear\(\)/, "a reorg restarts the trader-heal keyset too");
 });
 
 test("the partial index serves the missing-trader page and order", () => {

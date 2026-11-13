@@ -78,11 +78,6 @@ export async function applySignedEdit(r: EditRequest): Promise<{ ok: true } | { 
     return { ok: false, error: "signature does not match", status: 401 };
   }
 
-  // wallet rate limit is applied AFTER the signature is verified, so an
-  // attacker cannot freeze a creator's edit budget by sending requests with
-  // the creator's public address (the wallet is proven before the bucket is spent)
-  if (rateLimited(`edit:wallet:${wallet}`, 10)) return { ok: false, error: "slow down", status: 429 };
-
   // nonce: exists, matches, unexpired, unused — consumed atomically, only
   // after the signature is proven, inside a transaction with the metadata
   // write so a failed INSERT rolls the nonce back
@@ -95,6 +90,11 @@ export async function applySignedEdit(r: EditRequest): Promise<{ ok: true } | { 
          AND expires_at = ${new Date(expiresAt).toISOString()}
        RETURNING nonce`;
     if (consumed.length === 0) return { ok: false as const, error: "nonce invalid or already used", status: 401 };
+    // A signature proves who signed it, not that this submission is fresh. Charge
+    // the wallet only after atomic nonce consumption so replays cannot spend its
+    // allowance. A valid over-quota attempt consumes its nonce; the UI requests a
+    // fresh nonce on retry, as it already does for every edit submission.
+    if (rateLimited(`edit:wallet:${wallet}`, 10)) return { ok: false as const, error: "slow down", status: 429 };
     await t`
       INSERT INTO bb_launch_meta (chain_id, token, launcher, name, symbol, description, image_url, banner_url, website, x_handle, updated_at)
       VALUES (${cid}, ${token}, ${wallet}, ${row[0].name}, ${row[0].symbol}, ${v.value.description || null}, ${v.value.image_url || null}, ${v.value.banner_url || null}, ${v.value.website || null}, ${v.value.x_handle || null}, now())

@@ -1,5 +1,2 @@
-/**
- * Compatibility shim: the request helpers now live in `@/lib/http` so launchpad/API routes do not import a profile
- * module. Existing profile imports keep working.
- */
-export { clientIp, readFormData, readJson, readJsonValue, readText, readTextLimited } from "@/lib/http";
+/** Compatibility exports: all API routes share one client-identity policy and bounded body reader. */
+export { clientIp, readBody, readFormData, readJson, readJsonValue, readText, readTextLimited, type BodyRead } from "@/lib/http";

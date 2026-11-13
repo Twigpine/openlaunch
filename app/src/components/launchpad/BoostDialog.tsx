@@ -1,10 +1,14 @@
 "use client";
 
+import { syncTransaction, INDEX_PENDING_COPY } from "@/lib/launchpad/sync-client";
+import { waitForTrackedReceipt } from "@/lib/launchpad/transaction-receipt";
+import { boostReceiptAmount } from "@/lib/launchpad/boost-receipt";
+
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
-import type { Hex } from "viem";
+import type { Hex, TransactionReceipt } from "viem";
 import { ArrowUpRight } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import ConnectWallet from "@/components/ConnectWallet";
@@ -12,7 +16,7 @@ import { btn } from "@/components/ui";
 import { Spinner } from "@/components/Skeleton";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_ABI } from "@/lib/launchpad/abi";
-import { DEAD } from "@/lib/launchpad/config";
+import { DEAD, launchpad } from "@/lib/launchpad/config";
 import { TWIG_WRAP_URL } from "@/lib/launchpad/twig";
 import { fmtUsd } from "@/lib/launchpad/math";
 import { friendlyError } from "@/lib/errors";
@@ -27,6 +31,7 @@ import {
   boostAmountProblem,
   boostConfirmLabel,
   boostShowsNow,
+  boostWholeOf,
   fmtBoostTwig,
   type LaneEntry,
   groupWhole,
@@ -39,15 +44,15 @@ import { toast } from "./TxToasts";
 import { TwigMark } from "./TwigBadge";
 
 /** A boost the wallet has sent whose outcome is not known yet; the panel keeps it while the dialog is closed. */
-export type PendingBoost = { hash: Hex; whole: bigint };
+export type PendingBoost = { hash: Hex; whole: bigint; replaced?: boolean };
 type Phase =
   | { k: "idle" }
   | { k: "preparing" }
   | { k: "signing" }
-  | { k: "sent"; hash: Hex; whole: bigint }
-  | { k: "unconfirmed"; hash: Hex; whole: bigint; checking: boolean; note: string | null }
-  | { k: "done"; hash: Hex; whole: bigint; shows: boolean }
-  | { k: "error"; message: string };
+  | ({ k: "sent" } & PendingBoost)
+  | ({ k: "unconfirmed"; checking: boolean; note: string | null } & PendingBoost)
+  | { k: "done"; hash: Hex; whole: bigint; shows: boolean; raw?: bigint }
+  | { k: "error"; message: string; hash?: Hex };
 
 const BASE = CHAINS[BOOST_CHAIN];
 
@@ -97,18 +102,32 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
       const wallet = await getWalletClient(config, { chainId: BASE.id });
       const { request } = await pub.simulateContract({ address: BOOST_TOKEN as `0x${string}`, abi: ERC20_TRANSFER_ABI, functionName: "transfer", args: [DEAD, raw], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
       setPhase({ k: "signing" });
-      const hash = await wallet.writeContract(request);
+      let hash = await wallet.writeContract(request);
       onPending({ hash, whole });
       setPhase({ k: "sent", hash, whole });
-      let rc;
+      let replaced = false;
+      let result;
       try {
-        rc = await pub.waitForTransactionReceipt({ hash });
+        result = await waitForTrackedReceipt(pub, hash, (replacement) => {
+          hash = replacement;
+          onPending({ hash, whole });
+          setPhase({ k: "sent", hash, whole });
+        }, (replacement) => {
+          hash = replacement;
+          replaced = true;
+          onPending({ hash, whole, replaced });
+          setPhase({ k: "sent", hash, whole, replaced });
+        });
       } catch {
         // sent, outcome unknown: never an error that would let the same TWIG be sent twice
-        setPhase({ k: "unconfirmed", hash, whole, checking: false, note: null });
+        setPhase({ k: "unconfirmed", hash, whole, replaced, checking: false, note: null });
         return;
       }
-      await settle(hash, whole, rc.status === "success", showsAfter(whole));
+      try {
+        await settleReceipt(result.receipt, { hash, whole, replaced });
+      } catch {
+        setPhase({ k: "unconfirmed", hash, whole, replaced, checking: false, note: "The transaction outcome could not be verified. Check it before sending again." });
+      }
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
     } finally {
@@ -117,29 +136,55 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
   }
 
   /** A final answer for a sent boost: indexed and done, or reverted (sending again is then safe). */
-  async function settle(hash: Hex, whole: bigint, ok: boolean, shows: boolean) {
-    onPending(null);
+  async function settle(hash: Hex, whole: bigint, ok: boolean, shows: boolean, raw?: bigint, replaced = false) {
     if (!ok) {
-      setPhase({ k: "error", message: "The transfer reverted on-chain. No TWIG was sent; you can try again." });
+      onPending(null);
+      setPhase({ k: "error", hash, message: "The transfer reverted on-chain. No TWIG was sent; you can try again." });
       return;
     }
     // index it now rather than at the next poll: the lane and this page show it straight away
-    await fetch(`/api/launch/sync?chain=${BOOST_CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
-    setPhase({ k: "done", hash, whole, shows });
+    const synced = await syncTransaction(BOOST_CHAIN, hash);
+    if (synced.status !== "applied") {
+      setPhase({ k: "unconfirmed", hash, whole, replaced, checking: false, note: INDEX_PENDING_COPY });
+      return;
+    }
+    onPending(null);
+    setPhase({ k: "done", hash, whole, shows, raw });
     toast({ kind: "info", title: `${symbol} is boosted`, sub: `${groupWhole(whole)} TWIG sent to 0x…dEaD`, chain: BOOST_CHAIN, token, symbol });
     void bal.refetch();
     onBoosted?.();
   }
 
+  /** A changed call can still burn TWIG: resolve its receipt, not the original requested amount. */
+  async function settleReceipt(rc: TransactionReceipt, attempt: PendingBoost) {
+    const { hash, whole, replaced = false } = attempt;
+    if (rc.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("Receipt hash mismatch");
+    if (rc.status !== "success" && rc.status !== "reverted") throw new Error("Receipt status unknown");
+    if (!replaced || rc.status === "reverted") {
+      await settle(hash, whole, rc.status === "success", showsAfter(whole));
+      return;
+    }
+    const actual = boostReceiptAmount(rc, tag, launchpad(BOOST_CHAIN).locker);
+    if (actual === null) {
+      onPending(null);
+      setPhase({ k: "error", hash, message: `The replacement confirmed without a qualifying TWIG boost for ${symbol}. Review its transaction before starting another boost.` });
+      void bal.refetch();
+      return;
+    }
+    const actualWhole = boostWholeOf(actual);
+    onPending({ hash, whole: actualWhole, replaced });
+    await settle(hash, actualWhole, true, boostShowsNow(entry, current, actual, inLane), actual, replaced);
+  }
+
   async function checkAgain() {
     if (phase.k !== "unconfirmed" || phase.checking) return;
-    const { hash, whole } = phase;
+    const { hash, whole, replaced } = phase;
     setPhase({ ...phase, checking: true, note: null });
     try {
       const rc = await getPublicClient(config, { chainId: BASE.id })!.getTransactionReceipt({ hash });
-      await settle(hash, whole, rc.status === "success", showsAfter(whole));
+      await settleReceipt(rc, { hash, whole, replaced });
     } catch {
-      setPhase({ k: "unconfirmed", hash, whole, checking: false, note: "Not confirmed yet. Check your wallet's activity before sending anything again." });
+      setPhase({ k: "unconfirmed", hash, whole, replaced, checking: false, note: "Not confirmed yet. Check your wallet's activity before sending anything again." });
     }
   }
 
@@ -148,11 +193,11 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
       {phase.k === "done" ? (
         <div className="space-y-4">
           <p className="text-sm text-ink">{place !== null ? `${name} is #${place} in the Boosted lane.` : phase.shows ? `${name} is in the Boosted lane.` : `${name} is not in the lane yet: the 5th place still holds more.`}</p>
-          <p className="text-xs leading-relaxed text-muted">{fmtBoostTwig(boostAmount(phase.whole, tag))} went to 0x…dEaD. It counts for the next 24 hours and adds up with any other boost on {symbol}; the lane shows the 5 largest totals.</p>
+          <p className="text-xs leading-relaxed text-muted">{fmtBoostTwig(phase.raw ?? boostAmount(phase.whole, tag))} went to 0x…dEaD. It counts for the next 24 hours and adds up with any other boost on {symbol}; the lane shows the 5 largest totals.</p>
           <div className="flex flex-wrap gap-2">
             <a href={explorerTx(BOOST_CHAIN, phase.hash)} target="_blank" rel="noreferrer" className={btn.secondarySm}>View transaction<ArrowUpRight size={13} aria-hidden="true" /></a>
             {/* the booster's own post: what was sent and where it went, the token's page as its link */}
-            <a href={boostShareUrl(symbol, boostAmount(phase.whole, tag), `${SITE_URL}/t/${BOOST_CHAIN}/${token}`)} target="_blank" rel="noreferrer" className={btn.secondarySm}>Share on X<ArrowUpRight size={13} aria-hidden="true" /></a>
+            <a href={boostShareUrl(symbol, phase.raw ?? boostAmount(phase.whole, tag), `${SITE_URL}/t/${BOOST_CHAIN}/${token}`)} target="_blank" rel="noreferrer" className={btn.secondarySm}>Share on X<ArrowUpRight size={13} aria-hidden="true" /></a>
             <Link href="/#boosted" onClick={onClose} className={btn.secondarySm}>See the lane</Link>
             <button type="button" onClick={onClose} className={btn.primarySm}>Done</button>
           </div>
@@ -232,7 +277,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
           {phase.k === "sent" ? <a href={explorerTx(BOOST_CHAIN, phase.hash)} target="_blank" rel="noreferrer" className="block text-center text-[11px] text-muted underline underline-offset-2 hover:text-ink">View the transaction ↗</a> : null}
           {phase.k === "unconfirmed" ? (
             <div role="status" className="space-y-2 rounded-xl border border-line bg-paper px-3 py-2.5 text-[11px] leading-relaxed text-body">
-              <p>Your wallet sent {groupWhole(phase.whole)} TWIG, but Base has not confirmed it to this page yet. Sending is locked until it does, so the same boost is never paid twice.</p>
+              <p>{phase.replaced ? "Your wallet replaced this transaction. Its burn amount and boost outcome must be checked." : `Your wallet sent ${groupWhole(phase.whole)} TWIG, but Base has not confirmed it to this page yet.`} Sending is locked until its outcome is resolved, so the same boost is never paid twice.</p>
               {phase.note ? <p className="text-warm-ink">{phase.note}</p> : null}
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" disabled={phase.checking} onClick={() => void checkAgain()} className={btn.secondarySm}>{phase.checking ? <><Spinner size={12} /> Checking…</> : "Check again"}</button>
@@ -240,7 +285,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
               </div>
             </div>
           ) : null}
-          {phase.k === "error" ? <p role="alert" className="text-pretty text-[11px] leading-relaxed text-down-ink">{phase.message}</p> : null}
+          {phase.k === "error" ? <div role="alert" className="space-y-2 text-pretty text-[11px] leading-relaxed text-down-ink"><p>{phase.message}</p>{phase.hash ? <a href={explorerTx(BOOST_CHAIN, phase.hash)} target="_blank" rel="noreferrer" className="underline">View the transaction ↗</a> : null}</div> : null}
         </div>
       )}
     </Sheet>

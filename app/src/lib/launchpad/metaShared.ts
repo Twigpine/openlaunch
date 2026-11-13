@@ -11,6 +11,7 @@
 import { isAddress, type Hex } from "viem";
 import { SITE_URL, isChainKey, type ChainKey, CHAIN_KEY_PATTERN } from "../chainPublic.ts";
 import { parseXHandle } from "./xHandle.ts";
+import { publicHttpsUrl } from "./public-url.ts";
 
 export type MetaInput = { chain: ChainKey; launcher: string; salt: Hex; meta_key: Hex; name: string; symbol: string; description?: string; image_url?: string; banner_url?: string; website?: string; x_handle?: string };
 export const LIMITS = { name: 32, symbol: 10, description: 280 } as const;
@@ -27,20 +28,9 @@ export function validateMeta(m: Partial<MetaInput> & { meta_key?: string }): { o
   const meta_key = (m.meta_key ?? m.salt) as Hex; // older clients: the salt doubles as the key
   if (!BYTES32.test(meta_key)) return { ok: false, error: "meta_key: bad bytes32" };
   const description = (m.description ?? "").trim().slice(0, LIMITS.description) || undefined;
-  const url = (v?: string) => {
-    const s = (v ?? "").trim();
-    if (!s) return undefined;
-    try {
-      const u = new URL(s);
-      if (u.protocol !== "https:") return null;
-      return u.toString().slice(0, 300);
-    } catch {
-      return null;
-    }
-  };
-  const image_url = url(m.image_url);
-  const banner_url = url(m.banner_url);
-  const website = url(m.website);
+  const image_url = publicHttpsUrl(m.image_url);
+  const banner_url = publicHttpsUrl(m.banner_url);
+  const website = publicHttpsUrl(m.website);
   if (image_url === null) return { ok: false, error: "image: https URL only" };
   if (banner_url === null) return { ok: false, error: "banner: https URL only" };
   if (website === null) return { ok: false, error: "website: https URL only" };

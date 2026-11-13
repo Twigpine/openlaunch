@@ -14,7 +14,7 @@ Next 16 app router, React 19, Tailwind 4, wagmi 3 + viem 2, Postgres (postgres.j
 - `/` list (new · active · volume · market cap) + live tape · `/launch` form · `/t/<token>` trade + fees
 - `/rules` how it works · `/agents` contract call + JSON · `/llms.txt`
 - `GET /api/launch/list?sort=&limit=` · `GET /api/launch/feed` · `GET /api/launch/meta/<token>`
-- `POST /api/launch/meta` (metadata before launching → `{uri, token}`) · `POST /api/launch/sync?tx=` · `GET /api/health`
+- `POST /api/launch/meta` (metadata before launching → `{uri, token}`) · `POST /api/launch/sync?tx=` (transaction hash required; full polling runs in the server loop) · `GET /api/health`
 
 ## How it hangs together
 - `src/lib/launchpad/` — `abi.ts` (factory / locker / PoolManager Swap / StateView / Quoter /
