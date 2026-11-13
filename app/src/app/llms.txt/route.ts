@@ -124,10 +124,11 @@ ${pairApplySection()}
   only be a sniper's). Rows carry traders_1h_ex / traders_24h_ex
   (those counts), last_outside_trade_at, live_tier (live|new|quiet, live sort only) and launcher_collapsed.
   sort=mcap: current fully diluted valuation (price × total supply) descending, using sqrt_price_x96 when available; unpriced rows last.
-  By default, launches whose starting AND current valuations are at least $10M need lifetime outside volume of at least 0.1% of
-  starting FDV and at least 3 outside wallets with $1 cumulative volume each. Outside excludes creator, unknown and launch-block+3
-  trades. Both dollar valuations use the current quote/USD price; volume/FDV is compared in quote units. Small launches need no trades.
-  Add mcap=all to include every valuation. Other sorts and search are unaffected. Responses carry mcap (filtered|all), mcap_policy=1,
+  Add mcap=filtered for the site's browsing filter: launches whose starting AND current valuations are at least $10M then need
+  lifetime outside volume of at least 0.1% of starting FDV and at least 3 outside wallets with $1 cumulative volume each. Outside
+  excludes creator, unknown and launch-block+3 trades. Both dollar valuations use the current quote/USD price; volume/FDV is compared
+  in quote units. Small launches need no trades. Without it (or with mcap=all) every valuation is listed, as before. Other sorts and
+  search are unaffected. Responses carry mcap (filtered|all), mcap_policy=1,
   and per-row mcap classification and supporting facts (outside stats are null when not assessed). This is a browsing filter, not verification.
 - GET  ${SITE_URL}/api/launch/feed
 - GET  ${SITE_URL}/api/launch/meta/<token>

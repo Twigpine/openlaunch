@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyMcap, MCAP_HIGH_USD, MCAP_SUPPORT_RATIO, parseMcapMode, type McapFacts } from "./mcap-policy.ts";
+import { API_MCAP_DEFAULT, classifyMcap, MCAP_HIGH_USD, MCAP_SUPPORT_RATIO, parseMcapMode, type McapFacts } from "./mcap-policy.ts";
 
 /** Start with an unsupported high valuation and override only the facts relevant to each policy boundary. */
 const facts = (overrides: Partial<McapFacts> = {}): McapFacts => ({ startFdvQuote: 20_000_000, fdvQuote: 20_000_000, quoteUsd: 1, outsideVolumeQuote: 0, outsideTraders: 0, ...overrides });
@@ -31,4 +31,14 @@ test("unknown or invalid prices cannot classify a launch as an outlier", () => {
 test("market-cap mode is allow-listed and defaults to filtered", () => {
   assert.equal(parseMcapMode("all"), "all");
   for (const raw of [undefined, null, "filtered", "ALL", "true", ["all"]]) assert.equal(parseMcapMode(raw), "filtered");
+});
+
+test("the site defaults to the filter; the API keeps its unfiltered order unless asked", () => {
+  for (const raw of [undefined, null, "", "ALL", "junk"]) assert.equal(parseMcapMode(raw), "filtered");
+  for (const raw of [undefined, null, "", "junk"]) assert.equal(parseMcapMode(raw, API_MCAP_DEFAULT), "all");
+  assert.equal(API_MCAP_DEFAULT, "all");
+  for (const fallback of ["filtered", "all"] as const) {
+    assert.equal(parseMcapMode("filtered", fallback), "filtered");
+    assert.equal(parseMcapMode("all", fallback), "all");
+  }
 });

@@ -58,6 +58,9 @@ const page = (opts: Parameters<typeof listLaunchesPage>[0] = {}) => listLaunches
 /** Extract names in result order to compare filtering and pagination against the same fixture identities. */
 const names = (p: Awaited<ReturnType<typeof page>>) => p.items.map((r) => r.name);
 try {
+  // refuse a database that already holds launches before changing anything in it
+  const [{ t }] = await sql`SELECT to_regclass('public.bb_launches')::text AS t`;
+  if (t !== null) assert.equal((await sql`SELECT count(*) AS n FROM bb_launches`)[0].n, 0n, "use an empty test database");
   const schema = await readFile(new URL("../db/schema.sql", import.meta.url), "utf8");
   await sql.begin((tx) => tx.unsafe(schema));
   assert.equal((await sql`SELECT count(*) AS n FROM bb_launches`)[0].n, 0n, "use an empty test database");
@@ -149,8 +152,8 @@ try {
   const defaultResponse = await GET(new Request("http://localhost/api/launch/list?sort=mcap&limit=200"));
   assert.equal(defaultResponse.status, 200);
   const defaultData = await defaultResponse.json();
-  assert.equal(defaultData.mcap, "filtered");
-  assert.deepEqual(defaultData.launches.map((r: { name: string }) => r.name), names(filtered));
+  assert.equal(defaultData.mcap, "all", "the API keeps its unfiltered order unless a caller asks for the filter");
+  assert.deepEqual(defaultData.launches.map((r: { name: string }) => r.name), names(all));
   for (const mode of ["filtered","all"] as const) {
     const response=await GET(new Request(`http://localhost/api/launch/list?sort=mcap&mcap=${mode}&limit=200`));
     assert.equal(response.status,200); const data=await response.json();

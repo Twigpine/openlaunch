@@ -336,7 +336,9 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const sort = opts.sort ?? "new";
   const win = opts.window ?? "all";
   const ethUsd = opts.ethUsd ?? null;
-  const ethFactor = ethUsd !== null && Number.isFinite(ethUsd) && ethUsd > 0 ? ethUsd : null;
+  // no ETH price → rank ETH pools in ETH units (still monotonic within the chain), as before: an ETH price outage must not drop
+  // every ETH launch, most of Base, to the bottom of the volume and market-cap sorts
+  const ethFactor = ethUsd !== null && Number.isFinite(ethUsd) && ethUsd > 0 ? ethUsd : 1;
   // stock quotes: per-address USD factors known this request (empty → treated like unknown = 0 weight in USD sorts)
   const stockEntries = [...prices.stocks.entries()].filter(([, v]) => v !== null && Number.isFinite(v) && v > 0) as [string, number][];
   const conds = [] as ReturnType<typeof db>[];

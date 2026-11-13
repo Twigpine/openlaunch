@@ -6,9 +6,14 @@ export const MCAP_MIN_WALLET_USD = 1;
 export const MCAP_POLICY_VERSION = 1;
 
 export type McapMode = "filtered" | "all";
-/** Accept only the explicit all-valuations opt-out; missing or unknown URL values keep filtering enabled. */
-export function parseMcapMode(raw: unknown): McapMode {
-  return raw === "all" ? "all" : "filtered";
+/**
+ * The public list/live API keeps its unfiltered market-cap order unless a caller asks for the filter (`mcap=filtered`), so
+ * existing API readers see no change. The site defaults to the filter and always sends its mode explicitly.
+ */
+export const API_MCAP_DEFAULT: McapMode = "all";
+/** Read `mcap=filtered|all`; a missing or unknown value takes `fallback` (the site's default: filtered). */
+export function parseMcapMode(raw: unknown, fallback: McapMode = "filtered"): McapMode {
+  return raw === "all" || raw === "filtered" ? raw : fallback;
 }
 
 export type McapFacts = {

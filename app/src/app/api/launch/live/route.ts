@@ -7,7 +7,7 @@ import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { memo } from "@/lib/launchpad/memo";
 import { listFeed } from "@/lib/launchpad/postsServer";
 import { FEED_POSTS_LIMIT, feedPostsKey } from "@/lib/launchpad/posts-paging";
-import { MCAP_POLICY_VERSION, parseMcapMode } from "@/lib/launchpad/mcap-policy";
+import { API_MCAP_DEFAULT, MCAP_POLICY_VERSION, parseMcapMode } from "@/lib/launchpad/mcap-policy";
 import { boostEnabled, boostLaneOrNull } from "@/lib/launchpad/boostServer";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const sort = parseSort(u.searchParams.get("sort"), null);
-  const mcap = parseMcapMode(u.searchParams.get("mcap"));
+  const mcap = parseMcapMode(u.searchParams.get("mcap"), API_MCAP_DEFAULT);
   const winRaw = u.searchParams.get("window");
   const window = winRaw && VOLUME_WINDOWS.includes(winRaw as VolumeWindow) ? (winRaw as VolumeWindow) : "all";
   const c = u.searchParams.get("chain");
