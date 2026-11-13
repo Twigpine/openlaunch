@@ -730,7 +730,14 @@ export async function pollLaunches(chain: ChainKey): Promise<LaunchSyncResult> {
 /** Chains whose heal and backfill pass is running in this process. */
 const healsRunning = new Map<ChainKey, Promise<void>>();
 
-/** Poll every configured chain (used by the loop and POST /api/launch/sync without a tx). */
+/**
+ * Poll every configured chain (used by the loop and POST /api/launch/sync without a tx).
+ *
+ * Overlapping callers share work per chain, not the pass as a whole: a chain whose run() is in flight is joined
+ * (pollLaunches), and a chain whose heal pass is running is skipped (healsRunning). A chain whose run has finished is
+ * polled again by the next caller, which reads only the blocks since, as every tick does. Sharing the whole pass
+ * instead would make each chain wait for the slowest one, and a stuck query on one chain would stop indexing on all.
+ */
 export async function pollAll(): Promise<Record<string, LaunchSyncResult>> {
   const out: Record<string, LaunchSyncResult> = {};
   await Promise.all(

@@ -24,7 +24,9 @@ test("each chain's heal pass runs once at a time, and a running one is skipped, 
   assert.match(indexer, /out\[c\] = await pollLaunches\(c\)/);
   assert.match(indexer, /await startUnlessRunning\(healsRunning, c, \(\) => healChain\(c\)\);/);
   assert.ok(indexer.indexOf("out[c] = await pollLaunches(c)") < indexer.indexOf("startUnlessRunning(healsRunning"), "the chain is polled before its heals");
-  // the whole pass is not single-flight: a stuck heal must not hold the next tick's run() behind it
+  // the poll itself is shared per chain: a caller joins a run() still in flight instead of starting a second one
+  assert.match(indexer, /export async function pollLaunches\(chain: ChainKey\): Promise<LaunchSyncResult> \{\n  const cur = inFlight\.get\(chain\);\n  if \(cur\) return cur;/);
+  // the whole pass is not single-flight: one slow chain or a stuck heal must not hold the other chains' next poll
   assert.doesNotMatch(indexer, /allInFlight/);
 });
 
