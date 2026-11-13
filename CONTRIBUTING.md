@@ -36,7 +36,8 @@ For contract changes, also run the live-fork suites locally (`FORK_TESTS=true fo
 `fix(api): bound request bodies` or `feat: show the version in the footer`. Pull requests are squash-merged with the
 title as the commit, and the release notes are written from those titles. Types: `feat` (a new feature: minor
 version), `fix` (a bug fix: patch), `security`, `perf`, `revert`, and `refactor`, `docs`, `test`, `build`, `ci`,
-`chore`, `style` (no release on their own). Add `!` after the type for a breaking change. The `pr-title` check says
+`chore`, `style` (no release on their own). For a breaking change, put `!` right before the colon, after the scope if there is one: `feat!: …` or
+`feat(api)!: …`. The `pr-title` check says
 what is wrong if the title does not fit.
 
 ## The pull request guard

@@ -50,17 +50,21 @@ version and commit.
 1. After each merge, release-please keeps one pull request titled `chore: release X.Y.Z` up to date: the version in
    `package.json` and `package-lock.json`, and the new `CHANGELOG.md` entry. Edit the notes there if needed; they are
    public: no hostnames, secrets, wallet keys or unfixed vulnerabilities.
-2. A maintainer starts its checks (GitHub does not start workflows for what release-please's token does: re-run the
-   checks on the pull request, or close and reopen it), approves it (pr-guard asks for an owner's approval) and merges
-   it. release-please then tags the merge commit `vX.Y.Z` and publishes the GitHub Release.
-3. Deploy, by hand, from an up-to-date `main` (`git pull`): `deploy.sh --dry-run`, then `deploy.sh`, through the
-   maintainers' checker below. `deploy.sh` refuses anything but a clean `main` equal to `origin/main` whose tag is on
-   GitHub and whose release is published; it takes the contract addresses from the hash-pinned deployment records and
-   checks that production reports the new version and commit. Then run `scripts/smoke.sh`.
+2. A maintainer approves its checks: GitHub holds the workflow runs of a pull request that release-please's token opens
+   or updates until someone with write access clicks **Approve workflows to run** on it. Then the maintainer approves the
+   pull request (pr-guard asks for an owner's approval), re-runs `pr-guard` (it reads approvals only when it runs, see
+   CONTRIBUTING.md), and merges once it passes. release-please tags the merge commit `vX.Y.Z` and publishes the GitHub
+   Release.
+3. Deploy, by hand, from an up-to-date `main` (`git pull`), at the repository root: `app/scripts/deploy.sh --dry-run`,
+   then `app/scripts/deploy.sh`, both through the maintainers' checker below. `deploy.sh` refuses anything but a clean
+   `main` equal to `origin/main` whose tag is on GitHub and whose release is published; it takes the contract addresses
+   from the hash-pinned deployment records and checks that production reports the new version and commit. Then run
+   `app/scripts/smoke.sh`.
 
 A bad release is fixed by a new patch release, never by moving or deleting a tag. If release-please is ever off, a
-release can still be made by hand: bump the version in a pull request, tag the merge commit, publish the release with
-its notes, then deploy as above.
+release can still be made by hand: in one pull request bump the version in `package.json` and `package-lock.json` and
+the `app` entry in `.release-please-manifest.json` to the same number (release-please counts from that manifest), tag
+the merge commit, publish the release with its notes, then deploy as above.
 
 The release tooling (`scripts/deploy.sh`, `smoke.sh`, `migrate.mjs` and `scripts/lib/`, the `Dockerfile`,
 `.dockerignore`, `fly.toml`, and `release-please-config.json` at the repository root) is blocked by pr-guard for

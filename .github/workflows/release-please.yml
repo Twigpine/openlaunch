@@ -8,8 +8,9 @@ name: release-please
 # It uses the job's own GITHUB_TOKEN: created for this run, gone when it ends, so there is no stored secret to protect.
 # Only this job gets write access: to push the release pull request's branch and publish the release (contents), to
 # open and update that pull request (pull requests), and to label it (issues). The token cannot push to main past the
-# branch rules. GitHub does not start other workflows for what this token does, so a maintainer starts the release pull
-# request's checks by hand before merging it (re-run them, or close and reopen the pull request).
+# branch rules. GitHub holds the workflow runs of a pull request this token opens or updates until someone with write
+# access clicks "Approve workflows to run" on it, so a maintainer approves the release pull request's checks before
+# merging it.
 # .github/scripts/workflows.test.mjs keeps this file to exactly that.
 
 on:
