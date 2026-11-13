@@ -7,5 +7,9 @@
 /app/package.json        @kevincodex1
 /app/package-lock.json   @kevincodex1
 /app/.npmrc              @kevincodex1
+/app/scripts/            @kevincodex1
+/app/Dockerfile          @kevincodex1
+/app/.dockerignore       @kevincodex1
+/app/fly.toml            @kevincodex1
 /SECURITY.md             @kevincodex1
 /LICENSE                 @kevincodex1
