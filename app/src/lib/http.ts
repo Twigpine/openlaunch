@@ -2,6 +2,11 @@
  * Request helpers shared by API routes. No `server-only` import: the pure parts are unit-tested with node --test.
  */
 
+/** Fly sets FLY_APP_NAME and FLY_MACHINE_ID in every Machine (docs.fly.io/machines/runtime-environment). */
+function onFly(): boolean {
+  return Boolean(process.env.FLY_APP_NAME?.trim() || process.env.FLY_MACHINE_ID?.trim());
+}
+
 /** How many proxies of our own a request passes before it reaches the app (TRUSTED_PROXY_HOPS). */
 function trustedProxyHops(): number {
   const n = Math.trunc(Number(process.env.TRUSTED_PROXY_HOPS ?? ""));
@@ -21,9 +26,12 @@ function trustedProxyHops(): number {
  * client-written entry. Counting hops above Fly still assumes the proxy in front is the only way in: a client that
  * reaches the app around it seeds the chain itself, which is a firewall's job, not this header's (the reverse parse
  * MDN prescribes). The cap keeps an absurd header from becoming an absurd map key.
+ *
+ * fly-client-ip is read only on a Fly Machine, where Fly Proxy sets it. Behind any other proxy a client could send the
+ * header itself and pick its own bucket, so off Fly it is ignored and the chain alone decides.
  */
 export function clientIp(req: Request): string {
-  const fly = req.headers.get("fly-client-ip")?.trim();
+  const fly = onFly() ? req.headers.get("fly-client-ip")?.trim() : undefined;
   const hops = trustedProxyHops();
   if (fly && hops === 1) return fly.slice(0, 128);
   const entries = (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim());

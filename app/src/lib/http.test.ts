@@ -13,7 +13,37 @@ function streamed(chunks: string[]): ReadableStream<Uint8Array> {
   });
 }
 
-test("clientIp prefers the Fly header, then the proxy-appended last XFF hop", () => {
+/** Run `fn` as on a Fly Machine (Fly sets FLY_APP_NAME), or off one, restoring the environment after. */
+function withFly<T>(on: boolean, fn: () => T): T {
+  const before = { app: process.env.FLY_APP_NAME, machine: process.env.FLY_MACHINE_ID };
+  if (on) process.env.FLY_APP_NAME = "openlaunch-test";
+  else delete process.env.FLY_APP_NAME;
+  delete process.env.FLY_MACHINE_ID;
+  try {
+    return fn();
+  } finally {
+    if (before.app === undefined) delete process.env.FLY_APP_NAME;
+    else process.env.FLY_APP_NAME = before.app;
+    if (before.machine === undefined) delete process.env.FLY_MACHINE_ID;
+    else process.env.FLY_MACHINE_ID = before.machine;
+  }
+}
+
+test("off Fly, a client-sent fly-client-ip never picks the bucket", () => {
+  withFly(false, () => {
+    const spoof = (fly: string) => clientIp(new Request("http://x/", { headers: { "fly-client-ip": fly, "x-forwarded-for": "1.1.1.1, 2.2.2.2" } }));
+    assert.equal(spoof("9.9.9.9"), "2.2.2.2", "the proxy-appended hop decides, not the header the client wrote");
+    assert.equal(spoof("8.8.8.8"), "2.2.2.2", "so rotating it buys no fresh bucket");
+    assert.equal(clientIp(new Request("http://x/", { headers: { "fly-client-ip": "9.9.9.9" } })), "0.0.0.0", "nor does it stand in for a missing chain");
+  });
+  withFly(true, () => {
+    process.env.FLY_MACHINE_ID = "e286";
+    delete process.env.FLY_APP_NAME;
+    assert.equal(clientIp(new Request("http://x/", { headers: { "fly-client-ip": "3.3.3.3" } })), "3.3.3.3", "FLY_MACHINE_ID alone marks a Fly Machine too");
+  });
+});
+
+test("clientIp prefers the Fly header, then the proxy-appended last XFF hop", () => withFly(true, () => {
   assert.equal(clientIp(new Request("http://x/")), "0.0.0.0");
   assert.equal(clientIp(new Request("http://x/", { headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" } })), "2.2.2.2");
   assert.equal(
@@ -22,9 +52,9 @@ test("clientIp prefers the Fly header, then the proxy-appended last XFF hop", ()
     "the edge header wins over both client-controlled hops",
   );
   assert.equal(clientIp(new Request("http://x/", { headers: { "x-forwarded-for": "9".repeat(200) } })).length, 128, "an absurd header never becomes an absurd map key");
-});
+}));
 
-test("clientIp counts trusted hops in from the right, past the entry Fly appends itself", () => {
+test("clientIp counts trusted hops in from the right, past the entry Fly appends itself", () => withFly(true, () => {
   const before = process.env.TRUSTED_PROXY_HOPS;
   const ip = (xff: string, fly?: string) =>
     clientIp(new Request("http://x/", { headers: { "x-forwarded-for": xff, ...(fly ? { "fly-client-ip": fly } : {}) } }));
@@ -43,7 +73,7 @@ test("clientIp counts trusted hops in from the right, past the entry Fly appends
     if (before === undefined) delete process.env.TRUSTED_PROXY_HOPS;
     else process.env.TRUSTED_PROXY_HOPS = before;
   }
-});
+}));
 
 test("readJson caps declared and streamed bodies before parsing", async () => {
   assert.deepEqual(await readJson(new Request("http://x/", { method: "POST", body: JSON.stringify({ a: 1 }) })), { a: 1 });

@@ -75,6 +75,16 @@ test("token buckets are pruned after a full refill, then oldest first", () => {
   assert.deepEqual([...map.keys()], ["middle"], "full refills go first, then the oldest live bucket");
 });
 
+test("a token bucket is full once its deficit refills, not a whole cap's worth", () => {
+  const map = new Map<string, { tokens: number; at: number; cap: number; refillPerSecond: number }>([
+    ["one-down", { tokens: 9, at: 100, cap: 10, refillPerSecond: 1 }], // full at 1_100
+    ["drained", { tokens: 0, at: 100, cap: 10, refillPerSecond: 1 }], // full at 10_100
+    ["frozen", { tokens: 9, at: 100, cap: 10, refillPerSecond: 0 }], // never refills
+  ]);
+  pruneTokenBuckets(map, 1_100, 10);
+  assert.deepEqual([...map.keys()], ["drained", "frozen"], "only the bucket that is already full carries no state");
+});
+
 test("the token map stays bounded under a burst of one-shot keys", () => {
   resetRateLimitsForTests();
   for (let i = 0; i < MAX_TOKEN_BUCKETS + 50; i++) takeToken(`burst-${i}`, 1, 0.001, 1_000);

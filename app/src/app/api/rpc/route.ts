@@ -43,6 +43,14 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 type Req = { id?: unknown; jsonrpc?: string; method?: string; params?: unknown };
 
+/** An upstream body over the cap, or one whose stream failed: a non-RPC 502, so viem retries with backoff. */
+function unreadable(tooLarge: boolean) {
+  return NextResponse.json(
+    { error: tooLarge ? "The network RPC returned too much data. Try again." : "The network RPC is temporarily unavailable. Try again." },
+    { status: 502, headers: { "cache-control": "no-store" } },
+  );
+}
+
 function safeJson(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -83,12 +91,7 @@ export async function POST(req: Request) {
     const payload = JSON.stringify(batch ? forward : forward[0]);
     const res = await fetch(upstream, { method: "POST", headers: { "content-type": "application/json" }, body: payload, signal: AbortSignal.timeout(15_000) });
     const read = await readTextLimited(res, MAX_RESPONSE_BYTES);
-    if (!read.ok) {
-      return NextResponse.json(
-        { error: read.tooLarge ? "The network RPC returned too much data. Try again." : "The network RPC is temporarily unavailable. Try again." },
-        { status: 502, headers: { "cache-control": "no-store" } },
-      );
-    }
+    if (!read.ok) return unreadable(read.tooLarge);
     let text = read.text;
     let status = res.status;
     // Base-native B20 tokens (Coinbase stocks) are precompiles the primary provider may not execute
@@ -96,11 +99,11 @@ export async function POST(req: Request) {
     if (c === "base" && status === 200 && text.includes("Opcode") && responseHasB20Error(safeJson(text))) {
       const alt = await fetch(b20RpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: payload, signal: AbortSignal.timeout(15_000) });
       if (alt.ok) {
+        // the primary's answer is a B20 error the wallet cannot use: an unreadable fallback is a retryable 502 too
         const altRead = await readTextLimited(alt, MAX_RESPONSE_BYTES);
-        if (altRead.ok) {
-          text = altRead.text;
-          status = alt.status;
-        }
+        if (!altRead.ok) return unreadable(altRead.tooLarge);
+        text = altRead.text;
+        status = alt.status;
       }
     }
     // Rate limiting and malformed bodies become 429/502 so viem retries with backoff

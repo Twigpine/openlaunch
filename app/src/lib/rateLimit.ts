@@ -64,7 +64,8 @@ export function takeToken(key: string, cap: number, refillPerSecond: number, now
 /** Fully refilled buckets carry no state and go first; then oldest. Exported for tests. */
 export function pruneTokenBuckets(map: Map<string, TokenBucket>, now: number, max: number): void {
   for (const [key, b] of map) {
-    const fullAfter = b.refillPerSecond > 0 ? (b.cap / b.refillPerSecond) * 1000 : Infinity;
+    // full once the tokens it is short of have refilled (a bucket one token down is full after one token's time)
+    const fullAfter = b.refillPerSecond > 0 ? (Math.max(0, b.cap - b.tokens) / b.refillPerSecond) * 1000 : Infinity;
     if (now - b.at >= fullAfter) map.delete(key);
   }
   while (map.size > max) {

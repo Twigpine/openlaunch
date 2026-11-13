@@ -186,6 +186,22 @@ test("Base B20 fallback still receives only allowed reads", async (t) => {
   assert.deepEqual((await response.json()).find((r: { id: number }) => r.id === 1), result(1, "0x42"));
 });
 
+test("an unreadable Base B20 fallback is a retryable 502, never the primary's B20 error", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    if (calls === 1) return Response.json([{ jsonrpc: "2.0", id: 1, error: { code: -32603, message: "EVM error OpcodeNotFound" } }]);
+    // the fallback node answers 200 and its body stream breaks
+    return new Response(new ReadableStream({ start(controller) { controller.error(new Error("reset")); } }), { status: 200 });
+  });
+  const response = await POST(request([call(1, "eth_call")]));
+  assert.equal(calls, 2);
+  assert.equal(response.status, 502);
+  const body = await response.json();
+  assert.equal(Array.isArray(body), false, "a non-RPC body, so viem takes its HTTP retry path");
+  assert.match(body.error, /temporarily unavailable/);
+});
+
 test("Arc routing uses its configured server upstream with the same read-only allowlist", async (t) => {
   const previous = process.env.ARC_RPC_URL;
   process.env.ARC_RPC_URL = "https://arc-rpc.example.test/private-test-key";
